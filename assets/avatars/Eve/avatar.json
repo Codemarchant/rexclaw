@@ -1,0 +1,40 @@
+{
+  "name": "Eve",
+  "sequence": 10,
+  "vrm": "eve_doctors_coat.vrm",
+  "outfits": [
+    {
+      "name": "Conference Fit",
+      "vrm": "eve_odoo_experience_outfit.vrm",
+      "description": "Tech-conference staff outfit — purple polo shirt with a white logo on the chest, branded purple baseball cap, sneakers, dark navy slim-fit jeans, and black gloves. The lore on the black gloves is she doesn't like touching people's hands at events."
+    },
+    {
+      "name": "Cozy Winter casual",
+      "vrm": "eve_winter_casual.vrm",
+      "description": "Oversized pastel blue hoodie with a snowflake pattern and a small cartoon cat/hamster graphic on the chest. Sheer pale blue snowflake-patterned thigh high socks and matching light blue sneakers."
+    },
+    {
+      "name": "Spacesuit",
+      "vrm": "eve_spacesuit.vrm",
+      "description": "Sci-fi spacesuit — white and grey cropped utility jacket with black panels and a circular emblem on the chest, worn over a fitted grey mini-dress. Black harness belt across the waist with a small utility pouch on the right hip, plus buckled straps around the right thigh. Mint-green high collar and matching gloves, black leggings, and chunky white space boots."
+    },
+    {
+      "name": "Gothic witch ensemble",
+      "vrm": "eve_red_wizard_dress.vrm",
+      "description": "Halloween themed outfit, wide-brimmed pointed black witch hat. Crimson red quilted bodice with pearl accents, cinched at the waist by a wide black belt with gold buckle. Layered skirt with a draped red overskirt opening over a black underskirt. Long black opera gloves, black tights, and black Mary Jane shoes."
+    }
+  ],
+  "gestures": [],
+  "backgrounds": [
+    {
+      "name": "Charcoal",
+      "type": "static",
+      "preset": "vignette_charcoal"
+    },
+    {
+      "name": "Grid Playground",
+      "type": "scene",
+      "glb": "/assets/glb/grid_playground.glb"
+    }
+  ]
+}

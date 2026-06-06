@@ -1,0 +1,19 @@
+{
+  "name": "Rex",
+  "sequence": 30,
+  "vrm": "CaptainLobster.vrm",
+  "outfits": [],
+  "gestures": [],
+  "backgrounds": [
+    {
+      "name": "Charcoal",
+      "type": "static",
+      "preset": "vignette_charcoal"
+    },
+    {
+      "name": "Grid Playground",
+      "type": "scene",
+      "glb": "/assets/glb/grid_playground.glb"
+    }
+  ]
+}

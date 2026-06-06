@@ -1,0 +1,258 @@
+// App shell + the small subset of Bootstrap utilities the ported templates
+// and SCSS rely on (the Odoo web client bundled Bootstrap; here we define
+// just what's used).
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    color: #1f2937;
+    background: #0f172a;
+}
+
+.rx_app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.rx_tabbar {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: #0b1220;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0 0.75rem;
+    height: 44px;
+    flex: 0 0 auto;
+
+    .rx_brand {
+        color: #e2e8f0;
+        font-weight: 700;
+        margin-right: 1rem;
+        letter-spacing: 0.02em;
+        i { color: #f87171; margin-right: 0.35rem; }
+    }
+
+    .rx_tab {
+        background: transparent;
+        border: 0;
+        color: rgba(226, 232, 240, 0.7);
+        padding: 0.55rem 0.9rem;
+        cursor: pointer;
+        border-radius: 0.5rem 0.5rem 0 0;
+        font-size: 0.9rem;
+
+        i { margin-right: 0.35rem; }
+
+        &:hover { color: white; }
+        &.is-active {
+            color: white;
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 -2px 0 #2563eb;
+        }
+    }
+}
+
+.rx_main {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.rx_view {
+    height: 100%;
+}
+
+// ---- Toasts ---------------------------------------------------------------
+
+.rx_toasts {
+    position: fixed;
+    top: 56px;
+    right: 1rem;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 26rem;
+}
+
+.rx_toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.65rem 0.9rem;
+    border-radius: 0.5rem;
+    color: white;
+    background: #334155;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+    font-size: 0.875rem;
+
+    &--info { background: #1d4ed8; }
+    &--warning { background: #b45309; }
+    &--danger { background: #b91c1c; }
+
+    button {
+        background: transparent;
+        border: 0;
+        color: rgba(255, 255, 255, 0.8);
+        cursor: pointer;
+        padding: 0;
+        margin-left: auto;
+        &:hover { color: white; }
+    }
+}
+
+// ---- Settings page ----------------------------------------------------------
+
+.rx_settings {
+    height: 100%;
+    overflow: auto;
+    background: #f1f5f9;
+    color: #111827;
+    padding: 1.5rem;
+
+    .rx_settings_inner {
+        max-width: 880px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+
+    section {
+        background: white;
+        border-radius: 0.75rem;
+        padding: 1.25rem 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+
+        h3 {
+            margin: 0 0 0.85rem;
+            font-size: 1rem;
+        }
+    }
+
+    label {
+        display: block;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #475569;
+        margin: 0.6rem 0 0.2rem;
+    }
+
+    input[type="text"], input[type="password"], input[type="number"], select, textarea {
+        width: 100%;
+        padding: 0.45rem 0.6rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.45rem;
+        font-size: 0.875rem;
+        background: white;
+        &:focus { outline: 2px solid #93c5fd; border-color: #60a5fa; }
+    }
+
+    textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .rx_row {
+        display: flex;
+        gap: 1rem;
+        > div { flex: 1; min-width: 0; }
+    }
+
+    .rx_check {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.6rem;
+        font-size: 0.875rem;
+        label { margin: 0; font-weight: 500; }
+        input { width: auto; }
+    }
+
+    .rx_memory_row {
+        display: flex;
+        align-items: baseline;
+        gap: 0.6rem;
+        padding: 0.45rem 0;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: 0.875rem;
+
+        .rx_memory_scope {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            background: #e0e7ff;
+            color: #3730a3;
+            border-radius: 0.3rem;
+            padding: 0.1rem 0.4rem;
+            flex: 0 0 auto;
+        }
+        .rx_memory_content { flex: 1 1 auto; }
+        .rx_memory_meta { color: #94a3b8; font-size: 0.75rem; flex: 0 0 auto; }
+    }
+
+    .rx_agent_editor {
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+        padding: 0.85rem 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .rx_flags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem 1.25rem;
+    }
+}
+
+// ---- Bootstrap-equivalent utilities -----------------------------------------
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid transparent;
+    border-radius: 0.45rem;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    background: #e2e8f0;
+    color: #111827;
+    line-height: 1.3;
+
+    &:hover { filter: brightness(0.95); }
+    &:disabled { opacity: 0.55; cursor: not-allowed; }
+}
+
+.btn-sm { padding: 0.25rem 0.55rem; font-size: 0.8rem; }
+.btn-lg { padding: 0.6rem 1.15rem; font-size: 1rem; }
+
+.btn-primary { background: #2563eb; color: white; &:hover { background: #1d4ed8; filter: none; } }
+.btn-secondary { background: #475569; color: white; &:hover { background: #334155; filter: none; } }
+.btn-danger { background: #dc2626; color: white; &:hover { background: #b91c1c; filter: none; } }
+.btn-warning { background: #f59e0b; color: #111827; &:hover { background: #d97706; filter: none; } }
+.btn-light { background: rgba(255, 255, 255, 0.9); color: #111827; }
+.btn-link {
+    background: transparent;
+    color: #2563eb;
+    border: 0;
+    text-decoration: underline;
+    &:hover { color: #1d4ed8; filter: none; }
+}
+.btn-outline-light {
+    background: transparent;
+    color: rgba(255, 255, 255, 0.9);
+    border-color: rgba(255, 255, 255, 0.4);
+    &:hover { background: rgba(255, 255, 255, 0.1); filter: none; }
+}
+
+.text-muted { color: #64748b; }
+.small { font-size: 0.8rem; }
+.p-0 { padding: 0; }
+.p-3 { padding: 1rem; }
+.ms-1 { margin-left: 0.25rem; }
+.float-end { float: right; }
