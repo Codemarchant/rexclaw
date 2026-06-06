@@ -1,0 +1,28 @@
+# Line-ending policy. Overrides any user's core.autocrlf so checkouts are
+# identical everywhere — critical for run.sh, whose bash shebang breaks with
+# CRLF ("/usr/bin/env: 'bash\r': No such file or directory").
+* text=auto
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.scss text eol=lf
+*.css  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+*.html text eol=lf
+
+# Windows batch files want CRLF.
+*.bat  text eol=crlf
+
+# Never let git touch binary content.
+*.vrm  binary
+*.vrma binary
+*.glb  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.ico  binary
