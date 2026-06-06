@@ -164,8 +164,6 @@ FastAPI ── SQLite + local files             (data/rexclaw.sqlite3, data/file
 
 ## 📋 Notes
 
-- three.js / three-vrm load from esm.sh at runtime — the first avatar load
-  needs network access.
 - The server binds 127.0.0.1 and has no auth — don't expose it to a network
   as-is.
 - Animation credits: bundled VRMA clips include pixiv Inc.'s VRoid Project

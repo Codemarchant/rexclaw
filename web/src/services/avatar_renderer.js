@@ -16,35 +16,29 @@
  * - Floating animations: use position.y = baseY + sin(t) — never +=.
  */
 
-const THREE_URL = "https://esm.sh/three@0.180.0";
-const VRM_URL = "https://esm.sh/@pixiv/three-vrm@3.5.3?deps=three@0.180.0";
-const VRMA_URL = "https://esm.sh/@pixiv/three-vrm-animation@3.5.3?deps=three@0.180.0";
-const GLTF_LOADER_URL = "https://esm.sh/three@0.180.0/examples/jsm/loaders/GLTFLoader.js";
-const ORBIT_CONTROLS_URL = "https://esm.sh/three@0.180.0/examples/jsm/controls/OrbitControls.js";
+// three.js + VRM libs are bundled by Vite (npm deps) — previously they were
+// fetched at runtime from esm.sh, which broke the avatar in browsers that
+// block third-party scripts (Brave shields, strict tracking protection).
+// Bundling also makes the avatar work fully offline.
+import * as THREE_NS from "three";
+import { VRMLoaderPlugin, VRMUtils, VRMExpressionPresetName } from "@pixiv/three-vrm";
+import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from "@pixiv/three-vrm-animation";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
-let libsPromise = null;
+// Kept async + memoized so the renderer code below stays identical to the
+// CDN-loading version it was ported from.
 async function loadLibs() {
-    if (libsPromise) return libsPromise;
-    libsPromise = (async () => {
-        const [THREE, VRM, VRMA, GLTFLoaderModule, OrbitControlsModule] = await Promise.all([
-            import(THREE_URL),
-            import(VRM_URL),
-            import(VRMA_URL),
-            import(GLTF_LOADER_URL),
-            import(ORBIT_CONTROLS_URL),
-        ]);
-        return {
-            THREE,
-            VRMLoaderPlugin: VRM.VRMLoaderPlugin,
-            VRMUtils: VRM.VRMUtils,
-            VRMExpressionPresetName: VRM.VRMExpressionPresetName,
-            VRMAnimationLoaderPlugin: VRMA.VRMAnimationLoaderPlugin,
-            createVRMAnimationClip: VRMA.createVRMAnimationClip,
-            GLTFLoader: GLTFLoaderModule.GLTFLoader,
-            OrbitControls: OrbitControlsModule.OrbitControls,
-        };
-    })();
-    return libsPromise;
+    return {
+        THREE: THREE_NS,
+        VRMLoaderPlugin,
+        VRMUtils,
+        VRMExpressionPresetName,
+        VRMAnimationLoaderPlugin,
+        createVRMAnimationClip,
+        GLTFLoader,
+        OrbitControls,
+    };
 }
 
 // Camera framing — auto-fit to the loaded VRM's actual world-space bounding
