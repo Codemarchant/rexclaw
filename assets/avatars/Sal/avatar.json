@@ -1,0 +1,19 @@
+{
+  "name": "Sal",
+  "sequence": 40,
+  "vrm": "Froggy.vrm",
+  "outfits": [],
+  "gestures": [],
+  "backgrounds": [
+    {
+      "name": "Charcoal",
+      "type": "static",
+      "preset": "vignette_charcoal"
+    },
+    {
+      "name": "Grid Playground",
+      "type": "scene",
+      "glb": "/assets/glb/grid_playground.glb"
+    }
+  ]
+}

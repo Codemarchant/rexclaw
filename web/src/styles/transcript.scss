@@ -1,0 +1,420 @@
+.o_voice_transcript {
+    overflow-y: auto;
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+
+    .o_voice_transcript_empty {
+        color: var(--o-text-muted, #94a3b8);
+        text-align: center;
+        margin-top: 2rem;
+        font-size: 0.85rem;
+    }
+
+    .o_voice_transcript_truncated {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        color: var(--o-text-muted, #94a3b8);
+        font-size: 0.7rem;
+        font-style: italic;
+        padding: 0.25rem 0.5rem;
+        opacity: 0.7;
+        cursor: default;
+        user-select: none;
+
+        .fa {
+            font-size: 0.65rem;
+        }
+    }
+
+    .o_voice_msg {
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.75rem;
+        font-size: 0.85rem;
+        line-height: 1.35;
+        max-width: 85%;
+
+        .o_voice_msg_role {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            opacity: 0.6;
+            margin-bottom: 0.15rem;
+        }
+
+        &--user {
+            background: #2563eb;
+            color: white;
+            align-self: flex-end;
+        }
+
+        &--assistant {
+            background: #f1f5f9;
+            color: #0f172a;
+            align-self: flex-start;
+        }
+
+        &--tool {
+            // Compact pill — collapsed shows just the tool name; expanded
+            // reveals args + result panels. Mirrors how Claude/ChatGPT
+            // surface tool invocations: information-dense interactions
+            // shouldn't dominate the transcript by default.
+            background: transparent;
+            color: var(--o-text-muted, #475569);
+            padding: 0;
+            align-self: stretch;
+            font-size: 0.78rem;
+            max-width: 100%;
+
+            .o_voice_tool_header {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.4rem;
+                padding: 0.25rem 0.6rem;
+                border: 1px solid #e2e8f0;
+                border-radius: 999px;
+                background: #f8fafc;
+                color: #334155;
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                font-size: 0.75rem;
+                cursor: pointer;
+                transition: background 0.12s ease, border-color 0.12s ease;
+
+                &:hover {
+                    background: #f1f5f9;
+                    border-color: #cbd5e1;
+                }
+
+                .fa-caret-right, .fa-caret-down {
+                    width: 0.6rem;
+                    color: #64748b;
+                }
+
+                .o_voice_tool_icon {
+                    color: #94a3b8;
+                    font-size: 0.7rem;
+                }
+
+                .o_voice_tool_name {
+                    font-weight: 500;
+                }
+
+                .o_voice_tool_pending {
+                    color: #94a3b8;
+                    margin-left: 0.15rem;
+                }
+            }
+
+            .o_voice_tool_details {
+                margin-top: 0.35rem;
+                padding: 0.5rem 0.6rem;
+                border: 1px solid #e2e8f0;
+                border-radius: 0.5rem;
+                background: #f8fafc;
+                display: flex;
+                flex-direction: column;
+                gap: 0.4rem;
+            }
+
+            .o_voice_tool_section_label {
+                font-size: 0.65rem;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: #64748b;
+                font-weight: 600;
+            }
+
+            .o_voice_tool_section {
+                margin: 0;
+                padding: 0.4rem 0.55rem;
+                background: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 0.35rem;
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                font-size: 0.72rem;
+                line-height: 1.4;
+                color: #0f172a;
+                white-space: pre-wrap;
+                word-break: break-word;
+                max-height: 18rem;
+                overflow: auto;
+            }
+
+            &.is-pending .o_voice_tool_header {
+                border-style: dashed;
+            }
+
+            // Inline thumbnail for Grok-Imagine results — sits between the
+            // header and the (collapsed) details accordion so the image is
+            // visible without expanding the tool row.
+            .o_voice_tool_image {
+                display: inline-flex;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.25rem;
+                margin: 0.45rem 0 0.1rem;
+                padding: 0.35rem;
+                border: 1px solid #e2e8f0;
+                border-radius: 0.5rem;
+                background: #ffffff;
+                text-decoration: none;
+                color: #0f172a;
+                max-width: 220px;
+
+                img {
+                    width: 100%;
+                    max-width: 200px;
+                    aspect-ratio: 16 / 9;
+                    object-fit: cover;
+                    border-radius: 0.35rem;
+                    display: block;
+                }
+                .o_voice_tool_image_label {
+                    font-size: 0.72rem;
+                    color: #334155;
+                    line-height: 1.2;
+                    word-break: break-word;
+                }
+                &:hover { border-color: #94a3b8; }
+            }
+        }
+
+        &--tool-result {
+            // Reachable only as a fallback when an orphan tool_result
+            // bypasses the accordion pairing in displayRows. Same chip
+            // styling as tool calls so it still reads as a system event.
+            background: #f8fafc;
+            color: #475569;
+            border: 1px solid #e2e8f0;
+            font-size: 0.75rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            align-self: stretch;
+        }
+
+        &--system {
+            background: #ede9fe;
+            color: #4c1d95;
+            font-style: italic;
+            font-size: 0.78rem;
+            align-self: stretch;
+        }
+
+        &--summary {
+            // Compaction rollup pill — collapsed shows just the
+            // "Older context summarized" header so it reads as a
+            // structural marker (this is where context was compressed),
+            // expanded reveals the full rollup text. Pattern mirrors
+            // the tool-call accordion above for visual consistency.
+            background: transparent;
+            color: var(--o-text-muted, #475569);
+            padding: 0;
+            align-self: center;
+            max-width: 100%;
+            font-size: 0.78rem;
+
+            .o_voice_summary_header {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.4rem;
+                padding: 0.25rem 0.7rem;
+                border: 1px solid #ddd6fe;
+                border-radius: 999px;
+                background: #f5f3ff;
+                color: #5b21b6;
+                font-size: 0.75rem;
+                cursor: pointer;
+                user-select: none;
+                transition: background 0.12s ease, border-color 0.12s ease;
+
+                &:hover {
+                    background: #ede9fe;
+                    border-color: #c4b5fd;
+                }
+
+                > * { pointer-events: none; }
+
+                .fa-caret-right, .fa-caret-down {
+                    width: 0.6rem;
+                    color: #7c3aed;
+                }
+
+                .o_voice_summary_icon {
+                    color: #8b5cf6;
+                    font-size: 0.7rem;
+                }
+
+                .o_voice_summary_label {
+                    font-weight: 500;
+                }
+            }
+
+            .o_voice_summary_body {
+                margin-top: 0.4rem;
+                padding: 0.6rem 0.75rem;
+                border: 1px solid #e9d5ff;
+                border-radius: 0.5rem;
+                background: #faf5ff;
+                color: #4c1d95;
+                font-size: 0.78rem;
+                line-height: 1.5;
+                white-space: pre-wrap;
+                word-break: break-word;
+                max-height: 22rem;
+                overflow: auto;
+            }
+        }
+
+        code {
+            font-size: 0.78rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+    }
+
+    .o_voice_transcript_thinking {
+        align-self: flex-start;
+        display: flex;
+        gap: 0.3rem;
+        padding: 0.6rem 0.85rem;
+        border-radius: 0.75rem;
+        background: #f1f5f9;
+
+        span {
+            width: 0.45rem;
+            height: 0.45rem;
+            border-radius: 50%;
+            background: #94a3b8;
+            animation: o_voice_thinking_bounce 1.2s infinite ease-in-out;
+
+            &:nth-child(2) { animation-delay: 0.15s; }
+            &:nth-child(3) { animation-delay: 0.3s; }
+        }
+    }
+}
+
+@keyframes o_voice_thinking_bounce {
+    0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+    30%           { opacity: 1;    transform: translateY(-3px); }
+}
+
+/* Text-mode transcript: assistant messages get a thumbnail beside them and
+   markdown-rendered content. */
+.o_voice_transcript--text {
+    .o_voice_msg--assistant {
+        max-width: 90%;
+        background: #f1f5f9;
+
+        .o_voice_msg_role {
+            display: none;
+        }
+
+        .o_voice_msg_assistant_layout {
+            display: flex;
+            gap: 0.5rem;
+            align-items: flex-start;
+        }
+
+        .o_voice_msg_thumb {
+            width: 1.6rem;
+            height: 1.6rem;
+            border-radius: 50%;
+            object-fit: cover;
+            background: #e2e8f0;
+            flex-shrink: 0;
+            margin-top: 0.1rem;
+
+            &--placeholder {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #64748b;
+                font-size: 0.75rem;
+            }
+        }
+
+        .o_voice_msg_content--md {
+            flex: 1;
+            min-width: 0;
+
+            > p:first-child { margin-top: 0; }
+            > p:last-child  { margin-bottom: 0; }
+
+            p { margin: 0 0 0.5rem; }
+
+            ul, ol {
+                margin: 0.25rem 0 0.5rem 1.25rem;
+                padding-left: 0;
+            }
+
+            code {
+                background: rgba(148, 163, 184, 0.15);
+                padding: 0.05rem 0.3rem;
+                border-radius: 0.25rem;
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            }
+
+            pre {
+                background: #0f172a;
+                color: #f8fafc;
+                padding: 0.5rem 0.7rem;
+                border-radius: 0.4rem;
+                overflow-x: auto;
+                margin: 0.4rem 0;
+
+                code {
+                    background: transparent;
+                    padding: 0;
+                    color: inherit;
+                }
+            }
+
+            a {
+                color: #2563eb;
+                text-decoration: underline;
+            }
+
+            h2, h3, h4 {
+                margin: 0.5rem 0 0.3rem;
+                font-weight: 600;
+            }
+            h2 { font-size: 1.05rem; }
+            h3 { font-size: 0.95rem; }
+            h4 { font-size: 0.88rem; }
+        }
+
+        .o_voice_msg_incomplete {
+            margin-top: 0.4rem;
+            font-size: 0.7rem;
+            color: #b45309;
+
+            i { margin-right: 0.25rem; }
+        }
+    }
+
+    .o_voice_msg--user {
+        max-width: 75%;
+    }
+
+    .o_voice_msg_attachments {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        margin-top: 0.4rem;
+    }
+
+    .o_voice_msg_attachment_chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.15rem 0.45rem;
+        border: 1px solid rgba(148, 163, 184, 0.5);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.6);
+        color: #1e293b;
+        font-size: 0.7rem;
+    }
+}

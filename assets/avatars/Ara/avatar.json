@@ -1,0 +1,35 @@
+{
+  "name": "Ara",
+  "sequence": 20,
+  "vrm": "ara_casual_default.vrm",
+  "outfits": [
+    {
+      "name": "Conference Fit",
+      "vrm": "ara_odoo_experience_fit.vrm",
+      "description": "Tech-conference staff outfit — purple polo shirt with a white logo on the chest and branded sneakers, paired with relaxed-fit beige chinos."
+    },
+    {
+      "name": "Festive Christmas dress",
+      "vrm": "ara_christmas_fit.vrm",
+      "description": "Knit red sweater-dress with off-the-shoulder white collar, long sleeves with wide white cuffs, and two small white buttons at the chest. A thin black belt cinches the waist, accented by a small white bow. The flared skirt has a wide white fluffy hem with a small holly leaf embroidery near the bottom right. White thigh-high stockings and brown lace-up boots complete the cozy holiday look."
+    },
+    {
+      "name": "Celestial gothic ensemble",
+      "vrm": "ara_gothic_fit.vrm",
+      "description": "Black dress with gold star-patterned embroidery and scalloped gold trim along the collar, skirt edges, and cuffs. Puffed short sleeves and a small bow at the collar. The dress features a front opening at the skirt revealing black shorts with a gold-buckled belt underneath. Black thigh-high stockings with gold garter straps, finished with sleek white knee-high boots accented with gold details. On the back, there are small black cute devil wings, and a black devil tail."
+    }
+  ],
+  "gestures": [],
+  "backgrounds": [
+    {
+      "name": "Charcoal",
+      "type": "static",
+      "preset": "vignette_charcoal"
+    },
+    {
+      "name": "Grid Playground",
+      "type": "scene",
+      "glb": "/assets/glb/grid_playground.glb"
+    }
+  ]
+}

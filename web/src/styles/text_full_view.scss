@@ -1,0 +1,427 @@
+.o_text_full_view {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    background: #f8fafc;
+    color: #0f172a;
+    overflow: hidden;
+}
+
+.o_text_full_history {
+    width: 16rem;
+    border-right: 1px solid #e2e8f0;
+    overflow-y: auto;
+    background: #ffffff;
+    flex-shrink: 0;
+
+    .o_text_full_history_header {
+        /* Outer-height-pinned to the main header so the bottom borders
+           align across the rail boundary. Math:
+             main = 0.85rem × 2 padding  +  2.4rem (thumbnail content)
+                    + 1px border-bottom
+                  = 4.1rem + 1px outer
+           With box-sizing: border-box (Odoo default), min-height already
+           includes padding+border, so we set it directly here and zero out
+           the vertical padding to keep the math one-line obvious. */
+        display: flex;
+        align-items: center;
+        box-sizing: border-box;
+        min-height: calc(4.1rem + 1px);
+        padding: 0 0.9rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .o_text_history_item {
+        padding: 0.65rem 0.9rem;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.85rem;
+
+        .o_text_history_meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .o_text_history_state {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .o_text_history_sub {
+            color: #475569;
+            font-size: 0.75rem;
+            margin: 0.15rem 0 0.35rem;
+        }
+
+        .o_text_history_summary {
+            color: #475569;
+            font-size: 0.72rem;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            margin-bottom: 0.35rem;
+        }
+    }
+}
+
+.o_text_full_main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.o_text_full_header {
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 0.85rem 1rem;
+
+    /* Full-width border + background, but the actual controls sit in the
+       same 56rem reading column as the transcript so the whole UI shares
+       one visual axis. */
+    .o_text_full_header_inner {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        max-width: 56rem;
+        margin: 0 auto;
+        width: 100%;
+    }
+
+    .o_text_agent_thumb {
+        width: 2.4rem;
+        height: 2.4rem;
+        border-radius: 50%;
+        object-fit: cover;
+        background: #e2e8f0;
+        flex-shrink: 0;
+
+        &--placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: #ffffff;
+            font-size: 1rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+    }
+
+    .o_text_full_agent_meta {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.15;
+        min-width: 0;
+
+        strong {
+            font-size: 1rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+
+    .o_text_full_status {
+        font-size: 0.72rem;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+
+        &.is-live {
+            color: #16a34a;
+        }
+
+        &.is-connecting {
+            color: #ca8a04;
+        }
+    }
+
+    .o_text_full_header_spacer {
+        flex: 1;
+    }
+
+    .o_text_token_budget {
+        font-size: 0.72rem;
+        color: #64748b;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .o_text_full_agent_picker {
+        max-width: 13rem;
+        font-size: 0.9rem;
+    }
+
+    // Mobile: header has too many items (minimize, thumb, name+status,
+    // token budget, history toggle, dark toggle, agent picker, start/end)
+    // to share one row on a phone. Allow wrapping, drop the flex:1 spacer
+    // (it would gobble row 1 and force everything else to row 2), and let
+    // the agent picker take a full row so its label isn't truncated.
+    @media (max-width: 600px) {
+        padding: 0.6rem 0.75rem;
+
+        .o_text_full_header_inner {
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            row-gap: 0.5rem;
+        }
+
+        .o_text_full_header_spacer {
+            display: none;
+        }
+
+        .o_text_full_agent_meta {
+            flex: 1 1 auto;
+        }
+
+        .o_text_full_agent_picker {
+            flex: 1 1 100%;
+            max-width: 100%;
+        }
+    }
+
+    .btn {
+        font-size: 0.9rem;
+    }
+}
+
+.o_text_error {
+    margin: 0.5rem 0.9rem 0;
+    padding: 0.5rem 0.75rem;
+    background: #fee2e2;
+    color: #7f1d1d;
+    border-radius: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.o_text_full_transcript {
+    flex: 1;
+    overflow-y: auto;          /* scrollbar lives at the screen edge, not in the column */
+    overflow-x: hidden;
+    background: #ffffff;
+
+    /* The base .o_voice_transcript scrolls itself — fine for voice mode. In
+       text mode we hoist the scroll up to the parent so the scrollbar pins
+       to the right edge of the viewport. The inner column stays a 56rem
+       reading width, vertically expanding to its content. */
+    > .o_voice_transcript {
+        width: 100%;
+        max-width: 56rem;
+        margin: 0 auto;
+        padding-left: 1rem;
+        padding-right: 1rem;
+        overflow: visible;     /* override base style */
+        flex: none;            /* don't fight the parent for height */
+    }
+}
+
+.o_text_input_bar {
+    border-top: 1px solid #e2e8f0;
+    padding: 0.6rem 0.9rem;
+    background: #ffffff;
+
+    /* Match the transcript's reading column so the textarea/send button
+       align with the messages above on desktop. Mobile (<= 56rem) just
+       expands edge-to-edge naturally because of the max-width cap. */
+    > * {
+        max-width: 56rem;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .o_text_pending_files {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-bottom: 0.4rem;
+
+        .o_text_file_chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.2rem 0.5rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 999px;
+            background: #f1f5f9;
+            color: #334155;
+            font-size: 0.75rem;
+        }
+    }
+
+    .o_text_input_row {
+        display: flex;
+        gap: 0.4rem;
+        align-items: flex-end;
+
+        textarea {
+            flex: 1;
+            resize: vertical;
+            min-height: 2.4rem;
+            max-height: 10rem;
+            font-size: 0.9rem;
+        }
+    }
+
+    .o_text_input_hint {
+        margin-top: 0.4rem;
+        text-align: center;
+        font-size: 0.7rem;
+        color: #94a3b8;
+        user-select: none;
+    }
+}
+
+/* ---- Dark mode ---------------------------------------------------------- */
+/* Activated by .o_text_full_view--dark on the root container; overrides only
+   what the light theme paints, so adding new sections later doesn't require
+   touching this block unless the contrast looks wrong. */
+.o_text_full_view--dark {
+    background: #0f172a;
+    color: #e2e8f0;
+
+    .o_text_full_history {
+        background: #1e293b;
+        border-right-color: #334155;
+
+        .o_text_full_history_header { border-bottom-color: #334155; }
+        .o_text_history_item { border-bottom-color: #334155; }
+        .o_text_history_state,
+        .o_text_history_sub,
+        .o_text_history_summary { color: #94a3b8; }
+    }
+
+    .o_text_full_header {
+        background: #1e293b;
+        border-bottom-color: #334155;
+
+        .o_text_full_status,
+        .o_text_token_budget { color: #94a3b8; }
+
+        .btn-light {
+            background: #334155;
+            border-color: #475569;
+            color: #e2e8f0;
+
+            &:hover { background: #475569; }
+        }
+
+        .form-select,
+        .o_text_full_agent_picker {
+            background-color: #334155;
+            border-color: #475569;
+            color: #e2e8f0;
+        }
+    }
+
+    .o_text_full_transcript {
+        background: #0f172a;
+    }
+
+    .o_text_input_bar {
+        background: #1e293b;
+        border-top-color: #334155;
+
+        textarea,
+        .form-control {
+            background: #0f172a;
+            border-color: #475569;
+            color: #e2e8f0;
+
+            &::placeholder { color: #64748b; }
+        }
+
+        .btn-light {
+            background: #334155;
+            border-color: #475569;
+            color: #e2e8f0;
+
+            &:hover { background: #475569; }
+        }
+
+        .o_text_file_chip {
+            background: #334155;
+            border-color: #475569;
+            color: #e2e8f0;
+        }
+    }
+
+    .o_text_input_hint { color: #64748b; }
+
+    .o_text_error {
+        background: #7f1d1d;
+        color: #fee2e2;
+    }
+
+    /* Transcript content overrides — the Transcript component lives in its
+       own SCSS, but it's mounted inside this dark container so we can scope
+       the changes here without touching the shared component. */
+    .o_voice_msg--user {
+        background: #2563eb;
+        color: #ffffff;
+    }
+
+    .o_voice_msg--assistant {
+        background: #1e293b;
+        color: #e2e8f0;
+
+        .o_voice_msg_content--md {
+            code {
+                background: rgba(148, 163, 184, 0.2);
+                color: #e2e8f0;
+            }
+
+            pre {
+                background: #020617;
+                color: #e2e8f0;
+            }
+
+            a { color: #60a5fa; }
+        }
+    }
+
+    .o_voice_msg--tool .o_voice_tool_header {
+        background: #1e293b;
+        border-color: #334155;
+        color: #cbd5e1;
+
+        &:hover { background: #334155; }
+    }
+
+    .o_voice_msg--tool .o_voice_tool_details {
+        background: #1e293b;
+        border-color: #334155;
+    }
+
+    .o_voice_msg--tool .o_voice_tool_section {
+        background: #020617;
+        border-color: #334155;
+        color: #e2e8f0;
+    }
+
+    .o_voice_msg--summary .o_voice_summary_header {
+        background: #2e1065;
+        border-color: #5b21b6;
+        color: #ddd6fe;
+
+        &:hover { background: #4c1d95; }
+    }
+
+    .o_voice_msg--summary .o_voice_summary_body {
+        background: #1e1b4b;
+        border-color: #5b21b6;
+        color: #ddd6fe;
+    }
+
+    .o_voice_msg_attachment_chip {
+        background: rgba(15, 23, 42, 0.6);
+        border-color: #475569;
+        color: #e2e8f0;
+    }
+
+    .o_voice_transcript_thinking { background: #1e293b; }
+    .o_voice_transcript_empty { color: #64748b; }
+}
