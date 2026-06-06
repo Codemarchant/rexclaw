@@ -136,11 +136,7 @@ write-only — it's never echoed back to the browser), optional extra headers,
 an allowed-tools whitelist, and toggles for voice/text sessions.
 
 How it works: the connection is injected into the session's tool list and
-**xAI's servers call the MCP endpoint directly** — your machine is not in
-that loop. That means the URL must be **publicly reachable over HTTPS**; a
-`localhost` URL can never work. To expose a tool server running on your own
-machine, put a tunnel in front of it (e.g. `cloudflared tunnel`, ngrok, or
-Tailscale Funnel) and register the tunnel's HTTPS URL.
+**xAI's servers call the MCP endpoint directly** — The URL must be **publicly reachable over HTTPS**
 
 ## 🛠 Development
 
