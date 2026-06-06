@@ -54,6 +54,8 @@ python3 -m venv .venv && .venv/bin/pip install -e .   # once
 
 ## 👥 Meet the crew
 
+https://github.com/user-attachments/assets/ff569423-325c-4fb2-ac4f-f538e9c03895
+
 - **Eve** — caffeinated junior researcher. Reacts before she replies, narrates her lookups, gets genuinely excited about a good find.
 - **Ara** — warm, patient, older-sister energy. The calm voice at the end of a busy day.
 - **Rex** — half lobster, half man, all quartermaster. Mission-control brevity, calls you Captain, occasionally sings a bar of shanty when the books balance.
