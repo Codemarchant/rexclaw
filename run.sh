@@ -59,7 +59,12 @@ if [ "${REXCLAW_NO_BROWSER:-0}" != "1" ]; then
     # wslview covers WSL → Windows browser.
     (
         sleep 2
-        if command -v wslview >/dev/null 2>&1; then wslview "$URL"
+        # Under WSL, open the WINDOWS browser explicitly. xdg-open would
+        # launch a Linux browser inside WSLg, where WebGL runs on llvmpipe
+        # software rendering (or fails outright) and the avatar can't render.
+        if grep -qi microsoft /proc/version 2>/dev/null; then
+            powershell.exe -NoProfile -Command "Start-Process '$URL'" \
+                || /mnt/c/Windows/System32/cmd.exe /c start "" "$URL"
         elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL"
         elif command -v open >/dev/null 2>&1; then open "$URL"
         fi
