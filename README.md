@@ -4,9 +4,9 @@
 
 # Rexclaw Companions
 
-**Living anime voice companions on your own machine — powered by xAI Grok Voice Realtime, self-hosted, bring-your-own-key.**
+**Living anime voice companions on your own machine — powered by xAI Grok Voice Realtime, bring-your-own-key.**
 
-Talk to a 3D VRM avatar that lip-syncs, emotes, gestures and walks around her
+Talk to a 3D VRM avatar that lip-syncs, emotes, gestures and walks around the
 scene while she answers you — with persistent memory that grows across
 sessions, Grok Imagine image generation, file-aware text chat, and your own
 MCP tools. Everything runs locally except the model itself: your data lives
@@ -14,7 +14,7 @@ in a SQLite file on your disk, and your API key never leaves your machine.
 
 ---
 
-## ✨ Why it stands apart
+## ✨ Features
 
 | | |
 |---|---|
@@ -104,11 +104,8 @@ data/avatars/Kira/
 ```
 
 Notes: file references are pack-relative filenames (or absolute web paths
-like `/assets/glb/grid_playground.glb` for shared bundled assets); gesture
-enums are lowercase identifiers and may not shadow the built-in gesture pack;
-`preset` must be one of the renderer's background presets. Packs are
-re-scanned on every server start; invalid entries are skipped with a warning
-in the server log.
+like `/assets/glb/grid_playground.glb` for shared bundled assets); Packs are
+re-scanned on every server start.
 
 ### Where to get VRM models
 
@@ -164,13 +161,8 @@ FastAPI ── SQLite + local files             (data/rexclaw.sqlite3, data/file
 
 ## 📋 Notes
 
-- The server binds 127.0.0.1 and has no auth — don't expose it to a network
-  as-is.
 - Animation credits: bundled VRMA clips include pixiv Inc.'s VRoid Project
   Motion Pack (commercial use permitted with credit).
-- Ported from the Odoo voice-companion module; the ERP-specific surface
-  (record tools, navigation, multi-user ACLs) was deliberately left behind.
-
 ---
 
 *Want Rexclaw Companions fully embedded in your business ERP — searching
