@@ -68,11 +68,37 @@ template; **Restore presets** brings back any of the originals you've deleted.
 
 ## 🎭 Custom avatars — avatar packs
 
-Avatars load from **packs**: a folder with an `avatar.json` manifest plus its
-files. Bundled packs live in `assets/avatars/`; drop your own into
-`data/avatars/` and restart the server (no rebuild — packs are data). They
-then appear in the Avatar dropdown when editing a companion. The five bundled
-packs double as worked examples.
+Every companion has an avatar — a VRM character with optional outfits, gesture
+clips and scene backgrounds. Two ways to make one: the **in-app editor**
+(easiest), or by dropping a **pack folder** on disk (shareable / advanced).
+
+### In the app — Settings → Avatars
+
+Click **New avatar**, give it a name, and upload a **main VRM** (the only
+required file). Then optionally add:
+
+- an **idle animation** (VRMA),
+- **outfits** — extra VRMs of the same character, each with a description the
+  model reads to decide when to wear it,
+- **custom gestures** — VRMA clips with a trigger name + description (looping
+  optional),
+- **backgrounds** — a built-in preset, an uploaded image, or a **GLB 3D
+  scene** with scale / X-Y-Z offset / Y-rotation controls.
+
+Save, then pick it from the **Avatar** dropdown when editing a companion. Your
+avatars are editable and deletable any time; the five **bundled** avatars are
+read-only (to tweak one, create a new avatar instead). Files upload straight
+into the pack as you add them, and the folder is named after the avatar on
+save (shown in the editor as `data/avatars/<name>/`).
+
+### Pack format (sharing / hand-authoring)
+
+Under the hood each avatar is just a folder with an `avatar.json` manifest plus
+its files — exactly what the editor reads and writes. So a UI-built avatar is
+also a **shareable pack**: zip the folder, hand it to someone, they drop it in
+`data/avatars/` and restart (no rebuild — packs are data). You can author one
+by hand the same way. The five bundled packs in `assets/avatars/` double as
+worked examples.
 
 ```
 data/avatars/Kira/
