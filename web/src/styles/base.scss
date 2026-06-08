@@ -57,6 +57,25 @@ body {
             background: rgba(255, 255, 255, 0.08);
             box-shadow: inset 0 -2px 0 #2563eb;
         }
+
+        // Immersive toggle sits at the far right of the header.
+        &--immersive {
+            margin-left: auto;
+            box-shadow: none;
+        }
+    }
+
+    .rx_tab i { margin-right: 0.35rem; }
+
+    // Mobile: collapse to icons so the header never overflows / slips.
+    @media (max-width: 560px) {
+        padding: 0 0.4rem;
+        gap: 0.1rem;
+
+        .rx_brand { margin-right: 0.4rem; }
+        .rx_tab { padding: 0.55rem 0.6rem; }
+        .rx_tab i, .rx_brand i { margin-right: 0; }
+        .rx_label { display: none; }
     }
 }
 

@@ -301,3 +301,9 @@
         }
     }
 }
+
+// Immersive mode — header + all controls hidden; avatar fills the viewport.
+.o_voice_full_view--immersive {
+    .o_voice_full_avatar { width: 100%; }
+    .o_voice_avatar_canvas--full { min-height: 100vh; }
+}

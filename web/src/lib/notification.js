@@ -7,11 +7,11 @@ let nextId = 1;
 export const toastState = reactive({ items: [] });
 
 export const notification = {
-  add(message, { type = "info", sticky = false } = {}) {
+  add(message, { type = "info", sticky = false, duration = 6000 } = {}) {
     const id = nextId++;
     toastState.items = [...toastState.items, { id, message: String(message), type, sticky }];
     if (!sticky) {
-      setTimeout(() => notification.remove(id), 6000);
+      setTimeout(() => notification.remove(id), duration);
     }
     return id;
   },

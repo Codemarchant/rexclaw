@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { rpc } from "../lib/rpc";
 import { useReactive } from "../lib/reactive";
 import { voice, avatarRenderer } from "../services";
+import { uiState, toggleImmersive, exitImmersive } from "../lib/ui_state";
 import { EMOTIONS, EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 import Transcript from "./Transcript.jsx";
@@ -16,6 +17,7 @@ const MOVE_KEY_MAP = {
 
 export default function VoiceView({ active = true }) {
     const sv = useReactive(voice.state);
+    const ui = useReactive(uiState);
     const [agents, setAgents] = useState([]);
     const [history, setHistory] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState(null);
@@ -370,11 +372,49 @@ export default function VoiceView({ active = true }) {
         }
     })();
 
+    // ---- immersive mode ------------------------------------------------------
+    // Hide ALL chrome (app header + canvas controls) for a pure full-screen
+    // avatar, paired with the browser Fullscreen API so the browser chrome
+    // goes too and native Esc exits. H toggles; Esc exits. The toggle itself
+    // lives in lib/ui_state so the app header can drive it too.
+
+    // H toggles; Esc exits when not in native fullscreen (when it IS, the
+    // browser swallows Esc to exit fullscreen — the fullscreenchange handler
+    // below catches that). Ignored while typing in the chat box.
+    useEffect(() => {
+        if (!active) return;
+        const onKey = (ev) => {
+            const t = ev.target;
+            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+            if (ev.key === "h" || ev.key === "H") {
+                ev.preventDefault();
+                toggleImmersive();
+            } else if (ev.key === "Escape" && uiState.immersive && !document.fullscreenElement) {
+                exitImmersive();
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [active]);
+
+    // Native fullscreen exit (Esc / F11 / OS) → drop immersive so the UI returns.
+    useEffect(() => {
+        const onFs = () => { if (!document.fullscreenElement && uiState.immersive) uiState.immersive = false; };
+        document.addEventListener("fullscreenchange", onFs);
+        return () => document.removeEventListener("fullscreenchange", onFs);
+    }, []);
+
+    // Leaving the Voice tab while immersive would full-screen another view —
+    // exit cleanly.
+    useEffect(() => {
+        if (!active && uiState.immersive) exitImmersive();
+    }, [active]);
+
     // ---- render --------------------------------------------------------------
 
     return (
-        <div className="o_voice_full_view">
-            {showHistory && (
+        <div className={"o_voice_full_view" + (ui.immersive ? " o_voice_full_view--immersive" : "")}>
+            {!ui.immersive && showHistory && (
                 <div className="o_voice_full_history">
                     <div className="o_voice_full_history_header"><strong>History</strong></div>
                     {!history.length && <p className="text-muted small p-3">No previous sessions yet.</p>}
@@ -400,7 +440,7 @@ export default function VoiceView({ active = true }) {
 
             <div className="o_voice_full_avatar">
                 <AvatarCanvas size="full" />
-                <div className="o_voice_full_topbar">
+                {!ui.immersive && <div className="o_voice_full_topbar">
                     <div className="o_voice_full_topbar_row">
                         <button className="btn btn-light" onClick={() => setShowHistory(!showHistory)}
                                 title={showHistory ? "Hide history" : "Show history"}>
@@ -433,6 +473,10 @@ export default function VoiceView({ active = true }) {
                                 title={showTranscript ? "Hide transcript (full-width avatar)" : "Show transcript"}>
                             <i className={showTranscript ? "fa fa-comment" : "fa fa-comment-o"} />
                         </button>
+                        <button className="btn btn-light" onClick={toggleImmersive}
+                                title="Immersive view — hide all UI (H · Esc to exit)">
+                            <i className="fa fa-expand" />
+                        </button>
                     </div>
                     <div className="o_voice_full_topbar_row o_voice_full_topbar_row--meta">
                         <span className={
@@ -449,9 +493,9 @@ export default function VoiceView({ active = true }) {
                             </span>
                         )}
                     </div>
-                </div>
+                </div>}
 
-                {showSettings && (
+                {!ui.immersive && showSettings && (
                     <div className="o_voice_full_settings">
                         <div className="o_voice_full_settings_section">
                             <strong>Emotions</strong>
@@ -497,7 +541,7 @@ export default function VoiceView({ active = true }) {
                     </div>
                 )}
 
-                {showControls && (
+                {!ui.immersive && showControls && (
                     <div className="o_voice_full_overlay">
                         <div className="o_voice_full_controls">
                             <select value={selectedAgentId ?? ""} onChange={onAgentChange}
@@ -561,7 +605,7 @@ export default function VoiceView({ active = true }) {
                 )}
             </div>
 
-            {showTranscript && (
+            {!ui.immersive && showTranscript && (
                 <div className="o_voice_full_transcript">
                     <Transcript messages={sv.messages} isLive={isLive}
                                 thinking={sv.thinking} truncated={sv.transcriptTruncated} />
