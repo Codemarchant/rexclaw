@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import AvatarManager from "./AvatarManager.jsx";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 
@@ -298,6 +299,11 @@ Web and X search are available whenever current information helps — just look 
                             </div>
                         )
                     ))}
+                </section>
+
+                <section>
+                    <h3><i className="fa fa-user-circle-o" /> Avatars</h3>
+                    <AvatarManager onChange={load} />
                 </section>
 
                 <section>

@@ -256,3 +256,48 @@ body {
 .p-3 { padding: 1rem; }
 .ms-1 { margin-left: 0.25rem; }
 .float-end { float: right; }
+
+// ---- Avatar manager editor ------------------------------------------------
+
+.rx_settings {
+    .rx_editor_section {
+        margin-top: 0.85rem;
+        padding-top: 0.6rem;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .rx_subrow {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0.4rem 0;
+        flex-wrap: wrap;   // background rows carry many fields — wrap instead of overflowing
+
+        input[type="text"] { flex: 1 1 auto; min-width: 6rem; }
+        select { flex: 0 0 auto; }
+        .rx_check span { white-space: nowrap; }
+    }
+}
+
+    // Compact GLB transform fields (scale / x / y / z / y-rotation).
+    .rx_scene_xform {
+        display: inline-flex;
+        gap: 0.4rem;
+        align-items: center;
+        flex-wrap: wrap;
+
+        label {
+            margin: 0;
+            font-size: 0.7rem;
+            color: #64748b;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.2rem;
+        }
+        input { width: 3.6rem; }
+    }
+
+    .rx_pack_path {
+        margin: 0.5rem 0 0;
+        code { background: #e2e8f0; padding: 0.05rem 0.3rem; border-radius: 0.25rem; }
+    }
