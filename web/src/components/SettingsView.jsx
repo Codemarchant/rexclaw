@@ -3,29 +3,26 @@ import AvatarManager from "./AvatarManager.jsx";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 
-/** Settings: BYOK key + models + thresholds, per-agent tuning, and the
- *  My Memories review list. */
+/** Settings: BYOK key + models + thresholds, per-agent tuning, and avatars.
+ *  (Stored memories live on their own Memories tab — see MemoriesView.) */
 export default function SettingsView({ active }) {
     const [config, setConfig] = useState(null);
     const [apiKeyDraft, setApiKeyDraft] = useState("");
     const [agents, setAgents] = useState([]);
     const [avatars, setAvatars] = useState([]);
-    const [memories, setMemories] = useState([]);
     const [editingAgent, setEditingAgent] = useState(null); // agent object being edited
     const [saving, setSaving] = useState(false);
 
     const load = async () => {
         try {
-            const [cfg, ags, avs, mems] = await Promise.all([
+            const [cfg, ags, avs] = await Promise.all([
                 rpc("/api/config/get", {}),
                 rpc("/api/agents/list", {}),
                 rpc("/api/avatars/list", {}),
-                rpc("/api/memories/list", {}),
             ]);
             setConfig(cfg);
             setAgents(ags);
             setAvatars(avs);
-            setMemories(mems);
         } catch (e) {
             notification.add(e?.message || "Could not load settings", { type: "danger" });
         }
@@ -143,15 +140,6 @@ Web and X search are available whenever current information helps — just look 
             notification.add(e?.message || "Save failed", { type: "danger" });
         } finally {
             setSaving(false);
-        }
-    };
-
-    const deleteMemory = async (id) => {
-        try {
-            await rpc("/api/memories/delete", { id });
-            setMemories((m) => m.filter((x) => x.id !== id));
-        } catch (e) {
-            notification.add(e?.message || "Delete failed", { type: "danger" });
         }
     };
 
@@ -304,24 +292,6 @@ Web and X search are available whenever current information helps — just look 
                 <section>
                     <h3><i className="fa fa-user-circle-o" /> Avatars</h3>
                     <AvatarManager onChange={load} />
-                </section>
-
-                <section>
-                    <h3><i className="fa fa-lightbulb-o" /> My memories</h3>
-                    {!memories.length && <p className="text-muted small">Nothing remembered yet — companions store durable facts here as you talk.</p>}
-                    {memories.map((m) => (
-                        <div key={m.id} className="rx_memory_row">
-                            <span className="rx_memory_scope">{m.scope}</span>
-                            <span className="rx_memory_content">{m.content}</span>
-                            <span className="rx_memory_meta">
-                                {m.agent_name || "all companions"}{m.tags ? ` · ${m.tags}` : ""}
-                            </span>
-                            <button className="btn btn-sm btn-link p-0" title="Forget"
-                                    onClick={() => deleteMemory(m.id)}>
-                                <i className="fa fa-trash-o" />
-                            </button>
-                        </div>
-                    ))}
                 </section>
 
                 <section>

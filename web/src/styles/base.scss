@@ -214,6 +214,67 @@ body {
         .rx_memory_meta { color: #94a3b8; font-size: 0.75rem; flex: 0 0 auto; }
     }
 
+    // Memories tab — search/filter toolbar, type badges, episode transcripts.
+    .rx_mem_toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.6rem;
+        margin: 0.4rem 0 0.9rem;
+
+        input[type="text"] { flex: 1 1 14rem; }
+    }
+
+    .rx_mem_filters { display: inline-flex; gap: 0.3rem; }
+
+    .rx_mem_chip {
+        border: 1px solid #cbd5e1;
+        background: white;
+        color: #475569;
+        border-radius: 0.45rem;
+        padding: 0.4rem 0.7rem;
+        font-size: 0.8rem;
+        cursor: pointer;
+        &.is-active { background: #4f46e5; border-color: #4f46e5; color: white; }
+    }
+
+    .rx_mem_badge {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        background: #dcfce7;
+        color: #166534;
+        border-radius: 0.3rem;
+        padding: 0.1rem 0.4rem;
+        flex: 0 0 auto;
+
+        &.rx_mem_badge--episode { background: #fef3c7; color: #92400e; }
+    }
+
+    .rx_mem_expand {
+        border: none;
+        background: none;
+        color: #4f46e5;
+        font-size: 0.75rem;
+        cursor: pointer;
+        padding: 0 0 0 0.5rem;
+        i { margin-right: 0.2rem; }
+    }
+
+    .rx_mem_transcript {
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.45rem;
+        padding: 0.6rem 0.8rem;
+        margin: 0.1rem 0 0.6rem;
+        font-size: 0.8rem;
+        color: #334155;
+        max-height: 18rem;
+        overflow: auto;
+    }
+
     .rx_agent_editor {
         border: 1px solid #e2e8f0;
         border-radius: 0.5rem;

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import VoiceView from "./components/VoiceView.jsx";
 import TextView from "./components/TextView.jsx";
+import MemoriesView from "./components/MemoriesView.jsx";
 import SettingsView from "./components/SettingsView.jsx";
 import Toasts from "./components/Toasts.jsx";
 import { uiState, toggleImmersive } from "./lib/ui_state";
@@ -9,6 +10,7 @@ import { useReactive } from "./lib/reactive";
 const TABS = [
     { id: "voice", label: "Voice", icon: "fa-microphone" },
     { id: "chat", label: "Chat", icon: "fa-comments" },
+    { id: "memories", label: "Memories", icon: "fa-lightbulb-o" },
     { id: "settings", label: "Settings", icon: "fa-cog" },
 ];
 
@@ -50,6 +52,9 @@ export default function App() {
                 </div>
                 <div className="rx_view" style={{ display: tab === "chat" ? "" : "none" }}>
                     <TextView active={tab === "chat"} />
+                </div>
+                <div className="rx_view" style={{ display: tab === "memories" ? "" : "none" }}>
+                    <MemoriesView active={tab === "memories"} />
                 </div>
                 <div className="rx_view" style={{ display: tab === "settings" ? "" : "none" }}>
                     <SettingsView active={tab === "settings"} />
