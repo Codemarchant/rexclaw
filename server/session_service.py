@@ -621,6 +621,69 @@ def maybe_generate_session_title(con, session):
         _title_lock.release()
 
 
+def _build_verbatim_transcript(to_summarize):
+    """Render THIS block's user/assistant turns in full for durable episode
+    storage. Unlike the summary transcript this excludes any prior rollup (we
+    want only this segment's real turns) and does not truncate user/assistant
+    content; tool activity is reduced to a one-line marker so the stored
+    transcript stays readable without raw JSON payloads."""
+    lines = []
+    for m in to_summarize:
+        if m['role'] == 'user':
+            lines.append(f'User: {m["content"] or ""}')
+        elif m['role'] == 'assistant':
+            lines.append(f'Assistant: {m["content"] or ""}')
+        elif m['role'] == 'tool_call':
+            lines.append(f'[tool call: {m["tool_name"] or "tool"}]')
+        elif m['role'] == 'tool_result':
+            lines.append(f'[tool result: {m["tool_name"] or "tool"}]')
+    return '\n'.join(lines)
+
+
+def _extract_and_store_memories(con, session, config, to_summarize, transcript):
+    """Distil durable memory from a freshly rolled-up block and persist it.
+
+    Reads the same flattened `transcript` the summary used, asks the model for
+    fact operations + one episode, accrues the call's cost, then writes via
+    memory_tools.apply_extraction_ops. The verbatim segment transcript is
+    stored inline on the episode so it survives transcript pruning. Best-effort;
+    the caller isolates failures so compaction is never broken.
+    """
+    agent_id = session['agent_id']
+    if agent_id:
+        core_rows = con.execute(
+            "SELECT id, content FROM memories WHERE scope = 'core' AND memory_type = 'fact' "
+            "AND (agent_id = ? OR agent_id IS NULL) ORDER BY created_at ASC, id ASC",
+            (agent_id,),
+        ).fetchall()
+    else:
+        core_rows = con.execute(
+            "SELECT id, content FROM memories WHERE scope = 'core' AND memory_type = 'fact' "
+            "AND agent_id IS NULL ORDER BY created_at ASC, id ASC",
+        ).fetchall()
+    existing_core = [(r['id'], r['content']) for r in core_rows]
+
+    parsed, usage = xai_client.generate_memory_extraction(
+        xai_api_key=config['xai_api_key'],
+        responses_url=config['xai_responses_url'],
+        summary_model=config['summary_model'],
+        transcript=transcript,
+        existing_core=existing_core,
+        known_tags=memory_tools.known_tags(con),
+        reasoning_effort=None,
+    )
+    store.accrue_usd_ticks(con, store.extract_cost_ticks(usage))
+    if not parsed:
+        return
+    verbatim = _build_verbatim_transcript(to_summarize)
+    counts = memory_tools.apply_extraction_ops(
+        con, agent_id,
+        ops=parsed.get('facts'), episode=parsed.get('episode'),
+        transcript=verbatim, session_id=session['id'],
+    )
+    _logger.info('Memory extraction for session %s: %s', session['id'], counts)
+
+
 def generate_session_summary(con, session):
     """Roll up older turns into a single system-role summary message.
 
@@ -730,6 +793,19 @@ def generate_session_summary(con, session):
             needs_summary=0,
             tokens_at_last_summary=current_total,
         )
+
+        # Automatic memory extraction — distil durable facts + one episodic
+        # memory from this same block, so load-bearing detail survives outside
+        # the lossy rollup and "remember when…" moments become retrievable.
+        # Best-effort and fully isolated: any failure must never break
+        # compaction (mirrors maybe_generate_session_title).
+        agent = store.get_agent(con, session['agent_id'])
+        if agent['enable_memory_tools'] and config['enable_memory_extraction']:
+            try:
+                _extract_and_store_memories(con, session, config, to_summarize, transcript)
+            except Exception:
+                _logger.exception('Memory extraction failed for session %s', session['id'])
+
         return rollup_id
 
 

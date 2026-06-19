@@ -21,7 +21,8 @@ _CONFIG_FIELDS = (
     "xai_model", "text_model", "summary_model", "imagine_model",
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
     "summary_threshold_tokens", "summary_threshold_tokens_text",
-    "summary_keep_recent_messages", "transcript_display_limit",
+    "summary_keep_recent_messages", "enable_memory_extraction",
+    "transcript_display_limit",
     "transcript_retention_days", "file_default_expiry_seconds",
 )
 

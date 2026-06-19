@@ -282,9 +282,12 @@ SUMMARY_INSTRUCTIONS = (
     'assistant, and NOT answering any questions present in the transcript. '
     'Echoing or rephrasing the latest assistant message is incorrect output.\n\n'
     'The user message will contain a transcript wrapped in BEGIN TRANSCRIPT / '
-    'END TRANSCRIPT markers. It may begin with a "[Prior summary]" block; if '
-    'present, integrate that prior summary with the newer turns into a SINGLE '
-    'updated summary that supersedes it.\n\n'
+    'END TRANSCRIPT markers. It may begin with a "[Prior summary]" block — that '
+    'text stands in for earlier conversation you can no longer see, so treat it '
+    'as established fact. Your output must be a superset of it: carry every '
+    'load-bearing detail from the prior summary forward and fold the newer '
+    'turns in alongside, as one updated summary. Tighten the wording freely, '
+    'but keep all of the prior summary\'s coverage.\n\n'
     'Preserve user intent, decisions made, named entities, numbers, outcomes '
     'of notable tool calls or results, key relationship events with the user, '
     'and any open threads — unanswered user questions or pending actions the '
@@ -295,9 +298,9 @@ SUMMARY_INSTRUCTIONS = (
     'Length should match the scope of the conversation. Do not pad — a brief, '
     'low-information session should produce a brief summary, while a long and '
     'substantive one warrants more space. This summary will itself be '
-    're-summarized in future passes as the relationship continues, so keep it '
-    'lean enough to absorb further compaction without losing the user\'s '
-    'load-bearing facts.\n\n'
+    're-summarized in future passes as the relationship continues, so favour '
+    'concise wording — but concision means stating each fact briefly, never '
+    'leaving facts out.\n\n'
     'Output plain text in third-person past tense, written in the same '
     'language the conversation was conducted in, so the assistant can read '
     'it later as context. Begin your output with "Conversation summary so far:".'
@@ -525,3 +528,125 @@ def generate_summary(*, xai_api_key, responses_url, summary_model, transcript,
     if not text:
         raise UserError("xAI returned no text for the summary.")
     return text, (body.get('usage') if isinstance(body, dict) else None) or {}
+
+
+EXTRACTION_INSTRUCTIONS = (
+    'You are a memory-extraction service for an ongoing assistant relationship '
+    'with a user. You are not participating in the conversation and not taking a '
+    'turn — you read a transcript and emit durable memory as a single JSON '
+    'object, nothing else.\n\n'
+    'Output exactly one JSON object with this shape:\n'
+    '{\n'
+    '  "facts": [\n'
+    '    {"op": "add", "scope": "recall", "content": "...", "tags": ["..."]},\n'
+    '    {"op": "update", "target_id": 12, "content": "...", "tags": ["..."]},\n'
+    '    {"op": "delete", "target_id": 34}\n'
+    '  ],\n'
+    '  "episode": {"summary": "...", "keywords": "...", "tags": ["..."]}\n'
+    '}\n\n'
+    'FACTS — durable statements about the user, written in third person. Reserve '
+    'scope "core" for identity- and relationship-level facts that stay true '
+    'across sessions (who they are, their role, key people, standing '
+    'preferences, long-running projects). Use scope "recall" (prefer this) for '
+    'everything else worth keeping — situational details, one-off context, '
+    'casual preferences. The user message lists the existing core facts with '
+    'their ids: when this conversation changes one, emit an "update" against its '
+    'id; when it clearly contradicts or retires one, emit a "delete". Leave '
+    'existing facts that are still accurate alone — do not re-add them. If '
+    'nothing new is worth storing, return an empty "facts" list.\n\n'
+    'EPISODE — always provide one. "summary" is a concise narrative of THIS '
+    'block of conversation in third-person past tense. "keywords" is a short '
+    'comma-separated index of the entities, people, places, topics and the '
+    'kinds of referential phrases the user might later use to bring this moment '
+    'back up ("the Lisbon trip", "that restaurant", "the budget argument") — '
+    'this is what future recall searches match against, so make it rich with '
+    'concrete names. Drop pleasantries.\n\n'
+    'Reuse tags from the known-tags list in the user message where they fit, '
+    'rather than inventing synonyms. Write all text in the same language the '
+    'conversation was conducted in. Output only the JSON object.'
+)
+
+
+def _strip_json_fences(text):
+    """Strip a leading ```json / ``` fence and trailing ``` if the model wrapped
+    its JSON in a markdown code block, and trim any prose around the object."""
+    if not text:
+        return ''
+    text = text.strip()
+    if text.startswith('```'):
+        # Drop the opening fence line (``` or ```json) and the closing fence.
+        text = text.split('\n', 1)[1] if '\n' in text else ''
+        if text.rstrip().endswith('```'):
+            text = text.rstrip()[:-3]
+    # Fall back to the outermost { … } span if there is leading/trailing prose.
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        text = text[start:end + 1]
+    return text.strip()
+
+
+def generate_memory_extraction(*, xai_api_key, responses_url, summary_model,
+                               transcript, existing_core=None, known_tags=None,
+                               reasoning_effort=None):
+    """Extract durable memory from a rolled-up transcript.
+
+    Returns `(parsed_or_None, usage_dict)`. `parsed` is a dict
+    `{'facts': [...], 'episode': {...}}` validated to that shape, or None on any
+    HTTP/parse/shape failure — the caller treats None as "nothing to store" and
+    must never let a hiccup here break compaction. Same Responses-API shape as
+    generate_summary; the usage block is surfaced for cost accrual.
+
+    `existing_core` is an iterable of (id, content) for the user's current core
+    facts, rendered into the prompt so the model can emit update/delete ops
+    against real ids. `known_tags` is a list of tag tokens to encourage reuse.
+    """
+    core_lines = '\n'.join(
+        f'  [id={cid}] {ccontent}' for cid, ccontent in (existing_core or [])
+    ) or '  (none yet)'
+    tags_line = ', '.join(known_tags or []) or '(none yet)'
+
+    body = create_response(
+        xai_api_key=xai_api_key,
+        responses_url=responses_url,
+        model=summary_model,
+        input_items=[{
+            'role': 'user',
+            'content': [{
+                'type': 'input_text',
+                'text': (
+                    'Extract durable memory from the following assistant '
+                    'conversation. Follow the system instructions precisely and '
+                    'reply with only the JSON object.\n\n'
+                    'Existing core facts (use their ids for update/delete):\n'
+                    f'{core_lines}\n\n'
+                    f'Known tags: {tags_line}\n\n'
+                    '--- BEGIN TRANSCRIPT ---\n'
+                    f'{transcript}'
+                    '\n--- END TRANSCRIPT ---'
+                ),
+            }],
+        }],
+        instructions=EXTRACTION_INSTRUCTIONS,
+        tools=None,
+        reasoning_effort=reasoning_effort,
+        store=False,
+        timeout=120,
+    )
+    usage = (body.get('usage') if isinstance(body, dict) else None) or {}
+    text = _extract_response_text(body)
+    if not text:
+        return None, usage
+    try:
+        parsed = json.loads(_strip_json_fences(text))
+    except (ValueError, TypeError):
+        _logger.warning('Memory extraction returned non-JSON output; skipping.')
+        return None, usage
+    if not isinstance(parsed, dict):
+        return None, usage
+    facts = parsed.get('facts')
+    episode = parsed.get('episode')
+    return {
+        'facts': facts if isinstance(facts, list) else [],
+        'episode': episode if isinstance(episode, dict) else {},
+    }, usage

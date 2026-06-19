@@ -58,6 +58,10 @@ CREATE TABLE IF NOT EXISTS config (
     summary_threshold_tokens INTEGER NOT NULL DEFAULT 64000,
     summary_threshold_tokens_text INTEGER NOT NULL DEFAULT 1000000,
     summary_keep_recent_messages INTEGER NOT NULL DEFAULT 2,
+    -- After each compaction, run a second pass that distils durable facts +
+    -- one conversation episode from the rolled-up block. Off saves one model
+    -- call per compaction (only `remember`-tool memories are kept then).
+    enable_memory_extraction INTEGER NOT NULL DEFAULT 1,
     transcript_display_limit INTEGER NOT NULL DEFAULT 200,
     transcript_retention_days INTEGER NOT NULL DEFAULT 0,
     file_default_expiry_seconds INTEGER NOT NULL DEFAULT 2592000,
@@ -212,7 +216,11 @@ CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     agent_id INTEGER REFERENCES agents(id) ON DELETE CASCADE,  -- NULL = global
     scope TEXT NOT NULL DEFAULT 'recall',    -- core | recall
+    memory_type TEXT NOT NULL DEFAULT 'fact',-- fact | episode
     content TEXT NOT NULL,
+    keywords TEXT,                           -- episode-only retrieval index (recall matches this, not the narrative)
+    transcript TEXT,                         -- episode-only verbatim turns, stored inline so they survive message pruning
+    session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,  -- episode-only provenance backlink
     tags TEXT,                               -- comma-separated, normalised lowercase
     source TEXT NOT NULL DEFAULT 'user_explicit',
     last_used_at TEXT,
@@ -254,6 +262,13 @@ def connect():
 # no IF NOT EXISTS for columns, so each is try/except'd on the duplicate error.
 MIGRATIONS = (
     "ALTER TABLE avatars ADD COLUMN pack_key TEXT",
+    # Memory extraction (facts + episode rollups). Added columns default to the
+    # pre-feature behaviour: existing rows become plain 'fact' memories.
+    "ALTER TABLE memories ADD COLUMN memory_type TEXT NOT NULL DEFAULT 'fact'",
+    "ALTER TABLE memories ADD COLUMN keywords TEXT",
+    "ALTER TABLE memories ADD COLUMN transcript TEXT",
+    "ALTER TABLE memories ADD COLUMN session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL",
+    "ALTER TABLE config ADD COLUMN enable_memory_extraction INTEGER NOT NULL DEFAULT 1",
 )
 
 
