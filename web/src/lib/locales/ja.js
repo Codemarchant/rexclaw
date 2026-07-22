@@ -343,6 +343,33 @@ export const JA = {
   "default": "デフォルト",
   "Save avatar": "アバターを保存",
 
+  // ── Sessions tab ──────────────────────────────────────────────────────
+  "Sessions": "セッション",
+  "Every conversation you've had, voice and text — read the transcript, rename, resume, or delete. Reading here never reconnects to xAI.":
+    "これまでの音声・テキストの全会話です — トランスクリプトの閲覧、名前の変更、再開、削除ができます。ここでの閲覧が xAI に再接続することはありません。",
+  "Search titles, summaries, companions…": "タイトル・要約・コンパニオンを検索…",
+  "Filter by companion": "コンパニオンで絞り込み",
+  "All companions": "すべてのコンパニオン",
+  "No sessions yet — start a conversation on the Voice or Chat tab.":
+    "まだセッションはありません — ボイスまたはチャットタブで会話を始めましょう。",
+  "No sessions match your filters.": "条件に一致するセッションはありません。",
+  "Could not load sessions": "セッションを読み込めませんでした",
+  "Could not load the transcript": "トランスクリプトを読み込めませんでした",
+  "Read transcript": "トランスクリプトを読む",
+  "Hide transcript": "トランスクリプトを隠す",
+  "Resume this session": "このセッションを再開",
+  "Rename": "名前を変更",
+  "Rename failed": "名前の変更に失敗しました",
+  "Delete session": "セッションを削除",
+  "Delete session \"%s\"? Its messages are removed permanently.":
+    "セッション「%s」を削除しますか？ メッセージは完全に削除されます。",
+  "Delete session \"%s\"? Its messages are removed permanently. The linked group-call sessions of other companions are kept (they become top-level).":
+    "セッション「%s」を削除しますか？ メッセージは完全に削除されます。リンクされた他コンパニオンのグループ通話セッションは残ります（トップレベルに移動します）。",
+  "This session has no messages.": "このセッションにはメッセージがありません。",
+  "Joined this group call": "このグループ通話に参加",
+  "active": "アクティブ",
+  "Immersive view — press Esc or H to exit.": "没入ビュー — Esc または H で終了します。",
+
   // ── Emotion / gesture labels (avatar_catalog) ─────────────────────────
   "Neutral": "ニュートラル",
   "Happy": "うれしい",

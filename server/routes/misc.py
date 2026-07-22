@@ -248,6 +248,90 @@ def mcp_delete(payload: dict = Body(default={}), con=Depends(db_con)):
     return {"ok": True}
 
 
+@router.post("/sessions/list")
+def sessions_list(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Unified session archive (voice + text) for the Sessions tab. Returns
+    everything — filtering/search happens client-side, mirroring the
+    Memories tab. call_parent_session_id lets the UI nest group-call peer
+    legs under their primary session."""
+    rows = con.execute(
+        "SELECT s.id, s.name, s.agent_id, s.mode, s.state, s.started_at, s.ended_at,"
+        " s.last_active_at, s.summary, s.call_parent_session_id, a.name AS agent_name,"
+        " (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.is_summary_rollup = 0)"
+        "   AS message_count"
+        " FROM sessions s LEFT JOIN agents a ON a.id = s.agent_id"
+        " ORDER BY s.last_active_at DESC, s.id DESC LIMIT ?",
+        (int(payload.get("limit") or 500),),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@router.post("/sessions/messages")
+def sessions_messages(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Read-only transcript of one session, in the shape the Transcript
+    component renders (state.messages rows). Unlike resume, this never
+    reactivates the session or touches xAI."""
+    from .common import resolve_session
+    session = resolve_session(con, payload.get("id"))
+    rows = con.execute(
+        "SELECT * FROM messages WHERE session_id = ? AND is_summary_rollup = 0"
+        " ORDER BY sequence ASC, id ASC",
+        (session["id"],),
+    ).fetchall()
+    out = []
+    for m in rows:
+        entry = {
+            "sequence": m["sequence"],
+            "role": m["role"],
+            # tool_result rows store their payload in tool_result_json; the
+            # transcript renderer reads row content.
+            "content": (m["tool_result_json"] or m["content"] or "")
+                       if m["role"] == "tool_result" else (m["content"] or ""),
+            "speaker": m["speaker"],
+            "tool_name": m["tool_name"],
+            "tool_arguments_json": m["tool_arguments_json"],
+        }
+        atts = con.execute(
+            "SELECT xai_file_id, filename, size_bytes FROM message_attachments"
+            " WHERE message_id = ? ORDER BY id", (m["id"],),
+        ).fetchall()
+        if atts:
+            entry["attachments"] = [dict(a) for a in atts]
+        out.append(entry)
+    agent = con.execute("SELECT name FROM agents WHERE id = ?", (session["agent_id"],)).fetchone()
+    return {"mode": session["mode"], "agent_name": agent["name"] if agent else None, "messages": out}
+
+
+@router.post("/sessions/rename")
+def sessions_rename(payload: dict = Body(default={}), con=Depends(db_con)):
+    from .common import resolve_session
+    session = resolve_session(con, payload.get("id"))
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise UserError("Session name cannot be empty.")
+    # title_generated=1 so the auto-titler never clobbers a user-chosen name.
+    con.execute("UPDATE sessions SET name = ?, title_generated = 1 WHERE id = ?",
+                (name[:120], session["id"]))
+    con.commit()
+    return {"ok": True}
+
+
+@router.post("/sessions/delete")
+def sessions_delete(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Delete a session and its messages (FK cascade). Linked rows survive
+    sanely: memory episodes and imagine images keep their content
+    (session_id → NULL), and group-call peer sessions become top-level
+    (call_parent_session_id → NULL). Active sessions are refused — end the
+    call/chat first rather than yanking rows out from under it."""
+    from .common import resolve_session
+    session = resolve_session(con, payload.get("id"))
+    if session["state"] == "active":
+        raise UserError("This session is active — end it before deleting.")
+    con.execute("DELETE FROM sessions WHERE id = ?", (session["id"],))
+    con.commit()
+    return {"ok": True}
+
+
 @router.post("/memories/list")
 def memories_list(payload: dict = Body(default={}), con=Depends(db_con)):
     rows = con.execute(

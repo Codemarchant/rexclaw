@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import VoiceView from "./components/VoiceView.jsx";
 import TextView from "./components/TextView.jsx";
 import MemoriesView from "./components/MemoriesView.jsx";
+import SessionsView from "./components/SessionsView.jsx";
 import SettingsView from "./components/SettingsView.jsx";
 import Toasts from "./components/Toasts.jsx";
 import { uiState, toggleImmersive } from "./lib/ui_state";
@@ -12,6 +13,7 @@ const TABS = [
     { id: "voice", label: "Voice", icon: "fa-microphone" },
     { id: "chat", label: "Chat", icon: "fa-comments" },
     { id: "memories", label: "Memories", icon: "fa-lightbulb-o" },
+    { id: "sessions", label: "Sessions", icon: "fa-archive" },
     { id: "settings", label: "Settings", icon: "fa-cog" },
 ];
 
@@ -22,6 +24,13 @@ export default function App() {
     // whole mounted tree in place — children aren't memoized, and nothing
     // remounts, so a live voice session survives the flip.
     useReactive(i18nState);
+    // Tab handoff from the Sessions tab (Resume buttons set requestedTab).
+    useEffect(() => {
+        if (ui.requestedTab) {
+            setTab(ui.requestedTab);
+            uiState.requestedTab = null;
+        }
+    }, [ui.requestedTab]);
     // In immersive mode on the Voice tab, hide the whole header for a pure
     // full-screen avatar. Other tabs always keep their header.
     const hideHeader = ui.immersive && tab === "voice";
@@ -60,6 +69,9 @@ export default function App() {
                 </div>
                 <div className="rx_view" style={{ display: tab === "memories" ? "" : "none" }}>
                     <MemoriesView active={tab === "memories"} />
+                </div>
+                <div className="rx_view" style={{ display: tab === "sessions" ? "" : "none" }}>
+                    <SessionsView active={tab === "sessions"} />
                 </div>
                 <div className="rx_view" style={{ display: tab === "settings" ? "" : "none" }}>
                     <SettingsView active={tab === "settings"} />

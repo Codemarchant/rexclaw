@@ -389,3 +389,26 @@ body {
         margin: 0.5rem 0 0;
         code { background: #e2e8f0; padding: 0.05rem 0.3rem; border-radius: 0.25rem; }
     }
+
+// ── Sessions tab ────────────────────────────────────────────────────────
+.rx_sess_item--child {
+    margin-left: 1.6rem;
+}
+.rx_sess_child_mark {
+    color: #94a3b8;
+    font-size: 0.8rem;
+}
+.rx_sess_rename {
+    flex: 0 1 260px;
+    font-size: 0.9rem;
+    padding: 0.15rem 0.4rem;
+}
+.rx_sess_transcript {
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    background: #ffffff;
+    max-height: 420px;
+    overflow-y: auto;
+    margin: 0.35rem 0 0.85rem;
+    padding: 0.5rem;
+}

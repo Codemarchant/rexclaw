@@ -154,6 +154,24 @@ export default function VoiceView({ active = true }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
 
+    // Resume handoff from the Sessions tab: pick up the pending request once
+    // this view is active. voice.start refuses politely (toast) if a session
+    // is already live.
+    useEffect(() => {
+        const pr = uiState.pendingResume;
+        if (!active || !pr || pr.mode === "text") return;
+        uiState.pendingResume = null;
+        (async () => {
+            const ok = await voice.start(pr.agentId, pr.sessionId);
+            if (ok !== false && pr.agentId) {
+                setSelectedAgentId(pr.agentId);
+                voice.preferredAgentId = pr.agentId;
+            }
+            loadHistory();
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [active, ui.pendingResume]);
+
     useEffect(() => {
         if (!agents.length) return;
         if (!agents.some((a) => Number(a.id) === Number(selectedAgentId))) {

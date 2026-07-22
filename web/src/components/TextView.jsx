@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { rpc } from "../lib/rpc";
 import { useReactive } from "../lib/reactive";
 import { text } from "../services";
+import { uiState } from "../lib/ui_state";
+import { useReactive as useReactiveUi } from "../lib/reactive";
 import { notification } from "../lib/notification";
 import Transcript from "./Transcript.jsx";
 import { _t } from "../lib/i18n";
@@ -66,6 +68,23 @@ export default function TextView({ active = true }) {
         })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
+
+    // Resume handoff from the Sessions tab (see VoiceView for the pattern).
+    const ui = useReactiveUi(uiState);
+    useEffect(() => {
+        const pr = uiState.pendingResume;
+        if (!active || !pr || pr.mode !== "text") return;
+        uiState.pendingResume = null;
+        (async () => {
+            const ok = await text.start(pr.agentId, pr.sessionId);
+            if (ok !== false && pr.agentId) {
+                setSelectedAgentId(pr.agentId);
+                text.preferredAgentId = pr.agentId;
+            }
+            loadHistory();
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [active, ui.pendingResume]);
 
     useEffect(() => {
         if (!agents.length) return;
