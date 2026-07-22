@@ -27,7 +27,7 @@ export default function App() {
         <div className="rx_app">
             {!hideHeader && <nav className="rx_tabbar">
                 <span className="rx_brand" title="Rexclaw Companions">
-                    <i className="fa fa-paw" /> <span className="rx_label">Rexclaw</span>
+                    <img className="rx_brand_icon" src="/icons/lobster.png" alt="" /> <span className="rx_label">Rexclaw</span>
                 </span>
                 {TABS.map((t) => (
                     <button
