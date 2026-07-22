@@ -4,8 +4,9 @@
 #   ./run.sh
 #
 # First run: creates the Python venv, installs backend deps, and builds the
-# frontend if web/dist/ is missing. Subsequent runs skip straight to launch.
-# Set REXCLAW_NO_BROWSER=1 to suppress auto-opening the browser.
+# frontend. Subsequent runs skip straight to launch — the frontend is only
+# rebuilt when web/ sources are newer than the built web/dist (e.g. after a
+# `git pull`). Set REXCLAW_NO_BROWSER=1 to suppress auto-opening the browser.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -34,21 +35,42 @@ if ! "$PY" -c "import fastapi, uvicorn, requests" >/dev/null 2>&1; then
     fi
 fi
 
-# ---- Frontend build (only when web/dist is missing) -------------------------
+# ---- Frontend build (missing OR stale web/dist) ------------------------------
+# A `git pull` updates web/ sources but leaves the previously-built web/dist
+# in place, silently serving the old UI. Rebuild whenever any frontend source
+# is newer than the built index.html.
+NEED_BUILD=0
 if [ ! -f web/dist/index.html ]; then
+    NEED_BUILD=1
+elif [ -n "$(find web/src web/public web/index.html web/package.json web/vite.config.js \
+             -newer web/dist/index.html -print -quit 2>/dev/null)" ]; then
+    NEED_BUILD=1
+fi
+if [ "$NEED_BUILD" = 1 ]; then
     if ! command -v npm >/dev/null 2>&1; then
-        echo "[rexclaw] web/dist/ is missing and npm is not installed." >&2
-        echo "          Install Node.js (https://nodejs.org), then re-run ./run.sh" >&2
-        exit 1
-    fi
-    echo "[rexclaw] building frontend (first run only)…"
-    (cd web && [ -d node_modules ] || npm install --no-fund --no-audit)
-    # A node_modules that was moved/copied from another path has broken .bin
-    # symlinks (same failure mode as a moved venv) — on build failure, wipe
-    # and reinstall once before giving up.
-    if ! (cd web && npm run build); then
-        echo "[rexclaw] build failed — reinstalling node_modules and retrying…"
-        (cd web && rm -rf node_modules && npm install --no-fund --no-audit && npm run build)
+        if [ -f web/dist/index.html ]; then
+            # Stale but present: degrade gracefully — an outdated UI beats
+            # refusing to start on a machine that no longer has Node.
+            echo "[rexclaw] web/ sources changed but npm is not installed — serving the previous build." >&2
+        else
+            echo "[rexclaw] web/dist/ is missing and npm is not installed." >&2
+            echo "          Install Node.js (https://nodejs.org), then re-run ./run.sh" >&2
+            exit 1
+        fi
+    else
+        echo "[rexclaw] building frontend…"
+        # Install deps when node_modules is absent OR the lockfile changed
+        # (a pull can bring new dependencies).
+        (cd web && { [ -d node_modules ] \
+            && [ ! package-lock.json -nt node_modules/.package-lock.json ]; } \
+            || npm install --no-fund --no-audit)
+        # A node_modules that was moved/copied from another path has broken .bin
+        # symlinks (same failure mode as a moved venv) — on build failure, wipe
+        # and reinstall once before giving up.
+        if ! (cd web && npm run build); then
+            echo "[rexclaw] build failed — reinstalling node_modules and retrying…"
+            (cd web && rm -rf node_modules && npm install --no-fund --no-audit && npm run build)
+        fi
     fi
 fi
 

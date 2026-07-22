@@ -4,7 +4,9 @@ rem
 rem   run.bat
 rem
 rem First run: creates the Python venv, installs backend deps, and builds the
-rem frontend if web\dist\ is missing. Subsequent runs skip straight to launch.
+rem frontend. Subsequent runs skip straight to launch - the frontend is only
+rem rebuilt when web\ sources are newer than the built web\dist (e.g. after
+rem a `git pull`).
 setlocal
 cd /d "%~dp0"
 
@@ -25,17 +27,35 @@ if errorlevel 1 (
     "%PY%" -m pip install --quiet -e .
 )
 
-rem ---- Frontend build (only when web\dist is missing) ------------------------
+rem ---- Frontend build (missing OR stale web\dist) -----------------------------
+rem A `git pull` updates web\ sources but leaves the previously-built web\dist
+rem in place, silently serving the old UI. Rebuild whenever any frontend
+rem source is newer than the built index.html.
+set NEED_BUILD=0
 if not exist web\dist\index.html (
+    set NEED_BUILD=1
+) else (
+    powershell -NoProfile -Command "$d=(Get-Item 'web/dist/index.html').LastWriteTime; if (Get-ChildItem 'web/src','web/public','web/index.html','web/package.json','web/vite.config.js' -Recurse -File | Where-Object { $_.LastWriteTime -gt $d } | Select-Object -First 1) { exit 1 }" >nul 2>&1
+    if errorlevel 1 set NEED_BUILD=1
+)
+if "%NEED_BUILD%"=="1" (
     where npm >nul 2>&1
     if errorlevel 1 (
-        echo [rexclaw] web\dist\ is missing and npm is not installed.
-        echo           Install Node.js from https://nodejs.org, then re-run run.bat
-        exit /b 1
+        if exist web\dist\index.html (
+            rem Stale but present: degrade gracefully - an outdated UI beats
+            rem refusing to start on a machine that no longer has Node.
+            echo [rexclaw] web\ sources changed but npm is not installed - serving the previous build.
+        ) else (
+            echo [rexclaw] web\dist\ is missing and npm is not installed.
+            echo           Install Node.js from https://nodejs.org, then re-run run.bat
+            exit /b 1
+        )
+    ) else (
+        echo [rexclaw] building frontend...
+        rem npm install also picks up dependencies a pull may have added;
+        rem it is fast when node_modules is already up to date.
+        cd web && call npm install --no-fund --no-audit && call npm run build && cd ..
     )
-    echo [rexclaw] building frontend ^(first run only^)...
-    if not exist web\node_modules (cd web && call npm install --no-fund --no-audit && cd ..)
-    cd web && call npm run build && cd ..
 )
 
 rem ---- Launch -----------------------------------------------------------------
