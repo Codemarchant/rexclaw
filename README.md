@@ -60,33 +60,16 @@ python3 -m venv .venv && .venv/bin/pip install -e .   # once
 
 ### 🐳 Docker
 
-No Python or Node on the machine? The container bundles everything:
-
 ```bash
 docker compose up -d          # → http://localhost:8990
 ```
 
-or without compose:
-
-```bash
-docker build -t rexclaw .
-docker run -d -p 127.0.0.1:8990:8990 -v rexclaw-data:/data rexclaw
-```
-
-All state (SQLite DB, generated images, avatar packs you drop in) lives in
-the `/data` volume. Tagged releases are also published as
-`ghcr.io/codemarchant/rexclaw`.
-
-Two things to know before exposing it beyond localhost:
-
-- **No authentication.** Anyone who can reach the port can chat on your xAI
-  key. The compose file publishes on `127.0.0.1` on purpose — widen it to a
-  trusted LAN only, or front it with an authenticating reverse proxy.
-- **Mic + VR need a secure context.** Browsers only allow microphone capture
-  and WebXR on `https://` or `localhost`. From another device (phone,
-  headset), plain `http://<lan-ip>:8990` will load but stay muted — either
-  tunnel it to the device's localhost (`ssh -L`, Tailscale `serve`) or put
-  TLS in front (Caddy/Traefik make this a three-liner).
+No Python or Node needed — the image (`ghcr.io/codemarchant/rexclaw`)
+bundles everything, with all state in the `/data` volume. There's no
+authentication, so the compose file only publishes on `127.0.0.1`; if you
+open it up wider, anyone who can reach the port can use your xAI key. And
+since browsers require HTTPS (or localhost) for mic and VR, access from
+other devices needs a TLS reverse proxy or a localhost tunnel.
 
 ## 👥 Meet the crew
 
