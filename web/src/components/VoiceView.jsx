@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { useReactive } from "../lib/reactive";
-import { voice, avatarRenderer } from "../services";
+import { voice, avatarRenderer, notification } from "../services";
 import { uiState, toggleImmersive, exitImmersive } from "../lib/ui_state";
 import { EMOTIONS, EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
+import { VRManager } from "../vr/vr_manager";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 import Transcript from "./Transcript.jsx";
 
@@ -14,6 +15,36 @@ const MOVE_KEY_MAP = {
     KeyA: "left", ArrowLeft: "left",
     KeyD: "right", ArrowRight: "right",
 };
+
+// Prefer an AR session: it supports passthrough AND can occlude it with a
+// skybox, so the in-headset A/X button toggles AR↔VR with no session
+// restart. Falls back to immersive-vr (skybox only) if AR is unsupported
+// (handled in renderer.enterXR).
+const XR_MODE = "immersive-ar";
+
+/** Headset browsers (e.g. Pico) often don't repaint already-laid-out
+ *  icon-font glyphs when the FontAwesome webfont finishes loading, so the
+ *  topbar icons stay blank until an interaction forces a style recalc.
+ *  Force a one-frame compositing repaint of the view once fonts are ready
+ *  (and again after an explicit FA load in case `ready` resolved early). */
+function ensureIconsPaint(rootRef) {
+    const repaint = () => {
+        const el = rootRef?.current;
+        if (!el) return;
+        el.style.transform = "translateZ(0)";
+        void el.offsetHeight;  // force reflow
+        requestAnimationFrame(() => {
+            if (rootRef?.current) rootRef.current.style.transform = "";
+        });
+    };
+    const fonts = document.fonts;
+    if (fonts?.ready) {
+        fonts.ready.then(repaint).catch(() => {});
+        try { fonts.load("normal 16px FontAwesome").then(repaint).catch(() => {}); } catch (e) { /* non-fatal */ }
+    } else {
+        setTimeout(repaint, 300);
+    }
+}
 
 export default function VoiceView({ active = true }) {
     const sv = useReactive(voice.state);
@@ -29,9 +60,15 @@ export default function VoiceView({ active = true }) {
     const [moveMode, setMoveMode] = useState(false);
     const [currentEmotion, setCurrentEmotion] = useState("neutral");
     const [draftText, setDraftText] = useState("");
+    const [xrSupported, setXrSupported] = useState(false);   // headset/browser can present immersive VR
+    const [mrSupported, setMrSupported] = useState(false);   // immersive-ar (passthrough MR) also available
+    const [addAgentId, setAddAgentId] = useState("");        // group-call "Add agent" dropdown selection
     const loadedAvatarId = useRef(null);
     const moveKeys = useRef(new Set());
     const textInputRef = useRef(null);
+    const rootRef = useRef(null);
+    const vrManagerRef = useRef(null);
+    const vrGesturesRef = useRef(() => []);
 
     const isLive = sv.status === "live";
     const isConnecting = sv.status === "connecting";
@@ -61,6 +98,22 @@ export default function VoiceView({ active = true }) {
     }, []);
 
     useEffect(() => {
+        ensureIconsPaint(rootRef);
+        // Probe WebXR support (async, headset/browser dependent) so the
+        // Enter VR button only appears where an immersive session is possible.
+        avatarRenderer.checkXRSupport?.()
+            .then((ok) => setXrSupported(!!ok))
+            .catch(() => {});
+        avatarRenderer.checkARSupport?.()
+            .then((ok) => setMrSupported(!!ok))
+            .catch(() => {});
+        // VR controllers/push-to-talk/haptics — attaches to the renderer's
+        // XR lifecycle; dormant until enterVR() starts a session.
+        vrManagerRef.current = new VRManager(avatarRenderer, {
+            voice,
+            getGestures: () => vrGesturesRef.current(),
+        });
+        vrManagerRef.current.attach();
         (async () => {
             try {
                 const data = await rpc("/api/voice/agents", {});
@@ -80,6 +133,9 @@ export default function VoiceView({ active = true }) {
             loadHistory();
         })();
         return () => {
+            // Tear down VR wiring (and end any live session) before the rest.
+            vrManagerRef.current?.detach();
+            vrManagerRef.current = null;
             // Drop walk mode + full-body framing when the view unmounts.
             avatarRenderer.setMoveMode?.(false);
             avatarRenderer.setFullBodyMode?.(false);
@@ -158,9 +214,38 @@ export default function VoiceView({ active = true }) {
         avatarRenderer.setMoveInput?.(0, 0);
     }, []);
 
+    /** Point walk-mode input at character `idx` (0 = the main avatar,
+     *  1… = call peers in join order) and toast who's being controlled. */
+    const selectWalkActor = useCallback((idx) => {
+        let ok;
+        let name;
+        if (idx === 0) {
+            ok = avatarRenderer.setMoveActor?.("base");
+            name = voice.state.agentName || "Main avatar";
+        } else {
+            const peer = (voice.state.peers || [])[idx - 1];
+            if (!peer) return;  // no such participant — ignore the key
+            ok = avatarRenderer.setMoveActor?.(peer.connId);
+            name = peer.agentName || "Companion";
+        }
+        if (ok) {
+            notification.add(`Walk control: ${name}`, { type: "info" });
+        }
+    }, []);
+
     const handleMoveKey = useCallback((ev, down) => {
         const t = ev.target;
         if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+        // Number keys select WHICH character the movement keys drive:
+        // 1 = the main avatar, 2… = the agents added to the call, in join
+        // order. Only meaningful in a group call — solo calls have nothing
+        // else to steer.
+        if (/^Digit[1-9]$/.test(ev.code) && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+            if (!down) return;
+            ev.preventDefault();
+            selectWalkActor(Number(ev.code.slice(5)) - 1);
+            return;
+        }
         const dir = MOVE_KEY_MAP[ev.code];
         if (!dir) return;
         ev.preventDefault();
@@ -170,7 +255,7 @@ export default function VoiceView({ active = true }) {
             (moveKeys.current.has("right") ? 1 : 0) - (moveKeys.current.has("left") ? 1 : 0),
             (moveKeys.current.has("fwd") ? 1 : 0) - (moveKeys.current.has("back") ? 1 : 0),
         );
-    }, []);
+    }, [selectWalkActor]);
 
     const setMoveModeOn = useCallback((on) => {
         on = !!on;
@@ -278,6 +363,58 @@ export default function VoiceView({ active = true }) {
         avatarRenderer.playGesture?.(url, { loop });
     };
 
+    /** Manually fire a custom gesture record from the settings panel. Combos
+     *  need their whole payload (partner URLs + placement config), so this
+     *  takes the record rather than a bare URL — routing mirrors the
+     *  play_gesture tool dispatcher. */
+    const triggerCustomGesture = (g) => {
+        if (g.type === "combo" && g.partner_vrm_url && g.partner_vrma_url) {
+            avatarRenderer.playComboGesture?.(g);
+            return;
+        }
+        avatarRenderer.playGesture?.(g.vrma_url, { loop: !!g.loop });
+    };
+
+    /** Enter an immersive VR session, re-staging the already-loaded avatar +
+     *  live conversation in the headset. Must run from this click (WebXR
+     *  requires a user gesture). The renderer owns the session lifecycle,
+     *  dolly rig, and render-loop switch; we just kick it off and surface
+     *  failures. Exiting VR is done from the headset and restores the desktop
+     *  framing automatically (renderer _onXRSessionEnd). */
+    const enterVR = async () => {
+        try {
+            await avatarRenderer.enterXR(XR_MODE);
+        } catch (e) {
+            console.error("[voice] enter VR failed", e);
+            notification.add(`Could not start VR: ${e?.message || e}`, { type: "danger" });
+        }
+    };
+
+    // ---- group calls (multi-agent) -----------------------------------------
+
+    const callPeers = sv.peers || [];
+
+    /** Agents that can still be added: everyone except the primary agent
+     *  and the peers already in the call. */
+    const availableCallAgents = useMemo(() => {
+        const taken = new Set([Number(sv.agentId) || Number(selectedAgentId)]);
+        for (const p of callPeers) taken.add(Number(p.agentId));
+        return agents.filter((a) => !taken.has(Number(a.id)));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [agents, selectedAgentId, sv.agentId, sv.peers]);
+
+    const addAgentToCall = async () => {
+        const id = Number(addAgentId);
+        if (!id) return;
+        const agent = findAgent(id);
+        const ok = await voice.addAgentToCall(id, agent?.name || "");
+        if (ok) setAddAgentId("");
+    };
+
+    const removeCallPeer = async (connId) => {
+        await voice.removeAgentFromCall(connId);
+    };
+
     const sendTextMessage = () => {
         if (voice.sendText(draftText)) setDraftText("");
     };
@@ -300,6 +437,22 @@ export default function VoiceView({ active = true }) {
     const currentOutfits = currentAgent?.avatar?.outfits || [];
     const customGestures = (currentAgent?.avatar?.custom_gestures || []).filter((g) => g.vrma_url);
     const currentBackgrounds = currentAgent?.avatar?.backgrounds || [];
+
+    // Unified gesture list for the VR panel's Gestures tab: the built-in pack
+    // plus the current agent's custom VRMA gestures. Shape: {id,label,url,loop}
+    // — combo customs additionally carry their full payload record in `combo`
+    // so vr_manager can route them to the two-character player.
+    useEffect(() => {
+        vrGesturesRef.current = () => {
+            const builtin = GESTURES.map((g) => ({ id: g.id, label: g.label, url: g.url, loop: false }));
+            const custom = customGestures.map((g) => ({
+                id: "c" + g.id, label: g.name, url: g.vrma_url, loop: !!g.loop,
+                combo: g.type === "combo" ? g : null,
+            }));
+            return [...builtin, ...custom];
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentAgent]);
 
     const currentImagineBackground = (() => {
         const active = sv.activeBackground;
@@ -413,7 +566,8 @@ export default function VoiceView({ active = true }) {
     // ---- render --------------------------------------------------------------
 
     return (
-        <div className={"o_voice_full_view" + (ui.immersive ? " o_voice_full_view--immersive" : "")}>
+        <div ref={rootRef}
+             className={"o_voice_full_view" + (ui.immersive ? " o_voice_full_view--immersive" : "")}>
             {!ui.immersive && showHistory && (
                 <div className="o_voice_full_history">
                     <div className="o_voice_full_history_header"><strong>History</strong></div>
@@ -454,8 +608,16 @@ export default function VoiceView({ active = true }) {
                         {canMoveMode && (
                             <button className={"btn btn-light" + (moveMode ? " active" : "")}
                                     onClick={() => setMoveModeOn(!moveMode)}
-                                    title={moveMode ? "Disable walk mode" : "Enable walk mode (WASD / arrow keys)"}>
+                                    title={moveMode ? "Disable walk mode" : "Enable walk mode (WASD / arrow keys — number keys pick which character to move in a group call)"}>
                                 <i className="fa fa-gamepad" />
+                            </button>
+                        )}
+                        {xrSupported && (
+                            <button className="btn btn-light" onClick={enterVR}
+                                    title={mrSupported
+                                        ? "Enter MR/VR — passthrough mixed reality (toggle Virtual/Passthrough on the in-headset panel)"
+                                        : "Enter VR — stand with your companion in a headset (passthrough MR unavailable on this browser)"}>
+                                <i className="fa fa-cube" />
                             </button>
                         )}
                         <button className={"btn btn-light" + (showSettings ? " active" : "")}
@@ -529,9 +691,9 @@ export default function VoiceView({ active = true }) {
                                 <div className="o_voice_full_settings_grid">
                                     {customGestures.map((g) => (
                                         <button key={g.id} className="btn btn-sm btn-outline-light"
-                                                onClick={() => triggerGesture(g.vrma_url, g.loop)}
-                                                title={g.loop ? `${g.name} (loops)` : g.name}>
-                                            <i className={g.loop ? "fa fa-repeat" : "fa fa-star-o"} />
+                                                onClick={() => triggerCustomGesture(g)}
+                                                title={(g.type === "combo" ? `${g.name} (combo)` : g.name) + (g.loop ? " (loops)" : "")}>
+                                            <i className={g.type === "combo" ? "fa fa-users" : (g.loop ? "fa fa-repeat" : "fa fa-star-o")} />
                                             <span className="ms-1">{g.name}</span>
                                         </button>
                                     ))}
@@ -548,7 +710,7 @@ export default function VoiceView({ active = true }) {
                                     disabled={isLive || isConnecting}>
                                 {agents.map((agent) => (
                                     <option key={agent.id} value={agent.id}>
-                                        {agent.name} · {agent.voice}
+                                        {agent.name} · {agent.voice_label || agent.voice}
                                     </option>
                                 ))}
                             </select>
@@ -592,6 +754,45 @@ export default function VoiceView({ active = true }) {
                                     </button>
                                 )}
                             </div>
+                            {/* Group call: agents currently in the call + "add another" picker.
+                                Only shown while live — adding an agent opens a second realtime
+                                connection and stands its avatar beside the current one. */}
+                            {isLive && (
+                                <div className="o_voice_call_agents">
+                                    {callPeers.map((peer) => (
+                                        <span key={peer.connId} className="o_voice_call_peer_chip"
+                                              title={`${peer.agentName || "Agent"} is in this call`}>
+                                            <i className="fa fa-user" />
+                                            <span>{peer.agentName || "Agent"}</span>
+                                            <button className="btn btn-link p-0 ms-1"
+                                                    onClick={() => removeCallPeer(peer.connId)}
+                                                    title="Remove from call">
+                                                <i className="fa fa-times" />
+                                            </button>
+                                        </span>
+                                    ))}
+                                    {availableCallAgents.length > 0 && (
+                                        <>
+                                            <select value={addAgentId}
+                                                    onChange={(ev) => setAddAgentId(ev.target.value)}
+                                                    title="Add another agent to the call">
+                                                <option value="">Add agent to call…</option>
+                                                {availableCallAgents.map((agent) => (
+                                                    <option key={agent.id} value={agent.id}>
+                                                        {agent.name} · {agent.voice_label || agent.voice}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <button className="btn btn-sm btn-secondary"
+                                                    disabled={!addAgentId}
+                                                    onClick={addAgentToCall}
+                                                    title="Add the selected agent to this call">
+                                                <i className="fa fa-user-plus" /> Add
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         {sv.errorMessage && (
                             <div className="o_voice_error">

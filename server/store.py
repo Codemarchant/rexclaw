@@ -35,6 +35,45 @@ def background_payload(row):
     return payload
 
 
+def resolve_gesture_partner(con, gesture_row):
+    """Return the gesture row as a plain dict with the combo partner resolved.
+
+    `partner_avatar` references an existing avatar by pack_key or display
+    name; when it resolves, partner_avatar_id / partner_vrm_url come from
+    that avatar (so the renderer can borrow an already-loaded peer model and
+    the URL tracks the avatar's own file). Otherwise the gesture's dedicated
+    partner_vrm_path is used. Solo gestures pass through unchanged.
+    """
+    g = dict(gesture_row)
+    if (g.get('gesture_type') or 'solo') != 'combo':
+        return g
+    g['partner_avatar_id'] = None
+    g['partner_vrm_url'] = g.get('partner_vrm_path') or None
+    ref = (g.get('partner_avatar') or '').strip()
+    if ref:
+        row = con.execute(
+            "SELECT id, vrm_path FROM avatars WHERE pack_key = ? OR name = ? "
+            "ORDER BY CASE WHEN pack_key = ? THEN 0 ELSE 1 END LIMIT 1",
+            (ref, ref, ref),
+        ).fetchone()
+        if row:
+            g['partner_avatar_id'] = row['id']
+            g['partner_vrm_url'] = row['vrm_path']
+    return g
+
+
+def gesture_is_playable(g):
+    """Whether this gesture (dict, partner-resolved) has everything the
+    browser needs to play it. Shared filter for avatar_payload and
+    build_play_gesture_tool so an unfinished combo never reaches the
+    play_gesture enum."""
+    if not (g.get('gesture_enum') and g.get('vrma_path')):
+        return False
+    if (g.get('gesture_type') or 'solo') == 'combo':
+        return bool(g.get('partner_vrm_url') and g.get('partner_vrma_path'))
+    return True
+
+
 def avatar_payload(con, avatar_id):
     """Mirror rexclaw.voice.avatar.to_payload(). Returns None when no avatar."""
     if not avatar_id:
@@ -72,17 +111,49 @@ def avatar_payload(con, avatar_id):
         })
     backgrounds = [background_payload(b) for b in bg_rows]
     default_bg = next((b for b in bg_rows if b['is_default']), None)
-    custom_gestures = [
-        {
+    # Custom gestures are surfaced to the dispatcher so play_gesture calls
+    # for non-built-in ids resolve to the right VRMA URL. Built-in gestures
+    # still come from the static avatar_catalog.js map. Combos ride the same
+    # list with type='combo' plus the partner URLs and placement numbers the
+    # renderer needs to stage both characters.
+    custom_gestures = []
+    for g in gesture_rows:
+        g = resolve_gesture_partner(con, g)
+        if not gesture_is_playable(g):
+            continue
+        entry = {
             'id': g['id'],
             'gesture_enum': g['gesture_enum'],
             'name': g['name'],
             'vrma_url': g['vrma_path'],
             'loop': bool(g['loop']),
+            'type': g.get('gesture_type') or 'solo',
         }
-        for g in gesture_rows
-        if g['gesture_enum'] and g['vrma_path']
-    ]
+        if entry['type'] == 'combo':
+            entry.update({
+                # Avatar identity of the partner (False for direct file
+                # references). The renderer uses it to recognise when the
+                # partner character is ALREADY standing in the call as a
+                # live peer avatar — it then borrows that model for the
+                # combo instead of spawning a duplicate copy.
+                'partner_avatar_id': g.get('partner_avatar_id') or False,
+                'partner_vrm_url': g.get('partner_vrm_url') or False,
+                'partner_vrma_url': g.get('partner_vrma_path') or False,
+                'base_offset_x': g.get('base_offset_x') or 0.0,
+                'base_offset_y': g.get('base_offset_y') or 0.0,
+                'base_offset_z': g.get('base_offset_z') or 0.0,
+                'base_yaw': g.get('base_yaw') or 0.0,
+                'base_pitch': g.get('base_pitch') or 0.0,
+                'base_roll': g.get('base_roll') or 0.0,
+                'partner_offset_x': g.get('partner_offset_x') or 0.0,
+                'partner_offset_y': g.get('partner_offset_y') or 0.0,
+                'partner_offset_z': g.get('partner_offset_z') or 0.0,
+                'partner_yaw': g.get('partner_yaw') or 0.0,
+                'partner_pitch': g.get('partner_pitch') or 0.0,
+                'partner_roll': g.get('partner_roll') or 0.0,
+                'partner_scale': g.get('partner_scale') or 1.0,
+            })
+        custom_gestures.append(entry)
     return {
         'id': av['id'],
         'name': av['name'],
@@ -130,14 +201,17 @@ def agent_outfit_dicts(con, agent_row):
 
 
 def agent_gesture_dicts(con, agent_row):
+    """Solo AND combo customs, partner-resolved — a combo is just a gesture
+    that stages a second character while it plays, so both kinds share the
+    play_gesture enum. Unplayable rows (unfinished combos) are filtered by
+    the tool builder via gesture_is_playable."""
     if not agent_row['avatar_id']:
         return []
     rows = con.execute(
-        "SELECT gesture_enum, description, loop, vrma_path FROM avatar_gestures "
-        "WHERE avatar_id = ? ORDER BY sequence, id",
+        "SELECT * FROM avatar_gestures WHERE avatar_id = ? ORDER BY sequence, id",
         (agent_row['avatar_id'],),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [resolve_gesture_partner(con, r) for r in rows]
 
 
 def mcp_entries_for(con, agent_id, *, surface):
@@ -211,17 +285,18 @@ def next_sequence(con, session_id):
 
 
 def insert_message(con, session_id, *, sequence=None, role, content='',
+                   speaker=None,
                    tool_name=None, tool_arguments_json=None, tool_result_json=None,
                    xai_item_id=None, xai_call_id=None, xai_previous_item_id=None,
                    is_summary_rollup=0):
     if sequence is None:
         sequence = next_sequence(con, session_id)
     cur = con.execute(
-        """INSERT INTO messages (session_id, sequence, role, content, tool_name,
+        """INSERT INTO messages (session_id, sequence, role, content, speaker, tool_name,
                tool_arguments_json, tool_result_json, xai_item_id, xai_call_id,
                xai_previous_item_id, is_summary_rollup, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (session_id, sequence, role, content or '', tool_name,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (session_id, sequence, role, content or '', speaker or None, tool_name,
          tool_arguments_json, tool_result_json, xai_item_id, xai_call_id,
          xai_previous_item_id, int(bool(is_summary_rollup)), utcnow()),
     )

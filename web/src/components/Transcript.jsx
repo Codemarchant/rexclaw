@@ -269,7 +269,10 @@ export default function Transcript({
                             </>
                         ) : (
                             <>
-                                <div className="o_voice_msg_role">{msg.role}</div>
+                                {/* Group calls stamp assistant rows with the speaking
+                                    agent's name — show it instead of the generic role
+                                    so three-way exchanges read clearly. */}
+                                <div className="o_voice_msg_role">{msg.speaker || msg.role}</div>
                                 <div className="o_voice_msg_content">{msg.content || ""}</div>
                             </>
                         )}

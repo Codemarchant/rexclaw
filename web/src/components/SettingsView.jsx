@@ -147,6 +147,7 @@ Web and X search are available whenever current information helps — just look 
         ["enable_voice_mode", "Voice mode"],
         ["enable_text_mode", "Text mode"],
         ["enable_gesture_emotion_tools", "Avatar control tools"],
+        ["enable_call_agents_tool", "Call-companion tool (group calls)"],
         ["enable_web_search", "Web search"],
         ["enable_x_search", "X search"],
         ["enable_grok_imagine_tools", "Grok Imagine"],
@@ -188,6 +189,17 @@ Web and X search are available whenever current information helps — just look 
                             <label>Imagine model</label>
                             <input type="text" value={config.imagine_model || ""}
                                    onChange={(ev) => setField("imagine_model", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label title={"Model for the group-call turn director (a one-token \"who speaks next\" "
+                                + "classification on every group-call turn). Latency matters more than intelligence "
+                                + "here — use the fastest non-reasoning model available. Empty = fall back to the "
+                                + "Text Model."}>
+                                Turn director model
+                            </label>
+                            <input type="text" value={config.director_model || ""}
+                                   placeholder="grok-4.20-non-reasoning"
+                                   onChange={(ev) => setField("director_model", ev.target.value)} />
                         </div>
                     </div>
                 </section>
@@ -347,6 +359,14 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, AGENT_FLAGS
             <label>System prompt</label>
             <textarea rows={14} value={editingAgent.system_prompt || ""}
                       onChange={(ev) => setEditingAgent({ ...editingAgent, system_prompt: ev.target.value })} />
+            <label title={"Shown to OTHER companions inside their add_agent_to_call tool so they know when "
+                + "to bring this companion into a live group call. Leave empty and other companions "
+                + "only see the name."}>
+                When to call (shown to other companions for group calls)
+            </label>
+            <textarea rows={2} value={editingAgent.when_to_call_description || ""}
+                      placeholder="e.g. 'Sales specialist — call for pricing, quotes, or negotiation roleplay.'"
+                      onChange={(ev) => setEditingAgent({ ...editingAgent, when_to_call_description: ev.target.value })} />
             <div className="rx_flags">
                 {AGENT_FLAGS.map(([key, label]) => (
                     <span key={key} className="rx_check">

@@ -25,6 +25,35 @@ def session_start(payload: dict = Body(default={}), con=Depends(db_con)):
     resume_session = None
     if payload.get("resume_session_id"):
         resume_session = resolve_session(con, payload["resume_session_id"])
+
+    # Multi-agent calls: a "peer" leg links back to the primary leg's
+    # session and runs with manual turn detection. All optional and ignored
+    # for ordinary solo sessions.
+    call_parent_session = None
+    if payload.get("call_parent_session_id"):
+        call_parent_session = resolve_session(con, payload["call_parent_session_id"])
+    group_peers = payload.get("group_peers")
+    if group_peers is not None and not isinstance(group_peers, list):
+        raise ValidationError("group_peers must be a list of names.")
+    group_peers = [str(n)[:80] for n in (group_peers or []) if n]
+
+    # resume_last: continue the agent's most recent voice session instead
+    # of starting a blank one. Used by peer legs (agents invited into a
+    # group call) so a called companion arrives with its memory of past
+    # conversations intact — the same "Resume last" semantics the UI
+    # offers for solo calls. An explicit resume_session_id always wins
+    # (the compaction-restart path passes one). 'active' is included so
+    # a stranded session (tab closed before End) is still picked up.
+    if payload.get("resume_last") and not resume_session:
+        q = ("SELECT * FROM sessions WHERE mode = 'voice' AND agent_id = ?"
+             " AND state IN ('ended', 'active')")
+        params = [agent["id"]]
+        if call_parent_session:
+            q += " AND id != ?"
+            params.append(call_parent_session["id"])
+        q += " ORDER BY last_active_at DESC, id DESC LIMIT 1"
+        resume_session = con.execute(q, params).fetchone()
+
     try:
         rate = int(payload.get("audio_sample_rate") or 24000)
     except (TypeError, ValueError):
@@ -33,6 +62,9 @@ def session_start(payload: dict = Body(default={}), con=Depends(db_con)):
         rate = min(XAI_PCM_RATES, key=lambda r: (abs(r - rate), r))
     return session_service.start_session(
         con, agent=agent, resume_session=resume_session, audio_sample_rate=rate,
+        manual_turn=bool(payload.get("manual_turn")),
+        call_parent_session=call_parent_session,
+        group_peers=group_peers,
     )
 
 
@@ -97,6 +129,25 @@ def session_end(session_id: int, payload: dict = Body(default={}), con=Depends(d
         reason=payload.get("reason") or "client",
         total_input_tokens=payload.get("total_input_tokens") or 0,
         total_output_tokens=payload.get("total_output_tokens") or 0,
+    )
+
+
+@router.post("/director/decide")
+def director_decide(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Group-call turn director: given the recent speaker-labelled transcript
+    and the candidate agents, decide who speaks next ('user' or a
+    participant key). Gated through the primary leg's session; failures
+    degrade to {'next': None} and the client applies its local rules."""
+    session = resolve_session(con, payload.get("session_id"))
+    transcript = payload.get("transcript")
+    participants = payload.get("participants")
+    return session_service.director_decide(
+        con,
+        session=session,
+        transcript_lines=transcript if isinstance(transcript, list) else [],
+        participants=participants if isinstance(participants, list) else [],
+        user_name=payload.get("user_name"),
+        floor_key=payload.get("floor_key"),
     )
 
 

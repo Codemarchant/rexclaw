@@ -22,7 +22,10 @@ in a SQLite file on your disk, and your API key never leaves your machine.
 | 🌍 **Speaks any language** | Grok Voice is multilingual out of the box. Switch language mid-sentence — your companion follows. |
 | 🧠 **Memory that grows with you** | Two layers: rolling in-session compaction keeps a conversation alive indefinitely (resume days later, she picks up where you left off), and durable cross-session memories — name, projects, preferences — reviewable and deletable in Settings. |
 | 🧍 **Living 3D avatars** | three.js + @pixiv/three-vrm: viseme lip-sync from the live audio, idle breath/blink/eye-saccades, camera eye contact, emotions and body-language gestures the model triggers itself mid-conversation. |
-| 🚶 **Walkable 3D scenes** | GLB environments as backgrounds with WASD/arrow walk mode and a trailing camera. A grid playground ships in the box. |
+| 🚶 **Walkable 3D scenes** | GLB environments as backgrounds with WASD/arrow walk mode and a trailing camera. A grid playground ships in the box. In a group call, number keys pick which character you're steering. |
+| 📞 **Multi-agent group calls** | Add companions to a live call — or let them invite each other ("call Rex for this one"). Each joins with its own voice, avatar and memory; a fast LLM turn director decides who speaks next, with no audio cross-feeding between agents. |
+| 🥽 **VR & mixed reality (WebXR)** | Step into the room with your companion on a Quest/Pico headset — passthrough MR where available, spatial audio at the avatar's head, controller haptics, an in-headset panel (mute, emotions, gestures, move mode), physical hand-to-hair/clothing contact, and an opt-in full-body ragdoll you can grab. |
+| 🤝 **Combo gestures** | Two-character VRMA animations — dancing together, hugs — where a partner VRM joins the scene in sync with your avatar, with per-character placement controls. A live call peer is borrowed as the partner instead of spawning a duplicate. |
 | 🎨 **Grok Imagine built in** | Ask her to redecorate (`change_background` swaps the live scene), generate images into the transcript, or edit photos you upload in chat. |
 | 👥 **A fully written crew** | Eve, Ara, Rex, Sal and Leo — five companions with backstories, speech quirks and matching voices. Fork them or build your own. |
 | 🔌 **Remote MCP tools** | Attach any number of remote MCP servers per companion, with bearer auth and per-tool whitelists — configured in the UI. |
@@ -191,8 +194,18 @@ FastAPI ── SQLite + local files             (data/rexclaw.sqlite3, data/file
 
 - Animation credits: bundled VRMA clips include pixiv Inc.'s VRoid Project
   Motion Pack (commercial use permitted with credit).
+
+## ☕ Support
+
+Rexclaw Companions is free and open source. If it made your desk a little
+less lonely, you can [buy me a coffee](https://buymeacoffee.com/codemarchant) —
+it keeps the companions talking.
+
 ---
 
 *Want Rexclaw Companions fully embedded in your business ERP — searching
 records, navigating views, and driving Odoo hands-free? Check out
-**[RexClaw Companions for Odoo](https://apps.odoo.com/apps/modules/19.0/odoo_rexclaw_companions)**.*
+**[RexClaw Companions for Odoo](https://apps.odoo.com/apps/modules/19.0/odoo_rexclaw_companions)**.
+An Odoo site also doubles as a hub for your companions: host it once and
+talk to them from any device — desktop, phone, tablet or VR headset —
+with shared conversations and memory everywhere you sign in.*

@@ -6,10 +6,6 @@
  * mini canvas and the full-screen client action share this single instance to
  * avoid hitting Chrome's 16-WebGL-context cap.
  *
- * three.js + @pixiv/three-vrm + three-vrm-animation are loaded from esm.sh on
- * first mount — keeps the backend asset bundle minimal for users who never
- * open the avatar.
- *
  * Three.js gotchas worth flagging (from prior project memory):
  * - NEVER use lookAt() then mutate rotation.z/.x — corrupts the rotation matrix.
  *   We use manual rotation.set(0, atan2(dx,dz), 0) for the head tracker.
@@ -21,7 +17,13 @@
 // block third-party scripts (Brave shields, strict tracking protection).
 // Bundling also makes the avatar work fully offline.
 import * as THREE_NS from "three";
-import { VRMLoaderPlugin, VRMUtils, VRMExpressionPresetName } from "@pixiv/three-vrm";
+import {
+    VRMLoaderPlugin,
+    VRMUtils,
+    VRMExpressionPresetName,
+    VRMSpringBoneCollider,
+    VRMSpringBoneColliderShapeSphere,
+} from "@pixiv/three-vrm";
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from "@pixiv/three-vrm-animation";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -34,6 +36,8 @@ async function loadLibs() {
         VRMLoaderPlugin,
         VRMUtils,
         VRMExpressionPresetName,
+        VRMSpringBoneCollider,
+        VRMSpringBoneColliderShapeSphere,
         VRMAnimationLoaderPlugin,
         createVRMAnimationClip,
         GLTFLoader,
@@ -230,6 +234,27 @@ const CAM_FOLLOW_RATE = 5;
 // _ensureWalkAction, which re-binds per VRM).
 let walkVrmaPromise = null;
 
+// ── Multi-agent call layout ─────────────────────────────────────────────
+// When peer avatars join (multi-agent calls), all characters are spread
+// horizontally with this spacing, each turned slightly toward the group
+// centre so the composition reads as people standing together, not a
+// police lineup. The camera preset widens automatically to fit the row.
+const CALL_SPACING_X = 1.1;          // metres between adjacent characters
+const CALL_INWARD_YAW = 12 * Math.PI / 180;
+const CALL_FRAME_SIDE_MARGIN = 0.6;  // metres of breathing room past the outermost head
+
+// ── WebXR constants ─────────────────────────────────────────────────────
+const XR_DOLLY_DISTANCE = 0.8;   // metres in front of the avatar for the VR camera rig
+const XR_VR_BG = 0x0e1015;       // solid backdrop for immersive-vr (no passthrough)
+// Humanoid bones the proximity touch-detector samples.
+const XR_TOUCH_BONES = [
+    "head", "neck", "upperChest", "chest", "spine", "hips",
+    "leftShoulder", "leftUpperArm", "leftLowerArm", "leftHand",
+    "rightShoulder", "rightUpperArm", "rightLowerArm", "rightHand",
+    "leftUpperLeg", "leftLowerLeg", "leftFoot",
+    "rightUpperLeg", "rightLowerLeg", "rightFoot",
+];
+
 class AvatarRenderer {
     constructor() {
         this.libs = null;
@@ -266,6 +291,7 @@ class AvatarRenderer {
 
         // Locomotion state (see the MOVE_* constants above).
         this._moveMode = false;           // manual (WASD) input enabled by the full view toggle
+        this._moveActorId = "base";       // which character WASD drives: "base" or a peer id (number keys)
         this._moveInput = { x: 0, z: 0 }; // camera-relative manual direction (x = strafe right, z = forward)
         this._moveTarget = null;          // THREE.Vector3 — walkTo() destination, or null
         this._moving = false;             // walk clip + slide currently active
@@ -275,9 +301,43 @@ class AvatarRenderer {
         this._returnFacingY = null;       // target yaw for the ease-back-to-camera after stopping
         this._camFollowPos = null;        // THREE.Vector3 — smoothed avatar XZ the camera rig is anchored to
 
+        // Peer avatars (multi-agent calls) — peerId → actor object holding
+        // its own vrm/mixer/facial-animation state. Unlike the transient
+        // combo partner below, peers are persistent call participants with
+        // full blink/lipsync/emotion/gesture animation. The facial/idle
+        // helpers (_applyIdle/_applyBlink/_applyVowels/_applyEmotion/…) are
+        // parameterized over an "actor" — the base avatar's actor is `this`
+        // (all the fields already live here), and each peer object carries
+        // the same field names.
+        this._peers = new Map();
+
+        // Combo (two-character) gesture state — see playComboGesture.
+        this._comboPartner = null;        // { vrm, mixer, action } — SPAWNED second VRM while a combo runs
+        this._comboLivePeer = null;       // { peer, action, restore } — live call peer borrowed as the combo partner
+        this._comboGeneration = 0;        // monotonic — newest playComboGesture wins; bumped on unload so in-flight loads self-cancel
+        this._comboBaseRestore = null;    // { position, quaternion } — base avatar transform to restore on combo end
+        this._comboAutoFullBody = false;  // combo auto-enabled full-body framing; undo on unload
+
         // Hardcoded vowel weight multipliers, calibrated for VRoid Studio's
         // standard viseme blendshapes. Used by _applyVowels to scale lipsync.
         this.expressionMap = { aa: 1.0, ih: 0.7, ou: 0.7, ee: 0.6, oh: 0.8 };
+
+        // ── WebXR / VR state ────────────────────────────────────────────
+        this._xrActive = false;           // true while an immersive session is presenting
+        this._xrMode = null;              // "immersive-vr" | "immersive-ar"
+        this._xrEnvMode = "skybox";       // "passthrough" (AR) | "skybox" — toggled in-session
+        this._xrListenersWired = false;   // renderer.xr session listeners attached once
+        // Viewer placement + recenter use the WebXR-native reference-space
+        // offset (getOffsetReferenceSpace) — no dolly Group. See recenterXR().
+        this._xrBaseRefSpace = null;      // base XRReferenceSpace captured at session start (for reset)
+        this._xrPendingRecenter = false;  // place the viewer in front on the first XR frame
+        this._savedSceneBackground = undefined;
+        this._xrFrameCallbacks = new Set(); // per-XR-frame consumers (controllers, touch detection)
+        this._xrSessionListeners = new Set(); // VR add-ons notified on session start/end (vr_manager)
+        this._preVRMUpdateCallbacks = new Set(); // run after animation poses bones, before vrm.update (ragdoll write-back)
+        this._xrHandColliderGroup = null; // runtime spring-bone collider group for the VR hands (see attachSpringBoneColliders)
+        this._headWorldScratch = null;    // reused Vector3 for getHeadWorldPosition
+        this._eyeScratch = null;          // reused Vector3 for the XR eye-contact base
     }
 
     /** Lazily build the renderer/scene/camera, exactly once.
@@ -403,6 +463,12 @@ class AvatarRenderer {
         this._gestureAction = null;
         this._currentGestureUrl = null;
         if (this._gestureClips) this._gestureClips.clear();
+        // Partner belongs to the outgoing scene composition — drop it with
+        // no exit fade (the base VRM it was staged around is being disposed).
+        // Clear the restore snapshot first: it captured the OLD model's
+        // transform and must not be applied to the incoming one.
+        this._comboBaseRestore = null;
+        this._unloadComboPartner({ immediate: true });
         this._walkAction = null;          // was bound to the disposed model's mixer
         this._moving = false;
         this._moveTarget = null;
@@ -495,10 +561,13 @@ class AvatarRenderer {
         // final orientation + rest pose so they don't visibly lurch to catch
         // up on the first few frames after an avatar / outfit swap.
         try { vrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
+        // VR-session hand colliders survive an avatar swap: the new spring
+        // bone manager needs the shared group re-registered.
+        this._applySpringCollidersToVRM(vrm);
 
-        this._scheduleNextBlink();
+        this._scheduleNextBlink(this);
         this._scheduleNextSaccade(this.clock?.elapsedTime || 0);
-        this._buildVisemeMap();
+        this._buildVisemeMap(this);
     }
 
     /**
@@ -511,9 +580,9 @@ class AvatarRenderer {
      * and only include the raw blendshape names. We probe all known aliases
      * and record the first one that resolves so _applyVowels can use it.
      */
-    _buildVisemeMap() {
-        this._visemeMap = null;
-        const exp = this.vrm?.expressionManager;
+    _buildVisemeMap(actor) {
+        actor._visemeMap = null;
+        const exp = actor.vrm?.expressionManager;
         if (!exp) return;
 
         // Aliases to probe per canonical vowel, in preference order.
@@ -535,7 +604,7 @@ class AvatarRenderer {
                 }
             }
         }
-        this._visemeMap = map;
+        actor._visemeMap = map;
 
         const found = Object.entries(map).map(([k, v]) => `${k}→${v}`).join(", ");
         const missing = Object.keys(ALIASES).filter((k) => !map[k]);
@@ -584,6 +653,10 @@ class AvatarRenderer {
         // than fight the walk clip for bones (face/emotion blendshapes still
         // apply; they're expressionManager-level).
         if (this._moving) return;
+        // Any new gesture replaces a running (or still-loading) combo — the
+        // partner fades out and the base avatar returns to its spot. No-op
+        // when no combo is active.
+        this._unloadComboPartner();
         // Lazy cache of loaded gesture clips keyed by URL.
         if (!this._gestureClips) this._gestureClips = new Map();
         // If the same gesture is already running, restart it from the beginning
@@ -682,6 +755,10 @@ class AvatarRenderer {
      *  procedural idle stays suppressed mid-crossfade, then stop+clear it.
      *  No-op when nothing is playing. */
     stopGesture() {
+        // Combos ride _gestureAction for the base clip, so the fade below
+        // covers them too — this additionally retires the partner character
+        // and cancels a combo still downloading. No-op when none is active.
+        this._unloadComboPartner();
         const action = this._gestureAction;
         if (!action) return;
         const FADE_OUT = 0.5;
@@ -699,6 +776,728 @@ class AvatarRenderer {
     }
 
     // ------------------------------------------------------------------
+    // Combo (two-character) gestures
+    // ------------------------------------------------------------------
+
+    /** Play a two-character combo gesture: the base avatar plays
+     *  `combo.vrma_url` while a second VRM (`combo.partner_vrm_url`) is
+     *  loaded into the scene playing `combo.partner_vrma_url` at the same
+     *  time. Placement fields (offsets in metres, yaw in degrees) position
+     *  both characters so independently-authored clips line up — dancing
+     *  together, hugging, etc.
+     *
+     *  Both mixers tick with the same delta in _animate, so the clips stay
+     *  in sync for free. With `loop` both repeat until another gesture /
+     *  'idle' / set_emotion replaces them; one-shot combos end when the BASE
+     *  clip finishes. Either way the partner is then disposed and the base
+     *  avatar returns to where it stood (see _unloadComboPartner).
+     *
+     *  Partner VRMs are intentionally NOT cached: clips bake track names
+     *  against a specific VRM instance and the model is disposed on unload —
+     *  the browser HTTP cache makes replays cheap without holding tens of MB
+     *  of geometry between plays. */
+    async playComboGesture(combo) {
+        if (!this.vrm || !this.mixer) return;
+        if (!combo?.vrma_url || !combo?.partner_vrm_url || !combo?.partner_vrma_url) return;
+        // Locomotion owns the body while walking — same rule as playGesture.
+        if (this._moving) return;
+        const { THREE, GLTFLoader, VRMLoaderPlugin, VRMUtils, VRMAnimationLoaderPlugin,
+                createVRMAnimationClip } = this.libs;
+
+        const generation = ++this._comboGeneration;
+        const vrmAtCall = this.vrm;
+
+        // If the combo's partner character is ALREADY standing in the call
+        // as a live peer avatar, borrow that model for the combo instead of
+        // spawning a duplicate copy of the same character.
+        const livePeer = this._findLiveComboPartner(combo);
+
+        let partnerGltf = null;
+        let baseVrma = null;
+        let partnerVrma = null;
+        try {
+            const loadClip = async (url) => {
+                const loader = new GLTFLoader();
+                loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+                const gltf = await loader.loadAsync(url);
+                return gltf.userData.vrmAnimations?.[0] || null;
+            };
+            if (livePeer) {
+                [baseVrma, partnerVrma] = await Promise.all([
+                    loadClip(combo.vrma_url),
+                    loadClip(combo.partner_vrma_url),
+                ]);
+            } else {
+                const partnerLoader = new GLTFLoader();
+                partnerLoader.register((parser) => new VRMLoaderPlugin(parser));
+                [partnerGltf, baseVrma, partnerVrma] = await Promise.all([
+                    partnerLoader.loadAsync(combo.partner_vrm_url),
+                    loadClip(combo.vrma_url),
+                    loadClip(combo.partner_vrma_url),
+                ]);
+            }
+        } catch (e) {
+            console.error("[voice] combo gesture load failed", combo.gesture_enum, e);
+            return;
+        }
+
+        const partnerVrm = livePeer ? livePeer.vrm : partnerGltf?.userData?.vrm;
+        // Superseded while downloading — a newer combo started, something
+        // unloaded us (another gesture / 'idle' bumps _comboGeneration via
+        // _unloadComboPartner), the base VRM was swapped, or the live peer
+        // left the call / swapped outfits mid-download. Dispose any freshly
+        // loaded partner and bail without touching the scene.
+        if (generation !== this._comboGeneration || this.vrm !== vrmAtCall
+            || !partnerVrm || !baseVrma || !partnerVrma
+            || (livePeer && (!this._peers.has(livePeer.id) || livePeer.vrm !== partnerVrm))) {
+            if (partnerGltf) {
+                try { VRMUtils.deepDispose(partnerGltf.scene); } catch (e) { /* non-fatal */ }
+            }
+            return;
+        }
+
+        // Replace whatever combo/gesture is running before staging the pair.
+        this._unloadComboPartner({ immediate: true, keepGeneration: true });
+
+        // Placement rotation from the combo's config (degrees → radians).
+        // Euler order YXZ premultiplied over the face-the-camera base reads
+        // as: yaw turns the character on the spot, pitch tips it forward /
+        // backward (90 = lying on its back), roll tilts it sideways —
+        // identity when all three are 0, so plain standing combos are
+        // untouched.
+        const DEG = Math.PI / 180;
+        const comboRotation = (yaw, pitch, roll) => new THREE.Quaternion().setFromEuler(
+            new THREE.Euler((pitch || 0) * DEG, (yaw || 0) * DEG, (roll || 0) * DEG, "YXZ"));
+
+        let partnerMixer;
+        if (livePeer) {
+            // ── Live peer as partner ─────────────────────────────────────
+            // Snapshot its call-layout pose so _unloadComboPartner can put
+            // it back where it stood, then apply the combo placement. Its
+            // facial pipeline (lipsync/blink/emotion) keeps running — only
+            // the body animation is taken over by the combo clip.
+            this._comboLivePeer = {
+                peer: livePeer,
+                action: null,   // filled below once the action exists
+                restore: {
+                    position: partnerVrm.scene.position.clone(),
+                    quaternion: partnerVrm.scene.quaternion.clone(),
+                    scale: partnerVrm.scene.scale.clone(),
+                },
+            };
+            partnerVrm.scene.quaternion.copy(livePeer._baseQuat || partnerVrm.scene.quaternion)
+                .premultiply(comboRotation(combo.partner_yaw, combo.partner_pitch, combo.partner_roll));
+            partnerVrm.scene.position.set(
+                combo.partner_offset_x || 0,
+                combo.partner_offset_y || 0,
+                combo.partner_offset_z || 0,
+            );
+            const liveScale = combo.partner_scale || 1;
+            if (liveScale !== 1) partnerVrm.scene.scale.setScalar(liveScale);
+            partnerVrm.scene.updateMatrixWorld(true);
+            try { partnerVrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
+            // The peers render loop already ticks this mixer every frame —
+            // _comboPartner stays null so it isn't double-ticked.
+            partnerMixer = livePeer.mixer;
+        } else {
+            // ── Spawned partner setup — mirrors parts of _doLoadVRM ──────
+            VRMUtils.removeUnnecessaryVertices(partnerGltf.scene);
+            VRMUtils.combineSkeletons(partnerGltf.scene);
+            partnerVrm.scene.traverse((obj) => {
+                if (obj.isMesh) obj.frustumCulled = false;
+            });
+            // Normalise facing exactly like the base avatar (VRM 0.x vs 1.0),
+            // then compose the configured rotation + placement on top.
+            const faceFront = partnerVrm.lookAt?.faceFront;
+            if (faceFront) {
+                const front = faceFront.clone().normalize();
+                const q = new THREE.Quaternion().setFromUnitVectors(front, new THREE.Vector3(0, 0, 1));
+                partnerVrm.scene.quaternion.premultiply(q);
+            } else {
+                partnerVrm.scene.rotation.y = partnerVrm.meta?.metaVersion === "1" ? 0 : Math.PI;
+            }
+            partnerVrm.scene.quaternion.premultiply(
+                comboRotation(combo.partner_yaw, combo.partner_pitch, combo.partner_roll));
+            partnerVrm.scene.position.set(
+                combo.partner_offset_x || 0,
+                combo.partner_offset_y || 0,
+                combo.partner_offset_z || 0,
+            );
+            const partnerScale = combo.partner_scale || 1;
+            if (partnerScale !== 1) partnerVrm.scene.scale.setScalar(partnerScale);
+            partnerVrm.scene.updateMatrixWorld(true);
+            try { partnerVrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
+            this.scene.add(partnerVrm.scene);
+            partnerMixer = new THREE.AnimationMixer(partnerVrm.scene);
+        }
+
+        // ── Base placement — restored by _unloadComboPartner ─────────────
+        this._comboBaseRestore = {
+            position: this.vrm.scene.position.clone(),
+            quaternion: this.vrm.scene.quaternion.clone(),
+        };
+        this.vrm.scene.position.set(
+            combo.base_offset_x || 0,
+            combo.base_offset_y || 0,
+            combo.base_offset_z || 0,
+        );
+        // Compose the config rotation over the load-time orientation the same
+        // way locomotion does (R ∘ _baseQuat) — see the mirrored-yaw note in
+        // _doLoadVRM.
+        this.vrm.scene.quaternion.copy(this._baseQuat).premultiply(
+            comboRotation(combo.base_yaw, combo.base_pitch, combo.base_roll));
+        this.vrm.scene.updateMatrixWorld(true);
+
+        // Two characters need the wide shot; restore the face-shot on unload
+        // only if we were the ones who switched. HMDs own the camera in XR.
+        if (!this._fullBody && !this._xrActive) {
+            this._comboAutoFullBody = true;
+            this.setFullBodyMode(true);
+        }
+
+        // ── Actions — mirrors playGesture's crossfade choreography ───────
+        const FADE_IN = 0.25;
+        const FADE_OUT = 0.5;
+        if (this._gestureAction) {
+            const old = this._gestureAction;
+            old.fadeOut(0.15);
+            setTimeout(() => { try { old.stop(); } catch (e) { /* */ } }, 200);
+        }
+        if (this.idleClipAction) {
+            this.idleClipAction.fadeOut(FADE_IN);
+        }
+        if (livePeer) {
+            // The combo clip takes over the peer's body: retire any running
+            // peer gesture and fade its idle out, exactly like the base side.
+            if (livePeer._gestureAction) {
+                const oldPeer = livePeer._gestureAction;
+                oldPeer.fadeOut(0.15);
+                setTimeout(() => { try { oldPeer.stop(); } catch (e) { /* */ } }, 200);
+            }
+            if (livePeer.idleClipAction) {
+                livePeer.idleClipAction.fadeOut(FADE_IN);
+            }
+        }
+        const baseAction = this.mixer.clipAction(createVRMAnimationClip(baseVrma, this.vrm));
+        const partnerAction = partnerMixer.clipAction(createVRMAnimationClip(partnerVrma, partnerVrm));
+        for (const action of [baseAction, partnerAction]) {
+            if (combo.loop) {
+                action.setLoop(THREE.LoopRepeat, Infinity);
+                action.clampWhenFinished = false;
+            } else {
+                action.setLoop(THREE.LoopOnce, 1);
+                action.clampWhenFinished = true;  // hold last pose so fadeOut has a source
+            }
+            action.reset().fadeIn(FADE_IN).play();
+        }
+        // The base action doubles as _gestureAction so every existing rule —
+        // procedural-idle suppression, stopGesture's 'idle' sentinel, the
+        // replace-on-new-gesture path — applies to combos unmodified. The
+        // synthetic URL key can't collide with a solo replay of the same file.
+        this._gestureAction = baseAction;
+        this._currentGestureUrl = `combo:${combo.gesture_enum || combo.vrma_url}`;
+        if (livePeer) {
+            // Registering the action as the peer's gesture keeps its
+            // procedural idle suppressed for the duration; _comboPartner
+            // stays null so the peers render loop remains the only ticker.
+            livePeer._gestureAction = partnerAction;
+            livePeer._currentGestureUrl = this._currentGestureUrl;
+            this._comboLivePeer.action = partnerAction;
+            this._comboPartner = null;
+        } else {
+            this._comboPartner = { vrm: partnerVrm, mixer: partnerMixer, action: partnerAction };
+            // A partner staged mid-VR-session gets the hand colliders too,
+            // like every other character.
+            this._applySpringCollidersToVRM(partnerVrm);
+        }
+
+        if (combo.loop) return;  // loops end only by replacement — no finish event
+
+        const onFinished = (ev) => {
+            if (ev.action !== baseAction) return;
+            this.mixer.removeEventListener("finished", onFinished);
+            baseAction.fadeOut(FADE_OUT);
+            if (this.idleClipAction) {
+                this.idleClipAction.reset().fadeIn(FADE_OUT).play();
+            }
+            setTimeout(() => {
+                if (this._gestureAction === baseAction) {
+                    try { baseAction.stop(); } catch (e) { /* */ }
+                    this._gestureAction = null;
+                    this._currentGestureUrl = null;
+                }
+            }, FADE_OUT * 1000);
+            this._unloadComboPartner();
+        };
+        this.mixer.addEventListener("finished", onFinished);
+    }
+
+    /** Find a live call peer whose avatar IS the combo's partner character
+     *  (matched by avatar id when the combo references a stored avatar,
+     *  falling back to the VRM url for file-upload partners). Returns the
+     *  peer actor, or null → the combo spawns its own copy as before. */
+    _findLiveComboPartner(combo) {
+        for (const peer of this._peers.values()) {
+            if (!peer.vrm || !peer.mixer) continue;
+            const payload = peer.avatarPayload || {};
+            if (combo.partner_avatar_id && Number(payload.id) === Number(combo.partner_avatar_id)) {
+                return peer;
+            }
+            if (combo.partner_vrm_url
+                && (peer._loadedVrmUrl === combo.partner_vrm_url
+                    || payload.vrm_url === combo.partner_vrm_url)) {
+                return peer;
+            }
+        }
+        return null;
+    }
+
+    /** Tear down combo state: cancel any in-flight combo load, fade out and
+     *  dispose the partner VRM (or hand a borrowed live peer back to its
+     *  call-layout spot), put the base avatar back where it stood, and
+     *  undo the auto full-body switch. Safe to call when no combo is active —
+     *  playGesture/stopGesture call it unconditionally.
+     *
+     *  `immediate` skips the exit fade (used when the whole scene is being
+     *  torn down anyway, e.g. _doLoadVRM). `keepGeneration` is for
+     *  playComboGesture's own replace path, which has already claimed the
+     *  latest generation and must not invalidate itself. */
+    _unloadComboPartner({ immediate = false, keepGeneration = false } = {}) {
+        if (!keepGeneration) this._comboGeneration++;
+        if (this._comboBaseRestore && this.vrm) {
+            this.vrm.scene.position.copy(this._comboBaseRestore.position);
+            this.vrm.scene.quaternion.copy(this._comboBaseRestore.quaternion);
+            this.vrm.scene.updateMatrixWorld(true);
+        }
+        this._comboBaseRestore = null;
+        if (this._comboAutoFullBody) {
+            this._comboAutoFullBody = false;
+            if (this._fullBody) this.setFullBodyMode(false);
+        }
+        // Borrowed live peer: put it back where it stood in the call layout
+        // and ease its own idle back in. It is NOT disposed — it's a call
+        // participant, not a prop.
+        const liveCombo = this._comboLivePeer;
+        if (liveCombo) {
+            this._comboLivePeer = null;
+            const { peer, action, restore } = liveCombo;
+            if (this._peers.has(peer.id) && peer.vrm) {
+                peer.vrm.scene.position.copy(restore.position);
+                peer.vrm.scene.quaternion.copy(restore.quaternion);
+                peer.vrm.scene.scale.copy(restore.scale);
+                peer.vrm.scene.updateMatrixWorld(true);
+                try { peer.vrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
+                if (action) {
+                    if (immediate) {
+                        try { action.stop(); } catch (e) { /* non-fatal */ }
+                        if (peer._gestureAction === action) {
+                            peer._gestureAction = null;
+                            peer._currentGestureUrl = null;
+                        }
+                        if (peer.idleClipAction) {
+                            try { peer.idleClipAction.reset().play(); } catch (e) { /* non-fatal */ }
+                        }
+                    } else {
+                        try { action.fadeOut(0.5); } catch (e) { /* non-fatal */ }
+                        if (peer.idleClipAction) {
+                            try { peer.idleClipAction.reset().fadeIn(0.5).play(); } catch (e) { /* non-fatal */ }
+                        }
+                        setTimeout(() => {
+                            if (peer._gestureAction === action) {
+                                try { action.stop(); } catch (e) { /* non-fatal */ }
+                                peer._gestureAction = null;
+                                peer._currentGestureUrl = null;
+                            }
+                        }, 600);
+                    }
+                }
+            }
+        }
+        const partner = this._comboPartner;
+        if (!partner) return;
+        const dispose = () => {
+            // Identity check: a newer combo may have replaced us while the
+            // exit fade ran — never clobber its partner from a stale timeout.
+            if (this._comboPartner === partner) this._comboPartner = null;
+            try { partner.mixer.stopAllAction(); } catch (e) { /* non-fatal */ }
+            try { this.scene.remove(partner.vrm.scene); } catch (e) { /* non-fatal */ }
+            try { this.libs.VRMUtils.deepDispose(partner.vrm.scene); } catch (e) { /* non-fatal */ }
+        };
+        if (immediate) {
+            dispose();
+            return;
+        }
+        // Keep _comboPartner set through the fade — _animate ticks its mixer,
+        // which is what actually animates the fadeOut — then dispose.
+        try { partner.action.fadeOut(0.5); } catch (e) { /* non-fatal */ }
+        setTimeout(dispose, 600);
+    }
+
+    // ------------------------------------------------------------------
+    // Peer avatars (multi-agent calls)
+    // ------------------------------------------------------------------
+    //
+    // A peer is a persistent second (third, …) character standing beside
+    // the base avatar, each driven by its own agent connection: its own
+    // lipsync feed, emotions, gestures and outfit. Structurally a peer is
+    // an "actor" object carrying the same animation-state field names as
+    // the renderer itself, so every parameterized helper
+    // (_applyIdle/_applyBlink/_applyVowels/_applyEmotion/…) runs unchanged
+    // on either. Unlike the combo partner (a transient animation prop),
+    // peers live until removePeer().
+
+    _makePeerActor(peerId) {
+        return {
+            id: peerId,
+            vrm: null,
+            mixer: null,
+            idleClipAction: null,
+            avatarPayload: null,
+            _baseQuat: null,             // facing-normalised orientation (layout composes yaw on top)
+            _loadGeneration: 0,          // newest load wins; superseded loads self-dispose
+            _loadedVrmUrl: null,
+            _gestureAction: null,
+            _currentGestureUrl: null,
+            _gestureClips: new Map(),
+            // Locomotion state — peers are walkable too (number keys in
+            // walk mode select which character WASD drives).
+            _moving: false,
+            _walkAction: null,
+            _moveYaw: 0,
+            _returnFacingY: null,
+            _armSign: undefined,
+            _fingerCurl: undefined,
+            _currentVowels: { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 },
+            _currentEmotion: "neutral",
+            _emotionTransitionProgress: 1,
+            _emotionTransitionStart: null,
+            _rawSpeakingIntensity: 0,
+            _speakingIntensity: 0,
+            _headBaseY: 0,
+            _nextBlinkAt: 0,
+            _visemeMap: null,
+        };
+    }
+
+    /** Load (or swap) a peer's avatar from its server payload and stand it
+     *  beside the base avatar. Idempotent per (peerId, vrm_url). */
+    async setPeerAvatar(peerId, avatarPayload) {
+        if (!peerId || !avatarPayload?.vrm_url) return;
+        await this._ensureRenderer();
+        let peer = this._peers.get(peerId);
+        if (!peer) {
+            peer = this._makePeerActor(peerId);
+            this._peers.set(peerId, peer);
+        }
+        peer.avatarPayload = avatarPayload;
+        await this._loadPeerModel(peer, avatarPayload.vrm_url, avatarPayload.vrma_idle_url || null);
+    }
+
+    /** Swap a peer's outfit (same character, different VRM). */
+    async setPeerOutfit(peerId, vrmUrl, vrmaIdleUrl = null) {
+        const peer = this._peers.get(peerId);
+        if (!peer || !vrmUrl) return;
+        await this._loadPeerModel(peer, vrmUrl, vrmaIdleUrl || peer.avatarPayload?.vrma_idle_url || null);
+    }
+
+    async _loadPeerModel(peer, vrmUrl, idleUrl) {
+        if (peer._loadedVrmUrl === vrmUrl && peer.vrm) return;  // idempotent
+        const generation = ++peer._loadGeneration;
+        peer._loadedVrmUrl = vrmUrl;
+        const { THREE, GLTFLoader, VRMLoaderPlugin, VRMUtils, VRMAnimationLoaderPlugin,
+                createVRMAnimationClip } = this.libs;
+
+        const loader = new GLTFLoader();
+        loader.register((parser) => new VRMLoaderPlugin(parser));
+        loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+        let gltf;
+        try {
+            gltf = await loader.loadAsync(vrmUrl);
+        } catch (e) {
+            console.error("[voice] peer VRM load failed", vrmUrl, e);
+            if (peer._loadGeneration === generation) peer._loadedVrmUrl = null;
+            return;
+        }
+        // Superseded while downloading (newer load / removePeer) — discard.
+        if (peer._loadGeneration !== generation || !this._peers.has(peer.id)) {
+            try { VRMUtils.deepDispose(gltf.scene); } catch (e) { /* non-fatal */ }
+            return;
+        }
+        const vrm = gltf.userData.vrm;
+        if (!vrm) {
+            console.error("[voice] peer GLTF did not contain a VRM model");
+            return;
+        }
+        // Tear down the previous model only now (deferred so the old avatar
+        // stays rendered during the download — no blank slot mid-swap).
+        this._disposePeerModel(peer);
+
+        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+        VRMUtils.combineSkeletons(gltf.scene);
+        vrm.scene.traverse((obj) => {
+            if (obj.isMesh) obj.frustumCulled = false;
+        });
+        // Normalise facing exactly like the base avatar (VRM 0.x vs 1.0).
+        const faceFront = vrm.lookAt?.faceFront;
+        if (faceFront) {
+            const front = faceFront.clone().normalize();
+            const q = new THREE.Quaternion().setFromUnitVectors(front, new THREE.Vector3(0, 0, 1));
+            vrm.scene.quaternion.premultiply(q);
+        } else {
+            vrm.scene.rotation.y = vrm.meta?.metaVersion === "1" ? 0 : Math.PI;
+        }
+        vrm.scene.updateMatrixWorld(true);
+        peer._baseQuat = vrm.scene.quaternion.clone();
+
+        this.scene.add(vrm.scene);
+        peer.vrm = vrm;
+        peer.mixer = new THREE.AnimationMixer(vrm.scene);
+        // Fresh per-model animation state — the detectors re-run on the new rig.
+        peer._armSign = undefined;
+        peer._fingerCurl = undefined;
+        peer._gestureAction = null;
+        peer._currentGestureUrl = null;
+        peer._gestureClips.clear();
+
+        // Shared look-at target: peers make eye contact with the camera too.
+        if (vrm.lookAt && this._lookAtTarget) {
+            vrm.lookAt.target = this._lookAtTarget;
+        }
+        try {
+            const head = vrm.humanoid?.getNormalizedBoneNode?.("head");
+            if (head) peer._headBaseY = head.position.y;
+        } catch (e) { /* non-fatal */ }
+        try { vrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
+        this._applySpringCollidersToVRM(vrm);
+
+        this._scheduleNextBlink(peer);
+        this._buildVisemeMap(peer);
+
+        // Idle VRMA (optional).
+        if (idleUrl) {
+            try {
+                const idleLoader = new GLTFLoader();
+                idleLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+                const idleGltf = await idleLoader.loadAsync(idleUrl);
+                const vrma = idleGltf.userData.vrmAnimations?.[0];
+                if (vrma && peer._loadGeneration === generation && peer.vrm === vrm) {
+                    peer.idleClipAction = peer.mixer.clipAction(createVRMAnimationClip(vrma, vrm));
+                    peer.idleClipAction.play();
+                }
+            } catch (e) {
+                console.warn("[voice] peer idle VRMA load failed", idleUrl, e);
+            }
+        }
+
+        this._layoutCallAvatars();
+        console.log(`[voice] peer avatar loaded (${peer.id}):`, vrmUrl);
+    }
+
+    _disposePeerModel(peer) {
+        if (!peer.vrm) return;
+        // If this peer is currently borrowed as a combo partner, retire the
+        // whole combo first — otherwise the base avatar keeps performing a
+        // two-character clip alone in combo placement. Covers both peer
+        // removal and mid-combo outfit swaps (both route through here).
+        if (this._comboLivePeer?.peer === peer) {
+            this._unloadComboPartner({ immediate: true });
+        }
+        const { VRMUtils } = this.libs || {};
+        try { peer.mixer?.stopAllAction(); } catch (e) { /* non-fatal */ }
+        try {
+            this.scene.remove(peer.vrm.scene);
+            VRMUtils?.deepDispose?.(peer.vrm.scene);
+        } catch (e) { /* non-fatal */ }
+        peer.vrm = null;
+        peer.mixer = null;
+        peer.idleClipAction = null;
+        peer._gestureAction = null;
+        peer._currentGestureUrl = null;
+        peer._gestureClips.clear();
+        // Bound to the disposed model's mixer — rebuilt on the next walk.
+        peer._walkAction = null;
+        peer._moving = false;
+        peer._returnFacingY = null;
+    }
+
+    /** Remove a peer from the scene (agent left the call). Restores the
+     *  solo layout when the last peer leaves. */
+    removePeer(peerId) {
+        const peer = this._peers.get(peerId);
+        if (!peer) return;
+        peer._loadGeneration++;   // cancel any in-flight load
+        this._disposePeerModel(peer);
+        this._peers.delete(peerId);
+        this._layoutCallAvatars();
+    }
+
+    get peerCount() {
+        return this._peers.size;
+    }
+
+    setPeerVowels(peerId, vowels) {
+        const peer = this._peers.get(peerId);
+        if (peer) peer._currentVowels = vowels;
+    }
+
+    setPeerSpeakingIntensity(peerId, value) {
+        const peer = this._peers.get(peerId);
+        if (peer) peer._rawSpeakingIntensity = Math.max(0, Math.min(1, value || 0));
+    }
+
+    setPeerEmotion(peerId, name) {
+        const peer = this._peers.get(peerId);
+        if (!peer || !EMOTION_STATES[name]) return;
+        peer._currentEmotion = name;
+        peer._emotionTransitionProgress = 0;
+        peer._emotionTransitionStart = null;
+    }
+
+    /** Play a VRMA gesture on a peer. Mirrors playGesture's crossfade
+     *  choreography, scoped to the peer's mixer/idle action. Combos are
+     *  base-avatar-only (the dispatcher falls back to the solo clip). */
+    async playPeerGesture(peerId, url, { loop = false } = {}) {
+        const peer = this._peers.get(peerId);
+        if (!peer?.vrm || !peer.mixer || !url) return;
+        // This peer may currently be borrowed as a combo partner — a fresh
+        // gesture on it retires the whole combo first (both characters),
+        // mirroring how a new base gesture replaces a running combo.
+        if (this._comboLivePeer?.peer === peer) {
+            this._unloadComboPartner();
+        }
+        const { THREE, GLTFLoader, VRMAnimationLoaderPlugin, createVRMAnimationClip } = this.libs;
+        if (peer._gestureAction && peer._currentGestureUrl === url) {
+            peer._gestureAction.reset().fadeIn(0.2).play();
+            return;
+        }
+        let clip = peer._gestureClips.get(url);
+        if (!clip) {
+            try {
+                const loader = new GLTFLoader();
+                loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+                const gltf = await loader.loadAsync(url);
+                const vrma = gltf.userData.vrmAnimations?.[0];
+                if (!vrma || !peer.vrm) return;
+                clip = createVRMAnimationClip(vrma, peer.vrm);
+                peer._gestureClips.set(url, clip);
+            } catch (e) {
+                console.error("[voice] peer gesture load failed", url, e);
+                return;
+            }
+        }
+        const FADE_IN = 0.25;
+        const FADE_OUT = 0.5;
+        if (peer._gestureAction) {
+            const old = peer._gestureAction;
+            old.fadeOut(0.15);
+            setTimeout(() => { try { old.stop(); } catch (e) { /* */ } }, 200);
+        }
+        if (peer.idleClipAction) {
+            peer.idleClipAction.fadeOut(FADE_IN);
+        }
+        const action = peer.mixer.clipAction(clip);
+        if (loop) {
+            action.setLoop(THREE.LoopRepeat, Infinity);
+            action.clampWhenFinished = false;
+            action.reset().fadeIn(FADE_IN).play();
+            peer._gestureAction = action;
+            peer._currentGestureUrl = url;
+            return;
+        }
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;   // hold last pose so fadeOut has a source
+        action.reset().fadeIn(FADE_IN).play();
+        peer._gestureAction = action;
+        peer._currentGestureUrl = url;
+        const onFinished = (ev) => {
+            if (ev.action !== action) return;
+            peer.mixer.removeEventListener("finished", onFinished);
+            action.fadeOut(FADE_OUT);
+            if (peer.idleClipAction) {
+                peer.idleClipAction.reset().fadeIn(FADE_OUT).play();
+            }
+            setTimeout(() => {
+                if (peer._gestureAction === action) {
+                    try { action.stop(); } catch (e) { /* */ }
+                    peer._gestureAction = null;
+                    peer._currentGestureUrl = null;
+                }
+            }, FADE_OUT * 1000);
+        };
+        peer.mixer.addEventListener("finished", onFinished);
+    }
+
+    /** Stop a peer's gesture (incl. loops) and ease back to its idle. */
+    stopPeerGesture(peerId) {
+        const peer = this._peers.get(peerId);
+        if (!peer) return;
+        // Borrowed as a combo partner: 'idle' retires the whole combo (both
+        // characters return to their spots) — same as stopGesture on base.
+        if (this._comboLivePeer?.peer === peer) {
+            this._unloadComboPartner();
+            return;
+        }
+        const action = peer._gestureAction;
+        if (!action) return;
+        const FADE_OUT = 0.5;
+        try { action.fadeOut(FADE_OUT); } catch (e) { /* */ }
+        if (peer.idleClipAction) {
+            try { peer.idleClipAction.reset().fadeIn(FADE_OUT).play(); } catch (e) { /* */ }
+        }
+        setTimeout(() => {
+            if (peer._gestureAction === action) {
+                try { action.stop(); } catch (e) { /* */ }
+                peer._gestureAction = null;
+                peer._currentGestureUrl = null;
+            }
+        }, FADE_OUT * 1000);
+    }
+
+    /** Arrange base + peers in a horizontal row, each turned slightly
+     *  toward the group centre, then re-frame the camera. Solo layout
+     *  (base at origin, facing camera) is restored when no peers remain. */
+    _layoutCallAvatars() {
+        const peers = [...this._peers.values()].filter((p) => p.vrm);
+        const n = 1 + peers.length;
+        if (n === 1) {
+            if (this.vrm) {
+                this.vrm.scene.position.set(0, 0, 0);
+                this._setMoveYaw(this, 0);
+                this.vrm.scene.updateMatrixWorld(true);
+            }
+            this._applyCameraPreset();
+            return;
+        }
+        const { THREE } = this.libs;
+        const xFor = (i) => (i - (n - 1) / 2) * CALL_SPACING_X;
+        // Facing +Z (camera) is yaw 0; a character at x turns toward the
+        // group centre by -sign(x) * inward yaw.
+        const yawFor = (x) => (Math.abs(x) < 1e-6 ? 0 : -Math.sign(x) * CALL_INWARD_YAW);
+
+        if (this.vrm) {
+            const x = xFor(0);
+            this.vrm.scene.position.set(x, 0, 0);
+            this._setMoveYaw(this, yawFor(x));
+            this.vrm.scene.updateMatrixWorld(true);
+        }
+        peers.forEach((peer, idx) => {
+            const x = xFor(idx + 1);
+            peer.vrm.scene.position.set(x, 0, 0);
+            // Track the layout yaw so a later manual walk turn interpolates
+            // from the pose the peer is actually standing in.
+            peer._moveYaw = yawFor(x);
+            if (peer._baseQuat) {
+                const yawQuat = new THREE.Quaternion().setFromAxisAngle(
+                    new THREE.Vector3(0, 1, 0), yawFor(x));
+                peer.vrm.scene.quaternion.copy(yawQuat).multiply(peer._baseQuat);
+            }
+            peer.vrm.scene.updateMatrixWorld(true);
+            try { peer.vrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
+        });
+        this._applyCameraPreset();
+    }
+
+    // ------------------------------------------------------------------
     // Locomotion (see MOVE_* constants at the top of the file)
     // ------------------------------------------------------------------
 
@@ -710,7 +1509,47 @@ class AvatarRenderer {
             this._moveInput.x = 0;
             this._moveInput.z = 0;
             this.stopMoving();
+            // Next walk session starts predictably on the main avatar.
+            this._moveActorId = "base";
         }
+    }
+
+    /** The actor manual walk input currently steers: the base avatar or a
+     *  live peer. Number keys in walk mode switch the selection
+     *  (setMoveActor). Falls back to the base avatar if the selected peer
+     *  left the call. */
+    _moveActor() {
+        if (this._moveActorId && this._moveActorId !== "base") {
+            const peer = this._peers.get(this._moveActorId);
+            if (peer?.vrm) return peer;
+            this._moveActorId = "base";
+        }
+        return this;
+    }
+
+    /** Select which character walk input drives: "base" or a peer id.
+     *  Releases the previous actor (its walk animation settles to idle)
+     *  and re-anchors the follow camera on the new one. Returns true when
+     *  the selection is valid. */
+    setMoveActor(actorId) {
+        const current = this._moveActor();
+        let next;
+        if (!actorId || actorId === "base") {
+            this._moveActorId = "base";
+            next = this;
+        } else {
+            const peer = this._peers.get(actorId);
+            if (!peer?.vrm) return false;
+            this._moveActorId = actorId;
+            next = peer;
+        }
+        if (current !== next) {
+            this._moveTarget = null;
+            if (current._moving) this._stopWalkAnim(current);
+            // Follow camera re-anchors on the new actor without jumping.
+            this._camFollowPos = null;
+        }
+        return true;
     }
 
     /** Manual movement direction, camera-relative: x = strafe right, z =
@@ -721,11 +1560,11 @@ class AvatarRenderer {
         this._moveInput.z = Math.max(-1, Math.min(1, z || 0));
     }
 
-    /** Walk to a world-space XZ position: turn toward it, advance, settle to
-     *  idle on arrival. The foundation the future semantic move tool
-     *  (approach / step_back / anchors) will compose on. */
+    /** Walk the SELECTED actor to a world-space XZ position: turn toward
+     *  it, advance, settle to idle on arrival. The foundation the future
+     *  semantic move tool (approach / step_back / anchors) will compose on. */
     walkTo(x, z) {
-        if (!this.vrm || !this.libs) return;
+        if (!this._moveActor().vrm || !this.libs) return;
         const { THREE } = this.libs;
         // Clamp the destination into the playable area, preserving direction.
         const r = Math.hypot(x, z);
@@ -736,20 +1575,55 @@ class AvatarRenderer {
         this._moveTarget = new THREE.Vector3(x, 0, z);
     }
 
-    /** Stop any walking (manual or walkTo) and ease back to idle. */
-    stopMoving() {
-        this._moveTarget = null;
-        if (this._moving) this._stopWalkAnim();
+    /** Characters currently in the scene, for VR placement: the base avatar
+     *  plus live peers. Each entry exposes the scene root so callers can read
+     *  world positions without reaching into renderer internals. */
+    listActors() {
+        const out = [];
+        if (this.vrm) out.push({ id: "base", node: this.vrm.scene });
+        for (const [id, peer] of this._peers) {
+            if (peer.vrm) out.push({ id, node: peer.vrm.scene });
+        }
+        return out;
     }
 
-    /** Lazily build the looping walk action for the CURRENT vrm. The parsed
-     *  walking.vrma is cached module-wide (avatar-independent), but the
-     *  AnimationClip is baked against a specific model's normalized bones, so
-     *  it's rebuilt after every avatar/outfit swap (_doLoadVRM nulls it). */
-    async _ensureWalkAction() {
-        if (this._walkAction) return this._walkAction;
-        if (!this.vrm || !this.mixer) return null;
-        const vrmAtCall = this.vrm;
+    /** Walk a specific character to a world XZ spot (VR move mode: point at
+     *  the floor, pull the trigger). Selects the actor then reuses walkTo's
+     *  turn-advance-settle locomotion. Returns false for unknown actors. */
+    walkActorTo(actorId, x, z) {
+        if (!this.setMoveActor(actorId)) return false;
+        this.walkTo(x, z);
+        return true;
+    }
+
+    /** Rotate a character in place by dYaw radians (VR move mode thumbstick).
+     *  Composes onto the locomotion yaw so a later walk turns from the pose
+     *  she's actually standing in. */
+    turnActor(actorId, dYaw) {
+        const actor = (!actorId || actorId === "base") ? this : this._peers.get(actorId);
+        if (!actor?.vrm || !dYaw) return;
+        this._setMoveYaw(actor, actor._moveYaw + dYaw);
+    }
+
+    /** Stop any walking (manual or walkTo) and ease back to idle — every
+     *  actor, not just the selected one, so a mid-walk selection switch
+     *  can't strand a character in its walk cycle. */
+    stopMoving() {
+        this._moveTarget = null;
+        if (this._moving) this._stopWalkAnim(this);
+        for (const peer of this._peers.values()) {
+            if (peer._moving) this._stopWalkAnim(peer);
+        }
+    }
+
+    /** Lazily build the looping walk action for an actor's CURRENT vrm. The
+     *  parsed walking.vrma is cached module-wide (avatar-independent), but
+     *  the AnimationClip is baked against a specific model's normalized
+     *  bones, so it's rebuilt after every avatar/outfit swap. */
+    async _ensureWalkAction(actor) {
+        if (actor._walkAction) return actor._walkAction;
+        if (!actor.vrm || !actor.mixer) return null;
+        const vrmAtCall = actor.vrm;
         try {
             const { GLTFLoader, VRMAnimationLoaderPlugin, createVRMAnimationClip, THREE } = this.libs;
             if (!walkVrmaPromise) {
@@ -765,12 +1639,12 @@ class AvatarRenderer {
             const vrma = await walkVrmaPromise;
             // Avatar swapped while the file downloaded — the caller's mixer is
             // gone; the next walk on the new model will rebuild.
-            if (!vrma || this.vrm !== vrmAtCall || !this.mixer) return null;
-            const clip = createVRMAnimationClip(vrma, this.vrm);
-            this._stripWalkRootMotion(clip);
-            const action = this.mixer.clipAction(clip);
+            if (!vrma || actor.vrm !== vrmAtCall || !actor.mixer) return null;
+            const clip = createVRMAnimationClip(vrma, actor.vrm);
+            this._stripWalkRootMotion(actor, clip);
+            const action = actor.mixer.clipAction(clip);
             action.setLoop(THREE.LoopRepeat, Infinity);
-            this._walkAction = action;
+            actor._walkAction = action;
             return action;
         } catch (e) {
             console.error("[voice] walk clip load failed", WALK_VRMA_URL, e);
@@ -782,8 +1656,8 @@ class AvatarRenderer {
      *  the movement controller owns world translation. Mixamo-converted walk
      *  clips usually advance the hips each cycle; unstripped, the avatar
      *  lurches forward and snaps back every loop. Y is kept (vertical bob). */
-    _stripWalkRootMotion(clip) {
-        const hipsName = this.vrm.humanoid?.getNormalizedBoneNode?.("hips")?.name;
+    _stripWalkRootMotion(actor, clip) {
+        const hipsName = actor.vrm.humanoid?.getNormalizedBoneNode?.("hips")?.name;
         if (!hipsName) return;
         for (const track of clip.tracks) {
             if (track.name !== `${hipsName}.position`) continue;
@@ -794,41 +1668,51 @@ class AvatarRenderer {
         }
     }
 
-    /** Crossfade into the walk loop. Async because the first walk lazily
-     *  loads walking.vrma — `_moving` is set synchronously so per-frame
-     *  callers don't re-enter while the file downloads. */
-    async _startWalkAnim() {
-        if (this._moving) return;
-        this._moving = true;
-        this._returnFacingY = null;
-        // Movement owns the body: ease out any in-flight gesture first.
-        this.stopGesture();
-        const action = await this._ensureWalkAction();
+    /** Crossfade an actor into the walk loop. Async because the first walk
+     *  lazily loads walking.vrma — `_moving` is set synchronously so
+     *  per-frame callers don't re-enter while the file downloads. */
+    async _startWalkAnim(actor) {
+        if (actor._moving) return;
+        actor._moving = true;
+        actor._returnFacingY = null;
+        // Movement owns the body: ease out any in-flight gesture first
+        // (for the base this also retires a running combo).
+        if (actor === this) this.stopGesture();
+        else this.stopPeerGesture(actor.id);
+        const action = await this._ensureWalkAction(actor);
         if (!action) return;             // load failed — slide without the clip
-        if (!this._moving) return;       // stopped while the clip downloaded
-        if (this.idleClipAction) this.idleClipAction.fadeOut(WALK_FADE_IN);
+        if (!actor._moving) return;      // stopped while the clip downloaded
+        if (actor.idleClipAction) actor.idleClipAction.fadeOut(WALK_FADE_IN);
         action.reset().fadeIn(WALK_FADE_IN).play();
     }
 
     /** Crossfade walk → idle and queue the ease-back-to-camera facing. Same
      *  fade-then-stop pattern as gestures (a faded-out action still counts as
      *  isRunning, which would wedge the procedural-idle guard). */
-    _stopWalkAnim() {
-        this._moving = false;
-        const action = this._walkAction;
+    _stopWalkAnim(actor) {
+        actor._moving = false;
+        const action = actor._walkAction;
         if (action) {
             action.fadeOut(WALK_FADE_OUT);
             setTimeout(() => {
-                if (!this._moving) { try { action.stop(); } catch (e) { /* */ } }
+                if (!actor._moving) { try { action.stop(); } catch (e) { /* */ } }
             }, WALK_FADE_OUT * 1000);
         }
-        if (this.idleClipAction) this.idleClipAction.reset().fadeIn(WALK_FADE_OUT).play();
+        if (actor.idleClipAction) actor.idleClipAction.reset().fadeIn(WALK_FADE_OUT).play();
         // A companion turns to face you when she stops — not frozen
         // mid-stride aimed at a wall. Eased per-frame in _applyReturnFacing.
-        if (this.vrm && this.camera) {
-            const p = this.vrm.scene.position;
-            this._returnFacingY =
-                Math.atan2(this.camera.position.x - p.x, this.camera.position.z - p.z);
+        // In XR "you" is the headset, not the flat camera.
+        if (actor.vrm) {
+            const p = actor.vrm.scene.position;
+            let cx = null, cz = null;
+            if (this._xrActive && this.renderer?.xr?.getCamera && this.libs) {
+                const v = (this._facingScratch ||= new this.libs.THREE.Vector3());
+                this.renderer.xr.getCamera().getWorldPosition(v);
+                cx = v.x; cz = v.z;
+            } else if (this.camera) {
+                cx = this.camera.position.x; cz = this.camera.position.z;
+            }
+            if (cx !== null) actor._returnFacingY = Math.atan2(cx - p.x, cz - p.z);
         }
     }
 
@@ -837,7 +1721,8 @@ class AvatarRenderer {
      *  MOVE_TURN_SPEED while advancing at MOVE_SPEED — the walk clip plays in
      *  place; THIS is what moves the avatar. */
     _updateMovement(delta) {
-        if (!this.vrm || !this.libs) return;
+        const actor = this._moveActor();
+        if (!actor.vrm || !this.libs) return;
         const { THREE } = this.libs;
         let dir = null;
 
@@ -856,7 +1741,7 @@ class AvatarRenderer {
             }
             this._moveTarget = null;  // live input overrides a queued walkTo
         } else if (this._moveTarget) {
-            const d = new THREE.Vector3().subVectors(this._moveTarget, this.vrm.scene.position);
+            const d = new THREE.Vector3().subVectors(this._moveTarget, actor.vrm.scene.position);
             d.y = 0;
             if (d.length() < MOVE_ARRIVAL_THRESHOLD) {
                 this.stopMoving();
@@ -866,27 +1751,27 @@ class AvatarRenderer {
         }
 
         if (!dir) {
-            if (this._moving) this._stopWalkAnim();  // keys released mid-walk
-            this._applyReturnFacing(delta);
+            if (actor._moving) this._stopWalkAnim(actor);  // keys released mid-walk
+            this._applyReturnFacing(actor, delta);
             return;
         }
 
-        if (!this._moving) this._startWalkAnim();
-        this._returnFacingY = null;
+        if (!actor._moving) this._startWalkAnim(actor);
+        actor._returnFacingY = null;
 
         // Turn the shortest way toward the travel direction, then advance.
         // Yaw is composed onto the base quaternion (_setMoveYaw) — never
         // written through rotation.y; see the _baseQuat note in _doLoadVRM.
         const targetYaw = Math.atan2(dir.x, dir.z);
-        let diff = targetYaw - this._moveYaw;
+        let diff = targetYaw - actor._moveYaw;
         while (diff > Math.PI) diff -= 2 * Math.PI;
         while (diff < -Math.PI) diff += 2 * Math.PI;
         const turnStep = MOVE_TURN_SPEED * delta;
-        this._setMoveYaw(Math.abs(diff) <= turnStep
+        this._setMoveYaw(actor, Math.abs(diff) <= turnStep
             ? targetYaw
-            : this._moveYaw + Math.sign(diff) * turnStep);
+            : actor._moveYaw + Math.sign(diff) * turnStep);
 
-        const pos = this.vrm.scene.position;
+        const pos = actor.vrm.scene.position;
         pos.addScaledVector(dir, MOVE_SPEED * delta);
         const r = Math.hypot(pos.x, pos.z);
         if (r > MOVE_BOUNDS_RADIUS) {
@@ -895,37 +1780,37 @@ class AvatarRenderer {
         }
     }
 
-    /** After stopping, ease the avatar around to face the camera again —
+    /** After stopping, ease the actor around to face the camera again —
      *  gentler than travel turns so it reads as a casual turn, not a snap. */
-    _applyReturnFacing(delta) {
-        if (this._returnFacingY == null || !this.vrm) return;
-        let diff = this._returnFacingY - this._moveYaw;
+    _applyReturnFacing(actor, delta) {
+        if (actor._returnFacingY == null || !actor.vrm) return;
+        let diff = actor._returnFacingY - actor._moveYaw;
         while (diff > Math.PI) diff -= 2 * Math.PI;
         while (diff < -Math.PI) diff += 2 * Math.PI;
         const step = MOVE_TURN_SPEED * 0.6 * delta;
         if (Math.abs(diff) <= step) {
-            this._setMoveYaw(this._returnFacingY);
-            this._returnFacingY = null;
+            this._setMoveYaw(actor, actor._returnFacingY);
+            actor._returnFacingY = null;
         } else {
-            this._setMoveYaw(this._moveYaw + Math.sign(diff) * step);
+            this._setMoveYaw(actor, actor._moveYaw + Math.sign(diff) * step);
         }
     }
 
-    /** Point the avatar at a world yaw by composing R_y(yaw) onto the
+    /** Point an actor at a world yaw by composing R_y(yaw) onto its
      *  load-time base orientation: quaternion = R_y(yaw) ∘ _baseQuat. The
      *  base may be a euler-hostile 180° flip ((±π, ~0, ±π) representation),
      *  so rotation.y is never written directly — quaternion composition is
      *  representation-proof. yaw 0 = facing +Z (toward the default camera). */
-    _setMoveYaw(yaw) {
-        this._moveYaw = yaw;
-        if (!this.vrm || !this._baseQuat || !this.libs) return;
+    _setMoveYaw(actor, yaw) {
+        actor._moveYaw = yaw;
+        if (!actor.vrm || !actor._baseQuat || !this.libs) return;
         const { THREE } = this.libs;
         if (!this._yawQuat) {
             this._yawQuat = new THREE.Quaternion();
             this._yawAxis = new THREE.Vector3(0, 1, 0);
         }
         this._yawQuat.setFromAxisAngle(this._yawAxis, yaw);
-        this.vrm.scene.quaternion.copy(this._yawQuat).multiply(this._baseQuat);
+        actor.vrm.scene.quaternion.copy(this._yawQuat).multiply(actor._baseQuat);
     }
 
     /** Trailing camera dolly: translate the camera AND the orbit target by
@@ -934,9 +1819,10 @@ class AvatarRenderer {
      *  both keep their composition while following. Cheap no-op when the
      *  avatar isn't moving. */
     _updateFollowCamera(delta) {
-        if (!this.vrm || !this.camera || !this.libs) return;
+        const actor = this._moveActor();
+        if (!actor.vrm || !this.camera || !this.libs) return;
         const { THREE } = this.libs;
-        const p = this.vrm.scene.position;
+        const p = actor.vrm.scene.position;
         if (!this._camFollowPos) {
             // (Re-)anchor without moving the camera — set by VRM load and
             // _applyCameraPreset, both of which place the camera absolutely.
@@ -967,10 +1853,10 @@ class AvatarRenderer {
         this._moveInput.x = 0;
         this._moveInput.z = 0;
         this._returnFacingY = null;
-        if (this._moving) this._stopWalkAnim();
+        if (this._moving) this._stopWalkAnim(this);
         this._returnFacingY = null;  // _stopWalkAnim queues one — home needs none
         this.vrm.scene.position.set(0, 0, 0);
-        this._setMoveYaw(0);  // base orientation = facing the default camera
+        this._setMoveYaw(this, 0);  // base orientation = facing the default camera
         this._applyCameraPreset();
     }
 
@@ -1001,6 +1887,10 @@ class AvatarRenderer {
         this._gestureAction = null;
         this._currentGestureUrl = null;
         if (this._gestureClips) this._gestureClips.clear();
+        // The base VRM is gone — its restore snapshot is meaningless and the
+        // partner has nothing to play against. Drop both without a fade.
+        this._comboBaseRestore = null;
+        this._unloadComboPartner({ immediate: true });
         this._walkAction = null;
         this._moving = false;
         this._moveTarget = null;
@@ -1043,10 +1933,10 @@ class AvatarRenderer {
      *
      *  Driven by the background system: a `rexclaw.voice.avatar.background` of
      *  type 'scene' routes here from _applyBackgroundToActiveHost (full host
-     *  only). Also reachable manually via the window.odoo.__voiceRenderer debug
+     *  only). Also reachable manually via the window.__voiceRenderer debug
      *  handle, e.g.:
-     *    odoo.__voiceRenderer?.loadRoom("/web/content/.../scene_file",
-     *                                   { position: [0,0,-1], scale: 1 })
+     *    window.__voiceRenderer?.loadRoom("/assets/.../scene.glb",
+     *                                     { position: [0,0,-1], scale: 1 })
      *
      *  Idempotent on `url`: the background applier re-runs on every host
      *  reparent/resize, so a no-op fast path avoids reloading the same GLB.
@@ -1282,7 +2172,8 @@ class AvatarRenderer {
         this.activeCanvas = canvas;
         this._reparent(canvas);
         this._resize(canvas);
-        if (!this.rafHandle) {
+        // Don't start a second driver while XR owns the loop via setAnimationLoop.
+        if (!this.rafHandle && !this._xrActive) {
             this._loop();
         }
     }
@@ -1324,7 +2215,7 @@ class AvatarRenderer {
         // OrbitControls is bound to the canvas DOM element for pointer input.
         // When the canvas reparents (e.g. side panel mini ↔ full view), the old
         // bindings become useless — dispose and rebind to the new host.
-        if (this._fullBody && this._orbitControls) {
+        if (this._fullBody && this._orbitControls && !this._xrActive) {
             this._disableOrbit();
             this._enableOrbit();
         }
@@ -1380,6 +2271,9 @@ class AvatarRenderer {
     setFullBodyMode(enabled) {
         this._fullBody = !!enabled;
         if (!this.camera || !this.libs) return;
+        // Ignored while in XR (the HMD owns the camera); the desired flag is
+        // still recorded so exitXR can restore orbit framing on return.
+        if (this._xrActive) return;
         this._applyCameraPreset();
         if (this._fullBody) {
             this._enableOrbit();
@@ -1409,16 +2303,46 @@ class AvatarRenderer {
         // it's no longer pinned to the origin, and a preset re-apply (face ↔
         // full toggle) must not snap the camera back to an empty spawn point.
         // (The captured Y heights stay valid: walking never changes Y.)
-        const ax = this.vrm?.scene?.position?.x || 0;
-        const az = this.vrm?.scene?.position?.z || 0;
+        let ax = this.vrm?.scene?.position?.x || 0;
+        let az = this.vrm?.scene?.position?.z || 0;
+
+        // Group calls: frame the whole row of characters. Centre on the
+        // group midpoint and remember the half-width so the distance solve
+        // below can widen the shot until everyone fits horizontally.
+        let halfWidth = 0;
+        if (this._peers.size) {
+            const xs = [ax];
+            const zs = [az];
+            for (const peer of this._peers.values()) {
+                if (!peer.vrm) continue;
+                xs.push(peer.vrm.scene.position.x);
+                zs.push(peer.vrm.scene.position.z);
+            }
+            const minX = Math.min(...xs);
+            const maxX = Math.max(...xs);
+            ax = (minX + maxX) / 2;
+            az = Math.max(...zs);
+            halfWidth = (maxX - minX) / 2 + CALL_FRAME_SIDE_MARGIN;
+        }
+
+        // Horizontal fit: hFOV derives from vFOV via the aspect ratio; the
+        // distance must be at least halfWidth / tan(hFOV/2) or the outer
+        // characters clip at the viewport edges.
+        const fitWidth = (fov, distance) => {
+            if (!halfWidth) return distance;
+            const aspect = this.camera?.aspect || 1;
+            const halfTanH = Math.tan((fov * Math.PI) / 360) * aspect;
+            if (halfTanH <= 1e-4) return distance;
+            return Math.max(distance, halfWidth / halfTanH);
+        };
 
         if (this._fullBody) {
             const center = (meshTopY + meshBottomY) / 2;
             const height = (meshTopY - meshBottomY) * FULL_FRAME_PADDING;
-            const distance = Math.max(
+            const distance = fitWidth(FULL_FOV, Math.max(
                 FULL_MIN_DISTANCE,
                 height / (2 * Math.tan((FULL_FOV * Math.PI) / 360)),
-            );
+            ));
             return {
                 position: [ax, center, az + distance],
                 target: [ax, center, az],
@@ -1435,10 +2359,10 @@ class AvatarRenderer {
         const frameTop = Math.max(meshTopY, headY + FACE_LOWER_OFFSET);
         const center = (frameTop + frameBottom) / 2;
         const height = (frameTop - frameBottom) * FACE_FRAME_PADDING;
-        const distance = Math.max(
+        const distance = fitWidth(FACE_FOV, Math.max(
             FACE_MIN_DISTANCE,
             height / (2 * Math.tan((FACE_FOV * Math.PI) / 360)),
-        );
+        ));
         return {
             position: [ax, center, az + distance],
             target: [ax, center, az],
@@ -1448,6 +2372,9 @@ class AvatarRenderer {
 
     _applyCameraPreset() {
         if (!this.camera) return;
+        // In XR the HMD drives the camera pose; absolute world placement here
+        // would fight the dolly rig. exitXR() re-runs this to restore framing.
+        if (this._xrActive) return;
         const preset = this._cameraPreset();
         this.camera.position.set(...preset.position);
         this.camera.fov = preset.fov;
@@ -1532,36 +2459,36 @@ class AvatarRenderer {
         this._replayMode = !!replayMode;
     }
 
-    _scheduleNextBlink() {
+    _scheduleNextBlink(actor) {
         const span = BLINK_INTERVAL_MAX - BLINK_INTERVAL_MIN;
-        this._nextBlinkAt = (this.clock?.elapsedTime || 0) + BLINK_INTERVAL_MIN + Math.random() * span;
+        actor._nextBlinkAt = (this.clock?.elapsedTime || 0) + BLINK_INTERVAL_MIN + Math.random() * span;
     }
 
-    _applyBlink(now) {
-        if (!this.vrm?.expressionManager) return;
-        if (now >= this._nextBlinkAt) {
-            const t = now - this._nextBlinkAt;
+    _applyBlink(actor, now) {
+        if (!actor.vrm?.expressionManager) return;
+        if (now >= actor._nextBlinkAt) {
+            const t = now - actor._nextBlinkAt;
             if (t < BLINK_CLOSE_DURATION) {
-                this.vrm.expressionManager.setValue("blink", t / BLINK_CLOSE_DURATION);
+                actor.vrm.expressionManager.setValue("blink", t / BLINK_CLOSE_DURATION);
             } else if (t < BLINK_CLOSE_DURATION + BLINK_OPEN_DURATION) {
                 const phase = (t - BLINK_CLOSE_DURATION) / BLINK_OPEN_DURATION;
-                this.vrm.expressionManager.setValue("blink", 1 - phase);
+                actor.vrm.expressionManager.setValue("blink", 1 - phase);
             } else {
-                this.vrm.expressionManager.setValue("blink", 0);
-                this._scheduleNextBlink();
+                actor.vrm.expressionManager.setValue("blink", 0);
+                this._scheduleNextBlink(actor);
             }
         } else {
-            this.vrm.expressionManager.setValue("blink", 0);
+            actor.vrm.expressionManager.setValue("blink", 0);
         }
     }
 
-    _applyBreath(now) {
-        if (!this.vrm) return;
+    _applyBreath(actor, now) {
+        if (!actor.vrm) return;
         try {
-            const head = this.vrm.humanoid?.getNormalizedBoneNode?.("head");
-            if (head && this._headBaseY) {
+            const head = actor.vrm.humanoid?.getNormalizedBoneNode?.("head");
+            if (head && actor._headBaseY) {
                 // baseY + sin(t*ω) — never += to avoid drift accumulation.
-                head.position.y = this._headBaseY + Math.sin(now * BREATH_FREQUENCY_HZ * 2 * Math.PI) * BREATH_AMPLITUDE;
+                head.position.y = actor._headBaseY + Math.sin(now * BREATH_FREQUENCY_HZ * 2 * Math.PI) * BREATH_AMPLITUDE;
             }
         } catch (e) { /* non-fatal */ }
     }
@@ -1572,26 +2499,26 @@ class AvatarRenderer {
      *  her body". Skipped entirely if a VRMA mixer action is playing, so
      *  user-supplied animation clips win.
      */
-    _applyIdle(now) {
-        if (!this.vrm?.humanoid) return;
-        if (this.idleClipAction && this.idleClipAction.isRunning()) return;
+    _applyIdle(actor, now) {
+        if (!actor.vrm?.humanoid) return;
+        if (actor.idleClipAction && actor.idleClipAction.isRunning()) return;
         // A one-shot gesture is animating — let it own the bones; procedural
         // idle would fight it and produce a weird blend.
-        if (this._gestureAction && this._gestureAction.isRunning()) return;
+        if (actor._gestureAction && actor._gestureAction.isRunning()) return;
         // Walking — the walk clip owns the bones (procedural idle would
         // overwrite the mixer output every frame; see _loop's update order).
-        if (this._moving) return;
+        if (actor._moving) return;
 
         // Smooth raw intensity into animation-driving intensity.
-        const target = this._rawSpeakingIntensity;
-        const a = target > this._speakingIntensity ? SPEAK_INTENSITY_ATTACK : SPEAK_INTENSITY_RELEASE;
-        this._speakingIntensity = this._speakingIntensity * (1 - a) + target * a;
-        const speak = this._speakingIntensity;
+        const target = actor._rawSpeakingIntensity;
+        const a = target > actor._speakingIntensity ? SPEAK_INTENSITY_ATTACK : SPEAK_INTENSITY_RELEASE;
+        actor._speakingIntensity = actor._speakingIntensity * (1 - a) + target * a;
+        const speak = actor._speakingIntensity;
         // Body gain ranges 1.0 (idle) → SPEAK_BODY_GAIN (peak speaking).
         const bodyGain = 1 + (SPEAK_BODY_GAIN - 1) * speak;
 
         try {
-            const h = this.vrm.humanoid;
+            const h = actor.vrm.humanoid;
             const get = (name) => h.getNormalizedBoneNode?.(name);
             const TAU = Math.PI * 2;
 
@@ -1631,7 +2558,7 @@ class AvatarRenderer {
             // non-standard models place the left shoulder at ~+0.1 X. Instead,
             // empirically test whether a small positive rotation.z raises or
             // lowers the elbow — that directly tells us the sign we need.
-            if (this._armSign === undefined && ls) {
+            if (actor._armSign === undefined && ls) {
                 const le = get("leftLowerArm");
                 if (le) {
                     const _V3 = this.libs.THREE.Vector3;
@@ -1645,12 +2572,12 @@ class AvatarRenderer {
                     ls.rotation.z = _savedZ;                 // restore T-pose
                     ls.updateWorldMatrix(true, true);
                     // Positive rotation raised the elbow → we must negate to lower it.
-                    this._armSign = _after.y > _before.y ? -1 : 1;
+                    actor._armSign = _after.y > _before.y ? -1 : 1;
                 } else {
-                    this._armSign = 1;  // safe default for standard VRM
+                    actor._armSign = 1;  // safe default for standard VRM
                 }
             }
-            const _as = this._armSign ?? 1;
+            const _as = actor._armSign ?? 1;
             if (ls) ls.rotation.z = _as * IDLE_SHOULDER_DOWN + armSwayL;
             if (rs) rs.rotation.z = -_as * IDLE_SHOULDER_DOWN - armSwayR;
 
@@ -1673,7 +2600,7 @@ class AvatarRenderer {
             const lIdxP = get("leftIndexProximal");
             const lIdxI = get("leftIndexIntermediate");
             const lIdxD = get("leftIndexDistal");
-            if (this._fingerCurl === undefined && lIdxP && lIdxI && lIdxD && ls) {
+            if (actor._fingerCurl === undefined && lIdxP && lIdxI && lIdxD && ls) {
                 const _V3 = this.libs.THREE.Vector3;
                 const _hp = new _V3();   // hand world pos
                 const _tp = new _V3();   // fingertip world pos
@@ -1733,7 +2660,7 @@ class AvatarRenderer {
                 for (let i = 0; i < segs.length; i++) segs[i].rotation.copy(savedRot[i]);
                 ls.rotation.z = _savedShZ;
                 ls.updateWorldMatrix(true, true);
-                this._fingerCurl = bestAxis
+                actor._fingerCurl = bestAxis
                     ? { axis: bestAxis, sign: bestSign }
                     : null;
                 console.log(
@@ -1762,8 +2689,8 @@ class AvatarRenderer {
             // curl across all four fingers + an opposed thumb is the "loose
             // grip on nothing" rest pose humans default to. Skipped if a
             // gesture is animating (we already bailed at the top of this fn).
-            this._applyRelaxedHand("left");
-            this._applyRelaxedHand("right");
+            this._applyRelaxedHand(actor, "left");
+            this._applyRelaxedHand(actor, "right");
 
             const head = get("head");
             if (head) {
@@ -1787,13 +2714,13 @@ class AvatarRenderer {
      *  axes (the existing y/z dual rotation is a reasonable default and
      *  worth refining only if thumbs look off after the finger fix lands).
      *  Bones missing from a particular VRM are silently skipped. */
-    _applyRelaxedHand(side) {
-        const h = this.vrm?.humanoid;
+    _applyRelaxedHand(actor, side) {
+        const h = actor.vrm?.humanoid;
         if (!h) return;
         const sideSign = side === "left" ? 1 : -1;
         // Detected curl axis/sign is for the LEFT hand; right hand flips
         // sign for x/z axes (body mirror) and keeps it for y (longitudinal).
-        const curl = this._fingerCurl;
+        const curl = actor._fingerCurl;
         const axis = curl?.axis ?? "z";
         const baseSign = curl?.sign ?? 1;
         const mirrorSign = axis === "y" ? baseSign : baseSign * sideSign;
@@ -1820,22 +2747,22 @@ class AvatarRenderer {
         }
     }
 
-    _applyVowels() {
-        const exp = this.vrm?.expressionManager;
+    _applyVowels(actor) {
+        const exp = actor.vrm?.expressionManager;
         if (!exp) return;
         const m = this.expressionMap;
-        const vm = this._visemeMap;
+        const vm = actor._visemeMap;
         for (const canonical of ["aa", "ih", "ou", "ee", "oh"]) {
             // Use the discovered alias if available, fall back to canonical name.
             const exprName = vm?.[canonical] ?? canonical;
-            exp.setValue(exprName, (this._currentVowels[canonical] || 0) * (m[canonical] ?? 1));
+            exp.setValue(exprName, (actor._currentVowels[canonical] || 0) * (m[canonical] ?? 1));
         }
     }
 
-    _applyEmotion(delta) {
-        const exp = this.vrm?.expressionManager;
+    _applyEmotion(actor, delta) {
+        const exp = actor.vrm?.expressionManager;
         if (!exp) return;
-        const state = EMOTION_STATES[this._currentEmotion] || EMOTION_STATES.neutral;
+        const state = EMOTION_STATES[actor._currentEmotion] || EMOTION_STATES.neutral;
 
         // Target weight for every primary emotion expression: its cap when it's
         // the active emotion, 0 otherwise. Tracking all of them (not just the
@@ -1850,21 +2777,21 @@ class AvatarRenderer {
 
         // Capture the starting weights once per transition so the ease runs
         // from whatever was actually on the face.
-        if (!this._emotionTransitionStart) {
-            this._emotionTransitionStart = {};
+        if (!actor._emotionTransitionStart) {
+            actor._emotionTransitionStart = {};
             for (const exprName of Object.keys(targets)) {
-                this._emotionTransitionStart[exprName] = exp.getValue?.(exprName) || 0;
+                actor._emotionTransitionStart[exprName] = exp.getValue?.(exprName) || 0;
             }
         }
 
         const dur = state.blendDuration || 0.4;
-        this._emotionTransitionProgress = Math.min(
-            1, this._emotionTransitionProgress + (delta || 0) / Math.max(dur, 0.001),
+        actor._emotionTransitionProgress = Math.min(
+            1, actor._emotionTransitionProgress + (delta || 0) / Math.max(dur, 0.001),
         );
-        const t = easeInOutCubic(this._emotionTransitionProgress);
+        const t = easeInOutCubic(actor._emotionTransitionProgress);
 
         for (const exprName of Object.keys(targets)) {
-            const start = this._emotionTransitionStart[exprName] ?? 0;
+            const start = actor._emotionTransitionStart[exprName] ?? 0;
             exp.setValue(exprName, start + (targets[exprName] - start) * t);
         }
 
@@ -1875,7 +2802,7 @@ class AvatarRenderer {
         // the lipsync path uses on this VRM.
         if (state.secondary) {
             for (const [vis, weight] of Object.entries(state.secondary)) {
-                const visName = this._visemeMap?.[vis] ?? vis;
+                const visName = actor._visemeMap?.[vis] ?? vis;
                 const cur = exp.getValue?.(visName) || 0;
                 exp.setValue(visName, Math.max(cur, weight * t));
             }
@@ -1905,8 +2832,18 @@ class AvatarRenderer {
             );
             this._scheduleNextSaccade(now);
         }
-        // Gaze sits on the (possibly orbiting) camera plus the saccade offset.
-        const cam = this.camera.position;
+        // Gaze sits on the eye-contact point plus the saccade offset. In XR
+        // `this.camera` is a dolly child whose .position is local (~origin) —
+        // the real viewpoint is the HMD, so read its world position instead so
+        // the avatar makes eye contact as the user moves their head.
+        let cam = this.camera.position;
+        if (this._xrActive && this.renderer?.xr) {
+            const xrCam = this.renderer.xr.getCamera?.();
+            if (xrCam) {
+                this._eyeScratch ||= new this.libs.THREE.Vector3();
+                cam = xrCam.getWorldPosition(this._eyeScratch);
+            }
+        }
         this._lookAtTarget.position.set(
             cam.x + this._saccadeOffset.x,
             cam.y + this._saccadeOffset.y,
@@ -1915,39 +2852,550 @@ class AvatarRenderer {
     }
 
     _loop() {
+        // XR owns the loop via renderer.setAnimationLoop while a session is
+        // presenting — don't double-drive (and don't reschedule rAF).
+        if (this._xrActive) { this.rafHandle = null; return; }
         this.rafHandle = requestAnimationFrame(() => this._loop());
-        if (!this.renderer || !this.activeCanvas) return;
-        this._resize(this.activeCanvas);
+        this._renderFrame();
+    }
 
-        // OrbitControls with damping needs per-frame update() to interpolate.
-        if (this._orbitControls) {
-            try { this._orbitControls.update(); } catch (e) { /* non-fatal */ }
+    /** One rendered frame. Driven by requestAnimationFrame in flat mode and by
+     *  renderer.setAnimationLoop (HMD-paced) while an XR session is active. */
+    _renderFrame() {
+        if (!this.renderer) return;
+        if (this._xrActive) {
+            // The headset owns the framebuffer + projection — never _resize in
+            // XR (it would fight the XR layer), and OrbitControls is disabled.
+        } else {
+            if (!this.activeCanvas) return;
+            this._resize(this.activeCanvas);
+            // OrbitControls with damping needs per-frame update() to interpolate.
+            if (this._orbitControls) {
+                try { this._orbitControls.update(); } catch (e) { /* non-fatal */ }
+            }
         }
 
         const delta = this.clock.getDelta();
         const now = this.clock.elapsedTime;
 
         // Steering first so the mixer + camera see this frame's position.
+        // Locomotion runs in XR too (walkTo-driven placement from the VR move
+        // mode); only the follow-camera below stays flat-mode-only.
         this._updateMovement(delta);
         if (this.mixer) this.mixer.update(delta);
+        // Combo partner ticks with the same delta as the base mixer, so the
+        // two clips stay in sync; vrm.update drives its spring bones (hair /
+        // clothes) — the partner gets no blink/lipsync/gaze, only animation.
+        if (this._comboPartner) {
+            this._comboPartner.mixer.update(delta);
+            try { this._comboPartner.vrm.update(delta); } catch (e) { /* non-fatal */ }
+        }
         if (this.vrm) {
             // Order matters: idle bones first (sets base pose), then mixer if any
             // overrides them, then face-level adjustments on top.
-            this._applyIdle(now);
-            this._applyBlink(now);
-            this._applyBreath(now);
+            this._applyIdle(this, now);
+            this._applyBlink(this, now);
+            this._applyBreath(this, now);
             this._applyEyeSaccade(now);
-            this._applyVowels();
-            this._applyEmotion(delta);
+            this._applyVowels(this);
+            this._applyEmotion(this, delta);
+            // Physics/ragdoll write-back: after animation has posed the
+            // normalized bones, before vrm.update copies them to the raw rig.
+            for (const cb of this._preVRMUpdateCallbacks) {
+                try { cb(delta, now); } catch (e) { /* non-fatal */ }
+            }
             try {
                 this.vrm.expressionManager?.update?.();
                 this.vrm.update(delta);
             } catch (e) { /* non-fatal */ }
         }
-        // After movement so the dolly tracks the freshly advanced position.
-        this._updateFollowCamera(delta);
+        // Peer avatars (multi-agent calls): full facial + idle animation,
+        // same pipeline as the base avatar, driven per-actor.
+        if (this._peers.size) {
+            for (const peer of this._peers.values()) {
+                if (!peer.vrm) continue;
+                if (peer.mixer) peer.mixer.update(delta);
+                this._applyIdle(peer, now);
+                this._applyBlink(peer, now);
+                this._applyBreath(peer, now);
+                this._applyVowels(peer);
+                this._applyEmotion(peer, delta);
+                try {
+                    peer.vrm.expressionManager?.update?.();
+                    peer.vrm.update(delta);
+                } catch (e) { /* non-fatal */ }
+            }
+        }
+        if (!this._xrActive) {
+            // After movement so the follow-cam tracks the freshly advanced position.
+            this._updateFollowCamera(delta);
+        } else {
+            // Place the viewer in front of the avatar on the first frame the
+            // reference space is available (it can be null at sessionstart).
+            if (this._xrPendingRecenter && this.renderer.xr.getReferenceSpace?.()) {
+                this._xrPendingRecenter = false;
+                this.recenterXR();
+            }
+            // XR per-frame consumers (controllers, proximity touch) run AFTER
+            // vrm.update so bone world matrices reflect this frame's pose.
+            for (const cb of this._xrFrameCallbacks) {
+                try { cb(delta, now); } catch (e) { /* non-fatal */ }
+            }
+        }
 
         this.renderer.render(this.scene, this.camera);
+    }
+
+    // ── WebXR ───────────────────────────────────────────────────────────
+
+    /** Resolve true if the browser/headset can present an immersive VR session.
+     *  Gates the "Enter VR" affordance in the UI. */
+    static async isXRSupported() {
+        if (typeof navigator === "undefined" || !navigator.xr) return false;
+        try { return await navigator.xr.isSessionSupported("immersive-vr"); }
+        catch (e) { return false; }
+    }
+
+    /** Enter an immersive session. mode is "immersive-vr" (skybox backdrop) or
+     *  "immersive-ar" (passthrough — the companion appears in the real room).
+     *  AR silently falls back to VR where unsupported. MUST be called from a
+     *  user gesture (WebXR requirement). The heavy lifting (dolly rig, loop
+     *  switch, environment) happens in _onXRSessionStart once the session is
+     *  actually granted. */
+    async enterXR(mode = "immersive-vr") {
+        await this._ensureRenderer();
+        if (!navigator.xr) throw new Error("WebXR is not available in this browser.");
+        let useMode = mode;
+        if (mode === "immersive-ar") {
+            const arOk = await navigator.xr.isSessionSupported("immersive-ar").catch(() => false);
+            if (!arOk) useMode = "immersive-vr";
+        }
+        this.renderer.xr.enabled = true;
+        this.renderer.xr.setReferenceSpaceType("local-floor");
+        if (!this._xrListenersWired) {
+            this.renderer.xr.addEventListener("sessionstart", () => this._onXRSessionStart());
+            this.renderer.xr.addEventListener("sessionend", () => this._onXRSessionEnd());
+            this._xrListenersWired = true;
+        }
+        const session = await navigator.xr.requestSession(useMode, {
+            // plane-detection feeds real-room colliders (ragdoll vs actual
+            // furniture) where the browser supports it — Quest browser does,
+            // Pico 4's does not yet; unsupported optional features are
+            // silently ignored per the WebXR spec.
+            optionalFeatures: ["local-floor", "bounded-floor", "hand-tracking",
+                "plane-detection", "mesh-detection"],
+        });
+        this._xrMode = useMode;
+        await this.renderer.xr.setSession(session);
+        return useMode;
+    }
+
+    /** Recenter the view (DeoVR-style "reset view"): re-place the viewer so the
+     *  CURRENT head pose ends up standing `distance` in front of the avatar,
+     *  facing her — without reloading. Uses the WebXR-native reference-space
+     *  offset (getOffsetReferenceSpace / setReferenceSpace), the robust standard
+     *  approach; full-pose so it also works lying on your back. */
+    recenterXR({ distance = XR_DOLLY_DISTANCE } = {}) {
+        if (!this._xrActive || !this.renderer?.xr || !this.libs) return;
+        if (typeof XRRigidTransform === "undefined") return;
+        // Passthrough/AR sessions must stay gravity- and floor-aligned: the
+        // real room is visible, so any vertical offset or tilt in the
+        // reference space visibly detaches the virtual content (and the
+        // physics floor at y=0) from the physical floor. Full-pose recenter
+        // (below) is only for immersive-vr, where it enables lying-back use.
+        if (this._xrMode === "immersive-ar") return this._recenterXRYawOnly(distance);
+        const xr = this.renderer.xr;
+        const refSpace = xr.getReferenceSpace?.();
+        const xrCam = xr.getCamera?.();
+        if (!refSpace || !xrCam) return;
+        const { THREE } = this.libs;
+
+        // Target head pose T: standing `distance` in front of the avatar at her
+        // eye height, looking straight at her. Avatar faces +Z, so "in front" is
+        // +Z. A full pose (position + orientation), so mapping the live head
+        // onto it reorients everything — it works lying on your back too.
+        const ax = this.vrm?.scene?.position?.x || 0;
+        const az = this.vrm?.scene?.position?.z || 0;
+        const head = this.getHeadWorldPosition(this._rcHead ||= new THREE.Vector3());
+        const hy = head ? head.y : (this._headWorldY ?? FACE_FALLBACK_HEAD_Y);
+        const eye = (this._rcEye ||= new THREE.Vector3()).set(ax, hy, az + distance);
+        const tgt = (this._rcTgt ||= new THREE.Vector3()).set(ax, hy, az);
+        const up = (this._rcUp ||= new THREE.Vector3()).set(0, 1, 0);
+        const one = (this._rcOne ||= new THREE.Vector3()).set(1, 1, 1);
+        const lookM = (this._rcLook ||= new THREE.Matrix4()).lookAt(eye, tgt, up);
+        const tQuat = (this._rcTQ ||= new THREE.Quaternion()).setFromRotationMatrix(lookM);
+        const T = (this._rcT ||= new THREE.Matrix4()).compose(eye, tQuat, one);
+
+        // Live head pose C in current scene coords (== the current reference
+        // space frame, since three renders the scene in reference-space coords).
+        const cPos = xrCam.getWorldPosition(this._rcP ||= new THREE.Vector3());
+        const cQuat = xrCam.getWorldQuaternion(this._rcQ ||= new THREE.Quaternion());
+        const C = (this._rcC ||= new THREE.Matrix4()).compose(cPos, cQuat, one);
+
+        // originOffset = C · T⁻¹, so the new viewer pose = offset⁻¹ · C = T.
+        // This is the WebXR-native recenter (getOffsetReferenceSpace) — robust,
+        // and it never "flings" the camera the way ad-hoc dolly math does.
+        const Tinv = (this._rcTinv ||= new THREE.Matrix4()).copy(T).invert();
+        const offset = (this._rcOff ||= new THREE.Matrix4()).copy(C).multiply(Tinv);
+        const oPos = (this._rcOPos ||= new THREE.Vector3());
+        const oQuat = (this._rcOQuat ||= new THREE.Quaternion());
+        offset.decompose(oPos, oQuat, this._rcOScale ||= new THREE.Vector3());
+
+        try {
+            const xform = new XRRigidTransform(
+                { x: oPos.x, y: oPos.y, z: oPos.z, w: 1 },
+                { x: oQuat.x, y: oQuat.y, z: oQuat.z, w: oQuat.w },
+            );
+            xr.setReferenceSpace(refSpace.getOffsetReferenceSpace(xform));
+        } catch (e) {
+            console.error("[voice] recenter failed", e);
+        }
+    }
+
+    /** Floor-preserving recenter for AR/passthrough sessions: the offset is
+     *  built from the head's YAW and horizontal position only, with the
+     *  target eye kept at the CURRENT physical head height — so it contains
+     *  no vertical translation and no pitch/roll. local-floor's y=0 stays
+     *  glued to the real floor, which passthrough alignment and the ragdoll
+     *  floor both depend on. Same offset math as the full-pose version, with
+     *  C and T reduced to gravity-aligned poses. */
+    _recenterXRYawOnly(distance) {
+        const xr = this.renderer.xr;
+        const refSpace = xr.getReferenceSpace?.();
+        const xrCam = xr.getCamera?.();
+        if (!refSpace || !xrCam) return;
+        const { THREE } = this.libs;
+        const ax = this.vrm?.scene?.position?.x || 0;
+        const az = this.vrm?.scene?.position?.z || 0;
+
+        // Live head pose reduced to yaw + position.
+        const cPos = xrCam.getWorldPosition(this._rcP ||= new THREE.Vector3());
+        const cQuat = xrCam.getWorldQuaternion(this._rcQ ||= new THREE.Quaternion());
+        const fwd = (this._rcFwd ||= new THREE.Vector3()).set(0, 0, -1).applyQuaternion(cQuat);
+        fwd.y = 0;
+        const yaw = fwd.lengthSq() > 1e-6 ? Math.atan2(-fwd.x, -fwd.z) : 0;
+        const up = (this._rcUp ||= new THREE.Vector3()).set(0, 1, 0);
+        const one = (this._rcOne ||= new THREE.Vector3()).set(1, 1, 1);
+        const cYawQ = (this._rcTQ ||= new THREE.Quaternion()).setFromAxisAngle(up, yaw);
+        const C = (this._rcC ||= new THREE.Matrix4()).compose(cPos, cYawQ, one);
+
+        // Target: standing `distance` in front of the avatar (+Z side) at the
+        // SAME physical eye height, facing her — facing -Z is yaw 0.
+        const eye = (this._rcEye ||= new THREE.Vector3()).set(ax, cPos.y, az + distance);
+        const tQuat = (this._rcTQ2 ||= new THREE.Quaternion()).identity();
+        const T = (this._rcT ||= new THREE.Matrix4()).compose(eye, tQuat, one);
+
+        const Tinv = (this._rcTinv ||= new THREE.Matrix4()).copy(T).invert();
+        const offset = (this._rcOff ||= new THREE.Matrix4()).copy(C).multiply(Tinv);
+        const oPos = (this._rcOPos ||= new THREE.Vector3());
+        const oQuat = (this._rcOQuat ||= new THREE.Quaternion());
+        offset.decompose(oPos, oQuat, this._rcOScale ||= new THREE.Vector3());
+        try {
+            const xform = new XRRigidTransform(
+                { x: oPos.x, y: oPos.y, z: oPos.z, w: 1 },
+                { x: oQuat.x, y: oQuat.y, z: oQuat.z, w: oQuat.w },
+            );
+            xr.setReferenceSpace(refSpace.getOffsetReferenceSpace(xform));
+        } catch (e) {
+            console.error("[voice] recenter (yaw-only) failed", e);
+        }
+    }
+
+    /** Switch the XR backdrop within the active session. "passthrough" clears
+     *  the scene so the headset's real-world feed shows; "skybox" paints an
+     *  opaque backdrop that occludes passthrough for a contained VR look.
+     *  In an immersive-ar session this toggles the AR↔VR feel with NO session
+     *  restart (an immersive-vr session can only ever show the skybox). */
+    setXREnvironment(envMode) {
+        if (!this._xrActive) return;
+        this._xrEnvMode = envMode === "passthrough" ? "passthrough" : "skybox";
+        this._applyXREnvironment();
+    }
+
+    /** Flip passthrough ↔ skybox. Returns the new mode (or null if not in XR). */
+    toggleXREnvironment() {
+        if (!this._xrActive) return null;
+        if (this._xrMode !== "immersive-ar") {
+            // No passthrough available in a VR session — stay on skybox.
+            this.setXREnvironment("skybox");
+            return "skybox";
+        }
+        const next = this._xrEnvMode === "passthrough" ? "skybox" : "passthrough";
+        this.setXREnvironment(next);
+        return next;
+    }
+
+    _applyXREnvironment() {
+        const room = this._room;
+        if (this._xrEnvMode === "passthrough") {
+            // Real-world passthrough: hide any GLB scene so it doesn't clip
+            // with the headset's camera feed.
+            this.scene.background = null;
+            this.renderer.setClearAlpha?.(0);
+            if (room) room.visible = false;
+        } else {
+            // Virtual world: show the GLB scene if one is loaded (it IS the
+            // environment) with an opaque clear behind any gaps; otherwise
+            // paint a solid skybox so it isn't an empty void.
+            if (room) {
+                room.visible = true;
+                this.scene.background = null;
+                this.renderer.setClearColor?.(XR_VR_BG, 1);
+            } else {
+                this.scene.background = new this.libs.THREE.Color(XR_VR_BG);
+                this.renderer.setClearAlpha?.(1);
+            }
+        }
+    }
+
+    /** Leave the active immersive session. session.end() dispatches "sessionend",
+     *  which routes to _onXRSessionEnd for teardown. */
+    async exitXR() {
+        const session = this.renderer?.xr?.getSession?.();
+        if (session) {
+            try { await session.end(); } catch (e) { /* _onXRSessionEnd still runs */ }
+        } else if (this._xrActive) {
+            this._onXRSessionEnd();
+        }
+    }
+
+    _onXRSessionStart() {
+        if (this._xrActive) return;
+        this._xrActive = true;
+        // Stop the flat rAF loop — the headset drives frames from here on.
+        if (this.rafHandle) { cancelAnimationFrame(this.rafHandle); this.rafHandle = null; }
+        this._disableOrbit();
+        // Capture the base reference space (may be null until the first frame)
+        // and defer initial placement to the first XR frame, when the viewer
+        // pose is available. No dolly — placement is a reference-space offset.
+        this._xrBaseRefSpace = this.renderer.xr.getReferenceSpace?.() || null;
+        this._xrPendingRecenter = true;
+        // Environment start state. A GLB scene background is itself the world,
+        // so start in "virtual" (scene visible, passthrough off) — otherwise the
+        // GLB geometry clips with passthrough. With no scene, an AR session
+        // starts in passthrough (the companion in your real room).
+        this._savedSceneBackground = this.scene.background;
+        const hasScene = !!this._room || this._currentBackground?.type === "scene";
+        this._xrEnvMode = (this._xrMode === "immersive-ar" && !hasScene) ? "passthrough" : "skybox";
+        this._applyXREnvironment();
+        this.renderer.setAnimationLoop(() => this._renderFrame());
+        // Notify VR add-ons (renderer is the WebGLRenderer; controllers parent
+        // to ctx.scene — their poses already include the reference-space offset).
+        const ctx = {
+            renderer: this.renderer,
+            scene: this.scene,
+            camera: this.camera,
+            THREE: this.libs.THREE,
+            mode: this._xrMode,
+        };
+        for (const l of this._xrSessionListeners) {
+            try { l.onStart?.(ctx); } catch (e) { /* non-fatal */ }
+        }
+    }
+
+    _onXRSessionEnd() {
+        if (!this._xrActive) return;
+        this.renderer.setAnimationLoop(null);
+        // Let VR add-ons dispose their controllers/meshes BEFORE the dolly
+        // (their parent) is torn down.
+        for (const l of this._xrSessionListeners) {
+            try { l.onEnd?.(); } catch (e) { /* non-fatal */ }
+        }
+        // Drop any recenter offset so the next session starts from a clean origin.
+        if (this._xrBaseRefSpace) {
+            try { this.renderer.xr.setReferenceSpace(this._xrBaseRefSpace); } catch (e) { /* non-fatal */ }
+        }
+        this._xrBaseRefSpace = null;
+        this._xrPendingRecenter = false;
+        if (this._savedSceneBackground !== undefined) {
+            this.scene.background = this._savedSceneBackground;
+            this._savedSceneBackground = undefined;
+        }
+        // Un-hide the GLB scene (passthrough mode may have hidden it) so the
+        // flat view shows it again.
+        if (this._room) this._room.visible = true;
+        // alpha:true renderer composites over the CSS host background in flat mode.
+        this.renderer.setClearAlpha?.(0);
+        this._xrActive = false;
+        this._xrMode = null;
+        // Re-frame the flat camera and resume the rAF loop.
+        this._applyCameraPreset();
+        if (this._fullBody) this._enableOrbit();
+        if (!this.rafHandle) this._loop();
+    }
+
+    /** World-space position of the VRM head bone, for positioning a spatial
+     *  audio PannerNode at the avatar's mouth. Returns a (reused) Vector3 or
+     *  null if no VRM is loaded. Valid after the per-frame vrm.update(). */
+    getHeadWorldPosition(out) {
+        const head = this.vrm?.humanoid?.getNormalizedBoneNode?.("head");
+        if (!head || !this.libs) return null;
+        const v = out || (this._headWorldScratch ||= new this.libs.THREE.Vector3());
+        return head.getWorldPosition(v);
+    }
+
+    /** HMD listener pose for spatial audio: world position + forward/up unit
+     *  vectors of the XR camera, as plain numbers (keeps three out of
+     *  voice_service). Null outside an XR session. */
+    getXRListenerPose() {
+        const xrCam = this.renderer?.xr?.getCamera?.();
+        if (!xrCam || !this.libs) return null;
+        const { THREE } = this.libs;
+        const p = (this._lp ||= new THREE.Vector3());
+        const q = (this._lq ||= new THREE.Quaternion());
+        const f = (this._lf ||= new THREE.Vector3());
+        const u = (this._lu ||= new THREE.Vector3());
+        xrCam.getWorldPosition(p);
+        xrCam.getWorldQuaternion(q);
+        f.set(0, 0, -1).applyQuaternion(q);
+        u.set(0, 1, 0).applyQuaternion(q);
+        return {
+            px: p.x, py: p.y, pz: p.z,
+            fx: f.x, fy: f.y, fz: f.z,
+            ux: u.x, uy: u.y, uz: u.z,
+        };
+    }
+
+    /** Humanoid bone nodes the proximity touch-detector tests hands against.
+     *  Re-call after every avatar swap (the humanoid is rebuilt by loadVRM). */
+    getHumanoidBones() {
+        const h = this.vrm?.humanoid;
+        if (!h) return [];
+        const out = [];
+        for (const name of XR_TOUCH_BONES) {
+            const node = h.getNormalizedBoneNode?.(name);
+            if (node) out.push({ name, node });
+        }
+        return out;
+    }
+
+    // ── Spring-bone hand colliders (VR touch physics) ───────────────────
+    // The VR hands become real colliders for the avatar's spring bones
+    // (hair / chest / clothing), so touching physically displaces them —
+    // the FastSpringBone interaction feel, no physics engine required.
+
+    /** Create sphere colliders parented to the given host objects (VR hand
+     *  groups) and register them with every loaded VRM's spring bone manager.
+     *  hosts: [{ object, radius?, offset? {x,y,z} }]. Call on XR session
+     *  start; detachSpringBoneColliders() on session end. */
+    attachSpringBoneColliders(hosts) {
+        const { THREE, VRMSpringBoneCollider, VRMSpringBoneColliderShapeSphere } = this.libs || {};
+        if (!VRMSpringBoneCollider || !hosts?.length) return;
+        this.detachSpringBoneColliders();
+        const colliders = hosts.map(({ object, radius = 0.07, offset }) => {
+            const shape = new VRMSpringBoneColliderShapeSphere({
+                radius,
+                offset: offset ? new THREE.Vector3(offset.x, offset.y, offset.z) : undefined,
+            });
+            const collider = new VRMSpringBoneCollider(shape);
+            object.add(collider);
+            return collider;
+        });
+        this._xrHandColliderGroup = { colliders, name: "xr-hands" };
+        if (this.vrm) this._applySpringCollidersToVRM(this.vrm);
+        for (const peer of this._peers.values()) {
+            if (peer.vrm) this._applySpringCollidersToVRM(peer.vrm);
+        }
+        if (this._comboPartner?.vrm) this._applySpringCollidersToVRM(this._comboPartner.vrm);
+    }
+
+    /** Register the active hand-collider group with one VRM's spring bone
+     *  joints. Re-adding a joint marks the manager's dependency sort dirty so
+     *  the new collider is picked up. Safe no-op when no group is active. */
+    _applySpringCollidersToVRM(vrm) {
+        const group = this._xrHandColliderGroup;
+        const mgr = vrm?.springBoneManager;
+        if (!group || !mgr) return;
+        try {
+            for (const joint of mgr.joints) {
+                if (!joint.colliderGroups.includes(group)) {
+                    joint.colliderGroups.push(group);
+                    mgr.addJoint(joint);
+                }
+            }
+        } catch (e) { /* non-fatal — touch physics is a bonus, never break loading */ }
+    }
+
+    /** Undo attachSpringBoneColliders: unregister the group from every VRM
+     *  and remove the collider objects from their hosts. */
+    detachSpringBoneColliders() {
+        const group = this._xrHandColliderGroup;
+        if (!group) return;
+        this._xrHandColliderGroup = null;
+        const vrms = [this.vrm, ...[...this._peers.values()].map((p) => p.vrm), this._comboPartner?.vrm];
+        for (const vrm of vrms) {
+            const mgr = vrm?.springBoneManager;
+            if (!mgr) continue;
+            try {
+                for (const joint of mgr.joints) {
+                    const i = joint.colliderGroups.indexOf(group);
+                    if (i >= 0) {
+                        joint.colliderGroups.splice(i, 1);
+                        mgr.addJoint(joint);   // re-dirty the dependency sort
+                    }
+                }
+            } catch (e) { /* non-fatal */ }
+        }
+        for (const c of group.colliders) c.parent?.remove(c);
+    }
+
+    /** Register a callback that runs each frame AFTER animation has posed the
+     *  normalized bones but BEFORE vrm.update() copies them to the raw rig —
+     *  the only window where a physics write-back (ragdoll) can override the
+     *  pose. Returns an unsubscribe fn. */
+    addPreVRMUpdateCallback(cb) {
+        this._preVRMUpdateCallbacks.add(cb);
+        return () => this._preVRMUpdateCallbacks.delete(cb);
+    }
+
+    /** Register a per-XR-frame callback (controllers, touch detection). Runs
+     *  after vrm.update each frame. Returns an unsubscribe fn. */
+    addXRFrameCallback(cb) {
+        this._xrFrameCallbacks.add(cb);
+        return () => this._xrFrameCallbacks.delete(cb);
+    }
+
+    removeXRFrameCallback(cb) {
+        this._xrFrameCallbacks.delete(cb);
+    }
+
+    /** Register a VR add-on (vr_manager) notified when an immersive session
+     *  starts/ends. onStart(ctx) receives { renderer (WebGLRenderer), scene,
+     *  camera, THREE, mode }; parent controllers to ctx.scene. onEnd() runs on
+     *  session end. Returns an unsubscribe fn. */
+    addXRSessionListener(listener) {
+        this._xrSessionListeners.add(listener);
+        return () => this._xrSessionListeners.delete(listener);
+    }
+
+    get isInXR() {
+        return this._xrActive;
+    }
+
+    /** Current XR backdrop mode ("passthrough" | "skybox") — read by the
+     *  world-space panel to label its environment button, incl. after the
+     *  hardware A/X toggle. */
+    get xrEnvMode() {
+        return this._xrEnvMode;
+    }
+
+    /** Instance passthrough to the static support check, convenient for UI
+     *  components that hold the service instance rather than the class. */
+    checkXRSupport() {
+        return AvatarRenderer.isXRSupported();
+    }
+
+    /** Resolve true if the browser/headset can present an immersive AR
+     *  (passthrough / mixed-reality) session — Pico 4 and Quest browsers
+     *  report this; desktop browsers generally don't. */
+    static async isARSupported() {
+        if (typeof navigator === "undefined" || !navigator.xr) return false;
+        try { return await navigator.xr.isSessionSupported("immersive-ar"); }
+        catch (e) { return false; }
+    }
+
+    checkARSupport() {
+        return AvatarRenderer.isARSupported();
     }
 }
 

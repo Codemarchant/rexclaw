@@ -223,6 +223,14 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
         setList("backgrounds", idx, { offset: cur });
     };
 
+    // Combo gestures carry [x,y,z] / [yaw,pitch,roll] triples; patch one slot.
+    const setVec = (key, idx, field, axis, val) => {
+        const cur = ((manifest[key][idx][field]) || [0, 0, 0]).slice();
+        while (cur.length < 3) cur.push(0);
+        cur[axis] = Number.isFinite(val) ? val : 0;
+        setList(key, idx, { [field]: cur });
+    };
+
     return (
         <div>
             <div className="rx_row">
@@ -265,10 +273,12 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                 ))}
             </Section>
 
-            {/* Gestures */}
+            {/* Gestures (solo) */}
             <Section title="Custom gestures"
                      onAdd={() => addItem("gestures", { enum: "", vrma: "", description: "", loop: false })}>
-                {(manifest.gestures || []).map((g, i) => (
+                {(manifest.gestures || []).map((g, i) => ({ g, i }))
+                    .filter(({ g }) => g.type !== "combo")
+                    .map(({ g, i }) => (
                     <div key={i} className="rx_subrow">
                         <input type="text" placeholder="enum (e.g. wave_hello)" value={g.enum || ""}
                                onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
@@ -286,6 +296,86 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                         </button>
                     </div>
                 ))}
+            </Section>
+
+            {/* Combo (two-character) gestures */}
+            <Section title="Combo gestures (two characters)"
+                     onAdd={() => addItem("gestures", {
+                         enum: "", type: "combo", vrma: "", description: "", loop: false,
+                         partner_avatar: "", partner_vrm: "", partner_vrma: "",
+                         base_offset: [0, 0, 0], base_rotation: [0, 0, 0],
+                         partner_offset: [0.6, 0, 0], partner_rotation: [0, 0, 0],
+                         partner_scale: 1.0,
+                     })}>
+                {(manifest.gestures || []).map((g, i) => ({ g, i }))
+                    .filter(({ g }) => g.type === "combo")
+                    .map(({ g, i }) => (
+                    <div key={i} className="rx_subrow rx_subrow--combo" style={{ flexWrap: "wrap" }}>
+                        <input type="text" placeholder="enum (e.g. dance_together)" value={g.enum || ""}
+                               onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
+                        <FileField label="Base VRMA" kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
+                                   onUploaded={(fn) => setList("gestures", i, { vrma: fn })} />
+                        <input type="text" placeholder="Description (when to use it)" value={g.description || ""}
+                               onChange={(ev) => setList("gestures", i, { description: ev.target.value })} />
+                        <input type="text" value={g.partner_avatar || ""}
+                               placeholder="Partner avatar name (optional — else upload a VRM)"
+                               title="Existing avatar to load as the second character (name or pack folder). Leave empty to upload a dedicated Partner VRM instead."
+                               onChange={(ev) => setList("gestures", i, { partner_avatar: ev.target.value })} />
+                        {!(g.partner_avatar || "").trim() && (
+                            <FileField label="Partner VRM" kind="vrm" packKey={pack_key} value={g.partner_vrm} accept=".vrm"
+                                       onUploaded={(fn) => setList("gestures", i, { partner_vrm: fn })} />
+                        )}
+                        <FileField label="Partner VRMA" kind="vrma" packKey={pack_key} value={g.partner_vrma} accept=".vrma"
+                                   onUploaded={(fn) => setList("gestures", i, { partner_vrma: fn })} />
+                        <span className="rx_scene_xform"
+                              title={"Base avatar placement during the combo. Offsets in metres; rotations in degrees applied "
+                                  + "yaw → pitch → roll (yaw 0 = facing the camera; pitch 90 = lying on the back — pair with a "
+                                  + "positive Y offset since models pivot at their feet)."}>
+                            base
+                            {["x", "y", "z"].map((ax, k) => (
+                                <label key={ax}>{ax}<input type="number" step="0.1"
+                                    value={(g.base_offset || [0, 0, 0])[k]}
+                                    onChange={(ev) => setVec("gestures", i, "base_offset", k, parseFloat(ev.target.value))} /></label>
+                            ))}
+                            {["yaw", "pitch", "roll"].map((ax, k) => (
+                                <label key={ax}>{ax}<input type="number" step="5"
+                                    value={(g.base_rotation || [0, 0, 0])[k]}
+                                    onChange={(ev) => setVec("gestures", i, "base_rotation", k, parseFloat(ev.target.value))} /></label>
+                            ))}
+                        </span>
+                        <span className="rx_scene_xform"
+                              title="Partner placement during the combo — same conventions as the base avatar, plus a uniform scale.">
+                            partner
+                            {["x", "y", "z"].map((ax, k) => (
+                                <label key={ax}>{ax}<input type="number" step="0.1"
+                                    value={(g.partner_offset || [0.6, 0, 0])[k]}
+                                    onChange={(ev) => setVec("gestures", i, "partner_offset", k, parseFloat(ev.target.value))} /></label>
+                            ))}
+                            {["yaw", "pitch", "roll"].map((ax, k) => (
+                                <label key={ax}>{ax}<input type="number" step="5"
+                                    value={(g.partner_rotation || [0, 0, 0])[k]}
+                                    onChange={(ev) => setVec("gestures", i, "partner_rotation", k, parseFloat(ev.target.value))} /></label>
+                            ))}
+                            <label>scale<input type="number" step="0.05"
+                                value={g.partner_scale ?? 1}
+                                onChange={(ev) => setList("gestures", i, { partner_scale: parseFloat(ev.target.value) || 1 })} /></label>
+                        </span>
+                        <label className="rx_check" style={{ margin: 0 }}
+                               title="Looping combos: both clips should have the same duration or they drift out of phase with each repeat.">
+                            <input type="checkbox" checked={!!g.loop}
+                                   onChange={(ev) => setList("gestures", i, { loop: ev.target.checked })} />
+                            <span>loop</span>
+                        </label>
+                        <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("gestures", i)}>
+                            <i className="fa fa-trash-o" />
+                        </button>
+                    </div>
+                ))}
+                <p className="text-muted small" style={{ margin: "0.25rem 0 0" }}>
+                    Combo gestures animate two characters at once: this avatar plays the Base VRMA while a second
+                    VRM — an existing avatar or a dedicated upload — plays the Partner VRMA in sync (dancing
+                    together, hugging, …). The partner unloads when the gesture ends or is replaced.
+                </p>
             </Section>
 
             {/* Backgrounds */}

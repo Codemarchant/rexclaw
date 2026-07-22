@@ -7,10 +7,16 @@
  * is deliberately coarse — "looks like talking" rather than phonetically
  * accurate, which is good enough at the latency the avatar runs at.
  *
- * The service does NOT own any audio source — voice_service hands it the
- * `<audio>` element playing the live model output. When voice_service sets
- * `replayMode=true`, the service zeroes vowel weights so resumed history
- * doesn't trigger phantom mouth movement.
+ * Multi-agent calls: each live agent connection owns an independent
+ * LipsyncChannel (created via createChannel()) with its own AnalyserNode on
+ * that connection's playback gain node. One shared rAF loop ticks every
+ * connected channel, and each channel notifies its own listeners — so two
+ * avatars can speak (and move their mouths) independently.
+ *
+ * The service does NOT own any audio source — each connection attaches its
+ * channel to the gain node it plays assistant audio through. When
+ * `replayMode=true` is set (session history replay), every channel zeroes its
+ * vowel weights so resumed history doesn't trigger phantom mouth movement.
  */
 
 // Silence handling (ported from moeru-ai/airi's lip-sync.ts). A hard intensity
@@ -27,62 +33,64 @@ const SILENCE_HANGOVER_MS = 160;
 const LIP_ATTACK_RATE = 50;
 const LIP_RELEASE_RATE = 30;
 
-class LipsyncService {
-    constructor(env) {
-        this.env = env;
+class LipsyncChannel {
+    constructor(service) {
+        this.service = service;
         this.audioContext = null;
         this.analyser = null;
         this.timeBuffer = null;
         this.freqBuffer = null;
         this.connected = false;
-        this.replayMode = false;
         this.smoothed = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
         this.intensity = 0;
-        this._rafHandle = null;
         this._lastTickAt = 0;       // ms timestamp of previous tick (for dt)
         this._lastActiveAt = 0;     // ms timestamp of last above-floor frame (silence hangover)
         this._listeners = new Set();
     }
 
-    connectAssistantOutput(audioElement) {
-        if (this.connected) return;
+    /** Tap an AnalyserNode off the given gain node. The gain node's own
+     *  AudioContext is used, so channels on different contexts coexist. */
+    attach(gainNode) {
+        if (this.connected) this.detach();
         try {
-            this.audioContext = this.audioContext || new (window.AudioContext || window.webkitAudioContext)();
-            const source = this.audioContext.createMediaElementSource(audioElement);
-            this.analyser = this.audioContext.createAnalyser();
+            const ctx = gainNode.context;
+            this.audioContext = ctx;
+            this.analyser = ctx.createAnalyser();
             this.analyser.fftSize = 2048;
             this.analyser.smoothingTimeConstant = 0.6;
             this.timeBuffer = new Float32Array(this.analyser.fftSize);
             this.freqBuffer = new Float32Array(this.analyser.frequencyBinCount);
-            source.connect(this.analyser);
-            // Also connect the source to the destination so the user can hear the audio.
-            source.connect(this.audioContext.destination);
+            gainNode.connect(this.analyser);
             this.connected = true;
-            this._startLoop();
+            this._lastTickAt = 0;
+            this.service._ensureLoop();
         } catch (e) {
             console.error("[voice] lipsync: failed to attach analyser", e);
         }
     }
 
-    disconnect() {
-        if (this._rafHandle) cancelAnimationFrame(this._rafHandle);
-        this._rafHandle = null;
+    /** Stop analysing. Safe to call repeatedly; the analyser node is dropped
+     *  (its context may be closing anyway). */
+    detach() {
         this.connected = false;
-    }
-
-    setReplayMode(active) {
-        this.replayMode = !!active;
-        if (active) {
-            this.smoothed = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
-            this.intensity = 0;
-            this._lastActiveAt = 0;   // resume silent until real audio drives it
-            this._notify();
+        if (this.analyser) {
+            try { this.analyser.disconnect(); } catch (e) { /* swallow */ }
         }
+        this.analyser = null;
+        this.audioContext = null;
+        this._zero();
     }
 
     addListener(fn) {
         this._listeners.add(fn);
         return () => this._listeners.delete(fn);
+    }
+
+    _zero() {
+        this.smoothed = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+        this.intensity = 0;
+        this._lastActiveAt = 0;
+        this._notify();
     }
 
     _notify() {
@@ -91,72 +99,67 @@ class LipsyncService {
         }
     }
 
-    _startLoop() {
-        this._lastTickAt = 0;   // fresh dt baseline on (re)connect
-        const tick = () => {
-            // Bail before re-scheduling if disconnect() has been called —
-            // defensive belt-and-suspenders against a tick firing in the
-            // narrow window between cancelAnimationFrame and connected=false.
-            if (!this.connected) return;
-            this._rafHandle = requestAnimationFrame(tick);
-            if (!this.analyser || this.replayMode) return;
-            this.analyser.getFloatTimeDomainData(this.timeBuffer);
-            this.analyser.getFloatFrequencyData(this.freqBuffer);
+    /** One analysis step. Public so the XR render loop can drive it: an
+     *  immersive WebXR session pauses window.requestAnimationFrame, which would
+     *  otherwise freeze the mouth in VR. Safe to call when idle (guards on the
+     *  analyser / replay mode). */
+    tick() {
+        if (!this.analyser || !this.connected || this.service.replayMode) return;
+        this.analyser.getFloatTimeDomainData(this.timeBuffer);
+        this.analyser.getFloatFrequencyData(this.freqBuffer);
 
-            // RMS → master mouth-open. Multiplier and ceiling tuned so a typical
-            // TTS voice (xAI/OpenAI realtime) hits 0.7–1.0 reliably during speech
-            // and decays to 0 in silence. With the previous *4 multiplier the
-            // mouth barely moved at all because nominal RMS was around 0.05–0.15.
-            let sumSq = 0;
-            for (let i = 0; i < this.timeBuffer.length; i++) {
-                sumSq += this.timeBuffer[i] * this.timeBuffer[i];
-            }
-            const rms = Math.sqrt(sumSq / this.timeBuffer.length);
-            const rawIntensity = Math.min(1, Math.pow(rms * 8, 0.85));
+        // RMS → master mouth-open. Multiplier and ceiling tuned so a typical
+        // TTS voice (xAI/OpenAI realtime) hits 0.7–1.0 reliably during speech
+        // and decays to 0 in silence. With the previous *4 multiplier the
+        // mouth barely moved at all because nominal RMS was around 0.05–0.15.
+        let sumSq = 0;
+        for (let i = 0; i < this.timeBuffer.length; i++) {
+            sumSq += this.timeBuffer[i] * this.timeBuffer[i];
+        }
+        const rms = Math.sqrt(sumSq / this.timeBuffer.length);
+        const rawIntensity = Math.min(1, Math.pow(rms * 8, 0.85));
 
-            // Frame-rate-independent timestep. Clamp so a backgrounded tab
-            // (huge gap between rAF callbacks) doesn't snap the mouth.
-            const now = performance.now();
-            const dt = this._lastTickAt ? Math.min(0.1, (now - this._lastTickAt) / 1000) : 0.016;
-            this._lastTickAt = now;
+        // Frame-rate-independent timestep. Clamp so a backgrounded tab
+        // (huge gap between rAF callbacks) doesn't snap the mouth.
+        const now = performance.now();
+        const dt = this._lastTickAt ? Math.min(0.1, (now - this._lastTickAt) / 1000) : 0.016;
+        this._lastTickAt = now;
 
-            // Silence gate with hangover. Stay "active" for SILENCE_HANGOVER_MS
-            // after the last above-floor frame so a brief inter-syllable dip
-            // doesn't read as the mouth slamming shut; past that, force closed.
-            if (rawIntensity >= SILENCE_INTENSITY) this._lastActiveAt = now;
-            const silent = !this._lastActiveAt || (now - this._lastActiveAt) > SILENCE_HANGOVER_MS;
+        // Silence gate with hangover. Stay "active" for SILENCE_HANGOVER_MS
+        // after the last above-floor frame so a brief inter-syllable dip
+        // doesn't read as the mouth slamming shut; past that, force closed.
+        if (rawIntensity >= SILENCE_INTENSITY) this._lastActiveAt = now;
+        const silent = !this._lastActiveAt || (now - this._lastActiveAt) > SILENCE_HANGOVER_MS;
 
-            let target;
-            let intensityTarget;
-            if (silent) {
-                target = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
-                intensityTarget = 0;
-            } else {
-                const sampleRate = this.audioContext.sampleRate;
-                const binHz = sampleRate / this.analyser.fftSize;
-                const f1 = this._findPeakHz(200, 1000, binHz);
-                const f2 = this._findPeakHz(800, 2800, binHz);
-                target = this._formantToVowels(f1, f2, rawIntensity);
-                intensityTarget = rawIntensity;
-            }
+        let target;
+        let intensityTarget;
+        if (silent) {
+            target = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+            intensityTarget = 0;
+        } else {
+            const sampleRate = this.audioContext.sampleRate;
+            const binHz = sampleRate / this.analyser.fftSize;
+            const f1 = this._findPeakHz(200, 1000, binHz);
+            const f2 = this._findPeakHz(800, 2800, binHz);
+            target = this._formantToVowels(f1, f2, rawIntensity);
+            intensityTarget = rawIntensity;
+        }
 
-            // Asymmetric, frame-rate-independent smoothing: faster attack,
-            // slower release. Mouth opening tracks the audio crisply; closing
-            // eases so gaps between syllables don't look like stutters.
-            const smooth = (cur, tgt) => {
-                const rate = tgt > cur ? LIP_ATTACK_RATE : LIP_RELEASE_RATE;
-                return cur + (tgt - cur) * (1 - Math.exp(-rate * dt));
-            };
-            this.smoothed.aa = smooth(this.smoothed.aa, target.aa);
-            this.smoothed.ih = smooth(this.smoothed.ih, target.ih);
-            this.smoothed.ou = smooth(this.smoothed.ou, target.ou);
-            this.smoothed.ee = smooth(this.smoothed.ee, target.ee);
-            this.smoothed.oh = smooth(this.smoothed.oh, target.oh);
-            this.intensity = smooth(this.intensity, intensityTarget);
-
-            this._notify();
+        // Asymmetric, frame-rate-independent smoothing: faster attack,
+        // slower release. Mouth opening tracks the audio crisply; closing
+        // eases so gaps between syllables don't look like stutters.
+        const smooth = (cur, tgt) => {
+            const rate = tgt > cur ? LIP_ATTACK_RATE : LIP_RELEASE_RATE;
+            return cur + (tgt - cur) * (1 - Math.exp(-rate * dt));
         };
-        tick();
+        this.smoothed.aa = smooth(this.smoothed.aa, target.aa);
+        this.smoothed.ih = smooth(this.smoothed.ih, target.ih);
+        this.smoothed.ou = smooth(this.smoothed.ou, target.ou);
+        this.smoothed.ee = smooth(this.smoothed.ee, target.ee);
+        this.smoothed.oh = smooth(this.smoothed.oh, target.oh);
+        this.intensity = smooth(this.intensity, intensityTarget);
+
+        this._notify();
     }
 
     _findPeakHz(minHz, maxHz, binHz) {
@@ -206,6 +209,70 @@ class LipsyncService {
         weights[ranked[0][0]] = intensity * 0.7;
         if (ranked[1]) weights[ranked[1][0]] = intensity * 0.25;
         return weights;
+    }
+}
+
+class LipsyncService {
+    constructor(env) {
+        this.env = env;
+        this.replayMode = false;
+        this._channels = new Set();
+        this._rafHandle = null;
+    }
+
+    /** Allocate an independent analysis channel. The caller attaches it to a
+     *  playback gain node and subscribes for vowel updates. Release with
+     *  removeChannel() (or channel.detach() to keep the slot). */
+    createChannel() {
+        const ch = new LipsyncChannel(this);
+        this._channels.add(ch);
+        return ch;
+    }
+
+    removeChannel(ch) {
+        if (!ch) return;
+        ch.detach();
+        this._channels.delete(ch);
+        if (![...this._channels].some((c) => c.connected)) this._stopLoop();
+    }
+
+    setReplayMode(active) {
+        this.replayMode = !!active;
+        if (active) {
+            for (const ch of this._channels) ch._zero();
+        }
+    }
+
+    /** Detach every channel (legacy teardown hook — the manager calls this on
+     *  full session end). Channels stay registered so a later re-attach on the
+     *  same channel object works. */
+    disconnect() {
+        for (const ch of this._channels) ch.detach();
+        this._stopLoop();
+    }
+
+    /** One analysis step across every connected channel. Public so the XR
+     *  render loop can drive it (immersive sessions pause window rAF). */
+    tick() {
+        for (const ch of this._channels) {
+            if (ch.connected) ch.tick();
+        }
+    }
+
+    _ensureLoop() {
+        if (this._rafHandle) return;
+        const loop = () => {
+            const anyConnected = [...this._channels].some((c) => c.connected);
+            if (!anyConnected) { this._rafHandle = null; return; }
+            this._rafHandle = requestAnimationFrame(loop);
+            this.tick();
+        };
+        loop();
+    }
+
+    _stopLoop() {
+        if (this._rafHandle) cancelAnimationFrame(this._rafHandle);
+        this._rafHandle = null;
     }
 }
 

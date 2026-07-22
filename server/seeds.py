@@ -301,12 +301,25 @@ The web and X search tools are at your disposal; use them as needed without prea
 # The five preset companions. Avatars are NOT created here any more — they
 # load from avatar packs (assets/avatars/<Name>/avatar.json, scanned on every
 # boot by avatar_packs.scan_packs). Agents link to their avatar by pack key.
+# when_to_call is surfaced to the OTHER companions inside their
+# add_agent_to_call tool, so a "get someone who can…" request resolves to the
+# right crew member without the user naming them.
 AGENT_SEEDS = [
-    {"name": "Eve", "voice": "eve", "sequence": 10, "prompt": EVE_PROMPT, "pack": "Eve"},
-    {"name": "Ara", "voice": "ara", "sequence": 20, "prompt": ARA_PROMPT, "pack": "Ara"},
-    {"name": "Rex", "voice": "rex", "sequence": 30, "prompt": REX_PROMPT, "pack": "Rex"},
-    {"name": "Sal", "voice": "sal", "sequence": 40, "prompt": SAL_PROMPT, "pack": "Sal"},
-    {"name": "Leo", "voice": "leo", "sequence": 50, "prompt": LEO_PROMPT, "pack": "Leo"},
+    {"name": "Eve", "voice": "eve", "sequence": 10, "prompt": EVE_PROMPT, "pack": "Eve",
+     "when_to_call": "Junior research assistant — enthusiastic digging, quick lookups, "
+                     "brainstorming energy, and general high-caffeine company."},
+    {"name": "Ara", "voice": "ara", "sequence": 20, "prompt": ARA_PROMPT, "pack": "Ara",
+     "when_to_call": "Warm, patient guide — call her when the user needs calm support, "
+                     "step-by-step explanations, or a steady voice on a stressful day."},
+    {"name": "Rex", "voice": "rex", "sequence": 30, "prompt": REX_PROMPT, "pack": "Rex",
+     "when_to_call": "Quartermaster with mission-control comms — terse status reports, "
+                     "logistics, keeping a plan on track under pressure."},
+    {"name": "Sal", "voice": "sal", "sequence": 40, "prompt": SAL_PROMPT, "pack": "Sal",
+     "when_to_call": "Thoughtful, even-keeled analyst — careful reasoning, second opinions, "
+                     "and questions that deserve a slow, watchful answer."},
+    {"name": "Leo", "voice": "leo", "sequence": 50, "prompt": LEO_PROMPT, "pack": "Leo",
+     "when_to_call": "Senior stage manager — running an agenda, calling cues, keeping a "
+                     "session or event moving with dignified authority."},
 ]
 
 
@@ -326,10 +339,10 @@ def seed_if_empty(con):
             _logger.warning("seed: avatar pack %r not found — agent %s gets no avatar",
                             seed["pack"], seed["name"])
         cur = con.execute(
-            "INSERT INTO agents (name, sequence, voice, system_prompt, avatar_id)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO agents (name, sequence, voice, system_prompt, avatar_id,"
+            " when_to_call_description) VALUES (?, ?, ?, ?, ?, ?)",
             (seed["name"], seed["sequence"], seed["voice"], seed["prompt"],
-             avatar["id"] if avatar else None),
+             avatar["id"] if avatar else None, seed.get("when_to_call")),
         )
         if seed["name"] == "Eve":
             default_agent_id = cur.lastrowid

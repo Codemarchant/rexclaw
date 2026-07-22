@@ -63,9 +63,13 @@ def build_play_gesture_tool(custom_gestures):
     """Return the play_gesture tool entry, with the avatar's custom VRMA
     gestures appended to the enum and described inline.
 
-    :param custom_gestures: list of dicts {gesture_enum, description, loop,
-        vrma_path} from the avatar's gesture rows.
+    :param custom_gestures: list of partner-resolved gesture dicts from
+        store.agent_gesture_dicts. Solo and combo customs share the enum —
+        a combo is just a gesture that stages a second character while it
+        plays.
     """
+    from . import store  # local import — store imports nothing from here
+
     description = _PLAY_GESTURE_BASE_DESCRIPTION
     enum = list(_BUILTIN_GESTURE_IDS)
     has_loop = False
@@ -77,13 +81,17 @@ def build_play_gesture_tool(custom_gestures):
         ]
         for g in custom_gestures:
             genum = (g.get("gesture_enum") or "").strip()
-            if not genum or not g.get("vrma_path"):
+            if not genum or not store.gesture_is_playable(g):
                 continue
             desc = (g.get("description") or "").strip() or "(no description)"
             loop_note = " (loops continuously until you stop it)" if g.get("loop") else ""
+            combo_note = (
+                " (a second character joins you on screen for this one)"
+                if (g.get("gesture_type") or "solo") == "combo" else ""
+            )
             if g.get("loop"):
                 has_loop = True
-            extra_lines.append(f"  - '{genum}' — {desc}{loop_note}")
+            extra_lines.append(f"  - '{genum}' — {desc}{combo_note}{loop_note}")
             if genum not in enum:
                 enum.append(genum)
         if len(extra_lines) > 2:  # at least one valid custom row
@@ -161,5 +169,112 @@ def build_change_outfit_tool(outfits):
                 },
             },
             "required": ["outfit_id"],
+        },
+    }
+
+
+def build_add_agent_tool(agent, other_agents):
+    """Build the per-agent add_agent_to_call tool for group voice calls.
+
+    The description embeds a roster of every OTHER voice-enabled companion,
+    each with its `when_to_call_description`, so the model can resolve both
+    direct requests ("call Bob") and descriptive ones ("get someone who
+    knows about pricing") without a lookup tool.
+
+    Returns None when there is nobody to call — no point exposing a tool
+    with an empty roster. Rebuilt on every session start, so edits to
+    names/descriptions flow in immediately (same rationale as
+    build_change_outfit_tool).
+
+    :param agent: agents row of the session's own agent
+    :param other_agents: list of agents rows (voice-enabled, excluding agent)
+    """
+    others = [a for a in (other_agents or []) if a["id"] != agent["id"]]
+    if not others:
+        return None
+    lines = [
+        "Add another AI companion to this live voice call. They join with "
+        "their own voice and avatar, hear the conversation from that point "
+        "on, and can speak for themselves. Use this when the user asks to "
+        "bring someone in by name (\"call Bob\", \"add Ara to the call\") "
+        "or asks for someone matching a description — pick the best match "
+        "from the roster below. Joining takes a few seconds and the "
+        "companion greets the call when connected: acknowledge briefly and "
+        "continue naturally. Never speak on the new companion's behalf.",
+        "",
+        "Companions you can call, and when to call them:",
+    ]
+    for a in others:
+        desc = (a["when_to_call_description"] or "").strip() or "(no description provided)"
+        lines.append(f"  - agent_id {a['id']} — {a['name']}: {desc}")
+    return {
+        "name": "add_agent_to_call",
+        "description": "\n".join(lines),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "integer",
+                    "enum": [a["id"] for a in others],
+                    "description": (
+                        "ID of the companion to add, from the roster embedded "
+                        "in this tool's description."
+                    ),
+                },
+            },
+            "required": ["agent_id"],
+        },
+    }
+
+
+def build_remove_agent_tool(agent, other_agents):
+    """Build the per-agent remove_agent_from_call tool (the counterpart to
+    build_add_agent_tool).
+
+    agent_id 0 means "disconnect yourself" — that's how a companion that was
+    added to the call bows out when the user dismisses it ("okay Bob, you
+    can go"). The main companion the call was started with can never be
+    removed; the user ends the whole call instead. Which companions are
+    actually IN the call varies at runtime, so validation happens
+    client-side — the roster here just gives the model the id↔name mapping.
+
+    Returns None when there are no other agents (no group call can exist).
+    """
+    others = [a for a in (other_agents or []) if a["id"] != agent["id"]]
+    if not others:
+        return None
+    lines = [
+        "Disconnect a companion from this live group voice call. Use it "
+        "when the user asks to remove someone (\"let Bob go\", \"drop Ara "
+        "from the call\"), or pass agent_id 0 to disconnect YOURSELF when "
+        "the user dismisses you or your part in the conversation is "
+        "clearly finished. Disconnection happens after current speech "
+        "finishes — if you are disconnecting yourself, say a brief goodbye "
+        "in your next reply; it will be your last. The main companion the "
+        "call was started with cannot be removed (the user ends the call "
+        "themselves), and only companions currently in the call can be "
+        "disconnected.",
+        "",
+        "Companion ids (same as add_agent_to_call):",
+        "  - agent_id 0 — yourself",
+    ]
+    for a in others:
+        lines.append(f"  - agent_id {a['id']} — {a['name']}")
+    return {
+        "name": "remove_agent_from_call",
+        "description": "\n".join(lines),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "integer",
+                    "enum": [0] + [a["id"] for a in others],
+                    "description": (
+                        "ID of the companion to disconnect, or 0 to "
+                        "disconnect yourself."
+                    ),
+                },
+            },
+            "required": ["agent_id"],
         },
     }

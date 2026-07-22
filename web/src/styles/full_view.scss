@@ -26,6 +26,11 @@
 
         .btn {
             background: rgba(255, 255, 255, 0.85);
+            // Pin the foreground dark: the background is forced light, but the
+            // icon colour is otherwise inherited from the theme — under a
+            // dark-mode UA (e.g. the Pico headset browser) that resolves to
+            // white, making the glyphs invisible on the light button. Force it.
+            color: #0f172a;
             border: 0;
             border-radius: 0.5rem;
             padding: 0.5rem 0.75rem;
@@ -306,4 +311,41 @@
 .o_voice_full_view--immersive {
     .o_voice_full_avatar { width: 100%; }
     .o_voice_avatar_canvas--full { min-height: 100vh; }
+}
+
+// ── Group call (multi-agent) controls ──────────────────────────────────
+.o_voice_call_agents {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+
+    select {
+        max-width: 220px;
+    }
+
+    .o_voice_call_peer_chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.2rem 0.6rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+        font-size: 0.85rem;
+        line-height: 1.4;
+
+        .btn-link {
+            color: inherit;
+            opacity: 0.7;
+            border: 0;
+            background: none;
+            cursor: pointer;
+
+            &:hover {
+                opacity: 1;
+            }
+        }
+    }
 }

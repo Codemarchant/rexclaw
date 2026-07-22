@@ -23,7 +23,15 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
       ],
       "gestures": [
         {"enum": "wave_hello", "vrma": "wave.vrma", "description": "…",
-         "loop": false}
+         "loop": false},
+        {"enum": "dance_together", "type": "combo", "vrma": "dance_a.vrma",
+         "description": "…", "loop": true,
+         "partner_avatar": "Ara",            // existing avatar (pack key or name), OR:
+         "partner_vrm": "partner.vrm",       // dedicated model when no partner_avatar
+         "partner_vrma": "dance_b.vrma",     // required — the partner's clip
+         "base_offset": [0, 0, 0], "base_rotation": [0, 0, 0],
+         "partner_offset": [0.6, 0, 0], "partner_rotation": [0, 0, 0],
+         "partner_scale": 1.0}
       ],
       "backgrounds": [
         {"name": "Charcoal", "type": "static", "preset": "vignette_charcoal"},
@@ -95,6 +103,18 @@ def _resolve(ref, pack_dir, url_base, *, pack, field):
         _logger.warning("pack %s: %s file not found: %s — skipped", pack, field, ref)
         return None
     return f"{url_base}/{ref}"
+
+
+def _vec3(value, default=(0.0, 0.0, 0.0)):
+    """Manifest [x, y, z] triple → floats, falling back to `default` on any
+    malformed shape. Used for combo-gesture offsets ([x,y,z] metres) and
+    rotations ([yaw,pitch,roll] degrees)."""
+    if isinstance(value, list) and len(value) == 3:
+        try:
+            return (float(value[0]), float(value[1]), float(value[2]))
+        except (TypeError, ValueError):
+            pass
+    return default
 
 
 def _upsert_avatar(con, pack_key, vals):
@@ -193,12 +213,37 @@ def _scan_pack(con, pack_dir, url_root):
         path = _resolve(g.get("vrma"), pack_dir, url_base, pack=pack_key, field=f"gestures[{i}].vrma")
         if not path:
             continue
+        gesture_type = "combo" if g.get("type") == "combo" else "solo"
+        partner_avatar = partner_vrm_path = partner_vrma_path = None
+        base_off = _vec3(g.get("base_offset"))
+        base_rot = _vec3(g.get("base_rotation"))
+        partner_off = _vec3(g.get("partner_offset"), default=(0.6, 0.0, 0.0))
+        partner_rot = _vec3(g.get("partner_rotation"))
+        if gesture_type == "combo":
+            partner_vrma_path = _resolve(g.get("partner_vrma"), pack_dir, url_base,
+                                         pack=pack_key, field=f"gestures[{i}].partner_vrma")
+            partner_avatar = str(g.get("partner_avatar") or "").strip() or None
+            if not partner_avatar:
+                partner_vrm_path = _resolve(g.get("partner_vrm"), pack_dir, url_base,
+                                            pack=pack_key, field=f"gestures[{i}].partner_vrm")
+            if not partner_vrma_path or not (partner_avatar or partner_vrm_path):
+                _logger.warning("pack %s: combo gesture %r needs partner_vrma plus a "
+                                "partner_avatar or partner_vrm — skipped", pack_key, enum)
+                continue
         seen_enums.add(enum)
         con.execute(
             "INSERT INTO avatar_gestures (avatar_id, name, sequence, gesture_enum, description,"
-            " vrma_path, loop) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " vrma_path, loop, gesture_type, partner_avatar, partner_vrm_path, partner_vrma_path,"
+            " base_offset_x, base_offset_y, base_offset_z, base_yaw, base_pitch, base_roll,"
+            " partner_offset_x, partner_offset_y, partner_offset_z, partner_yaw, partner_pitch,"
+            " partner_roll, partner_scale)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (avatar_id, str(g.get("name") or enum), (i + 1) * 10, enum,
-             str(g.get("description") or ""), path, int(bool(g.get("loop")))),
+             str(g.get("description") or ""), path, int(bool(g.get("loop"))),
+             gesture_type, partner_avatar, partner_vrm_path, partner_vrma_path,
+             base_off[0], base_off[1], base_off[2], base_rot[0], base_rot[1], base_rot[2],
+             partner_off[0], partner_off[1], partner_off[2], partner_rot[0], partner_rot[1],
+             partner_rot[2], float(g.get("partner_scale") or 1.0)),
         )
 
     saw_default = False
@@ -437,6 +482,10 @@ def _validate_manifest(pack_dir, m):
             raise UserError(f"Duplicate gesture enum {enum!r}.")
         seen.add(enum)
         _check_file(g.get("vrma"), f"Gesture '{enum}' animation")
+        if g.get("type") == "combo":
+            _check_file(g.get("partner_vrma"), f"Combo gesture '{enum}' partner animation")
+            if not (g.get("partner_avatar") or "").strip():
+                _check_file(g.get("partner_vrm"), f"Combo gesture '{enum}' partner VRM")
 
     for i, b in enumerate(m.get("backgrounds") or []):
         btype = b.get("type") or "static"

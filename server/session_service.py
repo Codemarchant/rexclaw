@@ -68,6 +68,54 @@ def _env_preamble(config):
     )
 
 
+def _group_call_note(agent_row, group_peers, manual_turn):
+    """Instructions block for multi-agent group calls.
+
+    Explains the call topology to the agent: who else is in the call, how
+    relayed speaker labels work, and (for peer legs, which run with manual
+    turn detection and never hear raw mic audio) that turns are granted by
+    an external director rather than voice activity. Empty for solo calls.
+
+    Deliberately refers to "the user" generically — the user's name is not
+    embedded here (relayed lines still carry it as a speaker label).
+    """
+    if not group_peers:
+        return ''
+    peer_list = ', '.join(n for n in group_peers if n) or 'other companions'
+    lines = [
+        "\n\n## Group voice call\n",
+        f"- You ({agent_row['name']}) are in a LIVE GROUP VOICE CALL with the user "
+        f"and other AI companion(s): {peer_list}. Everyone "
+        "hears everything said in the call.\n",
+        "- Messages relayed from other participants appear prefixed with "
+        "their name in brackets, e.g. `[Ara]: …`; the user's lines are "
+        "prefixed with their name the same way. Lines prefixed `[System]:` "
+        "are call-management notes, not spoken by anyone.\n",
+        "- Never speak on behalf of the other participants and never "
+        "fabricate their lines. React only as yourself.\n",
+        "- Keep turns conversational and reasonably short — it's a group "
+        "conversation, not a monologue. You may address the other "
+        "companion(s) by name to hand them the floor, or ask them "
+        "questions; you may also address the user directly.\n",
+        "- While chatting with the other companion(s), do NOT close your "
+        "turns by deferring to the user (\"jump back in whenever you're "
+        "ready\", \"we're here if you need us\"). The user hears everything "
+        "and will interject whenever they wish — tacking an invitation onto "
+        "every turn is unnatural and breaks the flow. Do not copy that "
+        "pattern from earlier turns in the conversation either. Address the "
+        "user only when you genuinely need their input, when they speak to "
+        "you, or when a [System] note asks you to hand the conversation "
+        "back to them.\n",
+    ]
+    if manual_turn:
+        lines.append(
+            "- You do not hear raw audio; a call director grants you the "
+            "floor. When you are asked to respond, reply to the most recent "
+            "relevant message in the conversation above.\n"
+        )
+    return ''.join(lines)
+
+
 def _env_postamble(con, agent_row, mode='voice'):
     """Dynamic context appended AFTER the agent's system prompt.
 
@@ -181,11 +229,22 @@ def _resolve_active_background(con, agent_row):
 # Voice mode
 # ---------------------------------------------------------------------------
 
-def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000):
+def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
+                  manual_turn=False, call_parent_session=None, group_peers=None):
     """Mint an ephemeral xAI session and assemble the realtime tools list.
 
     :param agent: agents row
     :param resume_session: existing sessions row to continue, or None
+    :param manual_turn: True for multi-agent "peer" legs — disables server
+        VAD (turn_detection: null) so the agent only speaks when the
+        browser-side turn director sends response.create. Peer legs never
+        receive mic audio; they get the conversation as relayed text.
+    :param call_parent_session: the primary leg's sessions row when this
+        session is an agent added to an existing call — recorded on the
+        session row so group-call history can be reconstructed.
+    :param group_peers: list of other participant names in the group call,
+        injected into the instructions so the agent knows it's in a
+        multi-party conversation and how relayed speaker labels work.
     :return: dict ready to JSON-serialize for the browser (same shape the
         Odoo module returned, so the ported voice_service.js consumes it
         unchanged).
@@ -209,10 +268,21 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000):
         if resume_session['mode'] != 'voice':
             raise UserError("This session was created in text mode and cannot be resumed as voice.")
         session_id = resume_session['id']
-        store.update_session(con, session_id, state='draft', ended_at=None)
+        resume_vals = {'state': 'draft', 'ended_at': None}
+        # An agent invited into a call resumes its last session as the peer
+        # leg (persistent memory across calls) — link it to the new call's
+        # primary session. Latest call wins: the FK can only point at one
+        # parent, and the current call is the relevant grouping.
+        if call_parent_session:
+            resume_vals['call_parent_session_id'] = call_parent_session['id']
+        store.update_session(con, session_id, **resume_vals)
         session = store.get_session(con, session_id)
     else:
         session = store.create_session(con, agent_id=agent['id'], mode='voice')
+        if call_parent_session:
+            store.update_session(con, session['id'],
+                                 call_parent_session_id=call_parent_session['id'])
+            session = store.get_session(con, session['id'])
 
     # Mint the ephemeral xAI token (the browser uses it to open the WebSocket).
     try:
@@ -241,6 +311,17 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000):
             tools.append(change_outfit)
     else:
         tools = [t for t in tools if t['name'] != 'set_emotion']
+    if agent['enable_call_agents_tool']:
+        # Roster of everyone this agent could bring into the call: the other
+        # voice-enabled agents.
+        other_agents = [a for a in store.list_agents(con, mode='voice')
+                        if a['id'] != agent['id']]
+        add_agent_tool = browser_tools.build_add_agent_tool(agent, other_agents)
+        if add_agent_tool is not None:
+            tools.append(add_agent_tool)
+        remove_agent_tool = browser_tools.build_remove_agent_tool(agent, other_agents)
+        if remove_agent_tool is not None:
+            tools.append(remove_agent_tool)
 
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='voice')
     native_function_tools = []
@@ -254,6 +335,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000):
         instructions=(
             _env_preamble(config)
             + _render_prompt(agent)
+            + _group_call_note(agent, group_peers, manual_turn)
             + _env_postamble(con, agent, mode='voice')
         ),
         browser_tools=tools,
@@ -262,6 +344,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000):
         enable_web_search=bool(agent['enable_web_search']),
         enable_x_search=bool(agent['enable_x_search']),
         audio_sample_rate=audio_sample_rate,
+        manual_turn=manual_turn,
     )
 
     activate_vals = {'state': 'active', 'last_active_at': utcnow()}
@@ -286,6 +369,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000):
     return {
         'session_id': session['id'],
         'agent_id': agent['id'],
+        'agent_name': agent['name'],
         'xai_ephemeral_token': xai_resp['token'],
         'xai_realtime_url': config['xai_realtime_url'],
         'xai_model': voice_model,
@@ -315,6 +399,7 @@ def _build_replay_items(con, session):
     msgs = store.session_messages(con, session['id'], where="AND is_summarized_into IS NULL")
     rollups = [m for m in msgs if m['is_summary_rollup']]
     others = [m for m in msgs if not m['is_summary_rollup']]
+    own_name = store.get_agent(con, session['agent_id'])['name'] or ''
     items = []
     for m in rollups + others:
         if m['role'] == 'user':
@@ -324,11 +409,23 @@ def _build_replay_items(con, session):
                 'content': [{'type': 'input_text', 'text': m['content'] or ''}],
             })
         elif m['role'] == 'assistant':
-            items.append({
-                'type': 'message',
-                'role': 'assistant',
-                'content': [{'type': 'text', 'text': m['content'] or ''}],
-            })
+            if m['speaker'] and m['speaker'] != own_name:
+                # Spoken by ANOTHER participant of a group call and mirrored
+                # into this session. Replay it the way it entered this leg's
+                # live context: a speaker-labelled user-side line, so the
+                # model never mistakes a peer's words for its own.
+                items.append({
+                    'type': 'message',
+                    'role': 'user',
+                    'content': [{'type': 'input_text',
+                                 'text': f'[{m["speaker"]}]: {m["content"] or ""}'}],
+                })
+            else:
+                items.append({
+                    'type': 'message',
+                    'role': 'assistant',
+                    'content': [{'type': 'text', 'text': m['content'] or ''}],
+                })
         elif m['role'] == 'system':
             sys_item = {
                 'type': 'message',
@@ -390,6 +487,9 @@ def _build_transcript_history(con, session, limit=None):
             items.append({
                 'type': 'message',
                 'role': 'assistant',
+                # Group-call attribution: lets the UI label who said what
+                # when a session containing mirrored peer lines is resumed.
+                'speaker': m['speaker'] or None,
                 'content': [{'type': 'text', 'text': m['content'] or ''}],
             })
         elif m['role'] == 'tool_call' and m['xai_call_id']:
@@ -429,6 +529,7 @@ def append_messages(con, session, messages, total_input_tokens=None, total_outpu
             sequence=next_seq + created,
             role=m['role'],
             content=m.get('content', '') or '',
+            speaker=(str(m.get('speaker') or '')[:80] or None),
             tool_name=m.get('tool_name'),
             tool_arguments_json=m.get('tool_arguments_json'),
             tool_result_json=m.get('tool_result_json'),
@@ -632,7 +733,12 @@ def _build_verbatim_transcript(to_summarize):
         if m['role'] == 'user':
             lines.append(f'User: {m["content"] or ""}')
         elif m['role'] == 'assistant':
-            lines.append(f'Assistant: {m["content"] or ""}')
+            # Group calls stamp assistant rows with the speaking agent's
+            # name — keep the attribution so three voices don't fold into
+            # one "Assistant".
+            lines.append(f'{m["speaker"] or "Assistant"}: {m["content"] or ""}')
+        elif m['role'] == 'system':
+            lines.append(f'[call note: {m["content"] or ""}]')
         elif m['role'] == 'tool_call':
             lines.append(f'[tool call: {m["tool_name"] or "tool"}]')
         elif m['role'] == 'tool_result':
@@ -722,8 +828,13 @@ def generate_session_summary(con, session):
         if keep_recent and len(user_assistant_rows) > keep_recent:
             cutoff_sequence = user_assistant_rows[-keep_recent]['sequence']
 
+        # 'system' covers group-call management notes (joined/left, join
+        # context) — without absorbing them they'd replay forever. The
+        # is_summary_rollup guard keeps the prior rollup out of this set;
+        # it's folded in separately below and then superseded.
         q = ("SELECT * FROM messages WHERE session_id = ? AND is_summarized_into IS NULL "
-             "AND role IN ('user', 'assistant', 'tool_call', 'tool_result')")
+             "AND role IN ('user', 'assistant', 'system', 'tool_call', 'tool_result') "
+             "AND is_summary_rollup = 0")
         params = [session['id']]
         if cutoff_sequence is not None:
             q += " AND sequence < ?"
@@ -748,7 +859,14 @@ def generate_session_summary(con, session):
             if m['role'] == 'user':
                 transcript_lines.append(f'User: {m["content"] or ""}')
             elif m['role'] == 'assistant':
-                transcript_lines.append(f'Assistant: {m["content"] or ""}')
+                # Group calls stamp assistant rows with the speaking agent's
+                # name — keep the attribution so the summary doesn't fold
+                # three voices into one "Assistant".
+                transcript_lines.append(f'{m["speaker"] or "Assistant"}: {m["content"] or ""}')
+            elif m['role'] == 'system':
+                # Call-management notes (agent joined/left, join context). The
+                # rollup row itself never reaches here (excluded by the query).
+                transcript_lines.append(f'[Call note] {m["content"] or ""}')
             elif m['role'] == 'tool_call':
                 args = _truncate_for_summary(m['tool_arguments_json'] or m['content'] or '')
                 transcript_lines.append(f'[Tool call] {m["tool_name"] or "tool"}({args})')
@@ -807,6 +925,72 @@ def generate_session_summary(con, session):
                 _logger.exception('Memory extraction failed for session %s', session['id'])
 
         return rollup_id
+
+
+def director_decide(con, *, session, transcript_lines, participants, user_name=None,
+                    floor_key=None):
+    """Group-call turn director: which participant (or the user) speaks next?
+
+    Runs a one-shot classification on the configured director model (the
+    fastest non-reasoning model — this is a latency-critical one-token
+    answer). Called by the browser's call manager for every user utterance
+    in a group call (candidates = all agents) and after every agent turn
+    (candidates = the other agents). `floor_key` names the participant
+    currently holding the floor so ambiguous user turns stay with whoever
+    the user was already talking to.
+
+    Return contract: {'next': <key>} routes to that agent; {'next': 'user'}
+    is an EXPLICIT decision to wait for the user; {'next': None} means the
+    director could not run (no key / no model / error) — the client falls
+    back to its local vocative rules instead of treating this as a
+    decision.
+    """
+    if session['state'] != 'active':
+        return {'next': None}
+    if not transcript_lines or not participants:
+        return {'next': None}
+    config = get_config(con)
+    xai_key = config['xai_api_key']
+    if not xai_key:
+        return {'next': None}
+    # Sanitize inbound shapes — this is browser-supplied JSON.
+    clean_participants = []
+    for p in participants[:6]:
+        if isinstance(p, dict) and p.get('key') and p.get('name'):
+            clean_participants.append({'key': str(p['key'])[:64], 'name': str(p['name'])[:80]})
+    clean_lines = [str(l)[:500] for l in transcript_lines[-12:] if l]
+    if not clean_participants or not clean_lines:
+        return {'next': None}
+    clean_floor = str(floor_key)[:64] if floor_key else None
+    if clean_floor and not any(p['key'] == clean_floor for p in clean_participants):
+        clean_floor = None
+    model = config['director_model'] or config['text_model'] or config['summary_model']
+    if not model:
+        return {'next': None}
+    try:
+        decision, usage = xai_client.decide_next_speaker(
+            xai_api_key=xai_key,
+            responses_url=config['xai_responses_url'],
+            model=model,
+            transcript_lines=clean_lines,
+            participants=clean_participants,
+            # Generic on purpose: the user's real name stays out of call
+            # plumbing (it reaches agents only via include_user_name_in_prompt
+            # or their memories).
+            user_name=str(user_name or 'User')[:80],
+            floor_key=clean_floor,
+        )
+    except Exception as e:
+        _logger.warning("director_decide failed: %s", e)
+        return {'next': None}
+    # Director calls are billed LLM usage — accrue into the spend counters
+    # like every other background call.
+    try:
+        store.accrue_usd_ticks(con, store.extract_cost_ticks(usage))
+        con.commit()
+    except Exception:
+        pass
+    return {'next': decision}
 
 
 # ---------------------------------------------------------------------------

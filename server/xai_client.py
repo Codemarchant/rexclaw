@@ -16,6 +16,7 @@ Tools come from independent sources mixed into `session.update`:
 """
 import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
 
@@ -225,7 +226,7 @@ def mint_ephemeral_token(*, xai_api_key, client_secrets_url, expires_after_secon
 def build_session_update(*, voice, instructions, browser_tools,
                          mcp_entries=None, native_function_tools=None,
                          enable_web_search=False, enable_x_search=False,
-                         audio_sample_rate=24000):
+                         audio_sample_rate=24000, manual_turn=False):
     """Build the `session.update` JSON the browser will send over the WebSocket.
 
     Note: model goes in the WebSocket URL (?model=...), NOT in session.update —
@@ -260,8 +261,15 @@ def build_session_update(*, voice, instructions, browser_tools,
             # Bare {type: server_vad} lets xAI apply its tuned defaults for
             # threshold / silence_duration_ms / prefix_padding_ms — tighter
             # custom values were swallowing soft/quiet speech.
+            #
+            # manual_turn (multi-agent peer legs): {type: null} per xAI's
+            # docs disables auto turn detection entirely — the session only
+            # generates when the client sends response.create. Peer agents
+            # in a group call never hear the mic and must only speak when
+            # the turn director says so; server_vad would have nothing to
+            # detect anyway, and any stray audio would trigger phantom turns.
             'turn_detection': {
-                'type': 'server_vad',
+                'type': None if manual_turn else 'server_vad',
             },
             # Sample rate is determined client-side from the browser's native
             # AudioContext rate (typically 48000 on desktop). Matching xAI's
@@ -442,6 +450,91 @@ def delete_file(*, xai_api_key, files_url, file_id):
         _logger.warning('xAI file delete failed (%s): %s', resp.status_code, resp.text[:300])
         return False
     return True
+
+
+DIRECTOR_INSTRUCTIONS = (
+    'You are the turn director for a live group voice call between a human '
+    'user and multiple AI companions. The transcript is ordered oldest '
+    'first — the most recent message is at the BOTTOM. Review it — '
+    'especially that most recent message — and decide whose turn it '
+    'naturally is to speak next: one of the listed companions, or the '
+    'user. The companions may address the user by a nickname or title '
+    '(e.g. "Captain") — a name that matches no companion in the '
+    'participant list most likely refers to the user.\n\n'
+    'Reply with exactly ONE token: user, or one participant key copied '
+    'character-for-character from the participant list. No other text.'
+)
+
+
+def decide_next_speaker(*, xai_api_key, responses_url, model, transcript_lines,
+                        participants, user_name='User', floor_key=None):
+    """One-shot classification: who speaks next in a group voice call?
+
+    :param transcript_lines: list of '[Name]: text' strings, oldest first
+    :param participants: list of {'key': str, 'name': str} candidate agents
+    :param floor_key: key of the participant currently holding the floor
+        (the one the user has been talking with), if any
+    :returns: (decision, usage_dict) where decision is a participant key,
+        'user', or None when the reply named nothing recognizable — the
+        caller must treat None as "no decision", not as "wait for the
+        user".
+    """
+    roster = "\n".join(f"- key: {p['key']}  name: {p['name']}" for p in participants)
+    floor = next((p for p in participants if p['key'] == floor_key), None)
+    floor_line = (
+        f'The current floor holder (the companion the user has been talking '
+        f'with) is "{floor["name"]}" (key: {floor["key"]}).\n'
+        if floor else ''
+    )
+    prompt = (
+        f'Participants who could speak next:\n{roster}\n'
+        f'The human user appears in the transcript as "{user_name}".\n'
+        + floor_line + '\n'
+        '--- RECENT TRANSCRIPT ---\n'
+        + "\n".join(transcript_lines)
+        + '\n--- END TRANSCRIPT ---\n\n'
+        'Who should speak next in response to the most recent message '
+        'above?\n'
+        'Answer with exactly one token: user or one participant key from '
+        'the list. Nothing else.'
+    )
+    body = create_response(
+        xai_api_key=xai_api_key,
+        responses_url=responses_url,
+        model=model,
+        input_items=[{
+            'role': 'user',
+            'content': [{'type': 'input_text', 'text': prompt}],
+        }],
+        instructions=DIRECTOR_INSTRUCTIONS,
+        tools=None,
+        reasoning_effort=None,
+        store=False,
+        timeout=15,
+    )
+    text = (_extract_response_text(body) or '').strip().strip('"\'').lower()
+    valid = {p['key'].lower(): p['key'] for p in participants}
+    # Display names as a drift net: the prompt forbids them, but a model
+    # answering "Eve" instead of "peer-1" still names a real target.
+    for p in participants:
+        valid.setdefault(p['name'].strip().lower(), p['key'])
+        valid.setdefault(p['name'].strip().split(' ')[0].lower(), p['key'])
+    if text in valid:
+        decision = valid[text]
+    elif text == 'user':
+        decision = 'user'
+    else:
+        # Tolerate mild format drift ("next: peer-1", "peer-1.") by
+        # scanning tokens. A reply naming nothing recognizable is a parse
+        # FAILURE (None) — the browser falls back to its local rules
+        # rather than mistaking garbage for "wait for the user".
+        tokens = [t.lower() for t in re.findall(r'[\w-]+', text)]
+        decision = next((valid[t] for t in tokens if t in valid), None)
+        if decision is None and 'user' in tokens:
+            decision = 'user'
+        if decision is None:
+            _logger.warning("director reply unparseable: %r", text[:200])
+    return decision, (body.get('usage') if isinstance(body, dict) else None) or {}
 
 
 TITLE_INSTRUCTIONS = (

@@ -51,6 +51,11 @@ CREATE TABLE IF NOT EXISTS config (
     xai_model TEXT NOT NULL DEFAULT 'grok-voice-latest',
     text_model TEXT NOT NULL DEFAULT 'grok-latest',
     summary_model TEXT NOT NULL DEFAULT 'grok-latest',
+    -- Model for the group-call turn director (a one-token "who speaks next"
+    -- classification on every group-call turn). Latency matters more than
+    -- intelligence — use the fastest non-reasoning model available. Empty =
+    -- fall back to the Text Model.
+    director_model TEXT NOT NULL DEFAULT 'grok-4.20-non-reasoning',
     imagine_model TEXT NOT NULL DEFAULT 'grok-imagine-image-quality-latest',
     default_agent_id INTEGER,
     user_display_name TEXT,
@@ -103,6 +108,30 @@ CREATE TABLE IF NOT EXISTS avatar_gestures (
     description TEXT NOT NULL DEFAULT '',
     vrma_path TEXT NOT NULL,
     loop INTEGER NOT NULL DEFAULT 0,
+    -- Combo (two-character) gestures: 'solo' plays vrma_path alone; 'combo'
+    -- additionally loads a second VRM playing partner_vrma_path in sync.
+    -- partner_avatar names an existing avatar (pack_key or display name,
+    -- resolved at payload time so the renderer can borrow a live peer's
+    -- model); partner_vrm_path is a dedicated model used when no avatar
+    -- reference is set. Offsets are metres, rotations degrees applied
+    -- yaw → pitch → roll on top of the face-the-camera orientation.
+    gesture_type TEXT NOT NULL DEFAULT 'solo',
+    partner_avatar TEXT,
+    partner_vrm_path TEXT,
+    partner_vrma_path TEXT,
+    base_offset_x REAL NOT NULL DEFAULT 0,
+    base_offset_y REAL NOT NULL DEFAULT 0,
+    base_offset_z REAL NOT NULL DEFAULT 0,
+    base_yaw REAL NOT NULL DEFAULT 0,
+    base_pitch REAL NOT NULL DEFAULT 0,
+    base_roll REAL NOT NULL DEFAULT 0,
+    partner_offset_x REAL NOT NULL DEFAULT 0.6,
+    partner_offset_y REAL NOT NULL DEFAULT 0,
+    partner_offset_z REAL NOT NULL DEFAULT 0,
+    partner_yaw REAL NOT NULL DEFAULT 0,
+    partner_pitch REAL NOT NULL DEFAULT 0,
+    partner_roll REAL NOT NULL DEFAULT 0,
+    partner_scale REAL NOT NULL DEFAULT 1.0,
     UNIQUE (avatar_id, gesture_enum)
 );
 
@@ -141,7 +170,14 @@ CREATE TABLE IF NOT EXISTS agents (
     enable_x_search INTEGER NOT NULL DEFAULT 1,
     enable_grok_imagine_tools INTEGER NOT NULL DEFAULT 1,
     enable_memory_tools INTEGER NOT NULL DEFAULT 1,
-    core_memory_cap INTEGER NOT NULL DEFAULT 100
+    core_memory_cap INTEGER NOT NULL DEFAULT 100,
+    -- Group voice calls: enable_call_agents_tool exposes the
+    -- add_agent_to_call / remove_agent_from_call browser tools so this agent
+    -- can manage the group call; when_to_call_description is shown to OTHER
+    -- agents inside their add_agent_to_call tool so they know when to bring
+    -- this companion into a live call.
+    enable_call_agents_tool INTEGER NOT NULL DEFAULT 1,
+    when_to_call_description TEXT
 );
 
 CREATE TABLE IF NOT EXISTS mcp_connections (
@@ -178,7 +214,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     total_input_tokens INTEGER NOT NULL DEFAULT 0,
     total_output_tokens INTEGER NOT NULL DEFAULT 0,
     tokens_at_last_summary INTEGER NOT NULL DEFAULT 0,
-    needs_summary INTEGER NOT NULL DEFAULT 0
+    needs_summary INTEGER NOT NULL DEFAULT 0,
+    -- Multi-agent voice calls: set on the sessions of agents added to an
+    -- existing call, pointing at the primary session the call was started
+    -- with (one primary session + N linked peer sessions).
+    call_parent_session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_recent ON sessions (mode, last_active_at DESC);
 
@@ -188,6 +228,10 @@ CREATE TABLE IF NOT EXISTS messages (
     sequence INTEGER NOT NULL DEFAULT 0,
     role TEXT NOT NULL,                      -- system | user | assistant | tool_call | tool_result
     content TEXT,
+    -- Agent name that spoke this line, for multi-agent group calls. Set on
+    -- assistant rows: the session's own agent for its lines, another agent's
+    -- name for lines mirrored in from other call legs. Empty in solo sessions.
+    speaker TEXT,
     tool_name TEXT,
     tool_arguments_json TEXT,
     tool_result_json TEXT,
@@ -269,6 +313,30 @@ MIGRATIONS = (
     "ALTER TABLE memories ADD COLUMN transcript TEXT",
     "ALTER TABLE memories ADD COLUMN session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL",
     "ALTER TABLE config ADD COLUMN enable_memory_extraction INTEGER NOT NULL DEFAULT 1",
+    # Multi-agent group calls + turn director.
+    "ALTER TABLE config ADD COLUMN director_model TEXT NOT NULL DEFAULT 'grok-4.20-non-reasoning'",
+    "ALTER TABLE agents ADD COLUMN enable_call_agents_tool INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE agents ADD COLUMN when_to_call_description TEXT",
+    "ALTER TABLE sessions ADD COLUMN call_parent_session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL",
+    "ALTER TABLE messages ADD COLUMN speaker TEXT",
+    # Combo (two-character) gestures.
+    "ALTER TABLE avatar_gestures ADD COLUMN gesture_type TEXT NOT NULL DEFAULT 'solo'",
+    "ALTER TABLE avatar_gestures ADD COLUMN partner_avatar TEXT",
+    "ALTER TABLE avatar_gestures ADD COLUMN partner_vrm_path TEXT",
+    "ALTER TABLE avatar_gestures ADD COLUMN partner_vrma_path TEXT",
+    "ALTER TABLE avatar_gestures ADD COLUMN base_offset_x REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN base_offset_y REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN base_offset_z REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN base_yaw REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN base_pitch REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN base_roll REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN partner_offset_x REAL NOT NULL DEFAULT 0.6",
+    "ALTER TABLE avatar_gestures ADD COLUMN partner_offset_y REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN partner_offset_z REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN partner_yaw REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN partner_pitch REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN partner_roll REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_gestures ADD COLUMN partner_scale REAL NOT NULL DEFAULT 1.0",
 )
 
 

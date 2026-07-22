@@ -40,7 +40,16 @@ export function makeConversationState() {
         tokenCapWarningShown: false,
 
         // Live transcript: ordered list of { role, content, sequence, toolName?, toolArgs?, toolResult? }
+        // In group calls assistant rows also carry `speaker` (agent name) so
+        // the transcript can label who said what; peer speech is mirrored in
+        // with `mirrored: true` (display-only — it persists on the peer's
+        // own session, not this one).
         messages: [],
+
+        // Group call roster (primary store only): one entry per agent added
+        // to the call — { connId, agentId, agentName, status }. The full
+        // view renders these as removable chips next to the call controls.
+        peers: [],
 
         // True when the server capped transcript_history on resume — set
         // from start_session's transcript_truncated flag, used by the

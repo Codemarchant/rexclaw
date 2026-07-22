@@ -32,8 +32,22 @@ const NATIVE_TOOL_NAMES = new Set([
 ]);
 
 export class ToolDispatcher {
-    constructor({ avatarRenderer, sendWs, conversationState, sessionId }) {
-        this.avatarRenderer = avatarRenderer;
+    constructor({ avatarApi, avatarRenderer, sendWs, conversationState, sessionId, callManager }) {
+        // Voice call manager (the voice service singleton) — powers the
+        // add_agent_to_call tool. Null on surfaces without group calls
+        // (text mode), where the tool isn't offered anyway.
+        this.callManager = callManager || null;
+        // Avatar tools route through an adapter so each agent in a
+        // multi-agent call drives ITS OWN model (base avatar vs. peer slot).
+        // Legacy callers may still pass a raw renderer — wrap it.
+        this.avatarApi = avatarApi || (avatarRenderer ? {
+            setEmotion: (e, o) => avatarRenderer.setEmotion?.(e, o),
+            playGesture: (u, o) => avatarRenderer.playGesture?.(u, o),
+            playComboGesture: (c) => avatarRenderer.playComboGesture?.(c),
+            stopGesture: () => avatarRenderer.stopGesture?.(),
+            setOutfit: (u, i) => avatarRenderer.setOutfit?.(u, i),
+            setBackground: (bg) => avatarRenderer.setBackground?.(bg),
+        } : null);
         this.sendWs = sendWs;
         this.conversationState = conversationState;
         this.sessionId = sessionId;
@@ -103,7 +117,7 @@ export class ToolDispatcher {
             name: result.name || "Imagine background",
             prompt: result.prompt || "",
         };
-        this.avatarRenderer?.setBackground?.(bg);
+        this.avatarApi?.setBackground?.(bg);
         if (this.conversationState) {
             this.conversationState.activeBackground = bg;
             const agentId = this.conversationState.agentId;
@@ -130,6 +144,10 @@ export class ToolDispatcher {
                 return this._playGesture(args);
             case "change_outfit":
                 return this._changeOutfit(args);
+            case "add_agent_to_call":
+                return this._addAgentToCall(args);
+            case "remove_agent_from_call":
+                return this._removeAgentFromCall(args);
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }
@@ -137,12 +155,12 @@ export class ToolDispatcher {
 
     _setEmotion({ emotion }) {
         if (!emotion) return { ok: false, error: "No emotion specified" };
-        this.avatarRenderer?.setEmotion?.(emotion);
+        this.avatarApi?.setEmotion?.(emotion);
         // Auto-play matching VRMA gesture if one exists. Fire-and-forget — we
         // don't await the load so the function_call_output round-trip stays fast.
         const url = EMOTION_GESTURE_MAP[emotion];
         if (url) {
-            this.avatarRenderer?.playGesture?.(url);
+            this.avatarApi?.playGesture?.(url);
         }
         if (this.conversationState) {
             this.conversationState.emotion = emotion;
@@ -163,7 +181,7 @@ export class ToolDispatcher {
         const squintyHappyAvatars = new Set(["Eve", "Leo", "Ara"]);
         if (emotion === "happy" && squintyHappyAvatars.has(avatarName)) {
             this._emotionDecayTimer = setTimeout(() => {
-                this.avatarRenderer?.setEmotion?.("relaxed");
+                this.avatarApi?.setEmotion?.("relaxed");
                 if (this.conversationState) {
                     this.conversationState.emotion = "relaxed";
                 }
@@ -178,7 +196,7 @@ export class ToolDispatcher {
         // Reserved sentinel: stop any running gesture (notably a continuous
         // loop, which never ends on its own) and return to the idle animation.
         if (gesture === "idle") {
-            this.avatarRenderer?.stopGesture?.();
+            this.avatarApi?.stopGesture?.();
             return { ok: true, gesture: "idle" };
         }
         // Built-in gestures live in the static catalog; custom ones come from
@@ -189,13 +207,29 @@ export class ToolDispatcher {
         if (!url) {
             const customs = this.conversationState?.avatar?.custom_gestures || [];
             const custom = customs.find((g) => g.gesture_enum === gesture);
+            // Combo gestures stage a second VRM character alongside the base
+            // avatar — the payload entry carries both clip URLs plus the
+            // placement config, so hand the whole record to the renderer.
+            // Fire-and-forget like playGesture below: the partner VRM
+            // download can take a while and the function_call_output
+            // round-trip must not wait on it.
+            if (custom?.type === "combo" && custom.partner_vrm_url && custom.partner_vrma_url) {
+                if (this.avatarApi?.playComboGesture) {
+                    this.avatarApi.playComboGesture(custom);
+                } else if (custom.vrma_url) {
+                    // Peer avatars can't stage a combo partner — play the
+                    // base clip solo rather than failing the tool call.
+                    this.avatarApi?.playGesture?.(custom.vrma_url, { loop: !!custom.loop });
+                }
+                return { ok: true, gesture };
+            }
             if (custom?.vrma_url) {
                 url = custom.vrma_url;
                 loop = !!custom.loop;
             }
         }
         if (!url) return { ok: false, error: `Unknown gesture: ${gesture}` };
-        this.avatarRenderer?.playGesture?.(url, { loop });
+        this.avatarApi?.playGesture?.(url, { loop });
         return { ok: true, gesture };
     }
 
@@ -206,7 +240,7 @@ export class ToolDispatcher {
         if (outfit_id == null || !Number.isInteger(outfit_id)) {
             return { ok: false, error: "change_outfit requires integer `outfit_id` (0 for default)." };
         }
-        if (!this.avatarRenderer) {
+        if (!this.avatarApi?.setOutfit) {
             return { ok: false, error: "No avatar renderer attached — outfit changes are only available in voice mode with an avatar visible." };
         }
         const avatar = this.conversationState?.avatar;
@@ -225,9 +259,80 @@ export class ToolDispatcher {
         }
         // Fire-and-forget: setOutfit is async (VRM load), but the model just
         // needs the ack to continue speaking.
-        this.avatarRenderer.setOutfit(outfit.vrm_url, avatar?.vrma_idle_url || null).catch((e) => {
+        Promise.resolve(this.avatarApi.setOutfit(outfit.vrm_url, avatar?.vrma_idle_url || null)).catch((e) => {
             console.error("[voice] change_outfit setOutfit failed", e);
         });
         return { ok: true, outfit_id: Number(outfit_id), name: outfit.name };
+    }
+
+    /** Bring another companion into the live group call. The join itself
+     *  takes seconds (session mint + websocket + avatar load + greeting), so
+     *  it runs fire-and-forget: blocking here would hold this call's
+     *  function_call_output — and the calling agent's spoken follow-up —
+     *  hostage until after the newcomer had already greeted. Synchronous
+     *  pre-checks (call live? already present?) run first so the model gets
+     *  a truthful immediate result. */
+    _addAgentToCall({ agent_id }) {
+        if (!Number.isInteger(agent_id) || agent_id <= 0) {
+            return {
+                ok: false,
+                error: "add_agent_to_call requires `agent_id` (integer) from the roster in the tool description.",
+            };
+        }
+        if (!this.callManager?.addAgentToCall) {
+            return { ok: false, error: "Group calls are not available on this surface." };
+        }
+        const check = this.callManager.canAddAgentToCall(agent_id);
+        if (!check.ok) {
+            return { ok: false, error: check.reason };
+        }
+        this.callManager.addAgentToCall(agent_id)
+            .then((ok) => {
+                if (!ok) console.warn("[voice] add_agent_to_call: join failed for agent", agent_id);
+            })
+            .catch((e) => console.error("[voice] add_agent_to_call failed", e));
+        return {
+            ok: true,
+            status: "joining",
+            note: "The companion is connecting now and will greet the call in a few "
+                + "seconds. Acknowledge briefly and continue naturally — do not "
+                + "speak on their behalf or wait silently for them.",
+        };
+    }
+
+    /** Disconnect a companion from the group call — agent_id 0 means the
+     *  CALLING agent disconnects itself (user dismissed it). Like
+     *  _addAgentToCall this is fire-and-forget after synchronous checks:
+     *  the manager waits out the farewell (for a self-disconnect, the
+     *  caller's post-tool reply is the goodbye) before ending the leg. */
+    _removeAgentFromCall({ agent_id }) {
+        if (!Number.isInteger(agent_id) || agent_id < 0) {
+            return {
+                ok: false,
+                error: "remove_agent_from_call requires `agent_id` (integer; 0 disconnects yourself).",
+            };
+        }
+        if (!this.callManager?.removeAgentFromCallWhenIdle) {
+            return { ok: false, error: "Group calls are not available on this surface." };
+        }
+        const selfId = Number(this.conversationState?.agentId) || 0;
+        const isSelf = agent_id === 0 || agent_id === selfId;
+        const targetId = agent_id === 0 ? selfId : agent_id;
+        const check = this.callManager.canRemoveAgentFromCall(targetId);
+        if (!check.ok) {
+            return { ok: false, error: check.reason };
+        }
+        this.callManager.removeAgentFromCallWhenIdle(check.connId)
+            .catch((e) => console.error("[voice] remove_agent_from_call failed", e));
+        return {
+            ok: true,
+            status: "disconnecting",
+            note: isSelf
+                ? "You are being disconnected from the call. Your next reply is your "
+                  + "last — say a brief goodbye, then you will leave the conversation."
+                : "The companion will be disconnected once any current speech "
+                  + "finishes. Acknowledge briefly and continue with the remaining "
+                  + "participants — do not address the departing companion further.",
+        };
     }
 }

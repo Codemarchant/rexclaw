@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api")
 _CONFIG_FIELDS = (
     "enabled", "xai_realtime_url", "xai_client_secrets_url", "xai_responses_url",
     "xai_files_url", "xai_images_url", "xai_images_edits_url",
-    "xai_model", "text_model", "summary_model", "imagine_model",
+    "xai_model", "text_model", "summary_model", "director_model", "imagine_model",
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
     "summary_threshold_tokens", "summary_threshold_tokens_text",
     "summary_keep_recent_messages", "enable_memory_extraction",
@@ -32,6 +32,7 @@ _AGENT_FIELDS = (
     "enable_code_execution", "enable_gesture_emotion_tools",
     "enable_web_search", "enable_x_search", "enable_grok_imagine_tools",
     "enable_memory_tools", "core_memory_cap",
+    "enable_call_agents_tool", "when_to_call_description",
 )
 
 
@@ -151,10 +152,10 @@ def agents_restore_presets(payload: dict = Body(default={}), con=Depends(db_con)
             "SELECT id FROM avatars WHERE pack_key = ?", (seed["pack"],)
         ).fetchone()
         con.execute(
-            "INSERT INTO agents (name, sequence, voice, system_prompt, avatar_id)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO agents (name, sequence, voice, system_prompt, avatar_id,"
+            " when_to_call_description) VALUES (?, ?, ?, ?, ?, ?)",
             (seed["name"], seed["sequence"], seed["voice"], seed["prompt"],
-             avatar["id"] if avatar else None),
+             avatar["id"] if avatar else None, seed.get("when_to_call")),
         )
         restored.append(seed["name"])
     con.commit()
