@@ -61,15 +61,13 @@ python3 -m venv .venv && .venv/bin/pip install -e .   # once
 ### 🐳 Docker
 
 ```bash
-docker compose up -d          # → http://localhost:8990
+docker compose up -d                          # → http://localhost:8990
+docker compose pull && docker compose up -d   # update to the latest release
 ```
 
 No Python or Node needed — the image (`ghcr.io/codemarchant/rexclaw`)
-bundles everything, with all state in the `/data` volume. There's no
-authentication, so the compose file only publishes on `127.0.0.1`; if you
-open it up wider, anyone who can reach the port can use your xAI key. And
-since browsers require HTTPS (or localhost) for mic and VR, access from
-other devices needs a TLS reverse proxy or a localhost tunnel.
+bundles everything, with all state (settings, history, images) in the
+`/data` volume, so updates never lose your data.
 
 ## 👥 Meet the crew
 
