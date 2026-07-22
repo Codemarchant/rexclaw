@@ -1,0 +1,14 @@
+# Keep the build context lean — the image builds the frontend itself and
+# state/dev artifacts must never leak into layers.
+.git
+.venv
+data
+build
+dist
+rexclaw.egg-info
+web/node_modules
+web/dist
+**/__pycache__
+docs
+*.spec
+debug_server.py

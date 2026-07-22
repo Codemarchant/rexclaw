@@ -55,6 +55,39 @@ python3 -m venv .venv && .venv/bin/pip install -e .   # once
 .venv/bin/uvicorn server.main:app --port 8990         # every start
 ```
 
+**Tip:** at http://localhost:8990 your browser will offer **Install app**
+(PWA) — a desktop/home-screen icon and its own window, no extra runtime.
+
+### 🐳 Docker
+
+No Python or Node on the machine? The container bundles everything:
+
+```bash
+docker compose up -d          # → http://localhost:8990
+```
+
+or without compose:
+
+```bash
+docker build -t rexclaw .
+docker run -d -p 127.0.0.1:8990:8990 -v rexclaw-data:/data rexclaw
+```
+
+All state (SQLite DB, generated images, avatar packs you drop in) lives in
+the `/data` volume. Tagged releases are also published as
+`ghcr.io/codemarchant/rexclaw`.
+
+Two things to know before exposing it beyond localhost:
+
+- **No authentication.** Anyone who can reach the port can chat on your xAI
+  key. The compose file publishes on `127.0.0.1` on purpose — widen it to a
+  trusted LAN only, or front it with an authenticating reverse proxy.
+- **Mic + VR need a secure context.** Browsers only allow microphone capture
+  and WebXR on `https://` or `localhost`. From another device (phone,
+  headset), plain `http://<lan-ip>:8990` will load but stay muted — either
+  tunnel it to the device's localhost (`ssh -L`, Tailscale `serve`) or put
+  TLS in front (Caddy/Traefik make this a three-liner).
+
 ## 👥 Meet the crew
 
 https://github.com/user-attachments/assets/ff569423-325c-4fb2-ac4f-f538e9c03895

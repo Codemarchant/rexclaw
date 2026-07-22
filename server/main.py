@@ -77,9 +77,21 @@ if WEB_DIST.is_dir():
 
 
 def run():
-    """Console-script entry point: `rexclaw`."""
+    """Console-script entry point: `rexclaw`.
+
+    REXCLAW_HOST widens the bind address (Docker / LAN hub use — the compose
+    file sets 0.0.0.0). Default stays loopback-only: the app has no
+    authentication, so anyone who can reach the port can talk on your xAI
+    key. REXCLAW_PORT mirrors what run.sh/run.bat already honour.
+    """
+    import os
     import uvicorn
-    uvicorn.run("server.main:app", host="127.0.0.1", port=8990)
+    host = os.environ.get("REXCLAW_HOST", "127.0.0.1")
+    try:
+        port = int(os.environ.get("REXCLAW_PORT", "8990"))
+    except ValueError:
+        port = 8990
+    uvicorn.run("server.main:app", host=host, port=port)
 
 
 if __name__ == "__main__":

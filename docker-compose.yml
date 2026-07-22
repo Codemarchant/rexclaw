@@ -1,0 +1,19 @@
+services:
+  rexclaw:
+    build: .
+    image: ghcr.io/codemarchant/rexclaw:latest
+    container_name: rexclaw
+    restart: unless-stopped
+    ports:
+      # Bound to localhost by default — the app has NO authentication, so
+      # exposing it wider shares your xAI key with everyone on the network.
+      # For LAN/hub use change to "8990:8990" (trusted network) or better,
+      # front it with an authenticating reverse proxy + TLS (mic and VR need
+      # a secure context anyway when accessed from other devices).
+      - "127.0.0.1:8990:8990"
+    volumes:
+      # SQLite DB, generated images, uploaded files, user avatar packs.
+      - rexclaw-data:/data
+
+volumes:
+  rexclaw-data:
