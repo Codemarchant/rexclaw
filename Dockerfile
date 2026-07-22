@@ -25,10 +25,14 @@ RUN npm run build
 FROM python:3.12-slim
 WORKDIR /app
 
-# Backend deps via the package itself (mirrors run.sh's `pip install -e .`).
+# Backend deps via the package itself (mirrors run.sh's `pip install -e .`),
+# then drop the site-packages copy of the app: server/db.py resolves assets/
+# and web/dist relative to the server package's location, so the app MUST run
+# from the /app source tree below — an importable site-packages copy resolving
+# into site-packages/assets is exactly the wrong one.
 COPY pyproject.toml ./
 COPY server/ server/
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . && pip uninstall -y -q rexclaw
 
 # Read-only bundled resources, laid out exactly as the source tree expects
 # (server/db.py resolves assets/ and web/dist relative to the repo root).
@@ -41,4 +45,6 @@ ENV REXCLAW_DATA_DIR=/data \
 VOLUME /data
 EXPOSE 8990
 
-CMD ["rexclaw"]
+# `python -m` from /app so the source-tree server package (next to assets/
+# and web/dist) is the one imported. main.py's run() reads REXCLAW_HOST/PORT.
+CMD ["python", "-m", "server.main"]
