@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Rexclaw Companions</title>
+    <!-- PWA: lets browsers offer "Install app" — a desktop/home-screen icon
+         and a standalone window, while staying a plain web app (WebXR, mic
+         and the multi-device hub story all keep working). No service worker
+         on purpose: the app is useless offline (it needs its local server),
+         and SW caching of hashed bundles only invites staleness bugs. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0b1220" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/icons/favicon.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <!-- Font Awesome 4 — the ported templates use fa-* icon classes throughout. -->
     <link
       rel="stylesheet"
