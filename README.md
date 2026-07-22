@@ -4,6 +4,10 @@
 
 # Rexclaw Companions
 
+<p align="center">
+  English | [<a href="./docs/README.ja-JP.md">日本語</a>]
+</p>
+
 **Living anime voice companions on your own machine — powered by xAI Grok Voice Realtime, bring-your-own-key.**
 
 Talk to a 3D VRM avatar that lip-syncs, emotes, gestures and walks around the
@@ -208,6 +212,16 @@ FastAPI ── SQLite + local files             (data/rexclaw.sqlite3, data/file
 
 - Animation credits: bundled VRMA clips include pixiv Inc.'s VRoid Project
   Motion Pack (commercial use permitted with credit).
+
+## 🔗 Related projects
+
+Making your own gesture clips? These convert motion data into the `.vrma`
+format the avatars play:
+
+- **[kimodo_NPZ_to_fbx_and_vrma](https://github.com/Codemarchant/kimodo_NPZ_to_fbx_and_vrma)** —
+  convert KIMODO motion-capture NPZ output to FBX and VRMA.
+- **[fbxgeneral2vrma](https://github.com/Codemarchant/fbxgeneral2vrma)** —
+  convert FBX animations in awkward formats to VRMA.
 
 ## ☕ Support
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import AvatarManager from "./AvatarManager.jsx";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
+import { _t, i18nState, setLocale, LOCALES } from "../lib/i18n";
 
 /** Settings: BYOK key + models + thresholds, per-agent tuning, and avatars.
  *  (Stored memories live on their own Memories tab — see MemoriesView.) */
@@ -24,7 +25,7 @@ export default function SettingsView({ active }) {
             setAgents(ags);
             setAvatars(avs);
         } catch (e) {
-            notification.add(e?.message || "Could not load settings", { type: "danger" });
+            notification.add(e?.message || _t("Could not load settings"), { type: "danger" });
         }
     };
 
@@ -34,7 +35,7 @@ export default function SettingsView({ active }) {
     }, [active]);
 
     if (!config) {
-        return <div className="rx_settings"><div className="rx_settings_inner">Loading…</div></div>;
+        return <div className="rx_settings"><div className="rx_settings_inner">{_t("Loading…")}</div></div>;
     }
 
     const setField = (key, value) => setConfig((c) => ({ ...c, [key]: value }));
@@ -50,10 +51,10 @@ export default function SettingsView({ active }) {
             if (apiKeyDraft.trim()) payload.xai_api_key = apiKeyDraft.trim();
             await rpc("/api/config/set", payload);
             setApiKeyDraft("");
-            notification.add("Settings saved.", { type: "info" });
+            notification.add(_t("Settings saved."), { type: "info" });
             load();
         } catch (e) {
-            notification.add(e?.message || "Save failed", { type: "danger" });
+            notification.add(e?.message || _t("Save failed"), { type: "danger" });
         } finally {
             setSaving(false);
         }
@@ -95,6 +96,8 @@ Web and X search are available whenever current information helps — just look 
             enable_x_search: 1,
             enable_grok_imagine_tools: 1,
             enable_memory_tools: 1,
+            enable_call_agents_tool: 1,
+            when_to_call_description: "",
             core_memory_cap: 100,
         });
     };
@@ -104,27 +107,27 @@ Web and X search are available whenever current information helps — just look 
             const r = await rpc("/api/agents/restore_presets", {});
             notification.add(
                 r.restored?.length
-                    ? `Restored: ${r.restored.join(", ")}.`
-                    : "All preset companions are already present.",
+                    ? _t("Restored: %s.", r.restored.join(", "))
+                    : _t("All preset companions are already present."),
                 { type: "info" },
             );
             load();
         } catch (e) {
-            notification.add(e?.message || "Restore failed", { type: "danger" });
+            notification.add(e?.message || _t("Restore failed"), { type: "danger" });
         }
     };
 
     const deleteAgent = async (a) => {
         if (!window.confirm(
-            `Delete ${a.name}? This permanently removes the companion plus all its sessions, transcripts and memories.`,
+            _t("Delete %s? This permanently removes the companion plus all its sessions, transcripts and memories.", a.name),
         )) return;
         try {
             await rpc("/api/agents/delete", { id: a.id });
-            notification.add(`${a.name} deleted.`, { type: "info" });
+            notification.add(_t("%s deleted.", a.name), { type: "info" });
             if (editingAgent?.id === a.id) setEditingAgent(null);
             load();
         } catch (e) {
-            notification.add(e?.message || "Delete failed", { type: "danger" });
+            notification.add(e?.message || _t("Delete failed"), { type: "danger" });
         }
     };
 
@@ -133,7 +136,7 @@ Web and X search are available whenever current information helps — just look 
         setSaving(true);
         try {
             await rpc("/api/agents/save", editingAgent);
-            notification.add(`${editingAgent.name} saved.`, { type: "info" });
+            notification.add(_t("%s saved.", editingAgent.name), { type: "info" });
             setEditingAgent(null);
             load();
         } catch (e) {
@@ -159,43 +162,40 @@ Web and X search are available whenever current information helps — just look 
         <div className="rx_settings">
             <div className="rx_settings_inner">
                 <section>
-                    <h3><i className="fa fa-key" /> xAI connection</h3>
-                    <label>API key {config.has_api_key && <span className="text-muted">(saved {config.api_key_hint || ""})</span>}</label>
+                    <h3><i className="fa fa-key" /> {_t("xAI connection")}</h3>
+                    <label>{_t("API key")} {config.has_api_key && <span className="text-muted">({_t("saved")} {config.api_key_hint || ""})</span>}</label>
                     <input
                         type="password"
-                        placeholder={config.has_api_key ? "•••••••• (leave blank to keep current key)" : "xai-…"}
+                        placeholder={config.has_api_key ? _t("•••••••• (leave blank to keep current key)") : "xai-…"}
                         value={apiKeyDraft}
                         onChange={(ev) => setApiKeyDraft(ev.target.value)}
                     />
                     <div className="rx_row">
                         <div>
-                            <label>Voice model</label>
+                            <label>{_t("Voice model")}</label>
                             <input type="text" value={config.xai_model || ""}
                                    onChange={(ev) => setField("xai_model", ev.target.value)} />
                         </div>
                         <div>
-                            <label>Text model</label>
+                            <label>{_t("Text model")}</label>
                             <input type="text" value={config.text_model || ""}
                                    onChange={(ev) => setField("text_model", ev.target.value)} />
                         </div>
                     </div>
                     <div className="rx_row">
                         <div>
-                            <label>Summary model</label>
+                            <label>{_t("Summary model")}</label>
                             <input type="text" value={config.summary_model || ""}
                                    onChange={(ev) => setField("summary_model", ev.target.value)} />
                         </div>
                         <div>
-                            <label>Imagine model</label>
+                            <label>{_t("Imagine model")}</label>
                             <input type="text" value={config.imagine_model || ""}
                                    onChange={(ev) => setField("imagine_model", ev.target.value)} />
                         </div>
                         <div>
-                            <label title={"Model for the group-call turn director (a one-token \"who speaks next\" "
-                                + "classification on every group-call turn). Latency matters more than intelligence "
-                                + "here — use the fastest non-reasoning model available. Empty = fall back to the "
-                                + "Text Model."}>
-                                Turn director model
+                            <label title={_t("Model for the group-call turn director (a one-token \"who speaks next\" classification on every group-call turn). Latency matters more than intelligence here — use the fastest non-reasoning model available. Empty = fall back to the Text Model.")}>
+                                {_t("Turn director model")}
                             </label>
                             <input type="text" value={config.director_model || ""}
                                    placeholder="grok-4.20-non-reasoning"
@@ -205,19 +205,29 @@ Web and X search are available whenever current information helps — just look 
                 </section>
 
                 <section>
-                    <h3><i className="fa fa-user" /> You</h3>
+                    <h3><i className="fa fa-user" /> {_t("You")}</h3>
                     <div className="rx_row">
                         <div>
-                            <label>Display name (optional)</label>
+                            <label>{_t("Display name (optional)")}</label>
                             <input type="text" value={config.user_display_name || ""}
                                    onChange={(ev) => setField("user_display_name", ev.target.value)} />
                         </div>
                         <div>
-                            <label>Default companion</label>
+                            <label>{_t("Default companion")}</label>
                             <select value={config.default_agent_id ?? ""}
                                     onChange={(ev) => setField("default_agent_id", parseInt(ev.target.value, 10) || null)}>
                                 {agents.map((a) => (
                                     <option key={a.id} value={a.id}>{a.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label>{_t("Language")}</label>
+                            <select value={i18nState.locale}
+                                    onChange={(ev) => setLocale(ev.target.value)}
+                                    title={_t("UI language — stored in this browser. Companions follow the language you speak regardless.")}>
+                                {LOCALES.map(([id, label]) => (
+                                    <option key={id} value={id}>{label}</option>
                                 ))}
                             </select>
                         </div>
@@ -227,26 +237,26 @@ Web and X search are available whenever current information helps — just look 
                                checked={!!config.include_user_name_in_prompt}
                                onChange={(ev) => setField("include_user_name_in_prompt", ev.target.checked ? 1 : 0)} />
                         <label htmlFor="rx_include_name">
-                            Include my name in the system prompt (sent to xAI — off by default)
+                            {_t("Include my name in the system prompt (sent to xAI — off by default)")}
                         </label>
                     </div>
                 </section>
 
                 <section>
-                    <h3><i className="fa fa-compress" /> Context management</h3>
+                    <h3><i className="fa fa-compress" /> {_t("Context management")}</h3>
                     <div className="rx_row">
                         <div>
-                            <label>Voice summarization threshold (tokens)</label>
+                            <label>{_t("Voice summarization threshold (tokens)")}</label>
                             <input type="number" value={config.summary_threshold_tokens ?? 0}
                                    onChange={(ev) => setField("summary_threshold_tokens", parseInt(ev.target.value, 10) || 0)} />
                         </div>
                         <div>
-                            <label>Text summarization threshold (tokens)</label>
+                            <label>{_t("Text summarization threshold (tokens)")}</label>
                             <input type="number" value={config.summary_threshold_tokens_text ?? 0}
                                    onChange={(ev) => setField("summary_threshold_tokens_text", parseInt(ev.target.value, 10) || 0)} />
                         </div>
                         <div>
-                            <label>Recent turns kept verbatim</label>
+                            <label>{_t("Recent turns kept verbatim")}</label>
                             <input type="number" value={config.summary_keep_recent_messages ?? 2}
                                    onChange={(ev) => setField("summary_keep_recent_messages", parseInt(ev.target.value, 10) || 0)} />
                         </div>
@@ -255,14 +265,14 @@ Web and X search are available whenever current information helps — just look 
 
                 <section>
                     <h3 style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <span><i className="fa fa-users" /> Companions</span>
+                        <span><i className="fa fa-users" /> {_t("Companions")}</span>
                         <span style={{ display: "flex", gap: "0.5rem" }}>
                             <button className="btn btn-sm" onClick={restorePresets}
-                                    title="Re-create any deleted preset companions (Eve, Ara, Rex, Sal, Leo) with their original prompts. Existing companions are untouched.">
-                                <i className="fa fa-undo" /> Restore presets
+                                    title={_t("Re-create any deleted preset companions (Eve, Ara, Rex, Sal, Leo) with their original prompts. Existing companions are untouched.")}>
+                                <i className="fa fa-undo" /> {_t("Restore presets")}
                             </button>
                             <button className="btn btn-sm btn-primary" onClick={newCompanion}>
-                                <i className="fa fa-plus" /> New companion
+                                <i className="fa fa-plus" /> {_t("New companion")}
                             </button>
                         </span>
                     </h3>
@@ -285,14 +295,14 @@ Web and X search are available whenever current information helps — just look 
                         ) : (
                             <div key={a.id} className="rx_memory_row">
                                 <strong>{a.name}</strong>
-                                <span className="text-muted small">voice: {a.voice}</span>
+                                <span className="text-muted small">{_t("voice:")} {a.voice}</span>
                                 <span className="rx_memory_meta">
                                     {a.enable_voice_mode ? "voice" : ""} {a.enable_text_mode ? "text" : ""}
                                 </span>
                                 <button className="btn btn-sm btn-link p-0" onClick={() => setEditingAgent({ ...a })}>
-                                    Edit
+                                    {_t("Edit")}
                                 </button>
-                                <button className="btn btn-sm btn-link p-0" title="Delete companion"
+                                <button className="btn btn-sm btn-link p-0" title={_t("Delete companion")}
                                         onClick={() => deleteAgent(a)}>
                                     <i className="fa fa-trash-o" />
                                 </button>
@@ -302,13 +312,13 @@ Web and X search are available whenever current information helps — just look 
                 </section>
 
                 <section>
-                    <h3><i className="fa fa-user-circle-o" /> Avatars</h3>
+                    <h3><i className="fa fa-user-circle-o" /> {_t("Avatars")}</h3>
                     <AvatarManager onChange={load} />
                 </section>
 
                 <section>
                     <button className="btn btn-primary" disabled={saving} onClick={saveConfig}>
-                        <i className="fa fa-save" /> Save settings
+                        <i className="fa fa-save" /> {_t("Save settings")}
                     </button>
                 </section>
             </div>
@@ -324,48 +334,46 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, AGENT_FLAGS
         <>
             <div className="rx_row">
                 <div>
-                    <label>Name</label>
+                    <label>{_t("Name")}</label>
                     <input type="text" value={editingAgent.name || ""}
                            onChange={(ev) => setEditingAgent({ ...editingAgent, name: ev.target.value })} />
                 </div>
                 <div>
-                    <label>Voice (built-in name or custom xAI voice id)</label>
+                    <label>{_t("Voice (built-in name or custom xAI voice id)")}</label>
                     <input type="text" value={editingAgent.voice || ""}
                            onChange={(ev) => setEditingAgent({ ...editingAgent, voice: ev.target.value })} />
                 </div>
                 <div>
-                    <label>Avatar</label>
+                    <label>{_t("Avatar")}</label>
                     <select value={editingAgent.avatar_id ?? ""}
                             onChange={(ev) => setEditingAgent({ ...editingAgent, avatar_id: parseInt(ev.target.value, 10) || null })}>
-                        <option value="">(no avatar)</option>
+                        <option value="">{_t("(no avatar)")}</option>
                         {avatars.map((av) => (
                             <option key={av.id} value={av.id}>
-                                {av.name}{av.outfit_count ? ` (${av.outfit_count} outfits)` : ""}
+                                {av.name}{av.outfit_count ? ` (${av.outfit_count} ${_t("outfits")})` : ""}
                             </option>
                         ))}
                     </select>
                 </div>
                 <div>
-                    <label>Reasoning effort (text mode)</label>
+                    <label>{_t("Reasoning effort (text mode)")}</label>
                     <select value={editingAgent.reasoning_effort || "low"}
                             onChange={(ev) => setEditingAgent({ ...editingAgent, reasoning_effort: ev.target.value })}>
-                        <option value="none">None</option>
-                        <option value="low">Low</option>
-                        <option value="medium">Medium</option>
-                        <option value="high">High</option>
+                        <option value="none">{_t("None")}</option>
+                        <option value="low">{_t("Low")}</option>
+                        <option value="medium">{_t("Medium")}</option>
+                        <option value="high">{_t("High")}</option>
                     </select>
                 </div>
             </div>
-            <label>System prompt</label>
+            <label>{_t("System prompt")}</label>
             <textarea rows={14} value={editingAgent.system_prompt || ""}
                       onChange={(ev) => setEditingAgent({ ...editingAgent, system_prompt: ev.target.value })} />
-            <label title={"Shown to OTHER companions inside their add_agent_to_call tool so they know when "
-                + "to bring this companion into a live group call. Leave empty and other companions "
-                + "only see the name."}>
-                When to call (shown to other companions for group calls)
+            <label title={_t("Shown to OTHER companions inside their add_agent_to_call tool so they know when to bring this companion into a live group call. Leave empty and other companions only see the name.")}>
+                {_t("When to call (shown to other companions for group calls)")}
             </label>
             <textarea rows={2} value={editingAgent.when_to_call_description || ""}
-                      placeholder="e.g. 'Sales specialist — call for pricing, quotes, or negotiation roleplay.'"
+                      placeholder={_t("e.g. 'Sales specialist — call for pricing, quotes, or negotiation roleplay.'")}
                       onChange={(ev) => setEditingAgent({ ...editingAgent, when_to_call_description: ev.target.value })} />
             <div className="rx_flags">
                 {AGENT_FLAGS.map(([key, label]) => (
@@ -373,21 +381,21 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, AGENT_FLAGS
                         <input id={`flag-${idScope}-${key}`} type="checkbox"
                                checked={!!editingAgent[key]}
                                onChange={(ev) => setEditingAgent({ ...editingAgent, [key]: ev.target.checked ? 1 : 0 })} />
-                        <label htmlFor={`flag-${idScope}-${key}`}>{label}</label>
+                        <label htmlFor={`flag-${idScope}-${key}`}>{_t(label)}</label>
                     </span>
                 ))}
             </div>
             {editingAgent.id != null && <McpConnections agentId={editingAgent.id} />}
             {editingAgent.id == null && (
                 <p className="text-muted small" style={{ marginTop: "0.6rem" }}>
-                    Remote MCP connections can be added after the companion is saved.
+                    {_t("Remote MCP connections can be added after the companion is saved.")}
                 </p>
             )}
             <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
                 <button className="btn btn-primary btn-sm" disabled={saving} onClick={saveAgent}>
-                    Save
+                    {_t("Save")}
                 </button>
-                <button className="btn btn-sm" onClick={cancel}>Cancel</button>
+                <button className="btn btn-sm" onClick={cancel}>{_t("Cancel")}</button>
             </div>
         </>
     );
@@ -418,7 +426,7 @@ function McpConnections({ agentId }) {
         try {
             setConns(await rpc("/api/mcp/list", { agent_id: agentId }));
         } catch (e) {
-            notification.add(e?.message || "Could not load MCP connections", { type: "danger" });
+            notification.add(e?.message || _t("Could not load MCP connections"), { type: "danger" });
         }
     };
     useEffect(() => { load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [agentId]);
@@ -437,12 +445,12 @@ function McpConnections({ agentId }) {
     };
 
     const remove = async (c) => {
-        if (!window.confirm(`Remove MCP connection ${c.server_label}?`)) return;
+        if (!window.confirm(_t("Remove MCP connection %s?", c.server_label))) return;
         try {
             await rpc("/api/mcp/delete", { id: c.id });
             load();
         } catch (e) {
-            notification.add(e?.message || "Delete failed", { type: "danger" });
+            notification.add(e?.message || _t("Delete failed"), { type: "danger" });
         }
     };
 
@@ -451,15 +459,14 @@ function McpConnections({ agentId }) {
     return (
         <div style={{ marginTop: "0.85rem" }}>
             <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>Remote MCP connections</span>
+                <span>{_t("Remote MCP connections")}</span>
                 <button className="btn btn-sm" onClick={() => setEditing({ ...EMPTY_MCP })}>
-                    <i className="fa fa-plus" /> Add connection
+                    <i className="fa fa-plus" /> {_t("Add connection")}
                 </button>
             </label>
             {!conns.length && !editing && (
                 <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
-                    None configured. An MCP server gives this companion extra tools; xAI
-                    connects to it directly, so the URL must be public HTTPS.
+                    {_t("None configured. An MCP server gives this companion extra tools; xAI connects to it directly, so the URL must be public HTTPS.")}
                 </p>
             )}
             {conns.map((c) => (
@@ -473,9 +480,9 @@ function McpConnections({ agentId }) {
                     </span>
                     <button className="btn btn-sm btn-link p-0"
                             onClick={() => setEditing({ ...c, authorization: "" })}>
-                        Edit
+                        {_t("Edit")}
                     </button>
-                    <button className="btn btn-sm btn-link p-0" title="Remove" onClick={() => remove(c)}>
+                    <button className="btn btn-sm btn-link p-0" title={_t("Remove")} onClick={() => remove(c)}>
                         <i className="fa fa-trash-o" />
                     </button>
                 </div>
@@ -484,34 +491,34 @@ function McpConnections({ agentId }) {
                 <div className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
                     <div className="rx_row">
                         <div>
-                            <label>Server label (a-z, 0-9, _ — shown to the model)</label>
+                            <label>{_t("Server label (a-z, 0-9, _ — shown to the model)")}</label>
                             <input type="text" value={editing.server_label}
                                    onChange={(ev) => set("server_label", ev.target.value)} />
                         </div>
                         <div>
-                            <label>Server URL (public https://)</label>
+                            <label>{_t("Server URL (public https://)")}</label>
                             <input type="text" placeholder="https://mcp.example.com/mcp"
                                    value={editing.server_url}
                                    onChange={(ev) => set("server_url", ev.target.value)} />
                         </div>
                     </div>
-                    <label>Description (hint to the model about when to use this server)</label>
+                    <label>{_t("Description (hint to the model about when to use this server)")}</label>
                     <input type="text" value={editing.server_description || ""}
                            onChange={(ev) => set("server_description", ev.target.value)} />
                     <div className="rx_row">
                         <div>
-                            <label>Bearer token {editing.id && editing.has_authorization ? "(saved — blank keeps it)" : "(optional)"}</label>
+                            <label>{_t("Bearer token")} {editing.id && editing.has_authorization ? _t("(saved — blank keeps it)") : _t("(optional)")}</label>
                             <input type="password" value={editing.authorization || ""}
                                    onChange={(ev) => set("authorization", ev.target.value)} />
                         </div>
                         <div>
-                            <label>Extra headers (JSON object, optional)</label>
+                            <label>{_t("Extra headers (JSON object, optional)")}</label>
                             <input type="text" placeholder='{"X-Tenant": "acme"}'
                                    value={editing.headers || ""}
                                    onChange={(ev) => set("headers", ev.target.value)} />
                         </div>
                     </div>
-                    <label>Allowed tools (one per line — blank allows all)</label>
+                    <label>{_t("Allowed tools (one per line — blank allows all)")}</label>
                     <textarea rows={3} value={editing.allowed_tools || ""}
                               onChange={(ev) => set("allowed_tools", ev.target.value)} />
                     <div className="rx_flags">
@@ -522,13 +529,13 @@ function McpConnections({ agentId }) {
                                 <input id={`mcp-${editing.id ?? "new"}-${key}`} type="checkbox"
                                        checked={!!editing[key]}
                                        onChange={(ev) => set(key, ev.target.checked ? 1 : 0)} />
-                                <label htmlFor={`mcp-${editing.id ?? "new"}-${key}`}>{label}</label>
+                                <label htmlFor={`mcp-${editing.id ?? "new"}-${key}`}>{_t(label)}</label>
                             </span>
                         ))}
                     </div>
                     <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem" }}>
-                        <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>Save connection</button>
-                        <button className="btn btn-sm" onClick={() => setEditing(null)}>Cancel</button>
+                        <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{_t("Save connection")}</button>
+                        <button className="btn btn-sm" onClick={() => setEditing(null)}>{_t("Cancel")}</button>
                     </div>
                 </div>
             )}

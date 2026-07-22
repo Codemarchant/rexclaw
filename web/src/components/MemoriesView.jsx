@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
+import { _t } from "../lib/i18n";
 
 /** Dedicated Memories tab — the durable facts and conversation episodes the
  *  companions have stored across sessions. Lives on its own tab (not buried in
@@ -19,7 +20,7 @@ export default function MemoriesView({ active }) {
         try {
             setMemories(await rpc("/api/memories/list", {}));
         } catch (e) {
-            notification.add(e?.message || "Could not load memories", { type: "danger" });
+            notification.add(e?.message || _t("Could not load memories"), { type: "danger" });
         } finally {
             setLoading(false);
         }
@@ -36,7 +37,7 @@ export default function MemoriesView({ active }) {
             await rpc("/api/memories/delete", { id });
             setMemories((m) => m.filter((x) => x.id !== id));
         } catch (e) {
-            notification.add(e?.message || "Delete failed", { type: "danger" });
+            notification.add(e?.message || _t("Delete failed"), { type: "danger" });
         }
     };
 
@@ -65,24 +66,23 @@ export default function MemoriesView({ active }) {
         <div className="rx_settings">
             <div className="rx_settings_inner">
                 <section>
-                    <h3><i className="fa fa-lightbulb-o" /> Memories</h3>
+                    <h3><i className="fa fa-lightbulb-o" /> {_t("Memories")}</h3>
                     <p className="text-muted small" style={{ marginTop: "-0.4rem" }}>
-                        Durable facts and conversation episodes your companions remember
-                        across sessions — yours to review or forget at any time.
+                        {_t("Durable facts and conversation episodes your companions remember across sessions — yours to review or forget at any time.")}
                     </p>
 
                     <div className="rx_mem_toolbar">
                         <input
                             type="text"
-                            placeholder="Search memories, keywords, tags…"
+                            placeholder={_t("Search memories, keywords, tags…")}
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                         />
                         <div className="rx_mem_filters">
                             {[
-                                ["all", `All ${memories.length}`],
-                                ["fact", `Facts ${factCount}`],
-                                ["episode", `Episodes ${episodeCount}`],
+                                ["all", `${_t("All")} ${memories.length}`],
+                                ["fact", `${_t("Facts")} ${factCount}`],
+                                ["episode", `${_t("Episodes")} ${episodeCount}`],
                             ].map(([id, label]) => (
                                 <button
                                     key={id}
@@ -98,23 +98,22 @@ export default function MemoriesView({ active }) {
                             value={scopeFilter}
                             onChange={(e) => setScopeFilter(e.target.value)}
                             style={{ width: "auto" }}
-                            title="Filter by scope"
+                            title={_t("Filter by scope")}
                         >
-                            <option value="all">All scopes</option>
-                            <option value="core">Core</option>
-                            <option value="recall">Recall</option>
+                            <option value="all">{_t("All scopes")}</option>
+                            <option value="core">{_t("Core")}</option>
+                            <option value="recall">{_t("Recall")}</option>
                         </select>
                     </div>
 
-                    {loading && <p className="text-muted small">Loading…</p>}
+                    {loading && <p className="text-muted small">{_t("Loading…")}</p>}
                     {!loading && !memories.length && (
                         <p className="text-muted small">
-                            Nothing remembered yet — companions store durable facts and
-                            episodes here as you talk.
+                            {_t("Nothing remembered yet — companions store durable facts and episodes here as you talk.")}
                         </p>
                     )}
                     {!loading && !!memories.length && !visible.length && (
-                        <p className="text-muted small">No memories match your filters.</p>
+                        <p className="text-muted small">{_t("No memories match your filters.")}</p>
                     )}
 
                     {visible.map((m) => {
@@ -124,7 +123,7 @@ export default function MemoriesView({ active }) {
                             <div key={m.id} className="rx_mem_item">
                                 <div className="rx_memory_row">
                                     <span className={"rx_mem_badge" + (isEpisode ? " rx_mem_badge--episode" : "")}>
-                                        {isEpisode ? "episode" : "fact"}
+                                        {isEpisode ? _t("episode") : _t("fact")}
                                     </span>
                                     <span className="rx_memory_scope">{m.scope}</span>
                                     <span className="rx_memory_content">
@@ -136,16 +135,16 @@ export default function MemoriesView({ active }) {
                                                 onClick={() => toggleExpand(m.id)}
                                             >
                                                 <i className={"fa " + (isOpen ? "fa-chevron-up" : "fa-chevron-down")} />
-                                                {isOpen ? " hide transcript" : " transcript"}
+                                                {isOpen ? " " + _t("hide transcript") : " " + _t("transcript")}
                                             </button>
                                         )}
                                     </span>
                                     <span className="rx_memory_meta">
-                                        {m.agent_name || "all companions"}{m.tags ? ` · ${m.tags}` : ""}
+                                        {m.agent_name || _t("all companions")}{m.tags ? ` · ${m.tags}` : ""}
                                     </span>
                                     <button
                                         className="btn btn-sm btn-link p-0"
-                                        title="Forget"
+                                        title={_t("Forget")}
                                         onClick={() => deleteMemory(m.id)}
                                     >
                                         <i className="fa fa-trash-o" />

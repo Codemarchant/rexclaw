@@ -6,6 +6,7 @@ import SettingsView from "./components/SettingsView.jsx";
 import Toasts from "./components/Toasts.jsx";
 import { uiState, toggleImmersive } from "./lib/ui_state";
 import { useReactive } from "./lib/reactive";
+import { _t, i18nState } from "./lib/i18n";
 
 const TABS = [
     { id: "voice", label: "Voice", icon: "fa-microphone" },
@@ -17,6 +18,10 @@ const TABS = [
 export default function App() {
     const [tab, setTab] = useState("voice");
     const ui = useReactive(uiState);
+    // Subscribing App to the locale makes a language switch re-render the
+    // whole mounted tree in place — children aren't memoized, and nothing
+    // remounts, so a live voice session survives the flip.
+    useReactive(i18nState);
     // In immersive mode on the Voice tab, hide the whole header for a pure
     // full-screen avatar. Other tabs always keep their header.
     const hideHeader = ui.immersive && tab === "voice";
@@ -34,15 +39,15 @@ export default function App() {
                         key={t.id}
                         className={"rx_tab" + (tab === t.id ? " is-active" : "")}
                         onClick={() => setTab(t.id)}
-                        title={t.label}
+                        title={_t(t.label)}
                     >
-                        <i className={"fa " + t.icon} /> <span className="rx_label">{t.label}</span>
+                        <i className={"fa " + t.icon} /> <span className="rx_label">{_t(t.label)}</span>
                     </button>
                 ))}
                 {tab === "voice" && (
                     <button className="rx_tab rx_tab--immersive" onClick={toggleImmersive}
-                            title="Immersive view — hide all UI for a full-screen avatar (H · Esc to exit)">
-                        <i className="fa fa-expand" /> <span className="rx_label">Immersive</span>
+                            title={_t("Immersive view — hide all UI for a full-screen avatar (H · Esc to exit)")}>
+                        <i className="fa fa-expand" /> <span className="rx_label">{_t("Immersive")}</span>
                     </button>
                 )}
             </nav>}

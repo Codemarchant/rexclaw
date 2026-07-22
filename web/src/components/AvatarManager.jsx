@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
+import { _t } from "../lib/i18n";
 
 /** Avatar manager — create/edit/delete avatar packs from the desktop UI.
  *  Round-trips through the manifest: uploads land in the pack folder, Save
@@ -25,7 +26,7 @@ export default function AvatarManager({ onChange }) {
         try {
             setList(await rpc("/api/avatars/manage_list", {}));
         } catch (e) {
-            notification.add(e?.message || "Could not load avatars", { type: "danger" });
+            notification.add(e?.message || _t("Could not load avatars"), { type: "danger" });
         }
     };
     useEffect(() => { load(); }, []);
@@ -42,7 +43,7 @@ export default function AvatarManager({ onChange }) {
                 isNew: true,
             });
         } catch (e) {
-            notification.add(e?.message || "Create failed", { type: "danger" });
+            notification.add(e?.message || _t("Create failed"), { type: "danger" });
         }
     };
 
@@ -56,7 +57,7 @@ export default function AvatarManager({ onChange }) {
                 isNew: false,
             });
         } catch (e) {
-            notification.add(e?.message || "Could not open avatar", { type: "danger" });
+            notification.add(e?.message || _t("Could not open avatar"), { type: "danger" });
         }
     };
 
@@ -72,11 +73,11 @@ export default function AvatarManager({ onChange }) {
 
     const save = async () => {
         if (!editing.manifest.name?.trim()) {
-            notification.add("Give the avatar a name.", { type: "warning" });
+            notification.add(_t("Give the avatar a name."), { type: "warning" });
             return;
         }
         if (!editing.manifest.vrm) {
-            notification.add("Upload a main VRM file.", { type: "warning" });
+            notification.add(_t("Upload a main VRM file."), { type: "warning" });
             return;
         }
         setBusy(true);
@@ -86,26 +87,26 @@ export default function AvatarManager({ onChange }) {
                 manifest: editing.manifest,
                 is_new: editing.isNew,
             });
-            notification.add(`${editing.manifest.name} saved to data/avatars/${r.pack_key}/`, { type: "info" });
+            notification.add(_t("%s saved to data/avatars/%s/", editing.manifest.name, r.pack_key), { type: "info" });
             setEditing(null);
             load();
             onChange?.();
         } catch (e) {
-            notification.add(e?.message || "Save failed", { type: "danger" });
+            notification.add(e?.message || _t("Save failed"), { type: "danger" });
         } finally {
             setBusy(false);
         }
     };
 
     const remove = async (a) => {
-        if (!window.confirm(`Delete avatar ${a.name}? Companions using it lose their avatar. This removes the pack folder and its files.`)) return;
+        if (!window.confirm(_t("Delete avatar %s? Companions using it lose their avatar. This removes the pack folder and its files.", a.name))) return;
         try {
             await rpc("/api/avatars/delete", { pack_key: a.pack_key });
-            notification.add(`${a.name} deleted.`, { type: "info" });
+            notification.add(_t("%s deleted.", a.name), { type: "info" });
             load();
             onChange?.();
         } catch (e) {
-            notification.add(e?.message || "Delete failed", { type: "danger" });
+            notification.add(e?.message || _t("Delete failed"), { type: "danger" });
         }
     };
 
@@ -120,33 +121,32 @@ export default function AvatarManager({ onChange }) {
         <div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }}>
                 <button className="btn btn-sm btn-primary" onClick={startNew}>
-                    <i className="fa fa-plus" /> New avatar
+                    <i className="fa fa-plus" /> {_t("New avatar")}
                 </button>
             </div>
             {list.map((a) => (
                 <div key={a.id} className="rx_memory_row">
                     <strong>{a.name}</strong>
                     <span className="rx_memory_content text-muted small">
-                        {a.outfit_count} outfits · {a.gesture_count} gestures · {a.background_count} backgrounds
-                        {a.used_by ? ` · used by ${a.used_by}` : ""}
+                        {a.outfit_count} {_t("outfits")} · {a.gesture_count} {_t("gestures")} · {a.background_count} {_t("backgrounds")}
+                        {a.used_by ? ` · ${_t("used by")} ${a.used_by}` : ""}
                     </span>
                     {a.editable ? (
                         <>
-                            <button className="btn btn-sm btn-link p-0" onClick={() => startEdit(a)}>Edit</button>
-                            <button className="btn btn-sm btn-link p-0" title="Delete avatar" onClick={() => remove(a)}>
+                            <button className="btn btn-sm btn-link p-0" onClick={() => startEdit(a)}>{_t("Edit")}</button>
+                            <button className="btn btn-sm btn-link p-0" title={_t("Delete avatar")} onClick={() => remove(a)}>
                                 <i className="fa fa-trash-o" />
                             </button>
                         </>
                     ) : (
-                        <span className="rx_memory_meta" title="Bundled avatars ship with the app and are read-only. Create a new avatar to customize.">
-                            <i className="fa fa-lock" /> bundled
+                        <span className="rx_memory_meta" title={_t("Bundled avatars ship with the app and are read-only. Create a new avatar to customize.")}>
+                            <i className="fa fa-lock" /> {_t("bundled")}
                         </span>
                     )}
                 </div>
             ))}
             <p className="text-muted small" style={{ marginTop: "0.6rem" }}>
-                New and edited avatars are saved as packs under <code>data/avatars/</code> — shareable folders
-                anyone can drop into another install. Bundled avatars are read-only.
+                {_t("New and edited avatars are saved as packs under")} <code>data/avatars/</code> — {_t("shareable folders anyone can drop into another install. Bundled avatars are read-only.")}
             </p>
         </div>
     );
@@ -185,7 +185,7 @@ function FileField({ label, kind, packKey, value, accept, onUploaded }) {
             const fn = await upload(kind, file);
             onUploaded(fn);
         } catch (e) {
-            notification.add(e?.message || "Upload failed", { type: "danger" });
+            notification.add(e?.message || _t("Upload failed"), { type: "danger" });
         }
     };
     return (
@@ -193,10 +193,10 @@ function FileField({ label, kind, packKey, value, accept, onUploaded }) {
             {label && <label>{label}</label>}
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                 <button className="btn btn-sm" disabled={uploading} onClick={() => ref.current?.click()}>
-                    <i className={uploading ? "fa fa-spinner fa-spin" : "fa fa-upload"} /> {value ? "Replace" : "Upload"}
+                    <i className={uploading ? "fa fa-spinner fa-spin" : "fa fa-upload"} /> {value ? _t("Replace") : _t("Upload")}
                 </button>
                 <span className="text-muted small" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {value || "(none)"}
+                    {value || _t("(none)")}
                 </span>
                 <input ref={ref} type="file" accept={accept} style={{ display: "none" }} onChange={pick} />
             </div>
@@ -235,35 +235,35 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
         <div>
             <div className="rx_row">
                 <div>
-                    <label>Avatar name</label>
+                    <label>{_t("Avatar name")}</label>
                     <input type="text" value={manifest.name || ""}
                            onChange={(ev) => setM({ name: ev.target.value })} />
                 </div>
-                <FileField label="Main VRM (required)" kind="vrm" packKey={pack_key}
+                <FileField label={_t("Main VRM (required)")} kind="vrm" packKey={pack_key}
                            value={manifest.vrm} accept=".vrm"
                            onUploaded={(fn) => setM({ vrm: fn })} />
-                <FileField label="Idle animation VRMA (optional)" kind="vrma" packKey={pack_key}
+                <FileField label={_t("Idle animation VRMA (optional)")} kind="vrma" packKey={pack_key}
                            value={manifest.vrma_idle} accept=".vrma"
                            onUploaded={(fn) => setM({ vrma_idle: fn })} />
             </div>
             <p className="text-muted small rx_pack_path">
-                <i className="fa fa-folder-o" /> Pack folder:{" "}
+                <i className="fa fa-folder-o" /> {_t("Pack folder:")}{" "}
                 <code>data/avatars/{editing.isNew ? "…" : pack_key}/</code>
                 {editing.isNew
-                    ? " — named after this avatar when you save."
-                    : " — fixed folder id; renaming the avatar above doesn't move it."}
+                    ? " — " + _t("named after this avatar when you save.")
+                    : " — " + _t("fixed folder id; renaming the avatar above doesn't move it.")}
             </p>
 
             {/* Outfits */}
-            <Section title="Outfits"
+            <Section title={_t("Outfits")}
                      onAdd={() => addItem("outfits", { name: "", vrm: "", description: "" })}>
                 {(manifest.outfits || []).map((o, i) => (
                     <div key={i} className="rx_subrow">
-                        <input type="text" placeholder="Name" value={o.name || ""}
+                        <input type="text" placeholder={_t("Name")} value={o.name || ""}
                                onChange={(ev) => setList("outfits", i, { name: ev.target.value })} />
                         <FileField kind="vrm" packKey={pack_key} value={o.vrm} accept=".vrm"
                                    onUploaded={(fn) => setList("outfits", i, { vrm: fn })} />
-                        <input type="text" placeholder="Description (fed to the LLM — when to wear it)"
+                        <input type="text" placeholder={_t("Description (fed to the LLM — when to wear it)")}
                                value={o.description || ""}
                                onChange={(ev) => setList("outfits", i, { description: ev.target.value })} />
                         <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("outfits", i)}>
@@ -274,22 +274,22 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
             </Section>
 
             {/* Gestures (solo) */}
-            <Section title="Custom gestures"
+            <Section title={_t("Custom gestures")}
                      onAdd={() => addItem("gestures", { enum: "", vrma: "", description: "", loop: false })}>
                 {(manifest.gestures || []).map((g, i) => ({ g, i }))
                     .filter(({ g }) => g.type !== "combo")
                     .map(({ g, i }) => (
                     <div key={i} className="rx_subrow">
-                        <input type="text" placeholder="enum (e.g. wave_hello)" value={g.enum || ""}
+                        <input type="text" placeholder={_t("enum (e.g. wave_hello)")} value={g.enum || ""}
                                onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
                         <FileField kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
                                    onUploaded={(fn) => setList("gestures", i, { vrma: fn })} />
-                        <input type="text" placeholder="Description (when to use it)" value={g.description || ""}
+                        <input type="text" placeholder={_t("Description (when to use it)")} value={g.description || ""}
                                onChange={(ev) => setList("gestures", i, { description: ev.target.value })} />
                         <label className="rx_check" style={{ margin: 0 }}>
                             <input type="checkbox" checked={!!g.loop}
                                    onChange={(ev) => setList("gestures", i, { loop: ev.target.checked })} />
-                            <span>loop</span>
+                            <span>{_t("loop")}</span>
                         </label>
                         <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("gestures", i)}>
                             <i className="fa fa-trash-o" />
@@ -299,7 +299,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
             </Section>
 
             {/* Combo (two-character) gestures */}
-            <Section title="Combo gestures (two characters)"
+            <Section title={_t("Combo gestures (two characters)")}
                      onAdd={() => addItem("gestures", {
                          enum: "", type: "combo", vrma: "", description: "", loop: false,
                          partner_avatar: "", partner_vrm: "", partner_vrma: "",
@@ -311,26 +311,24 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                     .filter(({ g }) => g.type === "combo")
                     .map(({ g, i }) => (
                     <div key={i} className="rx_subrow rx_subrow--combo" style={{ flexWrap: "wrap" }}>
-                        <input type="text" placeholder="enum (e.g. dance_together)" value={g.enum || ""}
+                        <input type="text" placeholder={_t("enum (e.g. dance_together)")} value={g.enum || ""}
                                onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
-                        <FileField label="Base VRMA" kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
+                        <FileField label={_t("Base VRMA")} kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
                                    onUploaded={(fn) => setList("gestures", i, { vrma: fn })} />
-                        <input type="text" placeholder="Description (when to use it)" value={g.description || ""}
+                        <input type="text" placeholder={_t("Description (when to use it)")} value={g.description || ""}
                                onChange={(ev) => setList("gestures", i, { description: ev.target.value })} />
                         <input type="text" value={g.partner_avatar || ""}
-                               placeholder="Partner avatar name (optional — else upload a VRM)"
-                               title="Existing avatar to load as the second character (name or pack folder). Leave empty to upload a dedicated Partner VRM instead."
+                               placeholder={_t("Partner avatar name (optional — else upload a VRM)")}
+                               title={_t("Existing avatar to load as the second character (name or pack folder). Leave empty to upload a dedicated Partner VRM instead.")}
                                onChange={(ev) => setList("gestures", i, { partner_avatar: ev.target.value })} />
                         {!(g.partner_avatar || "").trim() && (
-                            <FileField label="Partner VRM" kind="vrm" packKey={pack_key} value={g.partner_vrm} accept=".vrm"
+                            <FileField label={_t("Partner VRM")} kind="vrm" packKey={pack_key} value={g.partner_vrm} accept=".vrm"
                                        onUploaded={(fn) => setList("gestures", i, { partner_vrm: fn })} />
                         )}
-                        <FileField label="Partner VRMA" kind="vrma" packKey={pack_key} value={g.partner_vrma} accept=".vrma"
+                        <FileField label={_t("Partner VRMA")} kind="vrma" packKey={pack_key} value={g.partner_vrma} accept=".vrma"
                                    onUploaded={(fn) => setList("gestures", i, { partner_vrma: fn })} />
                         <span className="rx_scene_xform"
-                              title={"Base avatar placement during the combo. Offsets in metres; rotations in degrees applied "
-                                  + "yaw → pitch → roll (yaw 0 = facing the camera; pitch 90 = lying on the back — pair with a "
-                                  + "positive Y offset since models pivot at their feet)."}>
+                              title={_t("Base avatar placement during the combo. Offsets in metres; rotations in degrees applied yaw → pitch → roll (yaw 0 = facing the camera; pitch 90 = lying on the back — pair with a positive Y offset since models pivot at their feet).")}>
                             base
                             {["x", "y", "z"].map((ax, k) => (
                                 <label key={ax}>{ax}<input type="number" step="0.1"
@@ -344,7 +342,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                             ))}
                         </span>
                         <span className="rx_scene_xform"
-                              title="Partner placement during the combo — same conventions as the base avatar, plus a uniform scale.">
+                              title={_t("Partner placement during the combo — same conventions as the base avatar, plus a uniform scale.")}>
                             partner
                             {["x", "y", "z"].map((ax, k) => (
                                 <label key={ax}>{ax}<input type="number" step="0.1"
@@ -361,10 +359,10 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                                 onChange={(ev) => setList("gestures", i, { partner_scale: parseFloat(ev.target.value) || 1 })} /></label>
                         </span>
                         <label className="rx_check" style={{ margin: 0 }}
-                               title="Looping combos: both clips should have the same duration or they drift out of phase with each repeat.">
+                               title={_t("Looping combos: both clips should have the same duration or they drift out of phase with each repeat.")}>
                             <input type="checkbox" checked={!!g.loop}
                                    onChange={(ev) => setList("gestures", i, { loop: ev.target.checked })} />
-                            <span>loop</span>
+                            <span>{_t("loop")}</span>
                         </label>
                         <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("gestures", i)}>
                             <i className="fa fa-trash-o" />
@@ -372,24 +370,22 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                     </div>
                 ))}
                 <p className="text-muted small" style={{ margin: "0.25rem 0 0" }}>
-                    Combo gestures animate two characters at once: this avatar plays the Base VRMA while a second
-                    VRM — an existing avatar or a dedicated upload — plays the Partner VRMA in sync (dancing
-                    together, hugging, …). The partner unloads when the gesture ends or is replaced.
+                    {_t("Combo gestures animate two characters at once: this avatar plays the Base VRMA while a second VRM — an existing avatar or a dedicated upload — plays the Partner VRMA in sync (dancing together, hugging, …). The partner unloads when the gesture ends or is replaced.")}
                 </p>
             </Section>
 
             {/* Backgrounds */}
-            <Section title="Backgrounds"
+            <Section title={_t("Backgrounds")}
                      onAdd={() => addItem("backgrounds", { name: "", type: "static", preset: "vignette_charcoal", is_default: false })}>
                 {(manifest.backgrounds || []).map((b, i) => (
                     <div key={i} className="rx_subrow rx_subrow--bg">
-                        <input type="text" placeholder="Name" value={b.name || ""}
+                        <input type="text" placeholder={_t("Name")} value={b.name || ""}
                                onChange={(ev) => setList("backgrounds", i, { name: ev.target.value })} />
                         <select value={b.type || "static"}
                                 onChange={(ev) => setList("backgrounds", i, { type: ev.target.value })}>
-                            <option value="static">Preset</option>
-                            <option value="image">Image</option>
-                            <option value="scene">3D scene (GLB)</option>
+                            <option value="static">{_t("Preset")}</option>
+                            <option value="image">{_t("Image")}</option>
+                            <option value="scene">{_t("3D scene (GLB)")}</option>
                         </select>
                         {b.type === "static" && (
                             <select value={b.preset || ""}
@@ -405,7 +401,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                             <>
                                 <FileField kind="scene" packKey={pack_key} value={b.glb} accept=".glb,.gltf"
                                            onUploaded={(fn) => setList("backgrounds", i, { glb: fn })} />
-                                <span className="rx_scene_xform" title="Placement of the GLB scene, in metres (avatar ≈ 1.5 m tall). Scale, X/Y/Z offset, and Y-axis rotation in degrees.">
+                                <span className="rx_scene_xform" title={_t("Placement of the GLB scene, in metres (avatar ≈ 1.5 m tall). Scale, X/Y/Z offset, and Y-axis rotation in degrees.")}>
                                     <label>scale<input type="number" step="0.1" value={b.scale ?? 1}
                                            onChange={(ev) => setList("backgrounds", i, { scale: parseFloat(ev.target.value) || 1 })} /></label>
                                     <label>x<input type="number" step="0.1" value={(b.offset || [0, 0, 0])[0]}
@@ -422,7 +418,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                         <label className="rx_check" style={{ margin: 0 }}>
                             <input type="checkbox" checked={!!b.is_default}
                                    onChange={(ev) => setList("backgrounds", i, { is_default: ev.target.checked })} />
-                            <span>default</span>
+                            <span>{_t("default")}</span>
                         </label>
                         <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("backgrounds", i)}>
                             <i className="fa fa-trash-o" />
@@ -432,8 +428,8 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
             </Section>
 
             <div style={{ marginTop: "0.85rem", display: "flex", gap: "0.5rem" }}>
-                <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>Save avatar</button>
-                <button className="btn btn-sm" onClick={cancel}>Cancel</button>
+                <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{_t("Save avatar")}</button>
+                <button className="btn btn-sm" onClick={cancel}>{_t("Cancel")}</button>
             </div>
         </div>
     );
@@ -444,7 +440,7 @@ function Section({ title, onAdd, children }) {
         <div className="rx_editor_section">
             <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>{title}</span>
-                <button className="btn btn-sm" onClick={onAdd}><i className="fa fa-plus" /> Add</button>
+                <button className="btn btn-sm" onClick={onAdd}><i className="fa fa-plus" /> {_t("Add")}</button>
             </label>
             {children}
         </div>

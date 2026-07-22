@@ -1,3 +1,4 @@
+import { _t } from "../lib/i18n";
 import React from "react";
 import { toastState, notification } from "../lib/notification";
 import { useReactive } from "../lib/reactive";
@@ -10,7 +11,7 @@ export default function Toasts() {
             {state.items.map((t) => (
                 <div key={t.id} className={`rx_toast rx_toast--${t.type}`}>
                     <span>{t.message}</span>
-                    <button onClick={() => notification.remove(t.id)} title="Dismiss">
+                    <button onClick={() => notification.remove(t.id)} title={_t("Dismiss")}>
                         <i className="fa fa-times" />
                     </button>
                 </div>

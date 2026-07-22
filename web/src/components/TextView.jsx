@@ -4,6 +4,7 @@ import { useReactive } from "../lib/reactive";
 import { text } from "../services";
 import { notification } from "../lib/notification";
 import Transcript from "./Transcript.jsx";
+import { _t } from "../lib/i18n";
 
 /** Text companion view, ported from the Odoo text_full_view. No avatar canvas
  *  — static agent thumbnail in the header, markdown transcript in the middle,
@@ -135,7 +136,7 @@ export default function TextView({ active = true }) {
             try {
                 await text.uploadFile(file);
             } catch (e) {
-                notification.add(e?.message || "Upload failed", { type: "danger" });
+                notification.add(e?.message || _t("Upload failed"), { type: "danger" });
             }
         }
         setUploadingFile(false);
@@ -174,14 +175,14 @@ export default function TextView({ active = true }) {
         : null;
 
     const statusLabel = (() => {
-        if (st.compacting) return "Compacting context…";
+        if (st.compacting) return _t("Compacting context…");
         switch (st.status) {
-            case "idle": return "Ready";
-            case "connecting": return "Connecting…";
-            case "live": return "Ready";
-            case "ending": return "Ending…";
-            case "ended": return "Ended";
-            case "error": return st.errorMessage || "Error";
+            case "idle": return _t("Ready");
+            case "connecting": return _t("Connecting…");
+            case "live": return _t("Ready");
+            case "ending": return _t("Ending…");
+            case "ended": return _t("Ended");
+            case "error": return st.errorMessage || _t("Error");
             default: return st.status;
         }
     })();
@@ -190,8 +191,8 @@ export default function TextView({ active = true }) {
         <div className={"o_text_full_view" + (dark ? " o_text_full_view--dark" : "")}>
             {showHistory && (
                 <div className="o_text_full_history">
-                    <div className="o_text_full_history_header"><strong>History</strong></div>
-                    {!history.length && <p className="text-muted small p-3">No previous chats yet.</p>}
+                    <div className="o_text_full_history_header"><strong>{_t("History")}</strong></div>
+                    {!history.length && <p className="text-muted small p-3">{_t("No previous chats yet.")}</p>}
                     {history.map((sess) => (
                         <div key={sess.id} className="o_text_history_item">
                             <div className="o_text_history_meta">
@@ -199,10 +200,10 @@ export default function TextView({ active = true }) {
                                 <span className="o_text_history_state">{sess.state}</span>
                             </div>
                             <div className="o_text_history_sub">
-                                <span>{sess.agent_name}</span> · <span>{sess.message_count}</span> messages
+                                <span>{sess.agent_name}</span> · <span>{sess.message_count}</span> {_t("messages")}
                             </div>
                             <button className="btn btn-sm btn-link p-0" onClick={() => resumeSession(sess)}>
-                                Resume
+                                {_t("Resume")}
                             </button>
                         </div>
                     ))}
@@ -226,35 +227,35 @@ export default function TextView({ active = true }) {
                         <span className="o_text_full_status">{statusLabel}</span>
                         {tokenBudgetLabel && (
                             <span className="o_text_token_budget"
-                                  title="Tokens used since the last summary rollup.">
+                                  title={_t("Tokens used since the last summary rollup.")}>
                                 {tokenBudgetLabel}
                             </span>
                         )}
                     </div>
                     <div className="o_text_full_header_inner">
                         <button className="btn btn-light" onClick={toggleDark}
-                                title={dark ? "Light theme" : "Dark theme"}>
+                                title={dark ? _t("Light theme") : _t("Dark theme")}>
                             <i className={dark ? "fa fa-sun-o" : "fa fa-moon-o"} />
                         </button>
                         <button className="btn btn-light" onClick={() => setShowHistory(!showHistory)}
-                                title={showHistory ? "Hide history" : "Show history"}>
+                                title={showHistory ? _t("Hide history") : _t("Show history")}>
                             <i className="fa fa-history" />
                         </button>
                         {!isLive && !isConnecting && (
                             <button className="btn btn-primary" onClick={startSession}>
-                                <i className="fa fa-comments" /> Start chat
+                                <i className="fa fa-comments" /> {_t("Start chat")}
                             </button>
                         )}
                         {!isLive && !isConnecting && lastResumableSession && (
                             <button className="btn btn-secondary"
-                                    title={`Resume ${lastResumableSession.name}`}
+                                    title={_t("Resume %s", lastResumableSession.name)}
                                     onClick={() => resumeSession(lastResumableSession)}>
-                                <i className="fa fa-history" /> Resume last
+                                <i className="fa fa-history" /> {_t("Resume last")}
                             </button>
                         )}
                         {(isLive || isConnecting) && (
                             <button className="btn btn-danger" onClick={endSession}>
-                                <i className="fa fa-stop" /> End
+                                <i className="fa fa-stop" /> {_t("End")}
                             </button>
                         )}
                     </div>
@@ -262,8 +263,8 @@ export default function TextView({ active = true }) {
 
                 {st.errorMessage && (
                     <div className="o_text_error">
-                        <strong>Error:</strong> {st.errorMessage}
-                        <button className="btn btn-link p-0 float-end" onClick={dismissError} title="Dismiss">
+                        <strong>{_t("Error:")}</strong> {st.errorMessage}
+                        <button className="btn btn-link p-0 float-end" onClick={dismissError} title={_t("Dismiss")}>
                             <i className="fa fa-times" />
                         </button>
                     </div>
@@ -282,7 +283,7 @@ export default function TextView({ active = true }) {
                                 {pendingFiles.map((f) => (
                                     <span key={f.xai_file_id} className="o_text_file_chip" title={f.filename}>
                                         <i className="fa fa-paperclip" /> <span>{f.filename}</span>
-                                        <button className="o_text_chip_remove" title="Remove"
+                                        <button className="o_text_chip_remove" title={_t("Remove")}
                                                 onClick={() => removeFile(f.xai_file_id)}>
                                             <i className="fa fa-times" />
                                         </button>
@@ -292,21 +293,21 @@ export default function TextView({ active = true }) {
                         )}
                         <div className="o_text_input_row">
                             <button className="btn btn-light" onClick={pickFile}
-                                    disabled={uploadingFile || st.compacting} title="Attach a file">
+                                    disabled={uploadingFile || st.compacting} title={_t("Attach a file")}>
                                 <i className={uploadingFile ? "fa fa-spinner fa-spin" : "fa fa-paperclip"} />
                             </button>
                             <input type="file" multiple style={{ display: "none" }}
                                    ref={fileInputRef} onChange={onFileSelected} />
                             <textarea rows={1}
                                       ref={textInputRef}
-                                      placeholder={st.compacting ? "Compacting context…" : "Type a message…"}
+                                      placeholder={st.compacting ? _t("Compacting context…") : _t("Type a message…")}
                                       value={draftText}
                                       disabled={st.compacting || st.thinking}
                                       onChange={(ev) => setDraftText(ev.target.value)}
                                       onKeyDown={onTextKeydown} />
                             <button className="btn btn-primary"
                                     disabled={(!draftText.trim() && !pendingFiles.length) || st.compacting || st.thinking}
-                                    onClick={sendMessage} title="Send">
+                                    onClick={sendMessage} title={_t("Send")}>
                                 <i className="fa fa-paper-plane" />
                             </button>
                         </div>

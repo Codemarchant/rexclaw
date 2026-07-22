@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
+import { _t } from "../lib/i18n";
 import { useReactive } from "../lib/reactive";
 import { voice, avatarRenderer, notification } from "../services";
 import { uiState, toggleImmersive, exitImmersive } from "../lib/ui_state";
@@ -221,15 +222,15 @@ export default function VoiceView({ active = true }) {
         let name;
         if (idx === 0) {
             ok = avatarRenderer.setMoveActor?.("base");
-            name = voice.state.agentName || "Main avatar";
+            name = voice.state.agentName || _t("Main avatar");
         } else {
             const peer = (voice.state.peers || [])[idx - 1];
             if (!peer) return;  // no such participant — ignore the key
             ok = avatarRenderer.setMoveActor?.(peer.connId);
-            name = peer.agentName || "Companion";
+            name = peer.agentName || _t("Companion");
         }
         if (ok) {
-            notification.add(`Walk control: ${name}`, { type: "info" });
+            notification.add(_t("Walk control: %s", name), { type: "info" });
         }
     }, []);
 
@@ -386,7 +387,7 @@ export default function VoiceView({ active = true }) {
             await avatarRenderer.enterXR(XR_MODE);
         } catch (e) {
             console.error("[voice] enter VR failed", e);
-            notification.add(`Could not start VR: ${e?.message || e}`, { type: "danger" });
+            notification.add(_t("Could not start VR: %s", e?.message || e), { type: "danger" });
         }
     };
 
@@ -466,10 +467,10 @@ export default function VoiceView({ active = true }) {
         const entries = [];
         const imagine = currentImagineBackground;
         if (imagine && !currentBackgrounds.length) {
-            entries.push({ key: "default", label: "Default Background", bg: null });
+            entries.push({ key: "default", label: _t("Default Background"), bg: null });
         }
         if (imagine) {
-            const label = imagine.name ? `Imagine — ${imagine.name}` : "Imagine background";
+            const label = imagine.name ? `Imagine — ${imagine.name}` : _t("Imagine background");
             entries.push({ key: "imagine", label, bg: imagine });
         }
         for (const bg of currentBackgrounds) {
@@ -513,14 +514,14 @@ export default function VoiceView({ active = true }) {
         : null;
 
     const statusLabel = (() => {
-        if (sv.compacting) return "Compacting context…";
+        if (sv.compacting) return _t("Compacting context…");
         switch (sv.status) {
-            case "idle": return "Ready";
-            case "connecting": return "Connecting…";
-            case "live": return sv.muted ? "Muted (live)" : "Live";
-            case "ending": return "Ending…";
-            case "ended": return "Ended";
-            case "error": return sv.errorMessage || "Error";
+            case "idle": return _t("Ready");
+            case "connecting": return _t("Connecting…");
+            case "live": return sv.muted ? _t("Muted (live)") : _t("Live");
+            case "ending": return _t("Ending…");
+            case "ended": return _t("Ended");
+            case "error": return sv.errorMessage || _t("Error");
             default: return sv.status;
         }
     })();
@@ -570,8 +571,8 @@ export default function VoiceView({ active = true }) {
              className={"o_voice_full_view" + (ui.immersive ? " o_voice_full_view--immersive" : "")}>
             {!ui.immersive && showHistory && (
                 <div className="o_voice_full_history">
-                    <div className="o_voice_full_history_header"><strong>History</strong></div>
-                    {!history.length && <p className="text-muted small p-3">No previous sessions yet.</p>}
+                    <div className="o_voice_full_history_header"><strong>{_t("History")}</strong></div>
+                    {!history.length && <p className="text-muted small p-3">{_t("No previous sessions yet.")}</p>}
                     {history.map((sess) => (
                         <div key={sess.id} className="o_voice_history_item">
                             <div className="o_voice_history_meta">
@@ -579,13 +580,13 @@ export default function VoiceView({ active = true }) {
                                 <span className="o_voice_history_state">{sess.state}</span>
                             </div>
                             <div className="o_voice_history_sub">
-                                <span>{sess.agent_name}</span> · <span>{sess.message_count}</span> messages
+                                <span>{sess.agent_name}</span> · <span>{sess.message_count}</span> {_t("messages")}
                             </div>
                             {sess.summary && (
                                 <div className="o_voice_history_summary" title={sess.summary}>{sess.summary}</div>
                             )}
                             <button className="btn btn-sm btn-link p-0" onClick={() => resumeSession(sess)}>
-                                Resume
+                                {_t("Resume")}
                             </button>
                         </div>
                     ))}
@@ -597,46 +598,46 @@ export default function VoiceView({ active = true }) {
                 {!ui.immersive && <div className="o_voice_full_topbar">
                     <div className="o_voice_full_topbar_row">
                         <button className="btn btn-light" onClick={() => setShowHistory(!showHistory)}
-                                title={showHistory ? "Hide history" : "Show history"}>
+                                title={showHistory ? _t("Hide history") : _t("Show history")}>
                             <i className="fa fa-history" />
                         </button>
                         <button className={"btn btn-light" + (fullBody ? " active" : "")}
                                 onClick={toggleFullBody}
-                                title={fullBody ? "Switch to face view" : "Switch to full body (drag to rotate, scroll to zoom)"}>
+                                title={fullBody ? _t("Switch to face view") : _t("Switch to full body (drag to rotate, scroll to zoom)")}>
                             <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
                         </button>
                         {canMoveMode && (
                             <button className={"btn btn-light" + (moveMode ? " active" : "")}
                                     onClick={() => setMoveModeOn(!moveMode)}
-                                    title={moveMode ? "Disable walk mode" : "Enable walk mode (WASD / arrow keys — number keys pick which character to move in a group call)"}>
+                                    title={moveMode ? _t("Disable walk mode") : _t("Enable walk mode (WASD / arrow keys — number keys pick which character to move in a group call)")}>
                                 <i className="fa fa-gamepad" />
                             </button>
                         )}
                         {xrSupported && (
                             <button className="btn btn-light" onClick={enterVR}
                                     title={mrSupported
-                                        ? "Enter MR/VR — passthrough mixed reality (toggle Virtual/Passthrough on the in-headset panel)"
-                                        : "Enter VR — stand with your companion in a headset (passthrough MR unavailable on this browser)"}>
+                                        ? _t("Enter MR/VR — passthrough mixed reality (toggle Virtual/Passthrough on the in-headset panel)")
+                                        : _t("Enter VR — stand with your companion in a headset (passthrough MR unavailable on this browser)")}>
                                 <i className="fa fa-cube" />
                             </button>
                         )}
                         <button className={"btn btn-light" + (showSettings ? " active" : "")}
                                 onClick={() => setShowSettings(!showSettings)}
-                                title={showSettings ? "Hide manual triggers" : "Show manual emotion/gesture triggers"}>
+                                title={showSettings ? _t("Hide manual triggers") : _t("Show manual emotion/gesture triggers")}>
                             <i className="fa fa-sliders" />
                         </button>
                         <button className={"btn btn-light" + (!showControls ? " active" : "")}
                                 onClick={() => setShowControls(!showControls)}
-                                title={showControls ? "Hide agent selector + call controls" : "Show agent selector + call controls"}>
+                                title={showControls ? _t("Hide agent selector + call controls") : _t("Show agent selector + call controls")}>
                             <i className={showControls ? "fa fa-eye" : "fa fa-eye-slash"} />
                         </button>
                         <button className={"btn btn-light" + (!showTranscript ? " active" : "")}
                                 onClick={() => setShowTranscript(!showTranscript)}
-                                title={showTranscript ? "Hide transcript (full-width avatar)" : "Show transcript"}>
+                                title={showTranscript ? _t("Hide transcript (full-width avatar)") : _t("Show transcript")}>
                             <i className={showTranscript ? "fa fa-comment" : "fa fa-comment-o"} />
                         </button>
                         <button className="btn btn-light" onClick={toggleImmersive}
-                                title="Immersive view — hide all UI (H · Esc to exit)">
+                                title={_t("Immersive view — hide all UI (H · Esc to exit)")}>
                             <i className="fa fa-expand" />
                         </button>
                     </div>
@@ -650,7 +651,7 @@ export default function VoiceView({ active = true }) {
                         </span>
                         {tokenBudgetLabel && (
                             <span className="o_voice_token_budget"
-                                  title="Tokens used since the last summary rollup, over the configured auto-compact threshold.">
+                                  title={_t("Tokens used since the last summary rollup, over the configured auto-compact threshold.")}>
                                 {tokenBudgetLabel}
                             </span>
                         )}
@@ -660,39 +661,39 @@ export default function VoiceView({ active = true }) {
                 {!ui.immersive && showSettings && (
                     <div className="o_voice_full_settings">
                         <div className="o_voice_full_settings_section">
-                            <strong>Emotions</strong>
+                            <strong>{_t("Emotions")}</strong>
                             <div className="o_voice_full_settings_grid">
                                 {EMOTIONS.map((emo) => (
                                     <button key={emo.id}
                                             className={"btn btn-sm " + (currentEmotion === emo.id ? "btn-primary" : "btn-outline-light")}
                                             onClick={() => triggerEmotion(emo.id)}
-                                            title={emo.label}>
+                                            title={_t(emo.label)}>
                                         <i className={"fa " + emo.icon} />
-                                        <span className="ms-1">{emo.label}</span>
+                                        <span className="ms-1">{_t(emo.label)}</span>
                                     </button>
                                 ))}
                             </div>
                         </div>
                         <div className="o_voice_full_settings_section">
-                            <strong>Gestures</strong>
+                            <strong>{_t("Gestures")}</strong>
                             <div className="o_voice_full_settings_grid">
                                 {GESTURES.map((g) => (
                                     <button key={g.id} className="btn btn-sm btn-outline-light"
-                                            onClick={() => triggerGesture(g.url)} title={g.label}>
+                                            onClick={() => triggerGesture(g.url)} title={_t(g.label)}>
                                         <i className={"fa " + g.icon} />
-                                        <span className="ms-1">{g.label}</span>
+                                        <span className="ms-1">{_t(g.label)}</span>
                                     </button>
                                 ))}
                             </div>
                         </div>
                         {customGestures.length > 0 && (
                             <div className="o_voice_full_settings_section">
-                                <strong>Custom Gestures</strong>
+                                <strong>{_t("Custom Gestures")}</strong>
                                 <div className="o_voice_full_settings_grid">
                                     {customGestures.map((g) => (
                                         <button key={g.id} className="btn btn-sm btn-outline-light"
                                                 onClick={() => triggerCustomGesture(g)}
-                                                title={(g.type === "combo" ? `${g.name} (combo)` : g.name) + (g.loop ? " (loops)" : "")}>
+                                                title={(g.type === "combo" ? `${g.name} ${_t("(combo)")}` : g.name) + (g.loop ? " " + _t("(loops)") : "")}>
                                             <i className={g.type === "combo" ? "fa fa-users" : (g.loop ? "fa fa-repeat" : "fa fa-star-o")} />
                                             <span className="ms-1">{g.name}</span>
                                         </button>
@@ -715,14 +716,14 @@ export default function VoiceView({ active = true }) {
                                 ))}
                             </select>
                             {currentOutfits.length > 1 && (
-                                <select value={sv.selectedOutfitId ?? 0} onChange={onOutfitChange} title="Outfit">
+                                <select value={sv.selectedOutfitId ?? 0} onChange={onOutfitChange} title={_t("Outfit")}>
                                     {currentOutfits.map((outfit) => (
                                         <option key={outfit.id} value={outfit.id}>{outfit.name}</option>
                                     ))}
                                 </select>
                             )}
                             {backgroundPickerEntries.length > 1 && (
-                                <select value={currentBackgroundKey} onChange={onBackgroundChange} title="Background">
+                                <select value={currentBackgroundKey} onChange={onBackgroundChange} title={_t("Background")}>
                                     {backgroundPickerEntries.map((entry) => (
                                         <option key={entry.key} value={entry.key}>{entry.label}</option>
                                     ))}
@@ -731,26 +732,26 @@ export default function VoiceView({ active = true }) {
                             <div className="o_voice_full_controls_buttons">
                                 {!isLive && !isConnecting && (
                                     <button className="btn btn-primary btn-lg" onClick={startSession}>
-                                        <i className="fa fa-microphone" /> Start
+                                        <i className="fa fa-microphone" /> {_t("Start")}
                                     </button>
                                 )}
                                 {!isLive && !isConnecting && lastResumableSession && (
                                     <button className="btn btn-secondary btn-lg"
-                                            title={`Resume ${lastResumableSession.name}`}
+                                            title={_t("Resume %s", lastResumableSession.name)}
                                             onClick={() => resumeSession(lastResumableSession)}>
-                                        <i className="fa fa-history" /> Resume last
+                                        <i className="fa fa-history" /> {_t("Resume last")}
                                     </button>
                                 )}
                                 {isLive && (
                                     <button className={"btn btn-lg " + (sv.muted ? "btn-warning" : "btn-secondary")}
                                             onClick={() => voice.setMuted(!sv.muted)}>
                                         <i className={sv.muted ? "fa fa-microphone-slash" : "fa fa-microphone"}
-                                           title={sv.muted ? "Unmute" : "Mute"} />
+                                           title={sv.muted ? _t("Unmute") : _t("Mute")} />
                                     </button>
                                 )}
                                 {(isLive || isConnecting) && (
                                     <button className="btn btn-lg btn-danger" onClick={endSession}>
-                                        <i className="fa fa-stop" /> End
+                                        <i className="fa fa-stop" /> {_t("End")}
                                     </button>
                                 )}
                             </div>
@@ -761,12 +762,12 @@ export default function VoiceView({ active = true }) {
                                 <div className="o_voice_call_agents">
                                     {callPeers.map((peer) => (
                                         <span key={peer.connId} className="o_voice_call_peer_chip"
-                                              title={`${peer.agentName || "Agent"} is in this call`}>
+                                              title={_t("%s is in this call", peer.agentName || _t("Agent"))}>
                                             <i className="fa fa-user" />
-                                            <span>{peer.agentName || "Agent"}</span>
+                                            <span>{peer.agentName || _t("Agent")}</span>
                                             <button className="btn btn-link p-0 ms-1"
                                                     onClick={() => removeCallPeer(peer.connId)}
-                                                    title="Remove from call">
+                                                    title={_t("Remove from call")}>
                                                 <i className="fa fa-times" />
                                             </button>
                                         </span>
@@ -775,8 +776,8 @@ export default function VoiceView({ active = true }) {
                                         <>
                                             <select value={addAgentId}
                                                     onChange={(ev) => setAddAgentId(ev.target.value)}
-                                                    title="Add another agent to the call">
-                                                <option value="">Add agent to call…</option>
+                                                    title={_t("Add another agent to the call")}>
+                                                <option value="">{_t("Add agent to call…")}</option>
                                                 {availableCallAgents.map((agent) => (
                                                     <option key={agent.id} value={agent.id}>
                                                         {agent.name} · {agent.voice_label || agent.voice}
@@ -786,8 +787,8 @@ export default function VoiceView({ active = true }) {
                                             <button className="btn btn-sm btn-secondary"
                                                     disabled={!addAgentId}
                                                     onClick={addAgentToCall}
-                                                    title="Add the selected agent to this call">
-                                                <i className="fa fa-user-plus" /> Add
+                                                    title={_t("Add the selected agent to this call")}>
+                                                <i className="fa fa-user-plus" /> {_t("Add")}
                                             </button>
                                         </>
                                     )}
@@ -796,8 +797,8 @@ export default function VoiceView({ active = true }) {
                         </div>
                         {sv.errorMessage && (
                             <div className="o_voice_error">
-                                <strong>Error:</strong> {sv.errorMessage}
-                                <button className="btn btn-link p-0 float-end" onClick={dismissError} title="Dismiss">
+                                <strong>{_t("Error:")}</strong> {sv.errorMessage}
+                                <button className="btn btn-link p-0 float-end" onClick={dismissError} title={_t("Dismiss")}>
                                     <i className="fa fa-times" />
                                 </button>
                             </div>
@@ -814,7 +815,7 @@ export default function VoiceView({ active = true }) {
                         <div className="o_voice_text_input">
                             <textarea rows={1}
                                       ref={textInputRef}
-                                      placeholder={sv.compacting ? "Compacting context…" : "Type a message…"}
+                                      placeholder={sv.compacting ? _t("Compacting context…") : _t("Type a message…")}
                                       value={draftText}
                                       disabled={sv.compacting}
                                       onChange={(ev) => setDraftText(ev.target.value)}
@@ -822,7 +823,7 @@ export default function VoiceView({ active = true }) {
                             <button className="btn btn-sm btn-primary"
                                     disabled={!draftText.trim() || sv.compacting}
                                     onClick={sendTextMessage}
-                                    title="Send">
+                                    title={_t("Send")}>
                                 <i className="fa fa-paper-plane" />
                             </button>
                         </div>

@@ -1,3 +1,4 @@
+import { _t } from "../lib/i18n";
 import React, { useEffect, useRef, useState } from "react";
 
 /** Transcript renderer, ported from the OWL component. Voice mode renders
@@ -80,7 +81,7 @@ function toolRow(base) {
             const parsed = JSON.parse(row.result);
             if (parsed && typeof parsed === "object" && parsed.image_url) {
                 row.image_url = parsed.image_url;
-                row.image_name = parsed.name || parsed.prompt || "Generated image";
+                row.image_name = parsed.name || parsed.prompt || _t("Generated image");
                 row.image_prompt = parsed.prompt || "";
             }
         } catch (_) {
@@ -172,16 +173,16 @@ export default function Transcript({
         >
             {!rows.length && isLive && (
                 <div className="o_voice_transcript_empty">
-                    {isTextMode ? "Type a message to get started." : "Say something to get started."}
+                    {isTextMode ? _t("Type a message to get started.") : _t("Say something to get started.")}
                 </div>
             )}
             {truncated && (
                 <div
                     className="o_voice_transcript_truncated"
-                    title="Earlier messages exist on the server but are not loaded in this view."
+                    title={_t("Earlier messages exist on the server but are not loaded in this view.")}
                 >
                     <i className="fa fa-ellipsis-h" />
-                    <span>Earlier messages not shown</span>
+                    <span>{_t("Earlier messages not shown")}</span>
                 </div>
             )}
             {rows.map((row) => {
@@ -261,7 +262,7 @@ export default function Transcript({
                                 {msg.incomplete_reason && (
                                     <div
                                         className="o_voice_msg_incomplete"
-                                        title={`Reply was truncated by xAI: ${msg.incomplete_reason}`}
+                                        title={_t("Reply was truncated by xAI: %s", msg.incomplete_reason)}
                                     >
                                         <i className="fa fa-warning" /> {msg.incomplete_reason}
                                     </div>
