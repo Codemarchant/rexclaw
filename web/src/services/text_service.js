@@ -31,6 +31,10 @@ class TextService {
         // Static thumbnail URL the UI renders next to assistant messages.
         this.agentThumbnailUrl = null;
         this._sending = false;
+        // Once-per-session guard for the "MCP server unreachable" toast —
+        // the server retries every turn without MCP tools while the server
+        // is down, but the user only needs telling once.
+        this._mcpNoticeShown = false;
     }
 
     /** Start (or resume) a text session. Returns true on success, false if a
@@ -49,6 +53,7 @@ class TextService {
         this.state.thinking = false;
         this.state.compacting = false;
         this.pendingFiles = [];
+        this._mcpNoticeShown = false;
 
         let payload;
         try {
@@ -214,6 +219,15 @@ class TextService {
                 this._softFail(current.message || _t("Chat request failed."));
                 return;
             }
+            // The server dropped unreachable MCP tools for this turn. Tell
+            // the user once per session — not once per message.
+            if (current.mcp_unavailable && !this._mcpNoticeShown) {
+                this._mcpNoticeShown = true;
+                this.env.services.notification?.add?.(
+                    _t("Remote MCP server unreachable — continuing without MCP tools."),
+                    { type: "warning" },
+                );
+            }
             // Server-side MCP + native tool calls happen during xAI response
             // generation, before the assistant text is finalized. Push them
             // first so the transcript reflects that order — they were
@@ -358,11 +372,12 @@ class TextService {
             // when a rollup is created, so the user-facing budget restarts at 0.
             if (result?.compacted) {
                 this.state.tokenUsage = 0;
-                // Refresh the local transcript so the new "Older context summarized"
-                // pill (an is_summary_rollup row) shows up in the accordion. Without
-                // this the chat UI keeps the absorbed messages in state.messages and
-                // the rollup is invisible until a manual reload.
-                await this._refreshTranscript();
+                // Keep the local transcript untouched — same as voice mode's
+                // compaction restart. Compaction changes what replays to the
+                // MODEL (absorbed rows → one rollup); the user keeps seeing
+                // the full conversation. Replacing state.messages with the
+                // compacted replay here used to make earlier messages vanish
+                // from the chat after every compact.
             } else {
                 // Surface the reason so a stuck compaction loop is visible.
                 this.env.services.notification?.add?.(
@@ -380,32 +395,6 @@ class TextService {
             );
         } finally {
             this.state.compacting = false;
-        }
-    }
-
-    /** Re-fetch the transcript from the server and replace state.messages.
-     *  Called after a successful compact so absorbed rows drop out and the
-     *  newly-created rollup row appears as the collapsible "Older context
-     *  summarized" pill. */
-    async _refreshTranscript() {
-        if (!this.state.sessionId) return;
-        try {
-            const data = await rpc(`/api/text/session/${this.state.sessionId}/replay`, {});
-            const fresh = (data?.messages || []).map((m) => ({
-                role: m.role,
-                content: m.content || "",
-                sequence: m.sequence,
-                replayed: true,
-                tool_name: m.tool_name,
-                tool_arguments_json: m.tool_arguments_json,
-                tool_result_json: m.tool_result_json,
-                is_summary_rollup: !!m.is_summary_rollup,
-                attachments: m.attachments || [],
-            }));
-            this.state.messages.length = 0;
-            this.state.messages.push(...fresh);
-        } catch (e) {
-            console.warn("[text-companion] transcript refresh after compact failed", e);
         }
     }
 

@@ -457,11 +457,14 @@ def _build_replay_items(con, session):
     return items
 
 
-def _build_transcript_history(con, session, limit=None):
-    """Full chronological message list for the UI transcript. No filter on
-    is_summarized_into (the user sees everything); summary rollups themselves
-    are skipped (backend artifact). Optional `limit` keeps the most-recent N.
-    Returns (items, truncated)."""
+def _transcript_rows(con, session, limit=None):
+    """Rows for the UI transcript: full chronological history with NO filter
+    on is_summarized_into (the user sees everything, even after compaction);
+    summary rollups themselves are skipped (backend artifact for the model).
+    Optional `limit` keeps the most-recent N. Returns (rows, truncated).
+    Shared by the voice resume feed (_build_transcript_history) and the text
+    resume payload (start_text_session) so both surfaces show the same
+    complete conversation."""
     truncated = False
     if limit and limit > 0:
         recent = con.execute(
@@ -477,9 +480,17 @@ def _build_transcript_history(con, session, limit=None):
                 (session['id'], oldest['sequence'], oldest['sequence'], oldest['id']),
             ).fetchone()
             truncated = bool(older)
-        msgs = sorted(recent, key=lambda m: (m['sequence'], m['id']))
+        rows = sorted(recent, key=lambda m: (m['sequence'], m['id']))
     else:
-        msgs = store.session_messages(con, session['id'], where="AND is_summary_rollup = 0")
+        rows = store.session_messages(con, session['id'], where="AND is_summary_rollup = 0")
+    return rows, truncated
+
+
+def _build_transcript_history(con, session, limit=None):
+    """Full chronological message list for the voice UI transcript, in the
+    xAI envelope shape the JS replay loop maps into state.messages.
+    Returns (items, truncated)."""
+    msgs, truncated = _transcript_rows(con, session, limit=limit)
     items = []
     for m in msgs:
         if m['role'] == 'user':
@@ -1203,8 +1214,13 @@ def start_text_session(con, *, agent, resume_session=None):
     )
 
     transcript_messages = []
+    transcript_truncated = False
     if resume_session:
-        rows = store.session_messages(con, session['id'], where="AND is_summarized_into IS NULL")
+        # Full history for the UI — same feed voice mode paints from. The
+        # is_summarized_into filter is a MODEL-side concern (what replays to
+        # xAI); the user keeps seeing every message even after compaction.
+        rows, transcript_truncated = _transcript_rows(
+            con, session, limit=config['transcript_display_limit'] or 0)
         for m in rows:
             attachments = [
                 {
@@ -1253,6 +1269,7 @@ def start_text_session(con, *, agent, resume_session=None):
         'previous_response_id': session['previous_response_id'] or None,
         'last_response_at': session['last_response_at'] or None,
         'transcript': transcript_messages,
+        'transcript_truncated': transcript_truncated,
         'total_input_tokens': session['total_input_tokens'] or 0,
         'total_output_tokens': session['total_output_tokens'] or 0,
         'summary_threshold_tokens': config['summary_threshold_tokens_text'] or 0,
@@ -1457,21 +1474,10 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
                     'without MCP tools: %s', session['id'], e)
                 mcp_dropped = True
                 tools = [t for t in tools if t.get('type') != 'mcp']
-                note = ('MCP server unreachable — continuing this turn '
-                        'without remote MCP tools.')
-                _persist_text_message(
-                    con, session,
-                    role='tool_result',
-                    content=note,
-                    tool_name='mcp',
-                    tool_result_json=note,
-                )
-                accumulated_mcp_results_echo.append({
-                    'call_id': None,
-                    'name': 'mcp',
-                    'arguments': '',
-                    'output': note,
-                })
+                # No transcript note — the response carries an
+                # `mcp_unavailable` flag instead, which the frontend surfaces
+                # as a once-per-session toast (a note row per turn would spam
+                # the transcript for as long as the server stays down).
                 # Re-queue any function_call_outputs this leg consumed into
                 # input_items so the retry doesn't drop them.
                 pending_outputs = [
@@ -1627,6 +1633,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
                 'cap_warning': False,
                 'cap_exceeded': False,
                 'needs_compaction': bool(fresh['needs_summary']),
+                'mcp_unavailable': mcp_dropped,
             }
 
         # Every function call executes server-side in the standalone.
@@ -1693,6 +1700,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
         'cap_warning': False,
         'cap_exceeded': False,
         'needs_compaction': bool(fresh['needs_summary']),
+        'mcp_unavailable': mcp_dropped,
     }
 
 
