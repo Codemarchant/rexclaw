@@ -178,7 +178,7 @@ class TextService {
             await this._processSendResponse(resp);
         } catch (e) {
             const rawMsg = e?.data?.message || e?.message || _t("Send failed");
-            this._fail(rawMsg);
+            this._softFail(rawMsg);
             this._sending = false;
             this.state.thinking = false;
             return false;
@@ -211,7 +211,7 @@ class TextService {
                 return;
             }
             if (current.type === "error") {
-                this._fail(current.message || _t("Chat request failed."));
+                this._softFail(current.message || _t("Chat request failed."));
                 return;
             }
             // Server-side MCP + native tool calls happen during xAI response
@@ -336,11 +336,11 @@ class TextService {
                 return;
             }
             // Unknown shape — bail rather than spin.
-            this._fail(_t("Unknown server response."));
+            this._softFail(_t("Unknown server response."));
             return;
         }
         if (safetyHops <= 0) {
-            this._fail(_t("Tool round-trip cap reached."));
+            this._softFail(_t("Tool round-trip cap reached."));
         }
     }
 
@@ -423,6 +423,16 @@ class TextService {
 
     _fail(msg) {
         this.state.status = "error";
+        this.state.errorMessage = msg;
+    }
+
+    /** Non-fatal turn failure: show the dismissible error banner but KEEP the
+     *  session live so the user can simply try again. A failed send (network
+     *  blip, MCP outage, xAI 4xx) does not invalidate the session server-side
+     *  — flipping status to "error" here used to hide the input bar and wedge
+     *  the chat. _fail() stays reserved for start()-time failures where there
+     *  is no live session to return to. */
+    _softFail(msg) {
         this.state.errorMessage = msg;
     }
 }

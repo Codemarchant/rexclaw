@@ -1388,6 +1388,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
     max_iterations = 8
     accumulated_native_echo = []
     accumulated_mcp_results_echo = []
+    mcp_dropped = False
 
     while max_iterations > 0:
         max_iterations -= 1
@@ -1441,17 +1442,69 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
                 previous_response_id=previous_response_id,
                 prompt_cache_key=f'rexclaw:{agent["id"]}',
             )
-        except UserError:
+        except UserError as e:
+            # An unreachable remote MCP server 400s the WHOLE responses call
+            # ("Failed to connect to MCP server <url>"), unlike voice mode
+            # where the realtime session simply continues without that
+            # server's tools. Mirror voice's tolerance: drop the MCP entries
+            # and retry this leg once so one broken connection can't block
+            # the conversation. A visible tool-result note is persisted so
+            # both the user and the model know MCP was skipped this turn.
+            if (not mcp_dropped and mcp_entries
+                    and 'Failed to connect to MCP server' in str(e)):
+                _logger.warning(
+                    'MCP server unreachable for session %s; retrying turn '
+                    'without MCP tools: %s', session['id'], e)
+                mcp_dropped = True
+                tools = [t for t in tools if t.get('type') != 'mcp']
+                note = ('MCP server unreachable — continuing this turn '
+                        'without remote MCP tools.')
+                _persist_text_message(
+                    con, session,
+                    role='tool_result',
+                    content=note,
+                    tool_name='mcp',
+                    tool_result_json=note,
+                )
+                accumulated_mcp_results_echo.append({
+                    'call_id': None,
+                    'name': 'mcp',
+                    'arguments': '',
+                    'output': note,
+                })
+                # Re-queue any function_call_outputs this leg consumed into
+                # input_items so the retry doesn't drop them.
+                pending_outputs = [
+                    i for i in input_items
+                    if isinstance(i, dict) and i.get('type') == 'function_call_output'
+                ]
+                continue
+            if chain_alive and is_first_leg:
+                # The chain can be rejected server-side — response id expired
+                # or purged before our 29-day cutoff, or the chained endpoint
+                # refusing the injected cross-mode input. The client wraps
+                # every HTTP failure in UserError, so the chain fallback has
+                # to live here too. Degrade to the fresh-chain path: break
+                # the chain and retry this leg once via full local replay
+                # (is_first_leg is still True, and chain_alive recomputes
+                # False on the next iteration).
+                _logger.warning(
+                    'Chained Responses call failed for session %s (%s); '
+                    'breaking chain and retrying via full replay.',
+                    session['id'], e,
+                )
+                previous_response_id = None
+                store.update_session(con, session['id'],
+                                     previous_response_id=None,
+                                     last_response_at=None,
+                                     chain_tail_sequence=0)
+                continue
             con.commit()
             raise
         except Exception as e:
             if chain_alive and is_first_leg:
-                # The chain can be rejected server-side — response id expired
-                # or purged before our 29-day cutoff, or the chained endpoint
-                # refusing the injected cross-mode input. Degrade to the
-                # fresh-chain path: break the chain and retry this leg once
-                # via full local replay (is_first_leg is still True, and
-                # chain_alive recomputes False on the next iteration).
+                # Same chain fallback for transport-level failures (timeouts,
+                # connection resets) that don't surface as UserError.
                 _logger.warning(
                     'Chained Responses call failed for session %s (%s); '
                     'breaking chain and retrying via full replay.',

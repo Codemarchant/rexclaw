@@ -50,6 +50,14 @@ Requirements: Python ≥ 3.10 and Node.js.
 Then in the app: **Settings → paste your xAI API key** (grab one at
 [x.ai/api](https://x.ai/api)) → back to **Voice** → pick a companion → **Start**.
 
+**Tip — keep one long-running conversation:** prefer **Resume last** over
+**Start** when you come back. Each Start creates a brand-new session; Resume
+last continues the same rolling conversation, which is what lets your
+companion carry context across days — older turns are automatically compacted
+into summaries and distilled into memories, so the thread never outgrows its
+context window. Works across modes too: the resumed conversation continues
+seamlessly whether you pick it up on the Voice or the Chat tab.
+
 `REXCLAW_PORT` overrides the port; `REXCLAW_NO_BROWSER=1` skips the
 auto-open; `REXCLAW_DATA_DIR` relocates the data folder. The script just
 automates:
