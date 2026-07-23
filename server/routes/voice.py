@@ -44,8 +44,10 @@ def session_start(payload: dict = Body(default={}), con=Depends(db_con)):
     # offers for solo calls. An explicit resume_session_id always wins
     # (the compaction-restart path passes one). 'active' is included so
     # a stranded session (tab closed before End) is still picked up.
+    # Mode-agnostic on purpose: a conversation last held in text continues
+    # seamlessly as voice (start_session flips its mode).
     if payload.get("resume_last") and not resume_session:
-        q = ("SELECT * FROM sessions WHERE mode = 'voice' AND agent_id = ?"
+        q = ("SELECT * FROM sessions WHERE agent_id = ?"
              " AND state IN ('ended', 'active')")
         params = [agent["id"]]
         if call_parent_session:
@@ -154,11 +156,12 @@ def director_decide(payload: dict = Body(default={}), con=Depends(db_con)):
 @router.post("/sessions")
 def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
     limit = int(payload.get("limit") or 20)
+    # No mode filter: text conversations are resumable as voice (and
+    # vice-versa), so the history list shows every conversation.
     rows = con.execute(
         "SELECT s.*, a.name AS agent_name,"
         " (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count"
         " FROM sessions s JOIN agents a ON a.id = s.agent_id"
-        " WHERE s.mode = 'voice'"
         " ORDER BY s.last_active_at DESC, s.id DESC LIMIT ?",
         (limit,),
     ).fetchall()
@@ -166,6 +169,7 @@ def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
         {
             "id": s["id"],
             "name": s["name"],
+            "mode": s["mode"],
             "agent_id": s["agent_id"],
             "agent_name": s["agent_name"],
             "started_at": s["started_at"],
@@ -191,8 +195,10 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
 
     out = []
     for a in agents:
+        # Mode-agnostic: the latest conversation with this agent is
+        # resumable as voice even if it was last held in text.
         sess = con.execute(
-            "SELECT * FROM sessions WHERE mode = 'voice' AND agent_id = ?"
+            "SELECT * FROM sessions WHERE agent_id = ?"
             " AND state IN ('ended', 'active')"
             " ORDER BY last_active_at DESC, id DESC LIMIT 1",
             (a["id"],),

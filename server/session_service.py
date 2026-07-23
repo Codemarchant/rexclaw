@@ -265,10 +265,15 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     voice_model = config['xai_model']
 
     if resume_session:
-        if resume_session['mode'] != 'voice':
-            raise UserError("This session was created in text mode and cannot be resumed as voice.")
         session_id = resume_session['id']
         resume_vals = {'state': 'draft', 'ended_at': None}
+        # Cross-mode resume: one conversation can move freely between the
+        # text and voice surfaces. `mode` tracks the CURRENT surface; the
+        # realtime WS is seeded from the same message rows either way
+        # (_build_replay_items is mode-agnostic — text tool rows carry
+        # Responses-API call_ids, which replay as opaque strings).
+        if resume_session['mode'] != 'voice':
+            resume_vals['mode'] = 'voice'
         # An agent invited into a call resumes its last session as the peer
         # leg (persistent memory across calls) — link it to the new call's
         # primary session. Latest call wins: the FK can only point at one
@@ -1029,30 +1034,127 @@ def _build_text_tools(agent, *, mcp_entries, enable_web_search, enable_x_search,
     return tools
 
 
-def _replay_text_messages(con, session):
-    """Rebuild a Responses-API `input` array from local message rows. Used
-    when starting a fresh response chain (no previous_response_id) for a
-    session that already has history. Rollups hoist to the front; tool rows
-    are skipped (assistant prose carries the gist)."""
-    rows = con.execute(
-        "SELECT * FROM messages WHERE session_id = ? AND is_summarized_into IS NULL "
-        "AND role IN ('user', 'assistant', 'system') ORDER BY sequence ASC, id ASC",
-        (session['id'],),
-    ).fetchall()
-    rollups = [m for m in rows if m['is_summary_rollup']]
-    others = [m for m in rows if not m['is_summary_rollup']]
+def _text_input_items_from_rows(con, session, rows):
+    """Convert message rows into Responses-API `input` items.
+
+    Shared by the fresh-chain full replay (_replay_text_messages) and the
+    chain-alive interim injection (_interim_text_messages — rows appended
+    while the conversation ran on the voice surface).
+
+    Tool rows are flattened into compact system-role notes instead of being
+    replayed as `function_call` items — replaying function_call input items
+    requires per-item ids the realtime (voice) surface doesn't give us, and
+    the model only needs the gist of what the tools did, grounded in real
+    values. Payloads are truncated like the summariser's input so one chatty
+    tool can't balloon the replay.
+
+    Group-call attribution mirrors _build_replay_items: assistant rows spoken
+    by ANOTHER participant replay as speaker-labelled user-side lines so the
+    model never mistakes a peer's words for its own.
+    """
+    own_name = store.get_agent(con, session['agent_id'])['name'] or ''
     items = []
-    for m in rollups + others:
+    for m in rows:
         text = m['content'] or ''
-        if not text:
-            continue
         if m['role'] == 'user':
+            if not text:
+                continue
             items.append({'role': 'user', 'content': [{'type': 'input_text', 'text': text}]})
         elif m['role'] == 'assistant':
-            items.append({'role': 'assistant', 'content': [{'type': 'output_text', 'text': text}]})
+            if not text:
+                continue
+            if m['speaker'] and m['speaker'] != own_name:
+                items.append({
+                    'role': 'user',
+                    'content': [{'type': 'input_text',
+                                 'text': f'[{m["speaker"]}]: {text}'}],
+                })
+            else:
+                items.append({'role': 'assistant', 'content': [{'type': 'output_text', 'text': text}]})
         elif m['role'] == 'system':
+            if not text:
+                continue
             items.append({'role': 'system', 'content': [{'type': 'input_text', 'text': text}]})
+        elif m['role'] == 'tool_call':
+            args = _truncate_for_summary(m['tool_arguments_json'] or text)
+            items.append({
+                'role': 'system',
+                'content': [{'type': 'input_text',
+                             'text': f'[Tool call] {m["tool_name"] or "tool"}({args})'}],
+            })
+        elif m['role'] == 'tool_result':
+            output = _truncate_for_summary(m['tool_result_json'] or text)
+            items.append({
+                'role': 'system',
+                'content': [{'type': 'input_text',
+                             'text': f'[Tool result] {m["tool_name"] or "tool"} -> {output}'}],
+            })
     return items
+
+
+def _replay_text_messages(con, session, exclude_ids=None):
+    """Rebuild a Responses-API `input` array from local message rows. Used
+    when starting a fresh response chain (no previous_response_id) for a
+    session that already has history — a resumed/post-compact/cross-mode
+    session produces the prior conversation, voice transcript included.
+    Rollups hoist to the front. `exclude_ids` keeps the current turn's
+    just-persisted user row out of the replay — it's appended explicitly
+    (with attachments) as the turn's input."""
+    q = ("SELECT * FROM messages WHERE session_id = ? AND is_summarized_into IS NULL")
+    params = [session['id']]
+    for mid in (exclude_ids or []):
+        q += " AND id != ?"
+        params.append(mid)
+    q += " ORDER BY sequence ASC, id ASC"
+    rows = con.execute(q, params).fetchall()
+    rollups = [m for m in rows if m['is_summary_rollup']]
+    others = [m for m in rows if not m['is_summary_rollup']]
+    return _text_input_items_from_rows(con, session, rollups + others)
+
+
+def _interim_text_messages(con, session, exclude_ids=None):
+    """Rows appended AFTER the last response carried by the server-side chain.
+
+    This is the cross-mode injection path: the session has a live
+    previous_response_id from earlier text turns, then took voice-surface
+    turns (which append rows but never touch the chain). Instead of breaking
+    the chain and replaying everything, we pass previous_response_id plus
+    these interim rows as new input items — the Responses API appends them
+    to the stored conversation, preserving the chain and its prompt cache.
+
+    Returns [] when chain_tail_sequence is 0 — no known baseline (a chain
+    established before cross-mode support shipped, or no chain at all).
+    Injecting without a baseline would duplicate content the chain already
+    carries, which is worse than injecting nothing.
+    """
+    tail = session['chain_tail_sequence'] or 0
+    if not tail:
+        return []
+    q = ("SELECT * FROM messages WHERE session_id = ? AND is_summarized_into IS NULL "
+         "AND sequence > ?")
+    params = [session['id'], tail]
+    for mid in (exclude_ids or []):
+        q += " AND id != ?"
+        params.append(mid)
+    q += " ORDER BY sequence ASC, id ASC"
+    rows = con.execute(q, params).fetchall()
+    if not rows:
+        return []
+    return _text_input_items_from_rows(con, session, rows)
+
+
+def _mark_chain_tail(con, session):
+    """Record that every message row persisted so far is carried by the
+    server-side response chain. Called after each successful /v1/responses
+    leg has had its outputs persisted; rows created later (native tool
+    results not yet fed back, or voice-surface turns) stay above the mark
+    and get injected as interim input on the next chained text turn."""
+    row = con.execute(
+        "SELECT sequence FROM messages WHERE session_id = ? ORDER BY sequence DESC, id DESC LIMIT 1",
+        (session['id'],),
+    ).fetchone()
+    store.update_session(con, session['id'],
+                         chain_tail_sequence=row['sequence'] if row else 0)
 
 
 def _agent_thumbnail_url(agent):
@@ -1074,9 +1176,15 @@ def start_text_session(con, *, agent, resume_session=None):
         raise UserError("xAI API key is not configured. Set it in Settings.")
 
     if resume_session:
+        resume_vals = {'state': 'draft', 'ended_at': None}
+        # Cross-mode resume: a conversation born (or last active) on the
+        # voice surface continues here as text. Voice sessions never chain
+        # via previous_response_id, so the first text turn naturally takes
+        # the fresh-chain path and replays the full local history —
+        # including the voice transcript — via _replay_text_messages.
         if resume_session['mode'] != 'text':
-            raise UserError("This session was created in voice mode and cannot be resumed as text.")
-        store.update_session(con, resume_session['id'], state='draft', ended_at=None)
+            resume_vals['mode'] = 'text'
+        store.update_session(con, resume_session['id'], **resume_vals)
         session = store.get_session(con, resume_session['id'])
     else:
         session = store.create_session(con, agent_id=agent['id'], mode='text')
@@ -1111,6 +1219,9 @@ def start_text_session(con, *, agent, resume_session=None):
                 'sequence': m['sequence'],
                 'role': m['role'],
                 'content': m['content'] or '',
+                # Group-call attribution for voice turns resumed on the text
+                # surface — lets the UI label who said what.
+                'speaker': m['speaker'] or None,
                 'tool_name': m['tool_name'],
                 'tool_arguments_json': m['tool_arguments_json'],
                 'tool_result_json': m['tool_result_json'],
@@ -1231,6 +1342,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
         raise UserError("xAI API key is not configured.")
 
     # Persist the user message + attachments on the FIRST leg only.
+    user_msg_id = None
     if user_text is not None:
         if session['pending_native_outputs_json']:
             store.update_session(con, session['id'], pending_native_outputs_json=None)
@@ -1240,7 +1352,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
                 attachment_data.append({'xai_file_id': entry, 'filename': entry})
             elif isinstance(entry, dict) and entry.get('xai_file_id'):
                 attachment_data.append(entry)
-        _persist_text_message(
+        user_msg_id = _persist_text_message(
             con, session,
             role='user',
             content=user_text or '',
@@ -1284,7 +1396,22 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
 
         input_items = []
         if is_first_leg and not chain_alive:
-            input_items.extend(_replay_text_messages(con, session))
+            # Exclude the just-persisted user row — it's appended explicitly
+            # below (with attachments); replaying it too would double it.
+            input_items.extend(_replay_text_messages(
+                con, session,
+                exclude_ids=[user_msg_id] if user_msg_id is not None else None,
+            ))
+        elif is_first_leg and chain_alive and user_text is not None:
+            # Chain-preserving cross-mode catch-up: rows appended since the
+            # chain's last response (voice-surface turns, unsent tool notes)
+            # are injected as new input items on top of previous_response_id
+            # instead of breaking the chain and replaying everything.
+            session = store.get_session(con, session['id'])
+            input_items.extend(_interim_text_messages(
+                con, session,
+                exclude_ids=[user_msg_id] if user_msg_id is not None else None,
+            ))
         if pending_outputs:
             input_items.extend(pending_outputs)
             pending_outputs = []
@@ -1318,6 +1445,24 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
             con.commit()
             raise
         except Exception as e:
+            if chain_alive and is_first_leg:
+                # The chain can be rejected server-side — response id expired
+                # or purged before our 29-day cutoff, or the chained endpoint
+                # refusing the injected cross-mode input. Degrade to the
+                # fresh-chain path: break the chain and retry this leg once
+                # via full local replay (is_first_leg is still True, and
+                # chain_alive recomputes False on the next iteration).
+                _logger.warning(
+                    'Chained Responses call failed for session %s (%s); '
+                    'breaking chain and retrying via full replay.',
+                    session['id'], e,
+                )
+                previous_response_id = None
+                store.update_session(con, session['id'],
+                                     previous_response_id=None,
+                                     last_response_at=None,
+                                     chain_tail_sequence=0)
+                continue
             con.commit()
             _logger.exception('Responses API call failed')
             raise UserError(f"Text chat request failed: {e}")
@@ -1403,6 +1548,14 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
             fresh = store.get_session(con, session['id'])
             if not fresh['title_generated']:
                 maybe_generate_session_title(con, fresh)
+
+        # Everything persisted so far (input we sent + this response's own
+        # message/MCP rows) is now carried by the stored chain — advance the
+        # tail so the next chained turn doesn't re-inject it. Tool rows the
+        # loop persists below stay above the tail until the next leg's mark
+        # covers them (their outputs aren't in-chain until actually fed back).
+        if response_id:
+            _mark_chain_tail(con, session)
 
         accumulated_mcp_results_echo.extend(mcp_results_echo)
 
@@ -1508,7 +1661,8 @@ def text_compact(con, session):
 
     # Breaking the chain forces the next turn to re-seed via the replay path.
     store.update_session(con, session['id'],
-                         previous_response_id=None, last_response_at=None)
+                         previous_response_id=None, last_response_at=None,
+                         chain_tail_sequence=0)
     con.commit()
     return {'compacted': True, 'rollup_id': rollup_id}
 

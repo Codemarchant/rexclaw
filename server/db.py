@@ -201,12 +201,21 @@ CREATE TABLE IF NOT EXISTS sessions (
     name TEXT NOT NULL,
     agent_id INTEGER NOT NULL REFERENCES agents(id),
     state TEXT NOT NULL DEFAULT 'draft',     -- draft | active | ended | errored
+    -- The surface this session is CURRENTLY on: one conversation can move
+    -- between voice and text (cross-mode resume flips this), so it tracks
+    -- the latest surface, not where the session was born.
     mode TEXT NOT NULL DEFAULT 'voice',      -- voice | text
     started_at TEXT,
     ended_at TEXT,
     last_active_at TEXT,
     previous_response_id TEXT,
     last_response_at TEXT,
+    -- Sequence high-water mark of the last message row already carried by the
+    -- server-side response chain (previous_response_id). Rows above it (e.g.
+    -- voice-surface turns after the last text response) are injected as input
+    -- on the next chained text turn. 0 = no known baseline: chain without
+    -- injection or replay the full local history.
+    chain_tail_sequence INTEGER NOT NULL DEFAULT 0,
     pending_native_outputs_json TEXT,
     cached_input_tokens INTEGER NOT NULL DEFAULT 0,
     summary TEXT,
@@ -337,6 +346,9 @@ MIGRATIONS = (
     "ALTER TABLE avatar_gestures ADD COLUMN partner_pitch REAL NOT NULL DEFAULT 0",
     "ALTER TABLE avatar_gestures ADD COLUMN partner_roll REAL NOT NULL DEFAULT 0",
     "ALTER TABLE avatar_gestures ADD COLUMN partner_scale REAL NOT NULL DEFAULT 1.0",
+    # Unified voice/text conversations — cross-mode resume + chain-preserving
+    # catch-up injection on the text Responses chain.
+    "ALTER TABLE sessions ADD COLUMN chain_tail_sequence INTEGER NOT NULL DEFAULT 0",
 )
 
 

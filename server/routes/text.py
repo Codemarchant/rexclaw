@@ -69,11 +69,12 @@ def session_end(session_id: int, payload: dict = Body(default={}), con=Depends(d
 @router.post("/sessions")
 def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
     limit = int(payload.get("limit") or 20)
+    # No mode filter: voice conversations are resumable as text (and
+    # vice-versa), so the history list shows every conversation.
     rows = con.execute(
         "SELECT s.*, a.name AS agent_name,"
         " (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count"
         " FROM sessions s JOIN agents a ON a.id = s.agent_id"
-        " WHERE s.mode = 'text'"
         " ORDER BY s.started_at DESC, s.id DESC LIMIT ?",
         (limit,),
     ).fetchall()
@@ -81,6 +82,7 @@ def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
         {
             "id": s["id"],
             "name": s["name"],
+            "mode": s["mode"],
             "agent_id": s["agent_id"],
             "agent_name": s["agent_name"],
             "started_at": s["started_at"],
