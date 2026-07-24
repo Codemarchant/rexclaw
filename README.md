@@ -50,17 +50,7 @@ Requirements: Python ≥ 3.10 and Node.js.
 Then in the app: **Settings → paste your xAI API key** (grab one at
 [x.ai/api](https://x.ai/api)) → back to **Voice** → pick a companion → **Start**.
 
-**Tip — keep one long-running conversation:** prefer **Resume last** over
-**Start** when you come back. Each Start creates a brand-new session; Resume
-last continues the same rolling conversation, which is what lets your
-companion carry context across days — older turns are automatically compacted
-into summaries and distilled into memories, so the thread never outgrows its
-context window. Works across modes too: the resumed conversation continues
-seamlessly whether you pick it up on the Voice or the Chat tab.
-
-`REXCLAW_PORT` overrides the port; `REXCLAW_NO_BROWSER=1` skips the
-auto-open; `REXCLAW_DATA_DIR` relocates the data folder. The script just
-automates:
+The script just automates:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e .   # once
@@ -92,9 +82,17 @@ https://github.com/user-attachments/assets/ff569423-325c-4fb2-ac4f-f538e9c03895
 - **Sal** — philosophical frog who knows he's software and finds retirement interesting. Precise, comfortable with silence.
 - **Leo** — veteran theatre stage manager. "Standby… go." Dignified, composed, earns every gesture.
 
-All five are editable in **Settings → Companions** — prompt, voice, avatar,
+All five are editable in the **Companions** tab — prompt, voice, avatar,
 and per-tool access. **New companion** starts you from a structured persona
 template; **Restore presets** brings back any of the originals you've deleted.
+
+**Tip — keep one long-running conversation:** prefer **Resume last** over
+**Start** when you come back. Each Start creates a brand-new session; Resume
+last continues the same rolling conversation, which is what lets your
+companion carry context across days — older turns are automatically compacted
+into summaries and distilled into memories, so the thread never outgrows its
+context window. Works across modes too: the resumed conversation continues
+seamlessly whether you pick it up on the Voice or the Chat tab.
 
 ## 🎭 Custom avatars — avatar packs
 
@@ -102,7 +100,7 @@ Every companion has an avatar — a VRM character with optional outfits, gesture
 clips and scene backgrounds. Two ways to make one: the **in-app editor**
 (easiest), or by dropping a **pack folder** on disk (shareable / advanced).
 
-### In the app — Settings → Avatars
+### In the app — the Avatars tab
 
 Click **New avatar**, give it a name, and upload a **main VRM** (the only
 required file). Then optionally add:
@@ -185,7 +183,7 @@ Motion Pack) covers the built-ins, and packs can add custom clips per avatar.
 ## 🔌 Remote MCP connections
 
 Give a companion extra tools by attaching remote MCP servers:
-**Settings → Companions → Edit → Remote MCP connections**. Each connection
+**Companions → Edit → Remote MCP connections**. Each connection
 takes a server label, the endpoint URL, an optional bearer token (stored
 write-only — it's never echoed back to the browser), optional extra headers,
 an allowed-tools whitelist, and toggles for voice/text sessions.
@@ -230,7 +228,9 @@ format the avatars play:
 - **[kimodo_NPZ_to_fbx_and_vrma](https://github.com/Codemarchant/kimodo_NPZ_to_fbx_and_vrma)** —
   convert KIMODO motion-capture NPZ output to FBX and VRMA.
 - **[fbxgeneral2vrma](https://github.com/Codemarchant/fbxgeneral2vrma)** —
-  convert FBX animations in awkward formats to VRMA.
+  convert FBX animations in awkward formats to VRMA. Pairs well with
+  [Mixamo](https://www.mixamo.com)'s huge free FBX animation library, and
+  with the FBX animation packs sold on [BOOTH](https://booth.pm/).
 
 ## ☕ Support
 
