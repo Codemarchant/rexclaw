@@ -304,7 +304,10 @@ def connect():
     # endpoint body, and the dependency's cleanup on (potentially) different
     # threadpool threads. Access is still strictly sequential within one
     # request — never concurrent — so disabling the guard is safe here.
-    con = sqlite3.connect(DB_PATH, check_same_thread=False)
+    # timeout=30: how long a writer waits on a locked database before raising
+    # "database is locked". The default 5s has been hit in the wild when one
+    # request held the write lock across a slow operation while another wrote.
+    con = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")

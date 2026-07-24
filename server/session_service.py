@@ -289,6 +289,15 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
                                  call_parent_session_id=call_parent_session['id'])
             session = store.get_session(con, session['id'])
 
+    # Commit the draft-session writes before minting: the mint is a network
+    # round-trip, and sqlite's implicit transaction would otherwise hold the
+    # write lock for its whole duration — blocking any concurrent writer
+    # (e.g. the second session_start fired when an agent joins a group call)
+    # into "database is locked". On mint failure the state is already what
+    # the retry paths expect: a resumed session sits in 'draft', a fresh one
+    # is deleted below.
+    con.commit()
+
     # Mint the ephemeral xAI token (the browser uses it to open the WebSocket).
     try:
         xai_resp = xai_client.mint_ephemeral_token(
@@ -928,6 +937,11 @@ def generate_session_summary(con, session):
             tokens_at_last_summary=current_total,
         )
 
+        # Commit the finished rollup before extraction: extraction is another
+        # network round-trip, and holding the rollup writes in an open
+        # transaction through it would block every other writer meanwhile.
+        con.commit()
+
         # Automatic memory extraction — distil durable facts + one episodic
         # memory from this same block, so load-bearing detail survives outside
         # the lossy rollup and "remember when…" moments become retrievable.
@@ -1446,6 +1460,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
         if not input_items and not chain_alive:
             con.commit()
             return {'type': 'error', 'message': 'No input to send.'}
+
+        # Release the write lock before the LLM round-trip. Rows persisted so
+        # far this turn (user message, prior-leg tool results) go durable now;
+        # an open transaction here would block every other writer — voice
+        # session starts, transcript appends — for the whole generation.
+        con.commit()
 
         try:
             body = xai_client.create_response(

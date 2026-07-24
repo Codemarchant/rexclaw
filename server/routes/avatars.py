@@ -83,7 +83,11 @@ def save(payload: dict = Body(default={}), con=Depends(db_con)):
         raise UserError("Missing manifest.")
     # On a brand-new avatar, finalize the folder name to match the display
     # name before writing — so the pack folder is human-readable / shareable.
+    # Validate first: rename_pack drops the old key, so failing validation
+    # after the rename would strand the editor on a pack_key that no longer
+    # exists (every retry then errors with "pack not found").
     if payload.get("is_new"):
+        avatar_packs.validate_manifest(pack_key, manifest)
         pack_key = avatar_packs.rename_pack(con, pack_key, manifest.get("name") or pack_key)
     avatar_id = avatar_packs.write_manifest(con, pack_key, manifest)
     return {"ok": True, "avatar_id": avatar_id, "pack_key": pack_key}

@@ -3,6 +3,8 @@ import VoiceView from "./components/VoiceView.jsx";
 import TextView from "./components/TextView.jsx";
 import MemoriesView from "./components/MemoriesView.jsx";
 import SessionsView from "./components/SessionsView.jsx";
+import CompanionsView from "./components/CompanionsView.jsx";
+import AvatarsView from "./components/AvatarsView.jsx";
 import SettingsView from "./components/SettingsView.jsx";
 import Toasts from "./components/Toasts.jsx";
 import { uiState, toggleImmersive } from "./lib/ui_state";
@@ -14,6 +16,8 @@ const TABS = [
     { id: "chat", label: "Chat", icon: "fa-comments" },
     { id: "memories", label: "Memories", icon: "fa-lightbulb-o" },
     { id: "sessions", label: "Sessions", icon: "fa-archive" },
+    { id: "companions", label: "Companions", icon: "fa-users" },
+    { id: "avatars", label: "Avatars", icon: "fa-user-circle-o" },
     { id: "settings", label: "Settings", icon: "fa-cog" },
 ];
 
@@ -72,6 +76,12 @@ export default function App() {
                 </div>
                 <div className="rx_view" style={{ display: tab === "sessions" ? "" : "none" }}>
                     <SessionsView active={tab === "sessions"} />
+                </div>
+                <div className="rx_view" style={{ display: tab === "companions" ? "" : "none" }}>
+                    <CompanionsView active={tab === "companions"} />
+                </div>
+                <div className="rx_view" style={{ display: tab === "avatars" ? "" : "none" }}>
+                    <AvatarsView active={tab === "avatars"} />
                 </div>
                 <div className="rx_view" style={{ display: tab === "settings" ? "" : "none" }}>
                     <SettingsView active={tab === "settings"} />

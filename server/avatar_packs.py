@@ -311,6 +311,26 @@ def scan_packs(con):
                 continue
             if avatar_id:
                 found[pack_dir.name] = avatar_id
+    # Prune rows whose pack folder has vanished from BOTH roots — e.g. a
+    # folder duplicated in the file manager ("Ara - Copy") that got scanned
+    # in and later deleted or renamed away. Upsert-only scanning would keep
+    # such rows forever, and with no folder behind them they render as
+    # locked "bundled" avatars in the manager. Folder presence protects a
+    # pack even when its manifest is currently broken — a failed scan must
+    # never read as deletion.
+    stale = [
+        r for r in con.execute(
+            "SELECT id, pack_key, name FROM avatars WHERE pack_key IS NOT NULL",
+        ).fetchall()
+        if r["pack_key"] not in found
+        and not (USER_PACKS_DIR / r["pack_key"]).is_dir()
+        and not (ASSETS_DIR / "avatars" / r["pack_key"]).is_dir()
+    ]
+    for r in stale:
+        con.execute("UPDATE agents SET avatar_id = NULL WHERE avatar_id = ?", (r["id"],))
+        con.execute("DELETE FROM avatars WHERE id = ?", (r["id"],))
+        _logger.info("pack %r: folder gone — pruned stale avatar row %r (id=%s)",
+                     r["pack_key"], r["name"], r["id"])
     con.commit()
     if found:
         _logger.info("avatar packs loaded: %s", ", ".join(sorted(found)))
@@ -443,6 +463,18 @@ def list_pack_files(pack_key):
     return out
 
 
+def _suggest_gesture_enum(raw):
+    """Turn whatever the user typed into a valid gesture enum to show in the
+    validation error — 'test 1' → 'test_1', 'Wave Hello!' → 'wave_hello'."""
+    key = re.sub(r"[^a-z0-9_]+", "_", (raw or "").lower()).strip("_")
+    key = re.sub(r"_+", "_", key)
+    if not key:
+        return "my_gesture"
+    if not key[0].isalpha():
+        return f"gesture_{key}"
+    return key
+
+
 def _validate_manifest(pack_dir, m):
     """Editor-side validation: reject with a clear message rather than the
     scanner's skip-with-warning. Mirrors the scanner's rules."""
@@ -474,8 +506,10 @@ def _validate_manifest(pack_dir, m):
     for i, g in enumerate(m.get("gestures") or []):
         enum = (g.get("enum") or "").strip()
         if not _GESTURE_ENUM_RE.match(enum):
-            raise UserError(f"Gesture #{i + 1}: enum must be lowercase letters/digits/"
-                            f"underscores starting with a letter (got {enum!r}).")
+            raise UserError(f"Gesture #{i + 1}: {enum!r} isn't a valid gesture name. "
+                            f"Use only lowercase letters, digits and underscores, "
+                            f"starting with a letter — for example "
+                            f"{_suggest_gesture_enum(enum)!r} instead.")
         if enum in _RESERVED_GESTURES:
             raise UserError(f"Gesture enum {enum!r} collides with a built-in gesture.")
         if enum in seen:
@@ -500,6 +534,14 @@ def _validate_manifest(pack_dir, m):
             _check_file(b.get("glb") or b.get("scene"), f"Background '{b.get('name')}' GLB")
         else:
             raise UserError(f"Background '{b.get('name')}': unknown type {btype!r}.")
+
+
+def validate_manifest(pack_key, manifest):
+    """Validation-only pass against the pack's current folder. The save route
+    runs this on new packs BEFORE rename_pack: rename drops the old key, so a
+    validation failure after renaming would strand the editor — its pack_key
+    would no longer exist and every retry would fail with 'pack not found'."""
+    _validate_manifest(_require_editable(pack_key), manifest)
 
 
 def rename_pack(con, old_key, new_name):

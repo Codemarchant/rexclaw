@@ -17,7 +17,7 @@ const PRESETS = [
 
 const BLANK_MANIFEST = { name: "", vrm: "", vrma_idle: "", outfits: [], gestures: [], backgrounds: [] };
 
-export default function AvatarManager({ onChange }) {
+export default function AvatarManager({ onChange, active = true }) {
     const [list, setList] = useState([]);
     const [editing, setEditing] = useState(null); // { pack_key, manifest, files }
     const [busy, setBusy] = useState(false);
@@ -29,7 +29,7 @@ export default function AvatarManager({ onChange }) {
             notification.add(e?.message || _t("Could not load avatars"), { type: "danger" });
         }
     };
-    useEffect(() => { load(); }, []);
+    useEffect(() => { if (active) load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [active]);
 
     const startNew = async () => {
         try {
@@ -281,6 +281,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                     .map(({ g, i }) => (
                     <div key={i} className="rx_subrow">
                         <input type="text" placeholder={_t("enum (e.g. wave_hello)")} value={g.enum || ""}
+                               title={_t("Gesture name the model calls — lowercase letters, digits and underscores, starting with a letter (e.g. wave_hello, test_1).")}
                                onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
                         <FileField kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
                                    onUploaded={(fn) => setList("gestures", i, { vrma: fn })} />
@@ -312,6 +313,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                     .map(({ g, i }) => (
                     <div key={i} className="rx_subrow rx_subrow--combo" style={{ flexWrap: "wrap" }}>
                         <input type="text" placeholder={_t("enum (e.g. dance_together)")} value={g.enum || ""}
+                               title={_t("Gesture name the model calls — lowercase letters, digits and underscores, starting with a letter (e.g. dance_together).")}
                                onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
                         <FileField label={_t("Base VRMA")} kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
                                    onUploaded={(fn) => setList("gestures", i, { vrma: fn })} />

@@ -152,6 +152,10 @@ body {
         gap: 1.25rem;
     }
 
+    // Companions / Avatars tabs — full pages of their own, so give the
+    // editors more horizontal room than the settings column gets.
+    .rx_settings_inner--wide { max-width: 1200px; }
+
     section {
         background: white;
         border-radius: 0.75rem;

@@ -654,10 +654,6 @@ export default function VoiceView({ active = true }) {
                                 title={showTranscript ? _t("Hide transcript (full-width avatar)") : _t("Show transcript")}>
                             <i className={showTranscript ? "fa fa-comment" : "fa fa-comment-o"} />
                         </button>
-                        <button className="btn btn-light" onClick={toggleImmersive}
-                                title={_t("Immersive view — hide all UI (H · Esc to exit)")}>
-                            <i className="fa fa-expand" />
-                        </button>
                     </div>
                     <div className="o_voice_full_topbar_row o_voice_full_topbar_row--meta">
                         <span className={

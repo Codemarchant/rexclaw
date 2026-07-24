@@ -189,6 +189,7 @@ export const JA = {
 
   // ── Settings: connection / models ─────────────────────────────────────
   "Could not load settings": "設定を読み込めませんでした",
+  "Could not load companions": "コンパニオンを読み込めませんでした",
   "Settings saved.": "設定を保存しました。",
   "xAI connection": "xAI 接続",
   "API key": "API キー",
