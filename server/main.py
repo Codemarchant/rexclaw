@@ -72,8 +72,19 @@ if WEB_DIST.is_dir():
     async def spa(full_path: str):
         candidate = WEB_DIST / full_path
         if full_path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(WEB_DIST / "index.html")
+            headers = None
+            if candidate.name == "index.html":
+                headers = {"Cache-Control": "no-cache"}
+            return FileResponse(candidate, headers=headers)
+        # index.html must revalidate on every load: it's the unhashed entry
+        # that names the hashed bundles. Without this, Chromium's heuristic
+        # caching (10% of time-since-Last-Modified, no revalidation) can pin
+        # a client — the Electron shell especially, which nobody force-
+        # reloads — to a months-old bundle after an update. The hashed
+        # /app-assets files themselves stay cacheable: their names change
+        # when their content does.
+        return FileResponse(WEB_DIST / "index.html",
+                            headers={"Cache-Control": "no-cache"})
 
 
 def run():

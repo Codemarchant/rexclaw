@@ -241,6 +241,14 @@ if (!app.requestSingleInstanceLock()) {
 
     app.whenReady().then(async () => {
         try {
+            // Drop the HTTP cache before the first load. The server didn't
+            // always send Cache-Control on index.html, so shells that ran an
+            // older version can have a heuristically-cached entry page (and
+            // through it, the old hashed bundles) — which no one ever
+            // force-reloads in an app window. Clearing only the HTTP cache
+            // keeps localStorage (locale, UI prefs) intact, and costs
+            // nothing meaningful against a localhost server.
+            await session.defaultSession.clearCache();
             const port = await ensureServer();
             createWindow(port);
             app.on("activate", () => {   // macOS dock re-activation
