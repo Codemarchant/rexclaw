@@ -15,6 +15,7 @@ web/dist/
 desktop/node_modules/
 desktop/dist/
 desktop/runtime/
+CLAUDE.md
 *.pyc
 .claude
 
