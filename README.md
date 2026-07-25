@@ -38,6 +38,15 @@ in a SQLite file on your disk, and your API key never leaves your machine.
 
 ## 🚀 Quick start
 
+### 💻 Windows app — easiest
+
+Grab `Rexclaw-<version>-win.zip` from the
+[latest release](https://github.com/Codemarchant/rexclaw/releases/latest),
+unzip, run `Rexclaw.exe`. Fully self-contained — no Python, Node or Docker
+needed (Windows 10/11, 64-bit).
+
+### 🛠 From source
+
 ```bash
 ./run.sh        # Linux / macOS / WSL
 run.bat         # Windows
@@ -127,6 +136,11 @@ also a **shareable pack**: zip the folder, hand it to someone, they drop it in
 `data/avatars/` and restart (no rebuild — packs are data). You can author one
 by hand the same way. The five bundled packs in `assets/avatars/` double as
 worked examples.
+
+> **Windows desktop app:** the packaged app keeps its data under
+> `%APPDATA%\Rexclaw\data\` — so custom packs go in
+> `%APPDATA%\Rexclaw\data\avatars\<PackName>\` (paste that path into the
+> Explorer address bar). Everything else works the same.
 
 ```
 data/avatars/Kira/

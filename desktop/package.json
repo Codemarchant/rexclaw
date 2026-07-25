@@ -1,0 +1,39 @@
+{
+  "name": "rexclaw-desktop",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Electron desktop shell for Rexclaw Companions — wraps the FastAPI server in a native window.",
+  "main": "main.js",
+  "author": "Codemarchant",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "predist": "node -e \"require('fs').existsSync('runtime/python') || (console.error('desktop/runtime/python missing - run build-runtime.ps1 first (see desktop/README.md)'), process.exit(1))\"",
+    "dist": "electron-builder && node scripts/make-zip.js"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.codemarchant.rexclaw",
+    "productName": "Rexclaw",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "../server", "to": "app-server/server", "filter": ["**/*", "!**/__pycache__/**"] },
+      { "from": "../assets", "to": "app-server/assets" },
+      { "from": "../web/dist", "to": "app-server/web/dist" },
+      { "from": "../pyproject.toml", "to": "app-server/pyproject.toml" },
+      { "from": "runtime/python", "to": "python" }
+    ],
+    "win": { "target": "dir", "icon": "build/icon.ico" },
+    "linux": { "target": "AppImage", "icon": "build/icon.png" },
+    "mac": { "target": "zip" }
+  }
+}

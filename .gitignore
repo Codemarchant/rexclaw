@@ -12,6 +12,9 @@ __pycache__/
 data/
 web/node_modules/
 web/dist/
+desktop/node_modules/
+desktop/dist/
+desktop/runtime/
 *.pyc
 .claude
 

@@ -38,6 +38,15 @@ SQLite ファイルに保存され、API キーがあなたのマシンの外に
 
 ## 🚀 クイックスタート
 
+### 💻 Windows アプリ — いちばん簡単
+
+[最新リリース](https://github.com/Codemarchant/rexclaw/releases/latest)から
+`Rexclaw-<バージョン>-win.zip` をダウンロードして解凍し、`Rexclaw.exe` を
+実行するだけ。完全自己完結型 — Python も Node も Docker も不要です
+（Windows 10/11、64 ビット）。
+
+### 🛠 ソースから
+
 ```bash
 ./run.sh        # Linux / macOS / WSL
 run.bat         # Windows
@@ -130,6 +139,12 @@ https://github.com/user-attachments/assets/ff569423-325c-4fb2-ac4f-f538e9c03895
 受け取った人が `data/avatars/` に置いて再起動するだけ（ビルド不要 —
 パックはデータです）。同じ方法で手書き作成もできます。`assets/avatars/` の
 同梱パック 5 つが実例を兼ねています。
+
+> **Windows デスクトップアプリの場合：** パッケージ版はデータを
+> `%APPDATA%\Rexclaw\data\` に保存します。カスタムパックは
+> `%APPDATA%\Rexclaw\data\avatars\<パック名>\` に置いてください
+> （このパスをエクスプローラーのアドレスバーに貼り付ければ開けます）。
+> それ以外はすべて同じです。
 
 ```
 data/avatars/Kira/

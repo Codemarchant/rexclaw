@@ -1,0 +1,53 @@
+# Builds the standalone Windows desktop app and attaches the zip to the
+# GitHub release that triggered it. Fires when a release is published (the
+# `gh release create vX.Y.Z` flow), so one release action produces both the
+# Docker image (docker.yml, tag-triggered) and this artifact.
+#
+# workflow_dispatch runs the same build without a release and stores the zip
+# as a CI artifact — for testing pipeline changes.
+name: desktop
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write   # gh release upload
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      - name: Build embedded Python runtime
+        run: powershell -ExecutionPolicy Bypass -File desktop/build-runtime.ps1
+
+      - name: Package desktop app
+        run: |
+          cd desktop
+          npm ci
+          npm run dist
+
+      - name: Attach zip to release
+        if: github.event_name == 'release'
+        run: gh release upload ${{ github.event.release.tag_name }} (Get-Item desktop/dist/Rexclaw-*-win.zip).FullName --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Store zip as CI artifact (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rexclaw-windows
+          path: desktop/dist/Rexclaw-*-win.zip
