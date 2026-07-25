@@ -97,6 +97,31 @@ def agents_save(payload: dict = Body(default={}), con=Depends(db_con)):
     return {"ok": True, "id": agent_id}
 
 
+@router.post("/agents/duplicate")
+def agents_duplicate(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Copy a companion's configuration into a new agent ('<name> - Copy',
+    numbered when taken). Sessions, memories and MCP connections stay with
+    the original — MCP rows can carry auth secrets that shouldn't silently
+    multiply."""
+    agent_id = payload.get("id")
+    if not isinstance(agent_id, int):
+        raise UserError("id must be an integer.")
+    row = con.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    if not row:
+        raise UserError("Companion not found.")
+    base = f"{row['name']} - Copy"
+    name, n = base, 2
+    while con.execute("SELECT 1 FROM agents WHERE name = ?", (name,)).fetchone():
+        name, n = f"{base} {n}", n + 1
+    vals = {k: row[k] for k in _AGENT_FIELDS}
+    vals["name"] = name
+    cols = ", ".join(vals)
+    marks = ", ".join("?" * len(vals))
+    cur = con.execute(f"INSERT INTO agents ({cols}) VALUES ({marks})", tuple(vals.values()))
+    con.commit()
+    return {"ok": True, "id": cur.lastrowid, "name": name}
+
+
 @router.post("/avatars/list")
 def avatars_list(payload: dict = Body(default={}), con=Depends(db_con)):
     """Available avatars (from packs + any hand-created rows) for the

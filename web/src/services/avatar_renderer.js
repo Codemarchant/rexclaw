@@ -1009,6 +1009,12 @@ class AvatarRenderer {
             // A partner staged mid-VR-session gets the hand colliders too,
             // like every other character.
             this._applySpringCollidersToVRM(partnerVrm);
+            // Re-frame now that the partner is registered: the earlier
+            // full-body switch ran before _comboPartner was set, so its
+            // preset framed the base alone — with a wide partner_offset (or a
+            // base_offset shifting the pair) the partner could sit outside
+            // the shot. _cameraPreset counts the combo partner like a peer.
+            if (!this._xrActive) this._applyCameraPreset();
         }
 
         if (combo.loop) return;  // loops end only by replacement — no finish event
@@ -1064,21 +1070,29 @@ class AvatarRenderer {
      *  latest generation and must not invalidate itself. */
     _unloadComboPartner({ immediate = false, keepGeneration = false } = {}) {
         if (!keepGeneration) this._comboGeneration++;
-        if (this._comboBaseRestore && this.vrm) {
-            this.vrm.scene.position.copy(this._comboBaseRestore.position);
-            this.vrm.scene.quaternion.copy(this._comboBaseRestore.quaternion);
-            this.vrm.scene.updateMatrixWorld(true);
-        }
-        this._comboBaseRestore = null;
-        if (this._comboAutoFullBody) {
-            this._comboAutoFullBody = false;
-            if (this._fullBody) this.setFullBodyMode(false);
-        }
+        // Base restore + camera revert are DEFERRED to the partner's dispose
+        // in the fade path: snapping the base home and re-framing while the
+        // partner is still fading out reads as the characters sliding
+        // sideways before vanishing. One coherent cut at dispose instead.
+        const restoreBase = () => {
+            if (this._comboBaseRestore && this.vrm) {
+                this.vrm.scene.position.copy(this._comboBaseRestore.position);
+                this.vrm.scene.quaternion.copy(this._comboBaseRestore.quaternion);
+                this.vrm.scene.updateMatrixWorld(true);
+            }
+            this._comboBaseRestore = null;
+            if (this._comboAutoFullBody) {
+                this._comboAutoFullBody = false;
+                if (this._fullBody) this.setFullBodyMode(false);
+            }
+        };
         // Borrowed live peer: put it back where it stood in the call layout
         // and ease its own idle back in. It is NOT disposed — it's a call
-        // participant, not a prop.
+        // participant, not a prop. Restore is immediate here — the peer
+        // stays on screen, so there's no fade window to glitch through.
         const liveCombo = this._comboLivePeer;
         if (liveCombo) {
+            restoreBase();
             this._comboLivePeer = null;
             const { peer, action, restore } = liveCombo;
             if (this._peers.has(peer.id) && peer.vrm) {
@@ -1114,11 +1128,22 @@ class AvatarRenderer {
             }
         }
         const partner = this._comboPartner;
-        if (!partner) return;
+        if (!partner) {
+            restoreBase();
+            return;
+        }
         const dispose = () => {
             // Identity check: a newer combo may have replaced us while the
-            // exit fade ran — never clobber its partner from a stale timeout.
-            if (this._comboPartner === partner) this._comboPartner = null;
+            // exit fade ran — never clobber its partner (or its freshly
+            // captured base placement) from a stale timeout.
+            if (this._comboPartner === partner) {
+                this._comboPartner = null;
+                restoreBase();
+                // Re-tighten the framing now the second character is gone.
+                // (restoreBase's auto-full-body revert may have re-applied a
+                // preset already; this covers the manual-full-body case.)
+                if (!this._xrActive) this._applyCameraPreset();
+            }
             try { partner.mixer.stopAllAction(); } catch (e) { /* non-fatal */ }
             try { this.scene.remove(partner.vrm.scene); } catch (e) { /* non-fatal */ }
             try { this.libs.VRMUtils.deepDispose(partner.vrm.scene); } catch (e) { /* non-fatal */ }
@@ -1128,7 +1153,10 @@ class AvatarRenderer {
             return;
         }
         // Keep _comboPartner set through the fade — _animate ticks its mixer,
-        // which is what actually animates the fadeOut — then dispose.
+        // which is what actually animates the fadeOut — then dispose. The
+        // fading flag makes _cameraPreset stop counting the partner, so any
+        // mid-fade re-frame won't chase a character that's on its way out.
+        partner.fading = true;
         try { partner.action.fadeOut(0.5); } catch (e) { /* non-fatal */ }
         setTimeout(dispose, 600);
     }
@@ -2308,15 +2336,34 @@ class AvatarRenderer {
 
         // Group calls: frame the whole row of characters. Centre on the
         // group midpoint and remember the half-width so the distance solve
-        // below can widen the shot until everyone fits horizontally.
+        // below can widen the shot until everyone fits horizontally. A
+        // spawned combo partner counts as a character too — otherwise the
+        // shot stays centred on the base avatar and the partner can end up
+        // outside the frame.
         let halfWidth = 0;
-        if (this._peers.size) {
+        const comboPartnerVrm =
+            this._comboPartner?.vrm && !this._comboPartner.fading ? this._comboPartner.vrm : null;
+        if (comboPartnerVrm && !this._peers.size) {
+            // Solo combo: placement offsets are authored in world space
+            // around the scene centre — anchor the shot there instead of
+            // following the base, so a base x of 0 sits dead centre and a
+            // negative x reads as "left of centre" exactly as typed. Widen
+            // symmetrically until both characters fit.
+            const xs = [ax, comboPartnerVrm.scene.position.x];
+            az = Math.max(az, comboPartnerVrm.scene.position.z);
+            ax = 0;
+            halfWidth = Math.max(...xs.map(Math.abs)) + CALL_FRAME_SIDE_MARGIN;
+        } else if (this._peers.size) {
             const xs = [ax];
             const zs = [az];
             for (const peer of this._peers.values()) {
                 if (!peer.vrm) continue;
                 xs.push(peer.vrm.scene.position.x);
                 zs.push(peer.vrm.scene.position.z);
+            }
+            if (comboPartnerVrm) {
+                xs.push(comboPartnerVrm.scene.position.x);
+                zs.push(comboPartnerVrm.scene.position.z);
             }
             const minX = Math.min(...xs);
             const maxX = Math.max(...xs);

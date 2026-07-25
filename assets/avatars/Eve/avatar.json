@@ -22,9 +22,29 @@
       "name": "Gothic witch ensemble",
       "vrm": "eve_red_wizard_dress.vrm",
       "description": "Halloween themed outfit, wide-brimmed pointed black witch hat. Crimson red quilted bodice with pearl accents, cinched at the waist by a wide black belt with gold buckle. Layered skirt with a draped red overskirt opening over a black underskirt. Long black opera gloves, black tights, and black Mary Jane shoes."
+    },
+    {
+      "name": "Swimsuit",
+      "vrm": "eve_swimsuit.vrm",
+      "description": "Swimsuit — beachwear for the beach, pool, hot springs or any swimming and summer-sun scene."
     }
   ],
-  "gestures": [],
+  "gestures": [
+    {
+      "enum": "backflip_together",
+      "name": "Backflip with Ara",
+      "type": "combo",
+      "vrma": "/assets/vrma/Backflip.vrma",
+      "partner_avatar": "Ara",
+      "partner_vrma": "/assets/vrma/Backflip.vrma",
+      "description": "Synchronized backflip with Ara — she appears at your side and you both backflip at exactly the same time. Use when the captain asks you two for a trick, a stunt, or to show off together.",
+      "loop": false,
+      "base_offset": [-0.45, 0, 0],
+      "partner_offset": [0.45, 0, 0],
+      "partner_rotation": [0, 0, 0],
+      "partner_scale": 1.0
+    }
+  ],
   "backgrounds": [
     {
       "name": "Charcoal",

@@ -17,6 +17,37 @@ const PRESETS = [
 
 const BLANK_MANIFEST = { name: "", vrm: "", vrma_idle: "", outfits: [], gestures: [], backgrounds: [] };
 
+/** Numeric input that doesn't fight the keyboard. A plain controlled number
+ *  input re-renders from the parsed value on every keystroke, so an
+ *  in-progress "-" or "" parses to NaN, snaps the field back to 0, and makes
+ *  typing "-5" impossible. This keeps the box as free text while focused,
+ *  commits every valid parse upward, and only snaps back on blur when what's
+ *  left isn't a number. */
+function NumField({ value, step, onCommit }) {
+    const [text, setText] = useState(String(value ?? 0));
+    const focused = useRef(false);
+    useEffect(() => {
+        // Follow external changes (switching rows, loading a manifest) but
+        // never clobber what the user is mid-typing.
+        if (!focused.current && parseFloat(text) !== (value ?? 0)) setText(String(value ?? 0));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [value]);
+    return (
+        <input type="number" step={step} value={text}
+               onFocus={() => { focused.current = true; }}
+               onChange={(ev) => {
+                   setText(ev.target.value);
+                   const n = parseFloat(ev.target.value);
+                   if (!Number.isNaN(n)) onCommit(n);
+               }}
+               onBlur={() => {
+                   focused.current = false;
+                   const n = parseFloat(text);
+                   setText(String(Number.isNaN(n) ? (value ?? 0) : n));
+               }} />
+    );
+}
+
 export default function AvatarManager({ onChange, active = true }) {
     const [list, setList] = useState([]);
     const [editing, setEditing] = useState(null); // { pack_key, manifest, files }
@@ -98,6 +129,23 @@ export default function AvatarManager({ onChange, active = true }) {
         }
     };
 
+    const duplicate = async (a) => {
+        // The name chosen here also names the pack folder (folders only follow
+        // the display name at creation), so ask up front instead of hardcoding
+        // "<name> - Copy" into the folder forever.
+        const name = window.prompt(
+            _t("Name for the copy (also names the pack folder):"), `${a.name} Copy`);
+        if (!name || !name.trim()) return;
+        try {
+            const r = await rpc("/api/avatars/duplicate", { pack_key: a.pack_key, name: name.trim() });
+            notification.add(_t("%s saved to data/avatars/%s/", r.name, r.pack_key), { type: "info" });
+            load();
+            onChange?.();
+        } catch (e) {
+            notification.add(e?.message || _t("Duplicate failed"), { type: "danger" });
+        }
+    };
+
     const remove = async (a) => {
         if (!window.confirm(_t("Delete avatar %s? Companions using it lose their avatar. This removes the pack folder and its files.", a.name))) return;
         try {
@@ -134,14 +182,30 @@ export default function AvatarManager({ onChange, active = true }) {
                     {a.editable ? (
                         <>
                             <button className="btn btn-sm btn-link p-0" onClick={() => startEdit(a)}>{_t("Edit")}</button>
+                            {a.pack_key && (
+                                <button className="btn btn-sm btn-link p-0"
+                                        title={_t("Duplicate — make an editable copy (e.g. to add custom gestures to a bundled avatar)")}
+                                        onClick={() => duplicate(a)}>
+                                    <i className="fa fa-clone" />
+                                </button>
+                            )}
                             <button className="btn btn-sm btn-link p-0" title={_t("Delete avatar")} onClick={() => remove(a)}>
                                 <i className="fa fa-trash-o" />
                             </button>
                         </>
                     ) : (
-                        <span className="rx_memory_meta" title={_t("Bundled avatars ship with the app and are read-only. Create a new avatar to customize.")}>
-                            <i className="fa fa-lock" /> {_t("bundled")}
-                        </span>
+                        <>
+                            {a.pack_key && (
+                                <button className="btn btn-sm btn-link p-0"
+                                        title={_t("Duplicate — make an editable copy (e.g. to add custom gestures to a bundled avatar)")}
+                                        onClick={() => duplicate(a)}>
+                                    <i className="fa fa-clone" />
+                                </button>
+                            )}
+                            <span className="rx_memory_meta" title={_t("Bundled avatars ship with the app and are read-only. Duplicate one to customize it.")}>
+                                <i className="fa fa-lock" /> {_t("bundled")}
+                            </span>
+                        </>
                     )}
                 </div>
             ))}
@@ -333,32 +397,32 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                               title={_t("Base avatar placement during the combo. Offsets in metres; rotations in degrees applied yaw → pitch → roll (yaw 0 = facing the camera; pitch 90 = lying on the back — pair with a positive Y offset since models pivot at their feet).")}>
                             base
                             {["x", "y", "z"].map((ax, k) => (
-                                <label key={ax}>{ax}<input type="number" step="0.1"
+                                <label key={ax}>{ax}<NumField step="0.1"
                                     value={(g.base_offset || [0, 0, 0])[k]}
-                                    onChange={(ev) => setVec("gestures", i, "base_offset", k, parseFloat(ev.target.value))} /></label>
+                                    onCommit={(n) => setVec("gestures", i, "base_offset", k, n)} /></label>
                             ))}
                             {["yaw", "pitch", "roll"].map((ax, k) => (
-                                <label key={ax}>{ax}<input type="number" step="5"
+                                <label key={ax}>{ax}<NumField step="5"
                                     value={(g.base_rotation || [0, 0, 0])[k]}
-                                    onChange={(ev) => setVec("gestures", i, "base_rotation", k, parseFloat(ev.target.value))} /></label>
+                                    onCommit={(n) => setVec("gestures", i, "base_rotation", k, n)} /></label>
                             ))}
                         </span>
                         <span className="rx_scene_xform"
                               title={_t("Partner placement during the combo — same conventions as the base avatar, plus a uniform scale.")}>
                             partner
                             {["x", "y", "z"].map((ax, k) => (
-                                <label key={ax}>{ax}<input type="number" step="0.1"
+                                <label key={ax}>{ax}<NumField step="0.1"
                                     value={(g.partner_offset || [0.6, 0, 0])[k]}
-                                    onChange={(ev) => setVec("gestures", i, "partner_offset", k, parseFloat(ev.target.value))} /></label>
+                                    onCommit={(n) => setVec("gestures", i, "partner_offset", k, n)} /></label>
                             ))}
                             {["yaw", "pitch", "roll"].map((ax, k) => (
-                                <label key={ax}>{ax}<input type="number" step="5"
+                                <label key={ax}>{ax}<NumField step="5"
                                     value={(g.partner_rotation || [0, 0, 0])[k]}
-                                    onChange={(ev) => setVec("gestures", i, "partner_rotation", k, parseFloat(ev.target.value))} /></label>
+                                    onCommit={(n) => setVec("gestures", i, "partner_rotation", k, n)} /></label>
                             ))}
-                            <label>scale<input type="number" step="0.05"
+                            <label>scale<NumField step="0.05"
                                 value={g.partner_scale ?? 1}
-                                onChange={(ev) => setList("gestures", i, { partner_scale: parseFloat(ev.target.value) || 1 })} /></label>
+                                onCommit={(n) => setList("gestures", i, { partner_scale: n })} /></label>
                         </span>
                         <label className="rx_check" style={{ margin: 0 }}
                                title={_t("Looping combos: both clips should have the same duration or they drift out of phase with each repeat.")}>
@@ -404,16 +468,16 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                                 <FileField kind="scene" packKey={pack_key} value={b.glb} accept=".glb,.gltf"
                                            onUploaded={(fn) => setList("backgrounds", i, { glb: fn })} />
                                 <span className="rx_scene_xform" title={_t("Placement of the GLB scene, in metres (avatar ≈ 1.5 m tall). Scale, X/Y/Z offset, and Y-axis rotation in degrees.")}>
-                                    <label>scale<input type="number" step="0.1" value={b.scale ?? 1}
-                                           onChange={(ev) => setList("backgrounds", i, { scale: parseFloat(ev.target.value) || 1 })} /></label>
-                                    <label>x<input type="number" step="0.1" value={(b.offset || [0, 0, 0])[0]}
-                                           onChange={(ev) => setOffset(i, 0, parseFloat(ev.target.value))} /></label>
-                                    <label>y<input type="number" step="0.1" value={(b.offset || [0, 0, 0])[1]}
-                                           onChange={(ev) => setOffset(i, 1, parseFloat(ev.target.value))} /></label>
-                                    <label>z<input type="number" step="0.1" value={(b.offset || [0, 0, 0])[2]}
-                                           onChange={(ev) => setOffset(i, 2, parseFloat(ev.target.value))} /></label>
-                                    <label>y°<input type="number" step="1" value={b.rotation_y ?? 0}
-                                           onChange={(ev) => setList("backgrounds", i, { rotation_y: parseFloat(ev.target.value) || 0 })} /></label>
+                                    <label>scale<NumField step="0.1" value={b.scale ?? 1}
+                                           onCommit={(n) => setList("backgrounds", i, { scale: n })} /></label>
+                                    <label>x<NumField step="0.1" value={(b.offset || [0, 0, 0])[0]}
+                                           onCommit={(n) => setOffset(i, 0, n)} /></label>
+                                    <label>y<NumField step="0.1" value={(b.offset || [0, 0, 0])[1]}
+                                           onCommit={(n) => setOffset(i, 1, n)} /></label>
+                                    <label>z<NumField step="0.1" value={(b.offset || [0, 0, 0])[2]}
+                                           onCommit={(n) => setOffset(i, 2, n)} /></label>
+                                    <label>y°<NumField step="1" value={b.rotation_y ?? 0}
+                                           onCommit={(n) => setList("backgrounds", i, { rotation_y: n })} /></label>
                                 </span>
                             </>
                         )}

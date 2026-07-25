@@ -37,6 +37,7 @@ _BUILTIN_GESTURE_IDS = (
     "clapping", "dance", "goodbye", "greeting", "jump",
     "look_around", "sleepy", "thinking", "peace_sign",
     "shoot", "spin", "show_full_body", "model_pose", "squat",
+    "backflip", "blow_kiss", "belly_dance",
 )
 
 _PLAY_GESTURE_BASE_DESCRIPTION = (
@@ -53,7 +54,11 @@ _PLAY_GESTURE_BASE_DESCRIPTION = (
     "twirl on success; 'show_full_body' when introducing yourself or "
     "the user explicitly asks to see your full body; 'model_pose' for "
     "a brief showy pose; 'squat' is a low/grounded gesture — rarely "
-    "appropriate in conversation. Emotions (set_emotion) already play "
+    "appropriate in conversation; 'backflip' for an athletic show-off "
+    "celebration or when asked to perform a trick; 'blow_kiss' for an "
+    "affectionate goodbye or a flirty, warm moment with the user; "
+    "'belly_dance' when asked to dance for the user or putting on a "
+    "playful performance. Emotions (set_emotion) already play "
     "a matching gesture automatically — only use play_gesture for "
     "these standalones."
 )

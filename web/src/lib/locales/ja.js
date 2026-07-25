@@ -298,8 +298,16 @@ export const JA = {
   "backgrounds": "背景",
   "used by": "使用中：",
   "bundled": "同梱",
-  "Bundled avatars ship with the app and are read-only. Create a new avatar to customize.":
-    "同梱アバターはアプリ付属で読み取り専用です。カスタマイズするには新しいアバターを作成してください。",
+  "Bundled avatars ship with the app and are read-only. Duplicate one to customize it.":
+    "同梱アバターはアプリ付属で読み取り専用です。カスタマイズするには複製してください。",
+  "Duplicate — make an editable copy (e.g. to add custom gestures to a bundled avatar)":
+    "複製 — 編集可能なコピーを作成（同梱アバターにカスタムジェスチャーを追加したいときなど）",
+  "Name for the copy (also names the pack folder):":
+    "コピーの名前（パックフォルダ名にもなります）：",
+  "Duplicate failed": "複製に失敗しました",
+  "Duplicate companion (settings and prompt only — history and memories stay with the original)":
+    "コンパニオンを複製（設定とプロンプトのみ — 履歴と記憶は元のコンパニオンに残ります）",
+  "%s created.": "%s を作成しました。",
   "New and edited avatars are saved as packs under":
     "新規・編集したアバターはパックとして保存されます：",
   "shareable folders anyone can drop into another install. Bundled avatars are read-only.":

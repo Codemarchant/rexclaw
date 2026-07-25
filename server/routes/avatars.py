@@ -93,6 +93,14 @@ def save(payload: dict = Body(default={}), con=Depends(db_con)):
     return {"ok": True, "avatar_id": avatar_id, "pack_key": pack_key}
 
 
+@router.post("/duplicate")
+def duplicate(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Copy a pack (bundled or user) into a new editable user pack. The new
+    display name (required, chosen by the user) also names the folder."""
+    r = avatar_packs.duplicate_pack(con, payload.get("pack_key"), payload.get("name"))
+    return {"ok": True, **r}
+
+
 @router.post("/delete")
 def delete(payload: dict = Body(default={}), con=Depends(db_con)):
     """Delete a user pack (folder + DB row). Agents using it fall back to no

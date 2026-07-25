@@ -582,6 +582,40 @@ def write_manifest(con, pack_key, manifest):
     return avatar_id
 
 
+def duplicate_pack(con, pack_key, new_name):
+    """Copy any pack — bundled or user — into a new editable user pack named
+    `new_name`. The name is chosen by the user at duplicate time and also
+    derives the folder key (duplicating Eve as 'Kira' lands in
+    data/avatars/Kira/) — the folder only follows the display name on
+    creation, so baking in a '<name> - Copy' folder would stick forever."""
+    import shutil
+    if not isinstance(pack_key, str) or _KEY_RE.search(pack_key) or pack_key in ("", ".", ".."):
+        raise UserError("Invalid pack key.")
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise UserError("The copy needs a name.")
+    src = USER_PACKS_DIR / pack_key
+    if not (src / "avatar.json").is_file():
+        src = ASSETS_DIR / "avatars" / pack_key
+    if not (src / "avatar.json").is_file():
+        raise UserError(f"Avatar pack {pack_key!r} not found.")
+    try:
+        manifest = json.loads((src / "avatar.json").read_text(encoding="utf-8"))
+    except Exception as e:
+        raise UserError(f"Source avatar.json is unreadable: {e}")
+    if not isinstance(manifest, dict):
+        raise UserError("Source avatar.json must be a JSON object.")
+    key = allocate_pack_key(new_name)
+    dest = USER_PACKS_DIR / key
+    shutil.copytree(src, dest)
+    manifest["name"] = new_name
+    (dest / "avatar.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    avatar_id = _scan_pack(con, dest, "/avatars")
+    con.commit()
+    return {"pack_key": key, "avatar_id": avatar_id, "name": new_name}
+
+
 def delete_pack(con, pack_key):
     """Remove a user pack's folder and its DB row (+ children via cascade).
     Bundled packs cannot be deleted."""

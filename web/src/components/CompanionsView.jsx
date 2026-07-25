@@ -116,6 +116,16 @@ export default function CompanionsView({ active }) {
         }
     };
 
+    const duplicateAgent = async (a) => {
+        try {
+            const r = await rpc("/api/agents/duplicate", { id: a.id });
+            notification.add(_t("%s created.", r.name), { type: "info" });
+            load();
+        } catch (e) {
+            notification.add(e?.message || _t("Duplicate failed"), { type: "danger" });
+        }
+    };
+
     const deleteAgent = async (a) => {
         if (!window.confirm(
             _t("Delete %s? This permanently removes the companion plus all its sessions, transcripts and memories.", a.name),
@@ -184,6 +194,11 @@ export default function CompanionsView({ active }) {
                                 </span>
                                 <button className="btn btn-sm btn-link p-0" onClick={() => setEditingAgent({ ...a })}>
                                     {_t("Edit")}
+                                </button>
+                                <button className="btn btn-sm btn-link p-0"
+                                        title={_t("Duplicate companion (settings and prompt only — history and memories stay with the original)")}
+                                        onClick={() => duplicateAgent(a)}>
+                                    <i className="fa fa-clone" />
                                 </button>
                                 <button className="btn btn-sm btn-link p-0" title={_t("Delete companion")}
                                         onClick={() => deleteAgent(a)}>
