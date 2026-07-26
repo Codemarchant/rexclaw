@@ -134,6 +134,10 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None):
         if isinstance(t, str) and t.strip()
     }
 
+    # Recall scope only — core memories live in the session preamble, and the
+    # deny-despite-knowing failure is handled where it happens: the memory
+    # amble says to read the preamble first, and an empty result here carries
+    # a note redirecting the model back to it (see _impl_recall).
     if agent_id:
         rows = con.execute(
             "SELECT * FROM memories WHERE scope = 'recall' AND (agent_id = ? OR agent_id IS NULL)",
@@ -436,7 +440,18 @@ def _impl_recall(con, session, arguments):
         if r['memory_type'] == 'episode':
             hit['expandable'] = True
         hits.append(hit)
-    return {'ok': True, 'query': query, 'count': len(hits), 'hits': hits}
+    result = {'ok': True, 'query': query, 'count': len(hits), 'hits': hits}
+    if not hits:
+        # Models over-trust an empty tool result and deny knowledge that is
+        # sitting in their own preamble — nudge them back to it before they
+        # tell the user "you never told me".
+        result['note'] = (
+            'No stored memories matched this query. Before telling the user '
+            'you do not know: re-read "What you remember about this user" in '
+            'your instructions — the answer may already be there, possibly '
+            'under different wording.'
+        )
+    return result
 
 
 def _impl_forget(con, session, arguments):
@@ -517,8 +532,9 @@ MEMORY_TOOLS = [
             'matching. Hits include `memory_type`: a `fact` is a one-line '
             'statement; an `episode` (marked `expandable`) is a summary of a past '
             'conversation block — call recall again with its `episode_id` to read '
-            'the full verbatim conversation. Core memories are already in your '
-            'prompt — no need to recall them.'
+            'the full verbatim conversation. This searches the recall archive '
+            'only — your core memories are already in this prompt; check them '
+            'first, they may answer without any tool call.'
         ),
         'parameters': {
             'type': 'object',

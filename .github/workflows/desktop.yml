@@ -45,6 +45,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      # Mirror the build to itch.io. butler pushes the UNPACKED directory —
+      # itch stores it as a "windows" channel build, serves web downloaders a
+      # zip of it, and gives itch-app users delta patches between versions.
+      # Skips gracefully when the BUTLER_API_KEY secret isn't configured.
+      - name: Push to itch.io
+        if: github.event_name == 'release'
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          if (-not $env:BUTLER_API_KEY) {
+            Write-Host "BUTLER_API_KEY secret not set - skipping itch.io push"
+            exit 0
+          }
+          curl.exe -sL -o butler.zip https://broth.itch.zone/butler/windows-amd64/LATEST/archive/default
+          Expand-Archive butler.zip -DestinationPath butler
+          $version = ([regex]::Match((Get-Content pyproject.toml -Raw), 'version = "([^"]+)"')).Groups[1].Value
+          ./butler/butler.exe push desktop/dist/win-unpacked codemarchant/rexclaw:windows --userversion $version
+
       - name: Store zip as CI artifact (manual run)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4

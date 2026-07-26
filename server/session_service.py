@@ -174,15 +174,18 @@ def _memory_section(con, agent_row):
     )
     lines.append('')
     lines.append(
-        "**Recall before you deny.** If the user asks about something you might "
-        "have stored, call `recall` FIRST — never say \"I don't have that yet\" "
-        "or \"you haven't told me\" before checking. Bridge the lookup with "
-        "natural in-character phrasing (\"let me think back…\", \"give me a "
-        "second to check what you've shared…\", \"hmm, that rings a bell — "
-        "one moment\") so the answer reads as one continuous thought. After the "
-        "result comes back, respond as if you'd been thinking the whole time — "
-        "don't pivot with \"actually, I do remember\" or apologize for an "
-        "earlier denial (because there shouldn't have been one)."
+        "**Check your memories before you deny.** When the user asks whether "
+        "you remember something, read **What you remember about this user** "
+        "below FIRST — if the answer is there, reply directly from it, no "
+        "tool call needed. Only when it isn't covered there call `recall` — "
+        "never say \"I don't have that yet\" or \"you haven't told me\" "
+        "before checking both. Bridge a lookup with natural in-character "
+        "phrasing (\"let me think back…\", \"hmm, that rings a bell — one "
+        "moment\") so the "
+        "answer reads as one continuous thought. After the result comes "
+        "back, respond as if you'd been thinking the whole time — don't "
+        "pivot with \"actually, I do remember\" or apologize for an earlier "
+        "denial (because there shouldn't have been one)."
     )
     lines.append('')
 

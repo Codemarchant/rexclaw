@@ -457,7 +457,14 @@ class VoiceCallService {
     _broadcastSystemNote(text, { except = null, record = false } = {}) {
         for (const conn of this.connections.values()) {
             if (conn === except || conn.isTerminal) continue;
-            conn.injectContextItem(`[System]: ${text}`, { promptResponse: false });
+            // Primary has live audio input — immediate text injections get
+            // lost behind its audio turns (xAI quirk; see
+            // queueDeferredContext). Defer; peers take them immediately.
+            if (conn === this.primary) {
+                conn.queueDeferredContext(`[System]: ${text}`);
+            } else {
+                conn.injectContextItem(`[System]: ${text}`, { promptResponse: false });
+            }
             if (record) {
                 conn.recordMessage({ role: "system", content: text });
             }
@@ -859,6 +866,13 @@ class VoiceCallService {
             // Disarm the one-shot suppression — this response is
             // director-granted, not a stray auto-response.
             this._suppressPrimaryOnce = false;
+            if (this.primary._deferredContextItems?.length) {
+                // The VAD auto-response (possibly already in flight) was
+                // assembled BEFORE the deferred peer lines existed in
+                // context — kill it, then _maybeCreateResponse flushes the
+                // deferred lines and asks fresh with full knowledge.
+                this.primary.cancelActiveResponse("context-refresh");
+            }
             this.primary._maybeCreateResponse();
         } else {
             this.primary.cancelActiveResponse(`routed-to-${target.connId}`);
@@ -910,7 +924,19 @@ class VoiceCallService {
         const label = conn.agentName || _t("Companion");
         for (const other of this.connections.values()) {
             if (other === conn || other.isTerminal) continue;
-            other.injectContextItem(`[${label}]: ${text}`, { promptResponse: false });
+            // Primary: DEFER — xAI loses text items injected before an audio
+            // turn, and the user's next spoken turn always lands after this
+            // relay. The line is flushed right before the primary's next
+            // response, where the model can actually see it.
+            if (other === this.primary) {
+                other.queueDeferredContext(`[${label}]: ${text}`);
+            } else {
+                const delivered = other.injectContextItem(`[${label}]: ${text}`, { promptResponse: false });
+                if (!delivered) {
+                    console.warn(`[voice] relay of ${label}'s line to ${other.connId} `
+                        + `(${other.agentName}) was NOT delivered — that leg won't know it was said`);
+                }
+            }
             // Full-conversation tracking: mirror the line into the other
             // leg's session record with speaker attribution. Replay tells
             // "own speech" from "another agent's speech" by comparing the

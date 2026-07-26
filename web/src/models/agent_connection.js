@@ -262,6 +262,9 @@ export class AgentConnection {
         // Fresh socket = fresh input item state on xAI's side — the
         // cumulative-transcript guard must not strip against stale text.
         this._lastUserTranscriptText = "";
+        // Deferred relays from before a restart are already recovered via
+        // the session-record replay — flushing them again would duplicate.
+        this._deferredContextItems = [];
         this._runningTokens = { input: 0, output: 0 };
         // Re-arm the daily-cap soft-warning latch so the toast can fire
         // once per session (not once per browser session).
@@ -655,7 +658,15 @@ export class AgentConnection {
         // in a `transcript` field, preferred over accumulated deltas.
         if (msg.type === "response.output_audio_transcript.done" || msg.type === "response.text.done") {
             if (msg.response_id && this._currentResponseId &&
-                msg.response_id !== this._currentResponseId) return;
+                msg.response_id !== this._currentResponseId) {
+                // A skipped final means this line is never relayed to other
+                // call legs — if an agent seems unaware of something that was
+                // audibly said, this warning is the smoking gun.
+                console.warn(`[voice:${this.connId}] transcript.done SKIPPED (stale response_id `
+                    + `${msg.response_id} != ${this._currentResponseId}): `
+                    + `"${(msg.transcript || "").slice(0, 80)}"`);
+                return;
+            }
             const finalText = msg.transcript || this._assistantTranscriptInProgress;
             if (finalText) {
                 this._appendMessage({ role: "assistant", content: finalText });
@@ -1080,8 +1091,37 @@ export class AgentConnection {
     }
 
     /** Trigger model response generation, idempotent per user turn. */
+    /** Queue a context line to be delivered right before this leg's next
+     *  response instead of immediately. Needed for legs with live audio
+     *  input: xAI's realtime API loses text items injected BEFORE an audio
+     *  turn — responses generated after the audio item can't see them (the
+     *  model literally answers "I must have missed it"). Items created
+     *  AFTER the audio item are seen fine, so peer-speech relays for the
+     *  primary are parked here and flushed at grant time. */
+    queueDeferredContext(text) {
+        text = (text || "").trim();
+        if (!text) return;
+        this._deferredContextItems = this._deferredContextItems || [];
+        this._deferredContextItems.push(text);
+        if (this._deferredContextItems.length > 30) this._deferredContextItems.shift();
+    }
+
     _maybeCreateResponse() {
         if (this._responseInFlight) return;
+        // Deliver deferred context now — after any audio item from the turn
+        // that triggered this grant, where the model can actually see it.
+        if (this._deferredContextItems?.length
+            && this.ws && this.ws.readyState === WebSocket.OPEN) {
+            console.log(`[voice:${this.connId}] flushing ${this._deferredContextItems.length} deferred context item(s) pre-response`);
+            for (const text of this._deferredContextItems) {
+                this._sendWs({
+                    type: "conversation.item.create",
+                    item: { type: "message", role: "user",
+                            content: [{ type: "input_text", text }] },
+                });
+            }
+            this._deferredContextItems = [];
+        }
         this._responseInFlight = true;
         this.state.thinking = true;  // gap until the next audio/transcript chunk arrives
         console.log(`[voice:${this.connId}] → response.create`);
@@ -1288,6 +1328,28 @@ export class AgentConnection {
             .slice(-8)
             .map((m) => m.content.split(/\s+/).map(normWord).filter(Boolean))
             .filter((r) => r.length);
+        // Word equality must tolerate the re-transcription's spelling drift
+        // ("favourite" ↔ "favorite", "colour" ↔ "color") — with short
+        // utterances two drifted words already sink the 80% row threshold.
+        // Edit distance ≤1 (≤2 for 8+ letter words) counts as the same word.
+        const editDistanceAtMost = (a, b, max) => {
+            if (Math.abs(a.length - b.length) > max) return false;
+            const dp = Array.from({ length: a.length + 1 }, (_, i) => i);
+            for (let j = 1; j <= b.length; j++) {
+                let prevDiag = dp[0];
+                dp[0] = j;
+                for (let i = 1; i <= a.length; i++) {
+                    const tmp = dp[i];
+                    dp[i] = Math.min(dp[i] + 1, dp[i - 1] + 1,
+                                     prevDiag + (a[i - 1] === b[j - 1] ? 0 : 1));
+                    prevDiag = tmp;
+                }
+            }
+            return dp[a.length] <= max;
+        };
+        const wordsMatch = (a, b) => a === b ||
+            (a.length >= 4 && b.length >= 4 &&
+             editDistanceAtMost(a, b, (a.length >= 8 || b.length >= 8) ? 2 : 1));
         // The re-emission starts at some earlier utterance boundary — try
         // each starting row, greedily consume consecutive matching rows,
         // and keep the alignment that explains the most leading words.
@@ -1299,7 +1361,7 @@ export class AgentConnection {
                 if (pos + row.length > newNorm.length) break;
                 let hits = 0;
                 for (let k = 0; k < row.length; k++) {
-                    if (newNorm[pos + k] === row[k]) hits++;
+                    if (wordsMatch(newNorm[pos + k], row[k])) hits++;
                 }
                 if (hits / row.length < 0.8) break;
                 pos += row.length;
@@ -1320,6 +1382,20 @@ export class AgentConnection {
         // transcript can label who said what (solo calls skip the label).
         if (msg.role === "assistant" && this.agentName && this.manager?.hasPeers?.()) {
             msg = { ...msg, speaker: this.agentName };
+        }
+        // Peer tool activity is otherwise invisible in the call transcript:
+        // peer rows persist to the PEER's own session, and the manager only
+        // mirrors speech. Display-mirror tool_call/tool_result rows into the
+        // shared transcript too, so a peer's remember/recall/imagine shows
+        // up exactly like the primary's.
+        if (this.role === "peer" && this.manager?.state
+            && (msg.role === "tool_call" || msg.role === "tool_result")) {
+            this.manager.state.messages.push({
+                ...msg,
+                speaker: this.agentName || undefined,
+                sequence: this.manager.state.messages.length + 1,
+                mirrored: true,
+            });
         }
         this.state.messages.push({
             ...msg,
@@ -1608,8 +1684,19 @@ export class AgentConnection {
     injectContextItem(text, { role = "user", promptResponse = false } = {}) {
         text = (text || "").trim();
         if (!text) return false;
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
-        if (this.state.compacting) return false;
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn(`[voice:${this.connId}] context injection DROPPED (ws not open): `
+                + `"${text.slice(0, 80)}"`);
+            return false;
+        }
+        if (this.state.compacting) {
+            // Usually harmless: relayed lines are also recorded server-side
+            // and come back via the compaction restart's replay. Logged so a
+            // context gap can be traced to its cause.
+            console.warn(`[voice:${this.connId}] context injection DROPPED (compacting): `
+                + `"${text.slice(0, 80)}"`);
+            return false;
+        }
         this._sendWs({
             type: "conversation.item.create",
             item: {
