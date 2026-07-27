@@ -11,6 +11,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      push_itch:
+        description: "Also butler-push this build to itch.io"
+        type: boolean
+        default: false
 
 jobs:
   windows:
@@ -45,12 +50,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      # Mirror the build to itch.io. butler pushes the UNPACKED directory —
-      # itch stores it as a "windows" channel build, serves web downloaders a
-      # zip of it, and gives itch-app users delta patches between versions.
-      # Skips gracefully when the BUTLER_API_KEY secret isn't configured.
+      # Mirror the build to itch.io. The unpacked app is staged under a
+      # constant "Rexclaw/" wrapper folder so the web-download zip extracts
+      # into its own directory instead of scattering files ("Extract Here"
+      # foot-gun). The wrapper name is deliberately version-less: butler's
+      # delta patching is path-based, so a versioned folder would turn every
+      # patch into a full replacement. itch-app users just get one extra
+      # nesting level. Skips gracefully when BUTLER_API_KEY isn't configured.
       - name: Push to itch.io
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.push_itch)
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
         run: |
@@ -61,7 +69,9 @@ jobs:
           curl.exe -sL -o butler.zip https://broth.itch.zone/butler/windows-amd64/LATEST/archive/default
           Expand-Archive butler.zip -DestinationPath butler
           $version = ([regex]::Match((Get-Content pyproject.toml -Raw), 'version = "([^"]+)"')).Groups[1].Value
-          ./butler/butler.exe push desktop/dist/win-unpacked codemarchant/rexclaw:windows --userversion $version
+          New-Item -ItemType Directory -Path itch-staging | Out-Null
+          Copy-Item desktop/dist/win-unpacked itch-staging/Rexclaw -Recurse
+          ./butler/butler.exe push itch-staging codemarchant/rexclaw:windows --userversion $version
 
       - name: Store zip as CI artifact (manual run)
         if: github.event_name == 'workflow_dispatch'
