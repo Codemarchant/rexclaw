@@ -1,5 +1,5 @@
 import { rpc } from "../lib/rpc";
-import { EMOTION_GESTURE_MAP, GESTURE_FILE_MAP } from "./avatar_catalog";
+import { EMOTION_GESTURE_MAP, GESTURE_FILE_MAP, GESTURE_LOOP_MAP } from "./avatar_catalog";
 
 /**
  * Browser-side tool dispatcher.
@@ -203,7 +203,7 @@ export class ToolDispatcher {
         // the avatar's gesture rows, passed through on the avatar payload so
         // their VRMA URL resolves without an RPC.
         let url = GESTURE_FILE_MAP[gesture];
-        let loop = false;
+        let loop = !!GESTURE_LOOP_MAP[gesture];
         if (!url) {
             const customs = this.conversationState?.avatar?.custom_gestures || [];
             const custom = customs.find((g) => g.gesture_enum === gesture);

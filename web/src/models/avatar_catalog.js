@@ -54,7 +54,11 @@ export const GESTURES = [
     { id: "backflip", label: "Backflip", icon: "fa-rotate-left", url: `${VRMA_BASE}/Backflip.vrma` },
     { id: "blow_kiss", label: "Blow Kiss", icon: "fa-heart", url: `${VRMA_BASE}/BlowKiss.vrma` },
     { id: "belly_dance", label: "Belly Dance", icon: "fa-female", url: `${VRMA_BASE}/BellyDance.vrma` },
+    { id: "push_up", label: "Push-Ups", icon: "fa-hand-rock-o", url: `${VRMA_BASE}/PushUp.vrma`, loop: true },
+    { id: "pike_walk", label: "Pike Walk", icon: "fa-child", url: `${VRMA_BASE}/PikeWalk.vrma`, loop: true },
 ];
 
-// Quick lookup by id for the dispatcher.
+// Quick lookups by id for the dispatcher. Looping gestures repeat until
+// stopped ('idle' sentinel / another gesture / set_emotion).
 export const GESTURE_FILE_MAP = Object.fromEntries(GESTURES.map((g) => [g.id, g.url]));
+export const GESTURE_LOOP_MAP = Object.fromEntries(GESTURES.map((g) => [g.id, !!g.loop]));

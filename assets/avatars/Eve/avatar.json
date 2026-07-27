@@ -4,11 +4,6 @@
   "vrm": "eve_doctors_coat.vrm",
   "outfits": [
     {
-      "name": "Conference Fit",
-      "vrm": "eve_odoo_experience_outfit.vrm",
-      "description": "Tech-conference staff outfit — purple polo shirt with a white logo on the chest, branded purple baseball cap, sneakers, dark navy slim-fit jeans, and black gloves. The lore on the black gloves is she doesn't like touching people's hands at events."
-    },
-    {
       "name": "Cozy Winter casual",
       "vrm": "eve_winter_casual.vrm",
       "description": "Oversized pastel blue hoodie with a snowflake pattern and a small cartoon cat/hamster graphic on the chest. Sheer pale blue snowflake-patterned thigh high socks and matching light blue sneakers."
@@ -26,7 +21,12 @@
     {
       "name": "Swimsuit",
       "vrm": "eve_swimsuit.vrm",
-      "description": "Swimsuit — beachwear for the beach, pool, hot springs or any swimming and summer-sun scene."
+      "description": "Swimsuit — a halter-neck triangle bikini in a muted botanical camo print: mottled olive, khaki, sage and sand tones broken up by darker leaf-like shapes, a soft military-floral look rather than a bright beachwear print. Shaped cups with slight gathering at the centre and ties running up to the back of the neck, with matching side-tie briefs knotted at each hip. Barefoot. The same suit Ara owns — matching beach fits. For the beach, pool, hot springs or any swimming and summer-sun scene."
+    },
+    {
+      "name": "Gym athleisure fit",
+      "vrm": "eve_gym_fit.vrm",
+      "description": "Sporty gym look in white and navy. A cropped, boxy white short-sleeve tee with dark navy ribbed trim at the collar and sleeve cuffs, the hem sitting just above the navel to show a narrow strip of midriff. Fitted navy charcoal-blue shorts with a mid-rise waistband, mid-thigh length, lighter trim along the hem edges and a faint centre seam down the front. Dark navy low-top canvas trainers with white laces and thick white platform soles, worn with short navy ankle socks peeking above the shoe collar. For workouts, sports, or a sporty casual day out."
     }
   ],
   "gestures": [
@@ -39,9 +39,21 @@
       "partner_vrma": "/assets/vrma/Backflip.vrma",
       "description": "Synchronized backflip with Ara — she appears at your side and you both backflip at exactly the same time. Use when the captain asks you two for a trick, a stunt, or to show off together.",
       "loop": false,
-      "base_offset": [-0.45, 0, 0],
-      "partner_offset": [0.45, 0, 0],
-      "partner_rotation": [0, 0, 0],
+      "base_offset": [
+        -0.45,
+        0,
+        0
+      ],
+      "partner_offset": [
+        0.45,
+        0,
+        0
+      ],
+      "partner_rotation": [
+        0,
+        0,
+        0
+      ],
       "partner_scale": 1.0
     }
   ],

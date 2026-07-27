@@ -4,11 +4,6 @@
   "vrm": "leo_fancy_suit.vrm",
   "outfits": [
     {
-      "name": "Conference Fit",
-      "vrm": "leo_odoo_experience_outfit.vrm",
-      "description": "Tech-conference staff outfit — purple polo shirt with a white logo on the chest, branded purple baseball cap, sneakers, and dark navy pants."
-    },
-    {
       "name": "Christmas Fit",
       "vrm": "leo_christmas_outfit.vrm",
       "description": "Cozy Santa-style Christmas outfit — bright red hooded coat with fluffy white fur trim along the hem, cuffs, and hood edge, decorated with a holly leaf and golden bell ornament at the collar. White drawstrings hang from the hood. A brown leather belt with a gold buckle cinches the waist. Matching red trousers and brown lace-up boots with white fur cuffs."

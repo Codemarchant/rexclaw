@@ -263,6 +263,7 @@ class AvatarRenderer {
         this.camera = null;
         this.mixer = null;
         this.idleClipAction = null;
+        this._idleVrmaData = null;       // raw idle VRMA — retargetable onto a spawned combo partner at teardown
         this.vrm = null;
         this._vrmLoadGeneration = 0;     // monotonic — newest loadVRM wins; older results are disposed silently
         this.clock = null;
@@ -631,6 +632,10 @@ class AvatarRenderer {
         const vrma = gltf.userData.vrmAnimations?.[0];
         if (!vrma) return;
         const clip = createVRMAnimationClip(vrma, this.vrm);
+        // Keep the raw VRMA too — it retargets onto any humanoid, so the
+        // combo teardown can give a spawned partner this same idle to blend
+        // into (see _unloadComboPartner's T-pose note).
+        this._idleVrmaData = vrma;
         if (this.idleClipAction) {
             this.idleClipAction.stop();
         }
@@ -1157,7 +1162,21 @@ class AvatarRenderer {
         // fading flag makes _cameraPreset stop counting the partner, so any
         // mid-fade re-frame won't chase a character that's on its way out.
         partner.fading = true;
-        try { partner.action.fadeOut(0.5); } catch (e) { /* non-fatal */ }
+        // Crossfade the partner into the stock idle rather than just fading
+        // its action out: with nothing else on the mixer a fadeOut blends the
+        // skeleton back to its bind pose, which reads as a T-pose flash
+        // before the dispose cut. The base avatar's idle VRMA retargets onto
+        // the partner's humanoid, so both characters settle the same way.
+        try {
+            const makeClip = this.libs?.createVRMAnimationClip;
+            if (this._idleVrmaData && makeClip) {
+                partner.mixer.clipAction(makeClip(this._idleVrmaData, partner.vrm))
+                    .reset().fadeIn(0.5).play();
+                partner.action.fadeOut(0.5);
+            }
+            // No idle VRMA available: leave the action clamped on its final
+            // pose until dispose — a held pose beats a T-pose blend.
+        } catch (e) { /* non-fatal */ }
         setTimeout(dispose, 600);
     }
 

@@ -4,11 +4,6 @@
   "vrm": "ara_casual_default.vrm",
   "outfits": [
     {
-      "name": "Conference Fit",
-      "vrm": "ara_odoo_experience_fit.vrm",
-      "description": "Tech-conference staff outfit — purple polo shirt with a white logo on the chest and branded sneakers, paired with relaxed-fit beige chinos."
-    },
-    {
       "name": "Festive Christmas dress",
       "vrm": "ara_christmas_fit.vrm",
       "description": "Knit red sweater-dress with off-the-shoulder white collar, long sleeves with wide white cuffs, and two small white buttons at the chest. A thin black belt cinches the waist, accented by a small white bow. The flared skirt has a wide white fluffy hem with a small holly leaf embroidery near the bottom right. White thigh-high stockings and brown lace-up boots complete the cozy holiday look."
@@ -17,9 +12,46 @@
       "name": "Celestial gothic ensemble",
       "vrm": "ara_gothic_fit.vrm",
       "description": "Black dress with gold star-patterned embroidery and scalloped gold trim along the collar, skirt edges, and cuffs. Puffed short sleeves and a small bow at the collar. The dress features a front opening at the skirt revealing black shorts with a gold-buckled belt underneath. Black thigh-high stockings with gold garter straps, finished with sleek white knee-high boots accented with gold details. On the back, there are small black cute devil wings, and a black devil tail."
+    },
+    {
+      "name": "Gym athleisure fit",
+      "vrm": "ara_gym_fit.vrm",
+      "description": "Coordinated athleisure gym look in cool cyan-and-violet tones against black basics. A cropped, boxy short-sleeve tee in a cyan-to-teal gradient ends just below the bust, leaving the midriff exposed over a plain black bandeau sports bra. Black high-waisted athletic leggings with a wide waistband carry a bright electric-purple panel on the outer right thigh and thin purple piping down both outer seams. Chunky black-and-grey low-top trainers with light aqua accents on the laces and tongue trim, finished with thick white midsoles. For workouts, sports, or a sporty casual day out."
+    },
+    {
+      "name": "Swimsuit",
+      "vrm": "ara_swimsuit.vrm",
+      "description": "Swimsuit — a halter-neck triangle bikini in a muted botanical camo print: mottled olive, khaki, sage and sand tones broken up by darker leaf-like shapes, a soft military-floral look rather than a bright beachwear print. Shaped cups with slight gathering at the centre and ties running up to the back of the neck, with matching side-tie briefs knotted at each hip. Barefoot. The same suit Eve owns — matching beach fits. For the beach, pool, hot springs or any swimming and summer-sun scene."
     }
   ],
-  "gestures": [],
+  "gestures": [
+    {
+      "enum": "backflip_together",
+      "name": "Backflip with Eve",
+      "type": "combo",
+      "vrma": "/assets/vrma/Backflip.vrma",
+      "partner_avatar": "Eve",
+      "partner_vrma": "/assets/vrma/Backflip.vrma",
+      "description": "Synchronized backflip with Eve — she appears at your side and you both backflip at exactly the same time. Use when the captain asks you two for a trick, a stunt, or to show off together.",
+      "loop": false,
+      "base_offset": [
+        -0.45,
+        0,
+        0
+      ],
+      "partner_offset": [
+        0.45,
+        0,
+        0
+      ],
+      "partner_rotation": [
+        0,
+        0,
+        0
+      ],
+      "partner_scale": 1.0
+    }
+  ],
   "backgrounds": [
     {
       "name": "Charcoal",

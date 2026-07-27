@@ -6,6 +6,8 @@ import re
 
 from fastapi import APIRouter, Body, Depends
 
+from .. import memory_tools
+from ..db import utcnow
 from ..errors import UserError
 from .common import db_con
 
@@ -381,6 +383,49 @@ def memories_list(payload: dict = Body(default={}), con=Depends(db_con)):
         }
         for r in rows
     ]
+
+
+@router.post("/memories/save")
+def memories_save(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Create or update a memory from the UI. Manual creations are 'fact'
+    rows (episodes only come from session rollups); editing an episode keeps
+    its type and additionally allows retouching the keyword index that recall
+    scores against."""
+    memory_id = payload.get("id")
+    content = (payload.get("content") or "").strip()
+    if not content:
+        raise UserError("Memory content is required.")
+    if len(content) > memory_tools.CONTENT_MAX_LEN:
+        raise UserError("Memory content is too long.")
+    scope = payload.get("scope") or "recall"
+    if scope not in ("core", "recall"):
+        raise UserError("scope must be 'core' or 'recall'.")
+    agent_id = payload.get("agent_id")
+    if agent_id is not None:
+        if not isinstance(agent_id, int) or not con.execute(
+            "SELECT 1 FROM agents WHERE id = ?", (agent_id,)
+        ).fetchone():
+            raise UserError("Companion not found.")
+    tags = memory_tools._normalize_tags(payload.get("tags"))
+
+    if memory_id:
+        row = con.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+        if not row:
+            raise UserError("Memory not found.")
+        vals = {"content": content, "scope": scope, "agent_id": agent_id, "tags": tags}
+        if row["memory_type"] == "episode" and "keywords" in payload:
+            vals["keywords"] = (payload.get("keywords") or "").strip() or None
+        cols = ", ".join(f"{k} = ?" for k in vals)
+        con.execute(f"UPDATE memories SET {cols} WHERE id = ?", (*vals.values(), memory_id))
+    else:
+        cur = con.execute(
+            "INSERT INTO memories (agent_id, scope, memory_type, content, tags, source, created_at)"
+            " VALUES (?, ?, 'fact', ?, ?, 'user_explicit', ?)",
+            (agent_id, scope, content, tags, utcnow()),
+        )
+        memory_id = cur.lastrowid
+    con.commit()
+    return {"ok": True, "id": memory_id}
 
 
 @router.post("/memories/delete")

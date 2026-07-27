@@ -37,7 +37,7 @@ _BUILTIN_GESTURE_IDS = (
     "clapping", "dance", "goodbye", "greeting", "jump",
     "look_around", "sleepy", "thinking", "peace_sign",
     "shoot", "spin", "show_full_body", "model_pose", "squat",
-    "backflip", "blow_kiss", "belly_dance",
+    "backflip", "blow_kiss", "belly_dance", "push_up", "pike_walk",
 )
 
 _PLAY_GESTURE_BASE_DESCRIPTION = (
@@ -58,7 +58,11 @@ _PLAY_GESTURE_BASE_DESCRIPTION = (
     "celebration or when asked to perform a trick; 'blow_kiss' for an "
     "affectionate goodbye or a flirty, warm moment with the user; "
     "'belly_dance' when asked to dance for the user or putting on a "
-    "playful performance. Emotions (set_emotion) already play "
+    "playful performance; 'push_up' for a workout flex, exercising "
+    "together, or an energetic show of determination (loops continuously "
+    "until you stop it); 'pike_walk' for a yoga stretch or a playful "
+    "limbering-up moment (loops continuously until you stop it). "
+    "Emotions (set_emotion) already play "
     "a matching gesture automatically — only use play_gesture for "
     "these standalones."
 )
@@ -77,7 +81,9 @@ def build_play_gesture_tool(custom_gestures):
 
     description = _PLAY_GESTURE_BASE_DESCRIPTION
     enum = list(_BUILTIN_GESTURE_IDS)
-    has_loop = False
+    # push_up / pike_walk are looping builtins, so the loop-stop affordance
+    # below is always relevant now (it used to depend on custom gestures).
+    has_loop = True
     if custom_gestures:
         extra_lines = [
             "",

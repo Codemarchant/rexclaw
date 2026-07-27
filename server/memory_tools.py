@@ -8,12 +8,15 @@ searches via the `recall` tool when the conversation references something past.
 
 Search note: the Odoo original used Postgres FTS + pg_trgm. The standalone is
 single-user with a small memory set, so recall scoring runs in Python: token
-overlap (with prefix relaxation for plurals), substring bonus, and tag
-matching. Same OR semantics, no extensions needed.
+overlap (with prefix relaxation for plurals), a pg_trgm-style trigram fallback
+for tokens the prefix rule misses (spelling variants like colour/color, typos,
+transcription-mangled names), substring bonus, and tag matching. Same OR
+semantics, no extensions needed.
 """
 import logging
 import re
 from datetime import datetime
+from functools import lru_cache
 
 from .db import utcnow, parse_dt
 from . import store
@@ -103,6 +106,31 @@ def _token_match(haystack_token, query_token):
     return False
 
 
+# Minimum trigram similarity for a fuzzy token match. Mirrors the Odoo
+# module's pg_trgm tuning (word_similarity_threshold 0.3 — the 0.6 default is
+# too strict for short words: colour/color scores ~0.44, a one-letter typo in
+# an 8-letter word ~0.39).
+_TRGM_THRESHOLD = 0.3
+
+
+@lru_cache(maxsize=4096)
+def _trigrams(token):
+    """pg_trgm-style trigram set: two spaces padded before the token and one
+    after, so word starts weigh more than interiors."""
+    padded = f'  {token} '
+    return frozenset(padded[i:i + 3] for i in range(len(padded) - 2))
+
+
+def _trigram_sim(a, b):
+    """Jaccard similarity of trigram sets — same formula as pg_trgm's
+    similarity() for single words."""
+    ta, tb = _trigrams(a), _trigrams(b)
+    inter = len(ta & tb)
+    if not inter:
+        return 0.0
+    return inter / (len(ta) + len(tb) - inter)
+
+
 def _search_text(row):
     """Text recall scores against: an episode's keyword index (falling back to
     its narrative), or a fact's content. Keeps long episode narratives out of
@@ -115,7 +143,10 @@ def _search_text(row):
 def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None):
     """Score recall memories in Python. Signals (weighted sum, mirroring the
     original's FTS-dominant weighting):
-      * distinct query tokens matched in search-text (x10)
+      * distinct query tokens matched in search-text (x10; a token with no
+        exact/prefix match falls back to its best trigram similarity >= 0.3
+        against any search-text token, contributing similarity x10 — so a
+        fuzzy hit always scores below an exact one)
       * literal query substring in search-text (+50)
       * query substring in tags (+0.3 — tag bonus)
       * overlap with a passed `tags` token (+_PASSED_TAG_BONUS — re-rank only)
@@ -154,11 +185,14 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None):
             continue
         content_lower = _search_text(r).lower()
         h_tokens = list(dict.fromkeys(_tokenize(content_lower)))
-        match_count = sum(
-            1 for qt in q_tokens
-            if any(_token_match(ht, qt) for ht in h_tokens)
-        )
-        score = match_count * 10.0
+        score = 0.0
+        for qt in q_tokens:
+            if any(_token_match(ht, qt) for ht in h_tokens):
+                score += 10.0
+                continue
+            best = max((_trigram_sim(ht, qt) for ht in h_tokens), default=0.0)
+            if best >= _TRGM_THRESHOLD:
+                score += best * 10.0
         if q_lower in content_lower:
             score += 50.0
         if r['tags'] and q_lower in r['tags'].lower():

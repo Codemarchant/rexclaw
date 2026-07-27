@@ -463,7 +463,7 @@ export default function VoiceView({ active = true }) {
     // so vr_manager can route them to the two-character player.
     useEffect(() => {
         vrGesturesRef.current = () => {
-            const builtin = GESTURES.map((g) => ({ id: g.id, label: g.label, url: g.url, loop: false }));
+            const builtin = GESTURES.map((g) => ({ id: g.id, label: g.label, url: g.url, loop: !!g.loop }));
             const custom = customGestures.map((g) => ({
                 id: "c" + g.id, label: g.name, url: g.vrma_url, loop: !!g.loop,
                 combo: g.type === "combo" ? g : null,
@@ -693,7 +693,8 @@ export default function VoiceView({ active = true }) {
                             <div className="o_voice_full_settings_grid">
                                 {GESTURES.map((g) => (
                                     <button key={g.id} className="btn btn-sm btn-outline-light"
-                                            onClick={() => triggerGesture(g.url)} title={_t(g.label)}>
+                                            onClick={() => triggerGesture(g.url, !!g.loop)}
+                                            title={_t(g.label) + (g.loop ? " " + _t("(loops)") : "")}>
                                         <i className={"fa " + g.icon} />
                                         <span className="ms-1">{_t(g.label)}</span>
                                     </button>

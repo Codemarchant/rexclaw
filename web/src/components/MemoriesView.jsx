@@ -9,16 +9,24 @@ import { _t } from "../lib/i18n";
  *  type/scope filters; episodes expand to reveal their verbatim transcript. */
 export default function MemoriesView({ active }) {
     const [memories, setMemories] = useState([]);
+    const [agents, setAgents] = useState([]);
     const [loading, setLoading] = useState(false);
     const [query, setQuery] = useState("");
     const [typeFilter, setTypeFilter] = useState("all");    // all | fact | episode
     const [scopeFilter, setScopeFilter] = useState("all");  // all | core | recall
     const [expanded, setExpanded] = useState(() => new Set());
+    const [editing, setEditing] = useState(null);           // null | {id?, content, scope, agent_id, tags, keywords?, memory_type}
+    const [saving, setSaving] = useState(false);
 
     const load = async () => {
         setLoading(true);
         try {
-            setMemories(await rpc("/api/memories/list", {}));
+            const [mems, ags] = await Promise.all([
+                rpc("/api/memories/list", {}),
+                rpc("/api/agents/list", {}),
+            ]);
+            setMemories(mems);
+            setAgents(ags);
         } catch (e) {
             notification.add(e?.message || _t("Could not load memories"), { type: "danger" });
         } finally {
@@ -38,6 +46,41 @@ export default function MemoriesView({ active }) {
             setMemories((m) => m.filter((x) => x.id !== id));
         } catch (e) {
             notification.add(e?.message || _t("Delete failed"), { type: "danger" });
+        }
+    };
+
+    const startCreate = () =>
+        setEditing({ content: "", scope: "recall", agent_id: null, tags: "", memory_type: "fact" });
+
+    const startEdit = (m) =>
+        setEditing({
+            id: m.id,
+            content: m.content || "",
+            scope: m.scope,
+            agent_id: m.agent_id,
+            tags: m.tags || "",
+            keywords: m.keywords || "",
+            memory_type: m.memory_type,
+        });
+
+    const saveEditing = async () => {
+        setSaving(true);
+        try {
+            const payload = {
+                id: editing.id,
+                content: editing.content,
+                scope: editing.scope,
+                agent_id: editing.agent_id,
+                tags: editing.tags,
+            };
+            if (editing.memory_type === "episode") payload.keywords = editing.keywords;
+            await rpc("/api/memories/save", payload);
+            setEditing(null);
+            await load();
+        } catch (e) {
+            notification.add(e?.message || _t("Save failed"), { type: "danger" });
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -104,7 +147,80 @@ export default function MemoriesView({ active }) {
                             <option value="core">{_t("Core")}</option>
                             <option value="recall">{_t("Recall")}</option>
                         </select>
+                        <button className="btn btn-primary btn-sm" onClick={startCreate}>
+                            <i className="fa fa-plus" /> {_t("New memory")}
+                        </button>
                     </div>
+
+                    {editing && (
+                        <div className="rx_mem_editor">
+                            <label>{editing.id ? _t("Edit memory") : _t("New memory")}</label>
+                            <textarea
+                                rows={3}
+                                autoFocus
+                                placeholder={_t("A durable fact worth remembering, e.g. \"My favourite colour is teal.\"")}
+                                value={editing.content}
+                                onChange={(e) => setEditing({ ...editing, content: e.target.value })}
+                            />
+                            {editing.memory_type === "episode" && (
+                                <div style={{ marginTop: "0.6rem" }}>
+                                    <label>{_t("Keywords (what recall searches against)")}</label>
+                                    <input
+                                        type="text"
+                                        value={editing.keywords}
+                                        onChange={(e) => setEditing({ ...editing, keywords: e.target.value })}
+                                    />
+                                </div>
+                            )}
+                            <div className="rx_row" style={{ marginTop: "0.6rem" }}>
+                                <div>
+                                    <label>{_t("Scope")}</label>
+                                    <select
+                                        value={editing.scope}
+                                        onChange={(e) => setEditing({ ...editing, scope: e.target.value })}
+                                    >
+                                        <option value="recall">{_t("Recall — searched when relevant")}</option>
+                                        <option value="core">{_t("Core — always in the prompt")}</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>{_t("Companion")}</label>
+                                    <select
+                                        value={editing.agent_id ?? ""}
+                                        onChange={(e) =>
+                                            setEditing({ ...editing, agent_id: e.target.value ? Number(e.target.value) : null })
+                                        }
+                                    >
+                                        <option value="">{_t("All companions")}</option>
+                                        {agents.map((a) => (
+                                            <option key={a.id} value={a.id}>{a.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label>{_t("Tags (comma-separated)")}</label>
+                                    <input
+                                        type="text"
+                                        placeholder={_t("preferences, colors")}
+                                        value={editing.tags}
+                                        onChange={(e) => setEditing({ ...editing, tags: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="rx_mem_editor_actions">
+                                <button
+                                    className="btn btn-primary btn-sm"
+                                    disabled={saving || !editing.content.trim()}
+                                    onClick={saveEditing}
+                                >
+                                    {editing.id ? _t("Save") : _t("Add memory")}
+                                </button>
+                                <button className="btn btn-sm btn-link" disabled={saving} onClick={() => setEditing(null)}>
+                                    {_t("Cancel")}
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     {loading && <p className="text-muted small">{_t("Loading…")}</p>}
                     {!loading && !memories.length && (
@@ -142,6 +258,13 @@ export default function MemoriesView({ active }) {
                                     <span className="rx_memory_meta">
                                         {m.agent_name || _t("all companions")}{m.tags ? ` · ${m.tags}` : ""}
                                     </span>
+                                    <button
+                                        className="btn btn-sm btn-link p-0"
+                                        title={_t("Edit")}
+                                        onClick={() => startEdit(m)}
+                                    >
+                                        <i className="fa fa-pencil" />
+                                    </button>
                                     <button
                                         className="btn btn-sm btn-link p-0"
                                         title={_t("Forget")}
