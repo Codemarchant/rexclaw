@@ -2191,8 +2191,25 @@ class AvatarRenderer {
         // Leaving a 3D scene: the avatar may have walked off-origin. A flat
         // backdrop has no notion of "place", so bring her home and re-frame.
         // Cheap no-op in the common case (already at the origin, not moving).
-        if (this.vrm && (this._moving || this.vrm.scene.position.lengthSq() > 1e-6)) {
-            this._resetAvatarHome();
+        // Two states where off-origin is INTENTIONAL, not walk drift:
+        //   - an active combo owns everyone's placement — leave it alone;
+        //   - a group call's row layout offsets the base by design — snapping
+        //     it home would stack it onto a peer, so re-assert the row
+        //     instead (idempotent when nobody walked).
+        if (this._comboPartner || this._comboLivePeer) {
+            // mid-combo placements are the combo's business
+        } else if (this.vrm && (this._moving || this.vrm.scene.position.lengthSq() > 1e-6)) {
+            const inCallLayout = [...(this._peers?.values() || [])].some((p) => p.vrm);
+            if (inCallLayout) {
+                this._moveTarget = null;
+                this._moveInput.x = 0;
+                this._moveInput.z = 0;
+                this._returnFacingY = null;
+                if (this._moving) this._stopWalkAnim(this);
+                this._layoutCallAvatars();
+            } else {
+                this._resetAvatarHome();
+            }
         }
 
         if (!bg) return;

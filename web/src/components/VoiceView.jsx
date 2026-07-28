@@ -430,6 +430,18 @@ export default function VoiceView({ active = true }) {
         if (ok) setAddAgentId("");
     };
 
+    // Group calls need the wide shot: enter full-body view when a second
+    // character joins — whether added from the UI or invited by an agent via
+    // the add_agent_to_call tool. Fires on count changes only, so manually
+    // leaving full-body afterwards isn't fought.
+    useEffect(() => {
+        if (callPeers.length > 0 && !fullBody) {
+            setFullBody(true);
+            avatarRenderer.setFullBodyMode?.(true);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [callPeers.length]);
+
     const removeCallPeer = async (connId) => {
         await voice.removeAgentFromCall(connId);
     };

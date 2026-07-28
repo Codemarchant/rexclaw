@@ -38,11 +38,15 @@ def background_payload(row):
 def resolve_gesture_partner(con, gesture_row):
     """Return the gesture row as a plain dict with the combo partner resolved.
 
-    `partner_avatar` references an existing avatar by pack_key or display
-    name; when it resolves, partner_avatar_id / partner_vrm_url come from
-    that avatar (so the renderer can borrow an already-loaded peer model and
-    the URL tracks the avatar's own file). Otherwise the gesture's dedicated
-    partner_vrm_path is used. Solo gestures pass through unchanged.
+    `partner_avatar` names the partner COMPANION, so resolution follows the
+    active agent wearing that name first — whatever avatar that agent is
+    currently configured with (a duplicated pack, a custom swap) is the
+    partner identity. Without a matching agent it falls back to the
+    avatar/pack itself. When it resolves, partner_avatar_id /
+    partner_vrm_url come from that avatar (so the renderer can borrow an
+    already-loaded peer model and the URL tracks the avatar's own file).
+    Otherwise the gesture's dedicated partner_vrm_path is used. Solo
+    gestures pass through unchanged.
     """
     g = dict(gesture_row)
     if (g.get('gesture_type') or 'solo') != 'combo':
@@ -52,10 +56,17 @@ def resolve_gesture_partner(con, gesture_row):
     ref = (g.get('partner_avatar') or '').strip()
     if ref:
         row = con.execute(
-            "SELECT id, vrm_path FROM avatars WHERE pack_key = ? OR name = ? "
-            "ORDER BY CASE WHEN pack_key = ? THEN 0 ELSE 1 END LIMIT 1",
-            (ref, ref, ref),
+            "SELECT a.id, a.vrm_path FROM avatars a"
+            " JOIN agents ag ON ag.avatar_id = a.id"
+            " WHERE ag.active = 1 AND ag.name = ? COLLATE NOCASE LIMIT 1",
+            (ref,),
         ).fetchone()
+        if not row:
+            row = con.execute(
+                "SELECT id, vrm_path FROM avatars WHERE pack_key = ? OR name = ? "
+                "ORDER BY CASE WHEN pack_key = ? THEN 0 ELSE 1 END LIMIT 1",
+                (ref, ref, ref),
+            ).fetchone()
         if row:
             g['partner_avatar_id'] = row['id']
             g['partner_vrm_url'] = row['vrm_path']

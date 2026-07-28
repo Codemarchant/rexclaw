@@ -763,7 +763,66 @@ class VoiceCallService {
             setSpeakingIntensity: (v) => renderer()?.setPeerSpeakingIntensity?.(id, v),
             setEmotion: (e) => renderer()?.setPeerEmotion?.(id, e),
             playGesture: (u, o) => renderer()?.playPeerGesture?.(id, u, o),
-            playComboGesture: null,   // combos stage against the base avatar only
+            // The combo machinery is anchored on the BASE avatar. A
+            // peer-triggered combo whose partner IS the base avatar works by
+            // swapping the roles: the primary performs the partner half, and
+            // the triggering peer is picked up as the live "partner" via the
+            // borrow-by-avatar-id path. Any other shape (partner is a third
+            // character) still falls back to the peer's half solo.
+            playComboGesture: (c) => {
+                const r = renderer();
+                if (!r?.playComboGesture || !c) return;
+                const baseAvatarId = r._currentAvatarPayload?.id;
+                const peerAvatarId = conn.state?.avatar?.id;
+                if (!baseAvatarId || !c.partner_avatar_id
+                    || Number(c.partner_avatar_id) !== Number(baseAvatarId)) {
+                    console.warn(`[voice] peer combo ${c.gesture_enum}: partner is not the base avatar — playing solo half`);
+                    r.playPeerGesture?.(id, c.vrma_url, { loop: !!c.loop });
+                    return;
+                }
+                // Placement slots: for SYMMETRIC combos (both halves play the
+                // same clip) the two authored spots are interchangeable, so
+                // give each character the spot nearest where it already
+                // stands — the pair steps inward instead of crossing sides
+                // (Ara leaping a metre left reads as broken staging).
+                // Asymmetric combos keep placements bound to their clip half:
+                // there the position IS the choreography.
+                const symmetric = c.vrma_url === c.partner_vrma_url;
+                const baseX = r.vrm?.scene?.position?.x ?? 0;
+                const baseKeepsOwnSlot = symmetric
+                    && Math.abs((c.base_offset_x || 0) - baseX)
+                        <= Math.abs((c.partner_offset_x || 0) - baseX);
+                const slotFor = (who) => (who === "base") === baseKeepsOwnSlot
+                    ? { x: c.base_offset_x, y: c.base_offset_y, z: c.base_offset_z,
+                        yaw: c.base_yaw, pitch: c.base_pitch, roll: c.base_roll }
+                    : { x: c.partner_offset_x, y: c.partner_offset_y, z: c.partner_offset_z,
+                        yaw: c.partner_yaw, pitch: c.partner_pitch, roll: c.partner_roll };
+                const basePos = slotFor("base");
+                const peerPos = slotFor("peer");
+                r.playComboGesture({
+                    ...c,
+                    vrma_url: c.partner_vrma_url,
+                    partner_vrma_url: c.vrma_url,
+                    partner_avatar_id: peerAvatarId || false,
+                    partner_vrm_url: conn.state?.avatar?.vrm_url || c.partner_vrm_url,
+                    base_offset_x: basePos.x,
+                    base_offset_y: basePos.y,
+                    base_offset_z: basePos.z,
+                    base_yaw: basePos.yaw,
+                    base_pitch: basePos.pitch,
+                    base_roll: basePos.roll,
+                    partner_offset_x: peerPos.x,
+                    partner_offset_y: peerPos.y,
+                    partner_offset_z: peerPos.z,
+                    partner_yaw: peerPos.yaw,
+                    partner_pitch: peerPos.pitch,
+                    partner_roll: peerPos.roll,
+                    // The config's partner_scale sized the ORIGINAL partner
+                    // (now the base performer, which can't be scaled) — the
+                    // live borrowed peer keeps its natural size.
+                    partner_scale: 1.0,
+                });
+            },
             stopGesture: () => renderer()?.stopPeerGesture?.(id),
             setOutfit: (u, i) => renderer()?.setPeerOutfit?.(id, u, i),
             resetExpression: () => {},
@@ -887,6 +946,7 @@ class VoiceCallService {
     onUserSpeechStarted(conn) {
         if (conn !== this.primary) return;
         this._directorGeneration++;
+        console.log(`[voice] chatter: VAD speech_started — generation now ${this._directorGeneration} (pending grants invalidated)`);
         this._consecutiveAgentTurns = 0;
         this._userTurnNudgeSent = false;
         for (const peer of this.activePeers()) {
@@ -965,11 +1025,13 @@ class VoiceCallService {
         const others = this._participants().filter((p) => p.key !== speaker.connId);
         if (!others.length) return;
         const generation = this._directorGeneration;
+        console.log(`[voice] chatter: ${speaker.connId} (${speaker.agentName}) finished a line — deciding who's next (gen ${generation})`);
 
         const capReached = this._consecutiveAgentTurns >= MAX_AGENT_CHAIN_TURNS;
         if (capReached && this._userTurnNudgeSent) {
             // The wrap-up turn already happened — the floor belongs to the
             // user until they take it (any user turn resets the counter).
+            console.log("[voice] chatter: chain cap spent — waiting for the user");
             return;
         }
 
@@ -986,25 +1048,46 @@ class VoiceCallService {
             });
             // A user turn (spoken or typed) arrived while we deliberated —
             // the user always outranks agent chatter.
-            if (generation !== this._directorGeneration) return;
+            if (generation !== this._directorGeneration) {
+                console.log(`[voice] chatter: decision ${JSON.stringify(decision)} DISCARDED — generation bumped mid-deliberation`);
+                return;
+            }
+            console.log(`[voice] chatter: director → ${JSON.stringify(decision)}`);
             targetKey = decision !== "user" ? decision : null;
         } else {
             // Cap hit: force one wrap-up turn on the next participant (in a
             // two-agent call, simply "the other one").
             targetKey = others[0].key;
         }
-        if (!targetKey) return;
+        if (!targetKey) {
+            console.log("[voice] chatter: waiting for the user");
+            return;
+        }
         const target = this.connections.get(targetKey);
-        if (!target || target.isTerminal) return;
+        if (!target || target.isTerminal) {
+            console.log(`[voice] chatter: target ${targetKey} missing/terminal — grant dropped`);
+            return;
+        }
 
         // Hold the floor grant until the speaker has actually finished
         // SPEAKING (generation done + playback drained), then leave a beat.
         const drained = await this._waitForPlayoutEnd(speaker, generation);
-        if (!drained || generation !== this._directorGeneration) return;
+        if (!drained || generation !== this._directorGeneration) {
+            console.log(`[voice] chatter: grant to ${targetKey} dropped after playout wait `
+                + `(drained=${drained}, generationBumped=${generation !== this._directorGeneration})`);
+            return;
+        }
         await new Promise((r) => setTimeout(r, INTER_TURN_PAUSE_MS));
-        if (generation !== this._directorGeneration) return;
+        if (generation !== this._directorGeneration) {
+            console.log(`[voice] chatter: grant to ${targetKey} dropped — generation bumped during inter-turn pause`);
+            return;
+        }
         if (target.isTerminal) return;
-        if (target._responseInFlight || this.primary._responseInFlight) return;
+        if (target._responseInFlight || this.primary._responseInFlight) {
+            console.log(`[voice] chatter: grant to ${targetKey} dropped — response in flight `
+                + `(target=${!!target._responseInFlight}, primary=${!!this.primary._responseInFlight})`);
+            return;
+        }
 
         console.log(`[voice] director: ${target.connId} (${target.agentName}) responds to ${speaker.agentName}`
             + (capReached ? " (wrap-up nudge)" : ""));
@@ -1041,12 +1124,21 @@ class VoiceCallService {
     _waitForPlayoutEnd(conn, generation) {
         return new Promise((resolve) => {
             const deadline = Date.now() + 120000;
+            let nextHeartbeat = Date.now() + 5000;
             const check = () => {
                 if (generation !== this._directorGeneration) { resolve(false); return; }
                 if (conn.isTerminal) { resolve(false); return; }
                 if (!conn._responseInFlight && !conn._pendingToolReply
                     && !conn._toolReplyStarting
                     && !conn._assistantAudioActive()) { resolve(true); return; }
+                // Diagnostic heartbeat: name what's still holding the floor —
+                // a flag that never clears here is a wedged handover.
+                if (Date.now() >= nextHeartbeat) {
+                    nextHeartbeat = Date.now() + 5000;
+                    console.log(`[voice] chatter: still waiting on ${conn.connId} playout `
+                        + `(inFlight=${!!conn._responseInFlight}, pendingTool=${!!conn._pendingToolReply}, `
+                        + `toolStarting=${!!conn._toolReplyStarting}, audio=${conn._assistantAudioActive()})`);
+                }
                 if (Date.now() >= deadline) { resolve(false); return; }
                 setTimeout(check, 100);
             };
