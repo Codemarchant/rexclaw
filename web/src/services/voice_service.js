@@ -609,6 +609,10 @@ class VoiceCallService {
         await new Promise((r) => setTimeout(r, INTER_TURN_PAUSE_MS));
         if (conn.isTerminal) return false;
         this._consecutiveAgentTurns = 0;
+        // The greeting owns the floor: invalidate any agent-chatter
+        // deliberation still pending from before the join, so it can't
+        // grant another companion right over the newcomer's hello.
+        this._directorGeneration++;
         conn.injectContextItem(
             _t("[System]: You have just joined the call. Briefly greet the participants in character."),
             { promptResponse: true },
@@ -1083,14 +1087,26 @@ class VoiceCallService {
             return;
         }
         if (target.isTerminal) return;
-        if (target._responseInFlight || this.primary._responseInFlight) {
-            console.log(`[voice] chatter: grant to ${targetKey} dropped — response in flight `
-                + `(target=${!!target._responseInFlight}, primary=${!!this.primary._responseInFlight})`);
+        // ANY leg still generating or audibly speaking blocks the grant —
+        // not just the target and the primary. With 3+ agents, a sibling
+        // continuation may have granted another peer while this one waited
+        // on the speaker's playout; granting over it would stack two voices.
+        // Dropping is self-correcting: the busy leg's own finished line
+        // triggers a fresh director pass.
+        const busy = [...this.connections.values()].find(
+            (c2) => !c2.isTerminal && (c2._responseInFlight || c2._assistantAudioActive()));
+        if (busy) {
+            console.log(`[voice] chatter: grant to ${targetKey} dropped — ${busy.connId} is busy `
+                + `(inFlight=${!!busy._responseInFlight}, audio=${busy._assistantAudioActive()})`);
             return;
         }
 
         console.log(`[voice] director: ${target.connId} (${target.agentName}) responds to ${speaker.agentName}`
             + (capReached ? " (wrap-up nudge)" : ""));
+        // This grant supersedes every other pending deliberation from older
+        // lines — bump the generation so a slower sibling continuation can't
+        // double-grant a second speaker over this one.
+        this._directorGeneration++;
         this._consecutiveAgentTurns++;
         if (capReached) {
             this._userTurnNudgeSent = true;

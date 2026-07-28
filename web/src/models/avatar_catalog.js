@@ -50,7 +50,7 @@ export const GESTURES = [
     { id: "shoot", label: "Shoot", icon: "fa-crosshairs", url: `${VRMA_BASE}/VRMA_04_shoot.vrma` },
     { id: "spin", label: "Spin", icon: "fa-refresh", url: `${VRMA_BASE}/VRMA_05_spin.vrma` },
     { id: "model_pose", label: "Model Pose", icon: "fa-camera", url: `${VRMA_BASE}/VRMA_06_model_pose.vrma` },
-    { id: "squat", label: "Squat", icon: "fa-compress", url: `${VRMA_BASE}/VRMA_07_squat.vrma` },
+    { id: "squat", label: "Squats", icon: "fa-compress", url: `${VRMA_BASE}/VRMA_07_squat.vrma`, loop: true },
     { id: "backflip", label: "Backflip", icon: "fa-rotate-left", url: `${VRMA_BASE}/Backflip.vrma` },
     { id: "blow_kiss", label: "Blow Kiss", icon: "fa-heart", url: `${VRMA_BASE}/BlowKiss.vrma` },
     { id: "belly_dance", label: "Belly Dance", icon: "fa-female", url: `${VRMA_BASE}/BellyDance.vrma` },
