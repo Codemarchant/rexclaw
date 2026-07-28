@@ -52,6 +52,8 @@ export default function AvatarManager({ onChange, active = true }) {
     const [list, setList] = useState([]);
     const [editing, setEditing] = useState(null); // { pack_key, manifest, files }
     const [busy, setBusy] = useState(false);
+    const [dupFor, setDupFor] = useState(null);  // avatar id with the inline duplicate-name input open
+    const [dupName, setDupName] = useState("");
 
     const load = async () => {
         try {
@@ -129,22 +131,62 @@ export default function AvatarManager({ onChange, active = true }) {
         }
     };
 
-    const duplicate = async (a) => {
-        // The name chosen here also names the pack folder (folders only follow
-        // the display name at creation), so ask up front instead of hardcoding
-        // "<name> - Copy" into the folder forever.
-        const name = window.prompt(
-            _t("Name for the copy (also names the pack folder):"), `${a.name} Copy`);
-        if (!name || !name.trim()) return;
+    // The name chosen here also names the pack folder (folders only follow
+    // the display name at creation), so ask up front instead of hardcoding
+    // "<name> - Copy" into the folder forever. Inline input rather than
+    // window.prompt(): Electron doesn't implement prompt(), so the desktop
+    // app would throw before the RPC ever fired.
+    const startDuplicate = (a) => {
+        setDupFor(a.id);
+        setDupName(`${a.name} Copy`);
+    };
+
+    const confirmDuplicate = async (a) => {
+        const name = dupName.trim();
+        if (!name) return;
         try {
-            const r = await rpc("/api/avatars/duplicate", { pack_key: a.pack_key, name: name.trim() });
+            const r = await rpc("/api/avatars/duplicate", { pack_key: a.pack_key, name });
             notification.add(_t("%s saved to data/avatars/%s/", r.name, r.pack_key), { type: "info" });
+            setDupFor(null);
             load();
             onChange?.();
         } catch (e) {
             notification.add(e?.message || _t("Duplicate failed"), { type: "danger" });
         }
     };
+
+    const duplicateControls = (a) => (
+        dupFor === a.id ? (
+            <span style={{ display: "inline-flex", gap: "0.3rem", alignItems: "center" }}>
+                <input
+                    type="text"
+                    autoFocus
+                    value={dupName}
+                    style={{ width: "11rem", padding: "0.15rem 0.4rem" }}
+                    title={_t("Name for the copy (also names the pack folder)")}
+                    onChange={(e) => setDupName(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter") confirmDuplicate(a);
+                        if (e.key === "Escape") setDupFor(null);
+                    }}
+                />
+                <button className="btn btn-sm btn-link p-0" title={_t("Create copy")}
+                        disabled={!dupName.trim()} onClick={() => confirmDuplicate(a)}>
+                    <i className="fa fa-check" />
+                </button>
+                <button className="btn btn-sm btn-link p-0" title={_t("Cancel")}
+                        onClick={() => setDupFor(null)}>
+                    <i className="fa fa-times" />
+                </button>
+            </span>
+        ) : (
+            <button className="btn btn-sm btn-link p-0"
+                    title={_t("Duplicate — make an editable copy (e.g. to add custom gestures to a bundled avatar)")}
+                    onClick={() => startDuplicate(a)}>
+                <i className="fa fa-clone" />
+            </button>
+        )
+    );
 
     const remove = async (a) => {
         if (!window.confirm(_t("Delete avatar %s? Companions using it lose their avatar. This removes the pack folder and its files.", a.name))) return;
@@ -182,26 +224,14 @@ export default function AvatarManager({ onChange, active = true }) {
                     {a.editable ? (
                         <>
                             <button className="btn btn-sm btn-link p-0" onClick={() => startEdit(a)}>{_t("Edit")}</button>
-                            {a.pack_key && (
-                                <button className="btn btn-sm btn-link p-0"
-                                        title={_t("Duplicate — make an editable copy (e.g. to add custom gestures to a bundled avatar)")}
-                                        onClick={() => duplicate(a)}>
-                                    <i className="fa fa-clone" />
-                                </button>
-                            )}
+                            {a.pack_key && duplicateControls(a)}
                             <button className="btn btn-sm btn-link p-0" title={_t("Delete avatar")} onClick={() => remove(a)}>
                                 <i className="fa fa-trash-o" />
                             </button>
                         </>
                     ) : (
                         <>
-                            {a.pack_key && (
-                                <button className="btn btn-sm btn-link p-0"
-                                        title={_t("Duplicate — make an editable copy (e.g. to add custom gestures to a bundled avatar)")}
-                                        onClick={() => duplicate(a)}>
-                                    <i className="fa fa-clone" />
-                                </button>
-                            )}
+                            {a.pack_key && duplicateControls(a)}
                             <span className="rx_memory_meta" title={_t("Bundled avatars ship with the app and are read-only. Duplicate one to customize it.")}>
                                 <i className="fa fa-lock" /> {_t("bundled")}
                             </span>
