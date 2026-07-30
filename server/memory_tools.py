@@ -15,7 +15,7 @@ semantics, no extensions needed.
 """
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 
 from .db import utcnow, parse_dt
@@ -140,7 +140,8 @@ def _search_text(row):
     return row['content'] or ''
 
 
-def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None):
+def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None,
+                  newer_than_days=None, older_than_days=None):
     """Score recall memories in Python. Signals (weighted sum, mirroring the
     original's FTS-dominant weighting):
       * distinct query tokens matched in search-text (x10; a token with no
@@ -152,11 +153,39 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None):
       * overlap with a passed `tags` token (+_PASSED_TAG_BONUS — re-rank only)
     `tags` is a SOFT signal: passing tags lifts matching memories but never
     hides untagged or content-only matches. `memory_type` ('fact' | 'episode')
-    optionally narrows the result set."""
+    optionally narrows the result set.
+
+    `newer_than_days` / `older_than_days` bound created_at as a HARD filter
+    (unlike tags): the caller is explicitly scoping time ("a few weeks
+    ago"). With a date bound set, `query` may be empty — browse mode:
+    memories in the window, episodes first, newest first. Fallback-on-empty
+    lives in _impl_recall, not here, so extraction/internal callers keep
+    strict semantics.
+
+    Returns (hits, truncated) — `truncated` is True when more memories
+    matched than `limit` allowed, so callers can tell a quiet period from
+    a clipped one."""
     query = (query or '').strip()
-    if not query:
-        return []
-    limit = max(1, min(int(limit or 10), 25))
+    has_window = newer_than_days is not None or older_than_days is not None
+    if not query and not has_window:
+        return [], False
+    limit = max(1, min(int(limit or 10), 100))
+
+    now = datetime.utcnow()
+    min_created = now - timedelta(days=newer_than_days) if newer_than_days is not None else None
+    max_created = now - timedelta(days=older_than_days) if older_than_days is not None else None
+
+    def _in_window(r):
+        if min_created is None and max_created is None:
+            return True
+        created = parse_dt(r['created_at'])
+        if not created:
+            return False
+        if min_created is not None and created < min_created:
+            return False
+        if max_created is not None and created > max_created:
+            return False
+        return True
     q_lower = query.lower()
     q_tokens = _tokenize(query)
 
@@ -179,9 +208,32 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None):
             "SELECT * FROM memories WHERE scope = 'recall' AND agent_id IS NULL",
         ).fetchall()
 
+    if not query:
+        # Browse mode: a time window with no keywords ("what happened a few
+        # weeks ago"). Episodes first — they ARE the what-happened record —
+        # then newest first within each type.
+        pool = [
+            r for r in rows
+            if not (memory_type in ('fact', 'episode') and r['memory_type'] != memory_type)
+            and _in_window(r)
+        ]
+        pool.sort(key=lambda r: (parse_dt(r['created_at']) or datetime.min, r['id']),
+                  reverse=True)
+        pool.sort(key=lambda r: r['memory_type'] != 'episode')  # stable — episodes first
+        hits = pool[:limit]
+        if hits:
+            ids = [r['id'] for r in hits]
+            con.execute(
+                f"UPDATE memories SET last_used_at = ? WHERE id IN ({','.join('?' * len(ids))})",
+                (utcnow(), *ids),
+            )
+        return hits, len(pool) > limit
+
     scored = []
     for r in rows:
         if memory_type in ('fact', 'episode') and r['memory_type'] != memory_type:
+            continue
+        if not _in_window(r):
             continue
         content_lower = _search_text(r).lower()
         h_tokens = list(dict.fromkeys(_tokenize(content_lower)))
@@ -216,7 +268,7 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None):
             f"UPDATE memories SET last_used_at = ? WHERE id IN ({','.join('?' * len(ids))})",
             (utcnow(), *ids),
         )
-    return hits
+    return hits, len(scored) > limit
 
 
 def remember_or_get(con, agent_id, content, scope, tags, source):
@@ -415,7 +467,7 @@ def _impl_remember(con, session, arguments):
 
 
 def _impl_recall(con, session, arguments):
-    limit = arguments.get('limit') or 10
+    limit_arg = arguments.get('limit')
     raw_tags = arguments.get('tags') or []
 
     # Expansion mode: episode_id supplied → return that episode's full verbatim
@@ -443,8 +495,33 @@ def _impl_recall(con, session, arguments):
         }
 
     query = (arguments.get('query') or '').strip()
-    if not query:
-        return {'ok': False, 'reason': 'query_empty', 'message': 'recall query cannot be empty.'}
+
+    def _days(name):
+        raw = arguments.get(name)
+        if raw is None:
+            return None
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return max(0, min(val, 3650))
+
+    newer_than_days = _days('newer_than_days')
+    older_than_days = _days('older_than_days')
+    # A window where older > newer ("at least 45 days old AND within the last
+    # 10 days") is empty — the model inverted the pair; the intended window
+    # between the two numbers is unambiguous, so swap rather than fail.
+    if (newer_than_days is not None and older_than_days is not None
+            and older_than_days > newer_than_days):
+        newer_than_days, older_than_days = older_than_days, newer_than_days
+    has_window = newer_than_days is not None or older_than_days is not None
+
+    if not query and not has_window:
+        return {'ok': False, 'reason': 'query_empty',
+                'message': 'recall needs a query, a date range, or an episode_id.'}
+
+    # Browsing a period wants coverage; keyword search wants precision.
+    limit = limit_arg or (25 if (has_window and not query) else 10)
 
     if isinstance(raw_tags, str):
         tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
@@ -454,7 +531,31 @@ def _impl_recall(con, session, arguments):
         tags = []
 
     agent_id = session['agent_id'] if session else None
-    records = search_recall(con, agent_id, query, limit=limit, tags=tags)
+    records, truncated = search_recall(con, agent_id, query, limit=limit, tags=tags,
+                                       newer_than_days=newer_than_days,
+                                       older_than_days=older_than_days)
+
+    # Mis-expressed browse rescue: a window plus a query full of time-words
+    # ("what we did last week or recent activities") keyword-matches nothing
+    # even though the period has plenty. The user asked about the PERIOD, so
+    # before looking outside it, return what the period actually contains.
+    window_browse = False
+    if not records and has_window and query:
+        records, truncated = search_recall(con, agent_id, '',
+                                           limit=limit_arg or 25,
+                                           newer_than_days=newer_than_days,
+                                           older_than_days=older_than_days)
+        window_browse = bool(records)
+
+    # Soft landing: the window itself is empty, but the keywords DO match
+    # something outside it. The model's date arithmetic is fuzzy ("a few
+    # weeks" could be two months) — surface the near-misses with their ages
+    # instead of a confident empty result.
+    window_fallback = False
+    if not records and has_window and query:
+        records, _ = search_recall(con, agent_id, query, limit=limit, tags=tags)
+        window_fallback = bool(records)
+        truncated = False
 
     now = datetime.utcnow()
     hits = []
@@ -475,16 +576,52 @@ def _impl_recall(con, session, arguments):
             hit['expandable'] = True
         hits.append(hit)
     result = {'ok': True, 'query': query, 'count': len(hits), 'hits': hits}
-    if not hits:
+    if has_window:
+        result['window'] = {
+            'newer_than_days': newer_than_days,
+            'older_than_days': older_than_days,
+        }
+    notes = []
+    if truncated and has_window:
+        result['truncated'] = True
+        notes.append(
+            f'More memories exist in this window than the {len(hits)} '
+            'returned — this period was busier than it looks here. If the '
+            'user wants the full picture, narrow the date range, or re-call '
+            'with a higher limit (max 100).'
+        )
+    if window_browse:
+        notes.append(
+            'The query keywords matched nothing in this period, so this is '
+            'everything the period contains instead (episodes first, newest '
+            'first). Tip: for time-only questions ("what did we do last '
+            'week?") omit `query` and pass just the date range.'
+        )
+    if notes:
+        result['note'] = ' '.join(notes)
+    if window_fallback:
+        result['note'] = (
+            'Nothing matched INSIDE the requested date range — these are the '
+            'closest keyword matches from outside it. Check each hit\'s '
+            'age_days before presenting: human time estimates are fuzzy, so '
+            'a near-miss may still be what the user means.'
+        )
+    elif not hits:
         # Models over-trust an empty tool result and deny knowledge that is
         # sitting in their own preamble — nudge them back to it before they
         # tell the user "you never told me".
-        result['note'] = (
-            'No stored memories matched this query. Before telling the user '
-            'you do not know: re-read "What you remember about this user" in '
-            'your instructions — the answer may already be there, possibly '
-            'under different wording.'
-        )
+        if has_window and not query:
+            result['note'] = (
+                'No stored memories were created in that period. Consider '
+                'widening the range, or re-calling with keywords.'
+            )
+        else:
+            result['note'] = (
+                'No stored memories matched this query. Before telling the user '
+                'you do not know: re-read "What you remember about this user" in '
+                'your instructions — the answer may already be there, possibly '
+                'under different wording.'
+            )
     return result
 
 
@@ -563,12 +700,21 @@ MEMORY_TOOLS = [
             'something past ("remember when…", "the thing I told you about X", '
             '"what did I say about Y"). Matching combines keyword search (with OR '
             'semantics across your query words), substring matching, and tag '
-            'matching. Hits include `memory_type`: a `fact` is a one-line '
-            'statement; an `episode` (marked `expandable`) is a summary of a past '
-            'conversation block — call recall again with its `episode_id` to read '
-            'the full verbatim conversation. This searches the recall archive '
-            'only — your core memories are already in this prompt; check them '
-            'first, they may answer without any tool call.'
+            'matching, optionally bounded by a date range. For purely '
+            'time-anchored questions ("what did we do last week?", "what '
+            'happened a few weeks ago?") pass ONLY a date range and NO query '
+            '— e.g. {"newer_than_days": 10} for last week — which returns '
+            'everything from that period, episodes first. Only combine a '
+            'query WITH a range when the user names a topic as well ("the '
+            'budget talk last month" → {"query": "budget", "older_than_days": '
+            '14, "newer_than_days": 60}). Human time estimates are fuzzy, so '
+            'err WIDE: "a few weeks ago" is roughly older_than_days=10, '
+            'newer_than_days=45. Hits include `memory_type`: a `fact` is a '
+            'one-line statement; an `episode` (marked `expandable`) is a summary '
+            'of a past conversation block — call recall again with its '
+            '`episode_id` to read the full verbatim conversation. This searches '
+            'the recall archive only — your core memories are already in this '
+            'prompt; check them first, they may answer without any tool call.'
         ),
         'parameters': {
             'type': 'object',
@@ -580,8 +726,28 @@ MEMORY_TOOLS = [
                         'for — e.g. `"favorite color"` or `"birthday plans"`. '
                         'Do NOT construct boolean expressions ("X OR Y", "A AND '
                         'B") — the search already ORs your words automatically '
-                        'and treats operator keywords as noise. Optional when '
-                        '`episode_id` is given.'
+                        'and treats operator keywords as noise. NEVER put time '
+                        'words ("last week", "recently", "ago") or filler '
+                        '("what we did", "activities") here — time belongs in '
+                        'the date-range parameters, and for a purely '
+                        'time-anchored question OMIT this field entirely and '
+                        'pass only the range. Optional when `episode_id` or a '
+                        'date range is given.'
+                    ),
+                },
+                'newer_than_days': {
+                    'type': 'integer',
+                    'description': (
+                        'Only memories created within the last N days. Pairs '
+                        'with older_than_days to form a window — e.g. "a few '
+                        'weeks ago" → newer_than_days=45, older_than_days=10.'
+                    ),
+                },
+                'older_than_days': {
+                    'type': 'integer',
+                    'description': (
+                        'Only memories created at least N days ago — e.g. '
+                        '"recently" → omit this; "a while back" → 30+.'
                     ),
                 },
                 'episode_id': {
@@ -607,8 +773,17 @@ MEMORY_TOOLS = [
                 },
                 'limit': {
                     'type': 'integer',
-                    'description': 'Maximum hits to return (default 10, max 25).',
-                    'default': 10,
+                    'description': (
+                        'Maximum hits to return, capped at 100. Defaults: 10 '
+                        'for a keyword search, 25 when browsing a date range '
+                        'without a query. Go above 25 only when the user '
+                        'wants an exhaustive review of a period — episode '
+                        'hits are whole conversation summaries, so large '
+                        'results are slow to process in a live voice call; '
+                        'prefer a narrower date range instead. If a result '
+                        'comes back with truncated=true, the period held '
+                        'more than was returned.'
+                    ),
                 },
             },
             'required': [],
