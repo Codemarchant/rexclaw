@@ -132,32 +132,37 @@ def generate_image(*, xai_api_key, images_url, model, prompt,
     return body
 
 
-def edit_image(*, xai_api_key, edits_url, model, prompt, image_file_ids,
-               aspect_ratio=None, response_format='b64_json', user=None):
+def edit_image(*, xai_api_key, edits_url, model, prompt, image_file_ids=None,
+               image_data_uris=None, aspect_ratio=None,
+               response_format='b64_json', user=None):
     """POST /v1/images/edits with one or more source images.
 
-    `image_file_ids` is a list of xAI file_ids (1-3). xAI's endpoint accepts
-    either `image: {file_id}` (single) or `images: [{file_id}, ...]` (multi);
-    the two are mutually exclusive in the request body, so we pick the form
-    based on how many ids we have.
+    Sources come as EITHER `image_file_ids` (xAI file_ids from the files
+    API — the text-mode attachment flow) or `image_data_uris` (base64 data
+    URIs — the Imagine-library flow, since our files are local). xAI's
+    endpoint accepts `image: {...}` (single) or `images: [{...}, ...]`
+    (multi); the two are mutually exclusive in the request body, so we pick
+    the form based on how many sources we have.
     """
     if not xai_api_key:
         raise UserError(NO_KEY_MSG)
     if not prompt:
         raise UserError("Edit prompt is required.")
-    if not image_file_ids:
+    if not image_file_ids and not image_data_uris:
         raise UserError("edit_image requires at least one source image.")
-    if len(image_file_ids) > 3:
-        image_file_ids = image_file_ids[:3]  # xAI cap
     payload = {
         'model': model,
         'prompt': prompt,
         'response_format': response_format,
     }
-    if len(image_file_ids) == 1:
-        payload['image'] = {'file_id': image_file_ids[0]}
+    if image_data_uris:
+        entries = [{'url': u, 'type': 'image_url'} for u in image_data_uris[:3]]
     else:
-        payload['images'] = [{'file_id': fid} for fid in image_file_ids]
+        entries = [{'file_id': fid} for fid in image_file_ids[:3]]
+    if len(entries) == 1:
+        payload['image'] = entries[0]
+    else:
+        payload['images'] = entries
     if aspect_ratio:
         payload['aspect_ratio'] = aspect_ratio
     if user:

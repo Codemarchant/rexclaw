@@ -88,6 +88,11 @@ _CREATE_IMAGE_TOOL = {
         "Generate an image from a prompt and post a link to it in the "
         "transcript. The image is saved to this agent's Imagine library; "
         "the user can click the transcript link to open it full-size. "
+        "Optional `source_images` builds the new image FROM up to 3 "
+        "Imagine-library entries (pass the image_url or imagine_image_id "
+        "a previous tool call or user upload provided) — restyle, remix "
+        "or combine them; with multiple sources, reference them in the "
+        "prompt as <IMAGE_0>, <IMAGE_1>, <IMAGE_2> in the order passed. "
         "Does NOT change the avatar background — use change_background "
         "for that when the user wants a new scene behind the avatar."
     ),
@@ -96,7 +101,19 @@ _CREATE_IMAGE_TOOL = {
         'properties': {
             'prompt': {
                 'type': 'string',
-                'description': 'Description of the image to generate.',
+                'description': (
+                    'Description of the image to generate — or, with '
+                    'source_images, the edit/remix instruction.'
+                ),
+            },
+            'source_images': {
+                'type': 'array',
+                'items': {'type': 'string'},
+                'description': (
+                    'Optional, up to 3. image_url (/files/...) or '
+                    'imagine_image_id values of library images to edit, '
+                    'restyle or combine into the new image.'
+                ),
             },
         },
         'required': ['prompt'],
@@ -365,6 +382,42 @@ def execute_imagine_tool(con, session, tool_name, arguments):
             tool_name == 'change_background' and (arguments or {}).get('animated')):
         return _execute_video_tool(con, session, agent, config, xai_key, tool_name,
                                    prompt, arguments or {})
+
+    # create_image from library sources → the images/edits endpoint with
+    # data URIs (restyle/remix/combine). Distinct from edit_image, which
+    # reads the text-mode message ATTACHMENTS via xAI file ids — this path
+    # works in both modes and reaches everything in the Imagine library
+    # (generated images, selfies, voice uploads).
+    source_refs = (arguments or {}).get('source_images')
+    if tool_name == 'create_image' and source_refs:
+        if not isinstance(source_refs, list):
+            source_refs = [source_refs]
+        if len(source_refs) > _MAX_REFERENCE_IMAGES:
+            return {'error': f'At most {_MAX_REFERENCE_IMAGES} source_images.'}
+        source_uris = []
+        for ref in source_refs:
+            uri, err = _library_image_data_uri(con, ref)
+            if err:
+                return {'error': f'source_images: {err}'}
+            source_uris.append(uri)
+        try:
+            body = xai_client.edit_image(
+                xai_api_key=xai_key,
+                edits_url=config['xai_images_edits_url'],
+                model=config['imagine_model'],
+                prompt=prompt,
+                image_data_uris=source_uris,
+                response_format='b64_json',
+            )
+        except UserError as e:
+            return {'error': str(e)}
+        except Exception as e:
+            _logger.exception('Imagine library edit failed for session %s', session['id'])
+            return {'error': f'Image edit failed: {e}'}
+        result = _persist_imagine_result(con, session, agent, config, body, prompt, kind='edit')
+        if 'error' not in result:
+            result['source_image_count'] = len(source_uris)
+        return result
 
     # change_background (still) / create_image branch.
     aspect_ratio = '16:9' if tool_name == 'change_background' else None
