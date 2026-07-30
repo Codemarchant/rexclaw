@@ -4,6 +4,10 @@
     background: radial-gradient(ellipse 80% 90% at 50% 35%, #3b424f 0%, #1c2230 55%, #0a0d14 100%);
     overflow: hidden;
     position: relative;
+    // Own stacking context so the animated-background <video> (z-index -1,
+    // mounted by avatar_renderer._ensureBackgroundVideo) paints above this
+    // element's background but below the canvas and every overlay control.
+    isolation: isolate;
 
     canvas {
         width: 100% !important;

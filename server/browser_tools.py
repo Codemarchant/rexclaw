@@ -30,6 +30,41 @@ BROWSER_TOOLS = [
     # build_play_gesture_tool below).
 ]
 
+# Offered only when the agent has Grok Imagine tools enabled — the snapshot's
+# whole purpose is feeding create_video (source_image / reference_images).
+# Browser-side: the dispatcher captures the live WebGL canvas and uploads it
+# via /api/voice/session/<id>/selfie.
+SELFIE_TOOL = {
+    "name": "take_selfie",
+    "description": (
+        "Capture a snapshot of yourself exactly as you appear right now — "
+        "avatar, outfit, pose, and anyone else in the call. By default the "
+        "shot has a transparent background (just the characters); set "
+        "include_background=true to keep the current scene backdrop in "
+        "frame — nice for 'selfie at this place' moments. The image is "
+        "saved to the Imagine library and returned as image_url + "
+        "imagine_image_id, which you can pass to create_video "
+        "(reference_images to star in a clip, or source_image to animate "
+        "the shot itself). Use when the user asks for a selfie or a "
+        "photo/video featuring you as you currently look. Strike a pose "
+        "with play_gesture or set_emotion BEFORE calling this if the "
+        "moment calls for it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "include_background": {
+                "type": "boolean",
+                "description": (
+                    "true = include the current scene backdrop in the shot; "
+                    "false/omitted = transparent background (default)."
+                ),
+            },
+        },
+        "required": [],
+    },
+}
+
 # Built-in gesture ids shipped in web/src/models/avatar_catalog.js. Kept here
 # verbatim so build_play_gesture_tool can produce the right enum without
 # reading the JS.

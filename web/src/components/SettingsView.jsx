@@ -92,6 +92,14 @@ export default function SettingsView({ active }) {
                                    onChange={(ev) => setField("imagine_model", ev.target.value)} />
                         </div>
                         <div>
+                            <label title={_t("Grok Imagine video model for animated backgrounds and create_video. Priced per second of video. grok-imagine-video (default) supports reference-to-video — the selfie/reference_images flow; grok-imagine-video-1.5 adds 1080p image-to-video but does NOT support reference-to-video.")}>
+                                {_t("Imagine video model")}
+                            </label>
+                            <input type="text" value={config.imagine_video_model || ""}
+                                   placeholder="grok-imagine-video"
+                                   onChange={(ev) => setField("imagine_video_model", ev.target.value)} />
+                        </div>
+                        <div>
                             <label title={_t("Model for the group-call turn director (a one-token \"who speaks next\" classification on every group-call turn). Latency matters more than intelligence here — use the fastest non-reasoning model available. Empty = fall back to the Text Model.")}>
                                 {_t("Turn director model")}
                             </label>

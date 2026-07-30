@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS config (
     xai_files_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/files',
     xai_images_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/images/generations',
     xai_images_edits_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/images/edits',
+    xai_videos_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/videos/generations',
     xai_model TEXT NOT NULL DEFAULT 'grok-voice-latest',
     text_model TEXT NOT NULL DEFAULT 'grok-latest',
     summary_model TEXT NOT NULL DEFAULT 'grok-latest',
@@ -57,6 +58,11 @@ CREATE TABLE IF NOT EXISTS config (
     -- fall back to the Text Model.
     director_model TEXT NOT NULL DEFAULT 'grok-4.20-non-reasoning',
     imagine_model TEXT NOT NULL DEFAULT 'grok-imagine-image-quality-latest',
+    -- Grok Imagine video generation (animated backgrounds + create_video).
+    -- Priced per second. The base model is the default because -1.5 does
+    -- NOT support reference-to-video (the create_video reference_images /
+    -- selfie flow) — it only adds 1080p image-to-video.
+    imagine_video_model TEXT NOT NULL DEFAULT 'grok-imagine-video',
     default_agent_id INTEGER,
     user_display_name TEXT,
     include_user_name_in_prompt INTEGER NOT NULL DEFAULT 0,
@@ -352,6 +358,9 @@ MIGRATIONS = (
     # Unified voice/text conversations — cross-mode resume + chain-preserving
     # catch-up injection on the text Responses chain.
     "ALTER TABLE sessions ADD COLUMN chain_tail_sequence INTEGER NOT NULL DEFAULT 0",
+    # Grok Imagine video (animated backgrounds + create_video).
+    "ALTER TABLE config ADD COLUMN xai_videos_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/videos/generations'",
+    "ALTER TABLE config ADD COLUMN imagine_video_model TEXT NOT NULL DEFAULT 'grok-imagine-video'",
 )
 
 

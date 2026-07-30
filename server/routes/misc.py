@@ -19,8 +19,9 @@ router = APIRouter(prefix="/api")
 # from the UI's perspective — reads return a masked placeholder.
 _CONFIG_FIELDS = (
     "enabled", "xai_realtime_url", "xai_client_secrets_url", "xai_responses_url",
-    "xai_files_url", "xai_images_url", "xai_images_edits_url",
+    "xai_files_url", "xai_images_url", "xai_images_edits_url", "xai_videos_url",
     "xai_model", "text_model", "summary_model", "director_model", "imagine_model",
+    "imagine_video_model",
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
     "summary_threshold_tokens", "summary_threshold_tokens_text",
     "summary_keep_recent_messages", "enable_memory_extraction",
@@ -455,6 +456,7 @@ def imagine_list(payload: dict = Body(default={}), con=Depends(db_con)):
             "kind": r["kind"],
             "prompt": r["prompt"],
             "image_url": r["image_path"],
+            "mimetype": r["mimetype"],
             "created_at": r["created_at"],
         }
         for r in rows

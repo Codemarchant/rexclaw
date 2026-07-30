@@ -1,12 +1,14 @@
 # Copyright 2026 Codemarchant
 """Voice-mode (realtime WebSocket) session routes. Mirrors the Odoo module's
 controllers/voice_session.py minus the Odoo-native tool surface."""
+import base64
 import logging
+import uuid
 
 from fastapi import APIRouter, Body, Depends
 
 from .. import imagine_tools, memory_tools, session_service, store
-from ..db import get_config
+from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
 
@@ -107,8 +109,8 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         if not agent["enable_grok_imagine_tools"]:
             raise AccessError("Grok Imagine tools are disabled on this agent.")
         # Defence in depth: surface gating mirrors the tool lists.
-        if tool_name == "change_background" and session["mode"] == "text":
-            raise AccessError("change_background is not available in text mode.")
+        if tool_name in imagine_tools.VOICE_ONLY_TOOL_NAMES and session["mode"] == "text":
+            raise AccessError(f"{tool_name} is not available in text mode.")
         if tool_name == "edit_image" and session["mode"] != "text":
             raise AccessError("edit_image is only available in text mode.")
         result = imagine_tools.execute_imagine_tool(con, session, tool_name, arguments)
@@ -121,6 +123,86 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         con.commit()
         return result
     raise ValidationError(f"Unknown native tool: {tool_name}")
+
+
+def _store_session_image(con, session_id, image_data_url, *, kind, name):
+    """Shared body of the selfie/upload routes: validate the session +
+    Imagine gate, decode a data:image/... URI, persist it as an
+    imagine_images row of `kind`, and return the small library payload."""
+    session = resolve_session(con, session_id)
+    if session["state"] != "active":
+        raise ValidationError("Session is not active.")
+    agent = store.get_agent(con, session["agent_id"])
+    if not agent["enable_grok_imagine_tools"]:
+        raise AccessError("Grok Imagine tools are disabled on this agent.")
+
+    data = image_data_url or ""
+    if not isinstance(data, str) or not data.startswith("data:image/"):
+        raise ValidationError("image_data_url must be a data:image/... URI.")
+    header, _, b64 = data.partition(",")
+    mimetype = header[len("data:"):].split(";", 1)[0]
+    if mimetype not in ("image/png", "image/jpeg", "image/webp"):
+        raise ValidationError(f"Unsupported image mimetype {mimetype!r}.")
+    try:
+        raw = base64.b64decode(b64 or "", validate=True)
+    except Exception:
+        raise ValidationError("image_data_url is not valid base64.")
+    if not raw or len(raw) > 10 * 1024 * 1024:
+        raise ValidationError("Image must be between 1 byte and 10 MB.")
+
+    ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}[mimetype]
+    fname = f"imagine_{uuid.uuid4().hex}{ext}"
+    (FILES_DIR / fname).write_bytes(raw)
+    image_path = f"/files/{fname}"
+    name = name or "Image"
+    cur = con.execute(
+        """INSERT INTO imagine_images
+               (name, agent_id, session_id, kind, prompt, image_path, mimetype, xai_model, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (name, agent["id"], session["id"], kind, name, image_path,
+         mimetype, None, utcnow()),
+    )
+    con.commit()
+    return {
+        "imagine_image_id": cur.lastrowid,
+        "kind": kind,
+        "image_url": image_path,
+        "name": name,
+    }
+
+
+@router.post("/session/{session_id}/selfie")
+def session_selfie(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """Persist a canvas snapshot the browser captured for the take_selfie
+    tool. The image lands in the Imagine library (kind 'selfie') so the
+    model can immediately reuse it via create_video's source_image /
+    reference_images."""
+    session = resolve_session(con, session_id)
+    agent = store.get_agent(con, session["agent_id"])
+    return _store_session_image(
+        con, session_id, payload.get("image_data_url"),
+        kind="selfie", name=f"Selfie — {agent['name']}",
+    )
+
+
+@router.post("/session/{session_id}/upload_image")
+def session_upload_image(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """Voice-mode image upload: the browser downscales the user's picture to
+    a data URI and it lands in the Imagine library (kind 'upload'). The
+    client then injects a context note telling the model the image_url, so
+    it can look at nothing (voice models are audio-only) but can USE the
+    image — create_video's source_image / reference_images resolve it like
+    any other library entry."""
+    name = payload.get("name")
+    if not isinstance(name, str) or not name.strip():
+        name = "Uploaded image"
+    # Filenames are user-controlled — keep them short and single-line so the
+    # library list and the context note stay tidy.
+    name = name.strip().replace("\n", " ")[:80]
+    return _store_session_image(
+        con, session_id, payload.get("image_data_url"),
+        kind="upload", name=name,
+    )
 
 
 @router.post("/session/{session_id}/end")
@@ -204,6 +286,7 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
             (a["id"],),
         ).fetchone()
         imagine = store.latest_imagine_background(con, a["id"])
+        imagine_video = store.latest_imagine_video_background(con, a["id"])
         out.append({
             "id": a["id"],
             "name": a["name"],
@@ -219,5 +302,8 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
                 if sess else None
             ),
             "latest_imagine_background": store.imagine_payload(imagine) if imagine else None,
+            "latest_imagine_video_background": (
+                store.imagine_payload(imagine_video) if imagine_video else None
+            ),
         })
     return {"default_agent_id": default_id, "agents": out}

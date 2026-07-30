@@ -94,5 +94,9 @@ export function makeConversationState() {
         // agent.latest_imagine_background is a session-start snapshot and
         // doesn't reflect mid-session generations.
         latestImagineBackgroundByAgent: {},
+        // Same idea for animated (video) Imagine backgrounds — a parallel
+        // "latest" track so the picker offers both the newest still and the
+        // newest animated backdrop.
+        latestImagineVideoBackgroundByAgent: {},
     });
 }

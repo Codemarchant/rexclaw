@@ -271,6 +271,57 @@
         flex-direction: column;
         border-left: 1px solid #e2e8f0;
 
+        // Queued image attachments (voice-mode paperclip): thumbnails above
+        // the message box; each × unqueues from THIS message only (the
+        // upload already lives in the Imagine library).
+        .o_voice_text_attachments {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            padding: 0.5rem 0.75rem 0;
+            border-top: 1px solid #e2e8f0;
+
+            .o_voice_text_attach_chip {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.35rem;
+                padding: 0.2rem 0.45rem;
+                border: 1px solid #e2e8f0;
+                border-radius: 0.5rem;
+                background: #f8fafc;
+                font-size: 0.75rem;
+                color: #334155;
+                max-width: 180px;
+
+                img {
+                    width: 28px;
+                    height: 28px;
+                    object-fit: cover;
+                    border-radius: 0.3rem;
+                }
+                .o_voice_text_attach_name {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .btn-link {
+                    color: inherit;
+                    opacity: 0.6;
+                    border: 0;
+                    background: none;
+                    cursor: pointer;
+                    &:hover { opacity: 1; }
+                }
+            }
+        }
+
+        // The attachments strip carries the divider when present — kill the
+        // input row's own border so the two don't double up.
+        .o_voice_text_attachments + .o_voice_text_input {
+            border-top: 0;
+            padding-top: 0.4rem;
+        }
+
         .o_voice_text_input {
             display: flex;
             gap: 0.5rem;

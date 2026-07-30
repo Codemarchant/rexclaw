@@ -220,9 +220,15 @@ def _resolve_active_background(con, agent_row):
     default = next((b for b in bgs if b['is_default']), None)
     if default:
         return store.background_payload(default)
-    imagine = store.latest_imagine_background(con, agent_row['id'])
-    if imagine:
-        return store.imagine_payload(imagine)
+    # Still and animated Imagine backgrounds are parallel "latest" tracks —
+    # whichever was generated most recently is the sticky one.
+    candidates = [r for r in (
+        store.latest_imagine_background(con, agent_row['id']),
+        store.latest_imagine_video_background(con, agent_row['id']),
+    ) if r]
+    if candidates:
+        newest = max(candidates, key=lambda r: (r['created_at'] or '', r['id']))
+        return store.imagine_payload(newest)
     if bgs:
         return store.background_payload(bgs[0])
     return None
@@ -340,10 +346,15 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         if remove_agent_tool is not None:
             tools.append(remove_agent_tool)
 
+    if agent['enable_grok_imagine_tools']:
+        # take_selfie is a browser tool (it captures the live canvas), but it
+        # exists to feed create_video — same feature gate as the imagine set.
+        tools.append(browser_tools.SELFIE_TOOL)
+
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='voice')
     native_function_tools = []
     if agent['enable_grok_imagine_tools']:
-        native_function_tools.extend(imagine_tools.IMAGINE_TOOLS)
+        native_function_tools.extend(imagine_tools.build_voice_tools(con, agent))
     if agent['enable_memory_tools']:
         native_function_tools.extend(memory_tools.MEMORY_TOOLS)
 
@@ -1037,7 +1048,7 @@ NATIVE_TOOL_NAMES_TEXT = imagine_tools.IMAGINE_TOOL_NAMES | memory_tools.MEMORY_
 TEXT_BROWSER_TOOL_NAMES = set()
 
 
-def _build_text_tools(agent, *, mcp_entries, enable_web_search, enable_x_search,
+def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_search,
                       enable_code_execution=False,
                       enable_grok_imagine_tools=False,
                       enable_memory_tools=False):
@@ -1046,9 +1057,11 @@ def _build_text_tools(agent, *, mcp_entries, enable_web_search, enable_x_search,
     for entry in mcp_entries or []:
         tools.append(entry)
     if enable_grok_imagine_tools:
-        # Text mode only gets create_image + edit_image — change_background
-        # has no live avatar canvas to swap.
-        for entry in imagine_tools.IMAGINE_TEXT_TOOLS:
+        # Text mode gets create_image + edit_image + create_video —
+        # change_background has no live avatar canvas to swap. create_video
+        # is built per-agent (its description lists the avatar's outfit
+        # reference images).
+        for entry in imagine_tools.build_text_tools(con, agent):
             tools.append(entry)
     if enable_memory_tools:
         for entry in memory_tools.MEMORY_TOOLS:
@@ -1274,7 +1287,7 @@ def start_text_session(con, *, agent, resume_session=None):
         },
         'instructions': instructions,
         'tools': _build_text_tools(
-            agent,
+            con, agent,
             mcp_entries=mcp_entries,
             enable_web_search=bool(agent['enable_web_search']),
             enable_x_search=bool(agent['enable_x_search']),
@@ -1403,7 +1416,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
 
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='text')
     tools = _build_text_tools(
-        agent,
+        con, agent,
         mcp_entries=mcp_entries,
         enable_web_search=bool(agent['enable_web_search']),
         enable_x_search=bool(agent['enable_x_search']),

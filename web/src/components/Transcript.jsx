@@ -83,6 +83,10 @@ function toolRow(base) {
                 row.image_url = parsed.image_url;
                 row.image_name = parsed.name || parsed.prompt || _t("Generated image");
                 row.image_prompt = parsed.prompt || "";
+            } else if (parsed && typeof parsed === "object" && parsed.video_url) {
+                row.video_url = parsed.video_url;
+                row.video_name = parsed.name || parsed.prompt || _t("Generated video");
+                row.video_prompt = parsed.prompt || "";
             }
         } catch (_) {
             // result wasn't JSON — fine for non-imagine tools.
@@ -220,6 +224,15 @@ export default function Transcript({
                                     <img src={row.image_url} alt={row.image_name} />
                                     <span className="o_voice_tool_image_label">{row.image_name}</span>
                                 </a>
+                            )}
+                            {row.video_url && (
+                                <div
+                                    className="o_voice_tool_image o_voice_tool_video"
+                                    title={row.video_prompt || row.video_name}
+                                >
+                                    <video src={row.video_url} controls preload="metadata" playsInline />
+                                    <span className="o_voice_tool_image_label">{row.video_name}</span>
+                                </div>
                             )}
                             {expanded[row.key] && (
                                 <div className="o_voice_tool_details">

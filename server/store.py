@@ -349,7 +349,21 @@ def insert_attachment(con, message_id, a):
 
 def imagine_payload(row):
     """Mirror rexclaw.voice.imagine.image.to_payload() — same shape as an
-    'image'-type background so the renderer paints either without branching."""
+    'image'-type background so the renderer paints either without branching.
+    Animated backgrounds (kind 'background_video') come out as
+    type 'imagine_video' with a video_url — the renderer mounts those as a
+    looping <video> layer instead of a CSS backdrop."""
+    if row['kind'] == 'background_video':
+        return {
+            'id': row['id'],
+            'name': row['name'],
+            'type': 'imagine_video',
+            'preset_style': False,
+            'video_url': row['image_path'] or False,
+            'is_default': False,
+            'prompt': row['prompt'],
+            'created_at': row['created_at'],
+        }
     return {
         'id': row['id'],
         'name': row['name'],
@@ -358,12 +372,22 @@ def imagine_payload(row):
         'image_url': row['image_path'] or False,
         'is_default': False,
         'prompt': row['prompt'],
+        'created_at': row['created_at'],
     }
 
 
 def latest_imagine_background(con, agent_id):
     row = con.execute(
         "SELECT * FROM imagine_images WHERE agent_id = ? AND kind = 'background' "
+        "ORDER BY created_at DESC, id DESC LIMIT 1",
+        (agent_id,),
+    ).fetchone()
+    return row
+
+
+def latest_imagine_video_background(con, agent_id):
+    row = con.execute(
+        "SELECT * FROM imagine_images WHERE agent_id = ? AND kind = 'background_video' "
         "ORDER BY created_at DESC, id DESC LIMIT 1",
         (agent_id,),
     ).fetchone()

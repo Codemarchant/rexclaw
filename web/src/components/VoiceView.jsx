@@ -9,6 +9,24 @@ import { VRManager } from "../vr/vr_manager";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 import Transcript from "./Transcript.jsx";
 
+/** Downscale a user-picked image file to a data URL (long edge ≤ maxSize).
+ *  createImageBitmap honours EXIF orientation, so phone photos come out
+ *  upright. PNG keeps transparency; everything else re-encodes as JPEG. */
+async function downscaleImageFile(file, maxSize = 2048) {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    return file.type === "image/png"
+        ? canvas.toDataURL("image/png")
+        : canvas.toDataURL("image/jpeg", 0.9);
+}
+
 // WASD + arrows → camera-relative movement axes for the manual walk toggle.
 const MOVE_KEY_MAP = {
     KeyW: "fwd", ArrowUp: "fwd",
@@ -200,10 +218,15 @@ export default function VoiceView({ active = true }) {
         avatarRenderer.resetExpression?.();
         setCurrentEmotion("neutral");
         // Resolve the initial background with the SAME precedence the server
-        // uses at session start: tagged default → latest Imagine → first.
+        // uses at session start: tagged default → newest Imagine (still and
+        // animated are parallel "latest" tracks; most recent wins) → first.
         const bgs = avatar.backgrounds || [];
-        const imagine = voice.state.latestImagineBackgroundByAgent?.[agentId]
+        const imagineStill = voice.state.latestImagineBackgroundByAgent?.[agentId]
             || agent?.latest_imagine_background || null;
+        const imagineVideo = voice.state.latestImagineVideoBackgroundByAgent?.[agentId]
+            || agent?.latest_imagine_video_background || null;
+        const imagine = [imagineStill, imagineVideo].filter(Boolean)
+            .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0] || null;
         const resolved = bgs.find((b) => b.is_default) || imagine || bgs[0] || null;
         voice.state.activeBackground = resolved;
         voice.state.backgroundPickedByUser = false;
@@ -447,7 +470,21 @@ export default function VoiceView({ active = true }) {
     };
 
     const sendTextMessage = () => {
-        if (voice.sendText(draftText)) setDraftText("");
+        const text = draftText.trim();
+        const images = pendingImages;
+        if (!text && !images.length) return;
+        if (images.length) {
+            // Hidden note first (no response prompt), THEN the visible turn —
+            // the model reads both and reacts once. With no typed text the
+            // service default decides (react now solo; inform-next-turn in
+            // group calls, where an unprompted reaction would steal the floor).
+            voice.sendContextEvent(attachmentNote(images), {
+                ...(text ? { promptResponse: false } : {}),
+                minIntervalMs: 0,
+            });
+            setPendingImages([]);
+        }
+        if (text && voice.sendText(text)) setDraftText("");
     };
 
     const onTextKeydown = (ev) => {
@@ -493,15 +530,31 @@ export default function VoiceView({ active = true }) {
         return currentAgent?.latest_imagine_background || null;
     })();
 
+    // Parallel slot for the newest ANIMATED Imagine background — still and
+    // animated coexist in the picker as separate entries.
+    const currentImagineVideoBackground = (() => {
+        const active = sv.activeBackground;
+        if (active && active.type === "imagine_video") return active;
+        const inSession = sv.latestImagineVideoBackgroundByAgent?.[selectedAgentId];
+        if (inSession) return inSession;
+        return currentAgent?.latest_imagine_video_background || null;
+    })();
+
     const backgroundPickerEntries = (() => {
         const entries = [];
         const imagine = currentImagineBackground;
-        if (imagine && !currentBackgrounds.length) {
+        const imagineVideo = currentImagineVideoBackground;
+        if ((imagine || imagineVideo) && !currentBackgrounds.length) {
             entries.push({ key: "default", label: _t("Default Background"), bg: null });
         }
         if (imagine) {
             const label = imagine.name ? `Imagine — ${imagine.name}` : _t("Imagine background");
             entries.push({ key: "imagine", label, bg: imagine });
+        }
+        if (imagineVideo) {
+            const label = imagineVideo.name
+                ? `Imagine ▶ ${imagineVideo.name}` : _t("Animated background");
+            entries.push({ key: "imagine-video", label, bg: imagineVideo });
         }
         for (const bg of currentBackgrounds) {
             entries.push({ key: `bg-${bg.id}`, label: bg.name, bg });
@@ -512,6 +565,7 @@ export default function VoiceView({ active = true }) {
     const currentBackgroundKey = (() => {
         const active = sv.activeBackground;
         if (active && active.type === "imagine") return "imagine";
+        if (active && active.type === "imagine_video") return "imagine-video";
         if (active && active.id) return `bg-${active.id}`;
         const defaultBg = currentBackgrounds.find((b) => b.is_default) || currentBackgrounds[0];
         if (defaultBg) return `bg-${defaultBg.id}`;
@@ -526,6 +580,52 @@ export default function VoiceView({ active = true }) {
         avatarRenderer.setBackground?.(entry.bg);
         voice.state.activeBackground = entry.bg;
         voice.state.backgroundPickedByUser = true;
+    };
+
+    // Voice-mode image attachments: picked files upload eagerly into the
+    // Imagine library (kind 'upload') and queue as chips on the message box;
+    // SEND delivers one hidden context note for the whole batch alongside
+    // the typed text, so the model reacts once — to message + images
+    // together — instead of after every upload. The voice model can't SEE
+    // the images, but create_video's source_image / reference_images can
+    // USE them.
+    const imageInputRef = useRef(null);
+    const [pendingImages, setPendingImages] = useState([]);
+    const [uploadingImages, setUploadingImages] = useState(false);
+    const onImagesChosen = async (ev) => {
+        const files = [...(ev.target.files || [])].slice(0, 6);
+        ev.target.value = "";
+        if (!files.length || !sv.sessionId) return;
+        setUploadingImages(true);
+        try {
+            for (const file of files) {
+                const dataUrl = await downscaleImageFile(file);
+                const result = await rpc(`/api/voice/session/${sv.sessionId}/upload_image`, {
+                    image_data_url: dataUrl,
+                    name: file.name,
+                });
+                setPendingImages((prev) => [...prev, result]);
+            }
+        } catch (e) {
+            notification.add(_t("Image upload failed: %s", e?.data?.message || e?.message || e), { type: "danger" });
+        } finally {
+            setUploadingImages(false);
+        }
+    };
+    const removePendingImage = (id) => {
+        // Chip removal only unqueues it from THIS message — the upload
+        // already lives in the Imagine library, which is harmless.
+        setPendingImages((prev) => prev.filter((p) => p.imagine_image_id !== id));
+    };
+    const attachmentNote = (images) => {
+        const listing = images
+            .map((p) => `"${p.name}" (image_url=${p.image_url}, imagine_image_id=${p.imagine_image_id})`)
+            .join("; ");
+        return `[System] The user attached ${images.length} image(s) to their message: `
+            + `${listing}. You cannot see them (voice is audio-only), but you can `
+            + `use them — pass an image_url to create_video as source_image `
+            + `(animate that exact image) or reference_images (feature its `
+            + `people/objects in a new clip, up to 3).`;
     };
 
     const onOutfitChange = (ev) => {
@@ -838,8 +938,31 @@ export default function VoiceView({ active = true }) {
                 <div className="o_voice_full_transcript">
                     <Transcript messages={sv.messages} isLive={isLive}
                                 thinking={sv.thinking} truncated={sv.transcriptTruncated} />
+                    {isLive && pendingImages.length > 0 && (
+                        <div className="o_voice_text_attachments">
+                            {pendingImages.map((p) => (
+                                <span key={p.imagine_image_id} className="o_voice_text_attach_chip" title={p.name}>
+                                    <img src={p.image_url} alt={p.name} />
+                                    <span className="o_voice_text_attach_name">{p.name}</span>
+                                    <button className="btn btn-link p-0"
+                                            onClick={() => removePendingImage(p.imagine_image_id)}
+                                            title={_t("Remove")}>
+                                        <i className="fa fa-times" />
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
                     {isLive && (
                         <div className="o_voice_text_input">
+                            <button className="btn btn-sm btn-secondary"
+                                    disabled={sv.compacting || uploadingImages}
+                                    onClick={() => imageInputRef.current?.click()}
+                                    title={_t("Attach images")}>
+                                <i className={uploadingImages ? "fa fa-spinner fa-spin" : "fa fa-paperclip"} />
+                            </button>
+                            <input ref={imageInputRef} type="file" accept="image/*" multiple
+                                   style={{ display: "none" }} onChange={onImagesChosen} />
                             <textarea rows={1}
                                       ref={textInputRef}
                                       placeholder={sv.compacting ? _t("Compacting context…") : _t("Type a message…")}
@@ -848,7 +971,7 @@ export default function VoiceView({ active = true }) {
                                       onChange={(ev) => setDraftText(ev.target.value)}
                                       onKeyDown={onTextKeydown} />
                             <button className="btn btn-sm btn-primary"
-                                    disabled={!draftText.trim() || sv.compacting}
+                                    disabled={(!draftText.trim() && !pendingImages.length) || sv.compacting}
                                     onClick={sendTextMessage}
                                     title={_t("Send")}>
                                 <i className="fa fa-paper-plane" />

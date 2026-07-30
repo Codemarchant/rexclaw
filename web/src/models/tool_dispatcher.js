@@ -1,5 +1,10 @@
 import { rpc } from "../lib/rpc";
 import { EMOTION_GESTURE_MAP, GESTURE_FILE_MAP, GESTURE_LOOP_MAP } from "./avatar_catalog";
+// The shared renderer singleton (imported directly, not via services/index,
+// to avoid an import cycle through voice_service). take_selfie snapshots the
+// whole live canvas, not one agent's model, so it bypasses the per-agent
+// avatarApi adapter.
+import { avatarRenderer } from "../services/avatar_renderer";
 
 /**
  * Browser-side tool dispatcher.
@@ -21,10 +26,11 @@ import { EMOTION_GESTURE_MAP, GESTURE_FILE_MAP, GESTURE_LOOP_MAP } from "./avata
 
 const NATIVE_TOOL_NAMES = new Set([
     // Grok Imagine tools execute server-side (xAI API key required) and come
-    // back with an image URL. Side effects (swap background) are applied in
-    // dispatch() after the result.
+    // back with an image/video URL. Side effects (swap background) are
+    // applied in dispatch() after the result.
     "change_background",
     "create_image",
+    "create_video",
     // Memory tools execute server-side. No browser-side side effects.
     "remember",
     "recall",
@@ -88,7 +94,12 @@ export class ToolDispatcher {
         // upstream — keeps the visual change tightly correlated with the
         // model's "done" beat.
         if (result && !result.error) {
-            if (name === "change_background" && result.image_url) {
+            // change_background returns image_url (still) or video_url
+            // (animated=true) — each side swaps the live backdrop and
+            // updates its own "latest Imagine" picker slot.
+            if (name === "change_background" && result.video_url) {
+                this._applyImagineVideoBackground(result);
+            } else if (name === "change_background" && result.image_url) {
                 this._applyImagineBackground(result);
             }
         }
@@ -127,6 +138,31 @@ export class ToolDispatcher {
         }
     }
 
+    /** Swap the live background to the freshly-animated Imagine clip. Same
+     *  state plumbing as _applyImagineBackground, but type 'imagine_video'
+     *  routes the renderer to a looping <video> layer instead of a CSS
+     *  backdrop, and the entry lands in the parallel animated-latest picker
+     *  slot — still and animated backgrounds coexist in the dropdown. */
+    _applyImagineVideoBackground(result) {
+        const bg = {
+            type: "imagine_video",
+            preset_style: false,
+            video_url: result.video_url,
+            id: result.imagine_image_id,
+            name: result.name || "Animated background",
+            prompt: result.prompt || "",
+            created_at: result.created_at || new Date().toISOString(),
+        };
+        this.avatarApi?.setBackground?.(bg);
+        if (this.conversationState) {
+            this.conversationState.activeBackground = bg;
+            const agentId = this.conversationState.agentId;
+            if (agentId) {
+                this.conversationState.latestImagineVideoBackgroundByAgent[agentId] = bg;
+            }
+        }
+    }
+
     async _invoke(name, args) {
         if (NATIVE_TOOL_NAMES.has(name)) {
             if (!this.sessionId) {
@@ -144,6 +180,8 @@ export class ToolDispatcher {
                 return this._playGesture(args);
             case "change_outfit":
                 return this._changeOutfit(args);
+            case "take_selfie":
+                return this._takeSelfie(args);
             case "add_agent_to_call":
                 return this._addAgentToCall(args);
             case "remove_agent_from_call":
@@ -151,6 +189,31 @@ export class ToolDispatcher {
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }
+    }
+
+    /** take_selfie: snapshot the live canvas and persist it server-side as
+     *  an Imagine-library image the model can feed straight into
+     *  create_video. Awaited (not fire-and-forget) — the whole point is
+     *  returning the image_url in the function_call_output. */
+    async _takeSelfie({ include_background } = {}) {
+        if (!this.sessionId) {
+            return { ok: false, error: "take_selfie requires an active session." };
+        }
+        const dataUrl = await avatarRenderer.captureSnapshot?.({
+            includeBackground: !!include_background,
+        });
+        if (!dataUrl) {
+            return { ok: false, error: "No live avatar canvas to capture." };
+        }
+        const result = await rpc(`/api/voice/session/${this.sessionId}/selfie`, {
+            image_data_url: dataUrl,
+        });
+        return {
+            ok: true,
+            ...result,
+            note: "Snapshot saved. Pass image_url (or imagine_image_id) to "
+                + "create_video as reference_images or source_image.",
+        };
     }
 
     _setEmotion({ emotion }) {

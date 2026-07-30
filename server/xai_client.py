@@ -177,6 +177,141 @@ def edit_image(*, xai_api_key, edits_url, model, prompt, image_file_ids,
     return body
 
 
+def generate_video(*, xai_api_key, videos_url, model, prompt,
+                   mode='generate', image_data_uri=None,
+                   reference_image_data_uris=None, video_data_uri=None,
+                   duration_seconds=None,
+                   aspect_ratio=None, resolution=None,
+                   poll_interval=2.0, poll_timeout=240):
+    """POST a video job, then poll GET /v1/videos/{request_id} until the
+    clip is ready. Returns {'url', 'duration', 'model', 'raw'}.
+
+    `mode` picks the endpoint (all share the request/poll protocol):
+      * 'generate' → /v1/videos/generations — text-, image-
+        (`image_data_uri`, first frame locked) or reference-to-video
+        (`reference_image_data_uris`, subjects appear without locking the
+        framing).
+      * 'extend' → /v1/videos/extensions — `video_data_uri` required;
+        `duration_seconds` is the length of the ADDED portion, the prompt
+        describes what happens next.
+      * 'edit' → /v1/videos/edits — `video_data_uri` required; the prompt
+        describes the change. xAI ignores duration/aspect/resolution here
+        (output inherits the input, capped at 720p) so they're omitted.
+
+    Video jobs are asynchronous on xAI's side: the POST returns only a
+    request_id and the result URL appears on the status endpoint once the
+    status flips to 'done'. The mp4 lives at a TEMPORARY vidgen.x.ai URL —
+    callers must download it promptly (see download_video_bytes) rather than
+    storing the URL. xAI accepts public URLs or base64 data URIs in the
+    `.url` fields — our source files are local, so the data-URI form is the
+    only one that works here.
+    """
+    if not xai_api_key:
+        raise UserError(NO_KEY_MSG)
+    if not prompt:
+        raise UserError("Video prompt is required.")
+    if mode in ('extend', 'edit') and not video_data_uri:
+        raise UserError(f"Video {mode} requires a source video.")
+    # All three endpoints hang off the same base path — derive it from the
+    # configured generations URL so a proxy/base-URL override still works.
+    base_url = videos_url.rstrip('/')
+    if base_url.endswith('/generations'):
+        base_url = base_url[: -len('/generations')]
+    endpoint = {
+        'generate': f'{base_url}/generations',
+        'extend': f'{base_url}/extensions',
+        'edit': f'{base_url}/edits',
+    }.get(mode)
+    if not endpoint:
+        raise UserError(f"Unknown video mode {mode!r}.")
+
+    payload = {
+        'model': model,
+        'prompt': prompt,
+    }
+    if video_data_uri:
+        payload['video'] = {'url': video_data_uri}
+    if image_data_uri:
+        payload['image'] = {'url': image_data_uri}
+    if reference_image_data_uris:
+        payload['reference_images'] = [{'url': u} for u in reference_image_data_uris]
+    if mode != 'edit':
+        if duration_seconds:
+            payload['duration'] = int(duration_seconds)
+        if aspect_ratio:
+            payload['aspect_ratio'] = aspect_ratio
+        if resolution:
+            payload['resolution'] = resolution
+    headers = {
+        'Authorization': f'Bearer {xai_api_key}',
+        'Content-Type': 'application/json',
+    }
+    resp = _post_with_retry(endpoint, headers, payload, timeout=120)
+    if resp.status_code >= 400:
+        _logger.error('xAI video %s failed: %s %s', mode, resp.status_code, resp.text)
+        raise UserError(f"Video {mode} failed ({resp.status_code}): {resp.text[:500]}")
+    body = resp.json()
+    request_id = body.get('request_id') or body.get('id')
+    if not request_id:
+        _logger.error('xAI video %s: no request_id in response: %s', mode, body)
+        raise UserError("Video job returned no request id — see server log.")
+
+    status_url = f"{base_url}/{request_id}"
+
+    deadline = time.monotonic() + poll_timeout
+    last_status = None
+    while time.monotonic() < deadline:
+        try:
+            poll = requests.get(status_url, headers=headers, timeout=30)
+        except requests.RequestException as e:
+            _logger.warning('xAI video status poll failed: %s', e)
+            time.sleep(poll_interval)
+            continue
+        if poll.status_code >= 400:
+            _logger.error('xAI video status failed: %s %s', poll.status_code, poll.text)
+            raise UserError(f"Video status check failed ({poll.status_code}): {poll.text[:300]}")
+        status_body = poll.json()
+        last_status = status_body.get('status')
+        if last_status == 'done':
+            video = status_body.get('video') or {}
+            url = video.get('url') or status_body.get('url')
+            if not url:
+                _logger.error('xAI video done but no url: %s', status_body)
+                raise UserError("Video finished but xAI returned no URL — see server log.")
+            return {
+                'url': url,
+                'duration': video.get('duration'),
+                'model': status_body.get('model') or model,
+                'raw': status_body,
+            }
+        if last_status in ('failed', 'expired'):
+            _logger.error('xAI video generation %s: %s', last_status, status_body)
+            raise UserError(f"Video generation {last_status}.")
+        time.sleep(poll_interval)
+    raise UserError(
+        f"Video generation timed out after {poll_timeout}s (last status: {last_status})."
+    )
+
+
+def download_video_bytes(url, *, xai_api_key=None, timeout=120):
+    """Fetch the finished mp4 from its temporary vidgen.x.ai URL. The link is
+    normally pre-signed (no auth), but retry once with the Bearer header in
+    case xAI ever gates it."""
+    try:
+        resp = requests.get(url, timeout=timeout)
+        if resp.status_code in (401, 403) and xai_api_key:
+            resp = requests.get(
+                url, headers={'Authorization': f'Bearer {xai_api_key}'}, timeout=timeout,
+            )
+    except requests.RequestException as e:
+        raise UserError(f"Video download failed: {e}")
+    if resp.status_code >= 400:
+        raise UserError(f"Video download failed ({resp.status_code}).")
+    if not resp.content:
+        raise UserError("Video download returned no data.")
+    return resp.content
+
+
 def mint_ephemeral_token(*, xai_api_key, client_secrets_url, expires_after_seconds=900):
     """POST /v1/realtime/client_secrets to mint an ephemeral token for the browser.
 

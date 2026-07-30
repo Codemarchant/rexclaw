@@ -181,6 +181,21 @@
                 }
                 &:hover { border-color: #94a3b8; }
             }
+
+            // create_video results: same card, playable inline. Wider than
+            // the image thumb so the controls are usable.
+            .o_voice_tool_video {
+                max-width: 320px;
+
+                video {
+                    width: 100%;
+                    max-width: 300px;
+                    aspect-ratio: 16 / 9;
+                    border-radius: 0.35rem;
+                    display: block;
+                    background: #0a0d14;
+                }
+            }
         }
 
         &--tool-result {

@@ -97,6 +97,7 @@ export const JA = {
   "Earlier messages exist on the server but are not loaded in this view.":
     "これ以前のメッセージはサーバーに保存されていますが、このビューには読み込まれていません。",
   "Generated image": "生成画像",
+  "Generated video": "生成動画",
   "Reply was truncated by xAI: %s": "応答が xAI により途中で打ち切られました：%s",
 
   // ── Group calls ───────────────────────────────────────────────────────
@@ -199,6 +200,12 @@ export const JA = {
   "Text model": "テキストモデル",
   "Summary model": "要約モデル",
   "Imagine model": "Imagine モデル",
+  "Imagine video model": "Imagine 動画モデル",
+  "Grok Imagine video model for animated backgrounds and create_video. Priced per second of video. grok-imagine-video (default) supports reference-to-video — the selfie/reference_images flow; grok-imagine-video-1.5 adds 1080p image-to-video but does NOT support reference-to-video.":
+    "アニメーション背景と create_video 用の Grok Imagine 動画モデル。動画1秒ごとの課金です。grok-imagine-video(既定値)は参照→動画(セルフィー / reference_images フロー)に対応。grok-imagine-video-1.5 は 1080p の画像→動画に対応しますが、参照→動画には対応していません。",
+  "Animated background": "アニメーション背景",
+  "Attach images": "画像を添付",
+  "Image upload failed: %s": "画像のアップロードに失敗しました: %s",
   "Turn director model": "ターンディレクターモデル",
   "Model for the group-call turn director (a one-token \"who speaks next\" classification on every group-call turn). Latency matters more than intelligence here — use the fastest non-reasoning model available. Empty = fall back to the Text Model.":
     "グループ通話のターンディレクター用モデル（毎ターン「次は誰が話すか」を 1 トークンで判定）。知能より低遅延が重要 — 利用可能な最速の非推論モデルを指定してください。空欄の場合はテキストモデルにフォールバックします。",
