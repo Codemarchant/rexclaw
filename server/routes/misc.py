@@ -21,7 +21,7 @@ _CONFIG_FIELDS = (
     "enabled", "xai_realtime_url", "xai_client_secrets_url", "xai_responses_url",
     "xai_files_url", "xai_images_url", "xai_images_edits_url", "xai_videos_url",
     "xai_model", "text_model", "summary_model", "director_model", "imagine_model",
-    "imagine_video_model",
+    "imagine_video_model", "multi_agent_model", "multi_agent_effort",
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
     "summary_threshold_tokens", "summary_threshold_tokens_text",
     "summary_keep_recent_messages", "enable_memory_extraction",
@@ -36,6 +36,7 @@ _AGENT_FIELDS = (
     "enable_web_search", "enable_x_search", "enable_grok_imagine_tools",
     "enable_memory_tools", "core_memory_cap",
     "enable_call_agents_tool", "when_to_call_description",
+    "enable_delegate_tool", "enable_multi_agent_delegation",
 )
 
 
@@ -281,10 +282,14 @@ def sessions_list(payload: dict = Body(default={}), con=Depends(db_con)):
     """Unified session archive (voice + text) for the Sessions tab. Returns
     everything — filtering/search happens client-side, mirroring the
     Memories tab. call_parent_session_id lets the UI nest group-call peer
-    legs under their primary session."""
+    legs under their primary session. Unlike the chat history/resume lists
+    this archive INCLUDES origin='delegated' task workspaces (it's the
+    audit surface), labelled via `origin`."""
     rows = con.execute(
-        "SELECT s.id, s.name, s.agent_id, s.mode, s.state, s.started_at, s.ended_at,"
-        " s.last_active_at, s.summary, s.call_parent_session_id, a.name AS agent_name,"
+        "SELECT s.id, s.name, s.agent_id, s.mode, s.state, s.origin, s.started_at,"
+        " s.ended_at,"
+        " s.last_active_at, s.summary, s.call_parent_session_id,"
+        " s.delegate_parent_session_id, a.name AS agent_name,"
         " (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.is_summary_rollup = 0)"
         "   AS message_count"
         " FROM sessions s LEFT JOIN agents a ON a.id = s.agent_id"

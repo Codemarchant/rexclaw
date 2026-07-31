@@ -11,10 +11,11 @@ import json
 import logging
 import re
 import threading
+import uuid
 from datetime import datetime, timedelta
 
-from . import xai_client, browser_tools, imagine_tools, memory_tools, store
-from .db import get_config, utcnow, parse_dt
+from . import xai_client, browser_tools, delegate_tools, imagine_tools, memory_tools, store
+from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
 _logger = logging.getLogger(__name__)
@@ -357,6 +358,10 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         native_function_tools.extend(imagine_tools.build_voice_tools(con, agent))
     if agent['enable_memory_tools']:
         native_function_tools.extend(memory_tools.MEMORY_TOOLS)
+    if agent['enable_delegate_tool']:
+        # Voice sessions are never origin='delegated', so no recursion
+        # carve-out is needed here (the text-mode builder handles that).
+        native_function_tools.append(delegate_tools.DELEGATE_TOOL)
 
     session_update = xai_client.build_session_update(
         voice=effective_voice,
@@ -1044,28 +1049,35 @@ def director_decide(con, *, session, transcript_lines, participants, user_name=N
 # Native tool names that execute server-side directly during the text response
 # loop. The standalone has no browser tools in text mode (the Odoo navigation
 # / DOM tools are gone), so the loop always resolves server-side.
-NATIVE_TOOL_NAMES_TEXT = imagine_tools.IMAGINE_TOOL_NAMES | memory_tools.MEMORY_TOOL_NAMES
+NATIVE_TOOL_NAMES_TEXT = (
+    imagine_tools.IMAGINE_TOOL_NAMES
+    | memory_tools.MEMORY_TOOL_NAMES
+    | {delegate_tools.DELEGATE_TOOL_NAME}
+)
 TEXT_BROWSER_TOOL_NAMES = set()
 
 
 def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_search,
                       enable_code_execution=False,
                       enable_grok_imagine_tools=False,
-                      enable_memory_tools=False):
+                      enable_memory_tools=False,
+                      enable_delegate_tool=False):
     """Assemble the tools list for /v1/responses calls in text mode."""
     tools = []
     for entry in mcp_entries or []:
         tools.append(entry)
     if enable_grok_imagine_tools:
-        # Text mode gets create_image + edit_image + create_video —
-        # change_background has no live avatar canvas to swap. create_video
-        # is built per-agent (its description lists the avatar's outfit
-        # reference images).
+        # Text mode gets create_image + create_video — change_background
+        # has no live avatar canvas to swap, so offering it would just
+        # confuse the model. Editing user uploads goes through create_image
+        # source_images (uploads are ingested into the Imagine library).
         for entry in imagine_tools.build_text_tools(con, agent):
             tools.append(entry)
     if enable_memory_tools:
         for entry in memory_tools.MEMORY_TOOLS:
             tools.append(entry)
+    if enable_delegate_tool:
+        tools.append(delegate_tools.DELEGATE_TOOL)
     if enable_web_search:
         tools.append({'type': 'web_search'})
     if enable_x_search:
@@ -1098,9 +1110,29 @@ def _text_input_items_from_rows(con, session, rows):
     for m in rows:
         text = m['content'] or ''
         if m['role'] == 'user':
-            if not text:
+            # Library-linked image attachments stay usable across replay:
+            # the xAI file id expires with the chain, but the Imagine
+            # library copy doesn't — resurface the refs so the model can
+            # still edit/animate images uploaded turns (or sessions) ago.
+            lib_atts = [
+                a for a in store.attachments_for_message(con, m['id'])
+                if a['imagine_image_id']
+            ]
+            if not text and not lib_atts:
                 continue
-            items.append({'role': 'user', 'content': [{'type': 'input_text', 'text': text}]})
+            content = [{'type': 'input_text', 'text': text}] if text else []
+            if lib_atts:
+                refs = '; '.join(
+                    f'"{a["filename"]}" = imagine_image_id {a["imagine_image_id"]}'
+                    for a in lib_atts
+                )
+                content.append({'type': 'input_text', 'text': (
+                    f'[User attached image(s), saved in the Imagine library: '
+                    f'{refs}. Pass an imagine_image_id to create_image '
+                    f'source_images to edit it, or to create_video '
+                    f'source_image/reference_images to animate it.]'
+                )})
+            items.append({'role': 'user', 'content': content})
         elif m['role'] == 'assistant':
             if not text:
                 continue
@@ -1294,6 +1326,8 @@ def start_text_session(con, *, agent, resume_session=None):
             enable_code_execution=bool(agent['enable_code_execution']),
             enable_grok_imagine_tools=bool(agent['enable_grok_imagine_tools']),
             enable_memory_tools=bool(agent['enable_memory_tools']),
+            enable_delegate_tool=(bool(agent['enable_delegate_tool'])
+                                  and session['origin'] != 'delegated'),
         ),
         'model': config['text_model'],
         'previous_response_id': session['previous_response_id'] or None,
@@ -1371,12 +1405,15 @@ def _maybe_flag_summary_text(con, session):
     return False
 
 
-def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
+def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
+                   extra_content_blocks=None):
     """Drive one or more /v1/responses legs until the assistant returns plain
-    text. All function tools in the standalone (imagine + memory) execute
-    server-side inside this loop — there is no browser round-trip in text mode.
-    MCP tools are entirely server-side at xAI; they appear in the response
-    output for diagnostics only."""
+    text. All function tools in the standalone (imagine + memory + delegate)
+    execute server-side inside this loop — there is no browser round-trip in
+    text mode. MCP tools are entirely server-side at xAI; they appear in the
+    response output for diagnostics only. `extra_content_blocks` lets a
+    server-side caller (delegate_task) append resolved input_image /
+    input_file blocks to the first leg's user content."""
     if session['state'] != 'active':
         raise ValidationError("Session is not active.")
     if session['mode'] != 'text':
@@ -1423,6 +1460,10 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
         enable_code_execution=bool(agent['enable_code_execution']),
         enable_grok_imagine_tools=bool(agent['enable_grok_imagine_tools']),
         enable_memory_tools=bool(agent['enable_memory_tools']),
+        # Recursion guard: a delegated task session must never delegate
+        # further — one level of background work, no self-spawning chains.
+        enable_delegate_tool=(bool(agent['enable_delegate_tool'])
+                              and session['origin'] != 'delegated'),
     )
     instructions = (
         _env_preamble(config)
@@ -1465,12 +1506,34 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
             pending_outputs = []
         if is_first_leg and user_text is not None:
             content = [{'type': 'input_text', 'text': user_text or ''}]
+            library_refs = []
             for entry in (attachment_file_ids or []):
                 file_id = entry if isinstance(entry, str) else (
                     entry.get('xai_file_id') if isinstance(entry, dict) else None
                 )
                 if file_id:
                     content.append({'type': 'input_file', 'file_id': file_id})
+                if isinstance(entry, dict) and entry.get('imagine_image_id'):
+                    library_refs.append(
+                        f'"{entry.get("filename") or "image"}" = '
+                        f'imagine_image_id {entry["imagine_image_id"]}'
+                    )
+            if library_refs:
+                # Uploaded images were copied into the Imagine library at
+                # upload time; hand the model the refs so it can edit or
+                # animate them (this turn or any later one) via
+                # create_image source_images / create_video source refs.
+                content.append({'type': 'input_text', 'text': (
+                    '[Attached image(s) saved to the Imagine library: '
+                    + '; '.join(library_refs)
+                    + '. To edit/restyle/remix one, pass its imagine_image_id '
+                      'in create_image source_images; to animate it, use '
+                      'create_video source_image or reference_images.]'
+                )})
+            # Caller-supplied blocks (delegate_task file refs: input_image
+            # data URIs / input_file ids resolved server-side).
+            if extra_content_blocks:
+                content.extend(extra_content_blocks)
             input_items.append({'role': 'user', 'content': content})
 
         if not input_items and not chain_alive:
@@ -1697,6 +1760,10 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None):
                               'message': 'Memory tools are disabled on this agent.'}
                 else:
                     result = memory_tools.execute_memory_tool(con, session, name, args)
+            elif name == delegate_tools.DELEGATE_TOOL_NAME:
+                # Flag + recursion checks live in the executor; it returns
+                # {'error': ...} so the model gets a structured failure.
+                result = delegate_tools.execute_delegate_tool(con, session, args)
             else:
                 result = {'error': f'Unknown tool: {name}'}
             output_str = json.dumps(result, default=str)
@@ -1765,14 +1832,19 @@ def text_compact(con, session):
 
 
 def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
-    """Server-side proxy for /v1/files. Returns metadata the browser hands back
-    on the next /send call. No attachment row is created here — that happens
-    when /send persists the user message, so a file uploaded but never sent
-    doesn't pollute the transcript."""
+    """Server-side proxy for /v1/files, shared by both surfaces.
+
+    Text mode: the browser hands the returned metadata back on the next
+    /send call and the file rides the turn as input_file.
+    Voice mode: the realtime model can't read files at all — the client
+    injects a context note carrying the xai_file_id so the model can hand
+    it to delegate_task for analysis.
+
+    No attachment row is created here — text mode does that when /send
+    persists the user message, so a file uploaded but never sent doesn't
+    pollute the transcript."""
     if session['state'] != 'active':
         raise ValidationError("Session is not active.")
-    if session['mode'] != 'text':
-        raise ValidationError("Attachments are only supported in text mode.")
     config = get_config(con)
     xai_key = config['xai_api_key']
     if not xai_key:
@@ -1780,7 +1852,7 @@ def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
     max_bytes = 48 * 1024 * 1024  # xAI's per-file ceiling for chat
     if len(content_bytes) > max_bytes:
         raise UserError(f"File too large ({len(content_bytes)} bytes). Max is 48 MB.")
-    return xai_client.upload_file(
+    result = xai_client.upload_file(
         xai_api_key=xai_key,
         files_url=config['xai_files_url'],
         filename=filename,
@@ -1788,3 +1860,33 @@ def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
         mimetype=mimetype,
         expires_after_seconds=config['file_default_expiry_seconds'] or 0,
     )
+    # Mirror the voice-mode paperclip (session_upload_image): image uploads
+    # ALSO land in the Imagine library, because the xai_file_id alone is
+    # invisible to create_image/create_video source refs — without a library
+    # row the image expires with the response chain and can never be edited
+    # or animated in a later turn. Same mimetype/size gate as
+    # _store_session_image. Ingestion failure must not break the upload; the
+    # file still works as a plain chat attachment.
+    agent = store.get_agent(con, session['agent_id'])
+    if (agent['enable_grok_imagine_tools']
+            and (mimetype or '') in ('image/png', 'image/jpeg', 'image/webp')
+            and len(content_bytes) <= 10 * 1024 * 1024):
+        try:
+            name = (filename or 'Uploaded image').strip().replace('\n', ' ')[:80]
+            ext = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp'}[mimetype]
+            fname = f'imagine_{uuid.uuid4().hex}{ext}'
+            (FILES_DIR / fname).write_bytes(content_bytes)
+            image_path = f'/files/{fname}'
+            cur = con.execute(
+                """INSERT INTO imagine_images
+                       (name, agent_id, session_id, kind, prompt, image_path,
+                        mimetype, xai_model, created_at)
+                   VALUES (?, ?, ?, 'upload', ?, ?, ?, NULL, ?)""",
+                (name or 'Uploaded image', agent['id'], session['id'],
+                 name or 'Uploaded image', image_path, mimetype, utcnow()),
+            )
+            result = dict(result, imagine_image_id=cur.lastrowid,
+                          image_url=image_path)
+        except Exception:
+            _logger.exception('Imagine library ingestion failed for upload %r', filename)
+    return result

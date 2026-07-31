@@ -270,12 +270,12 @@ def get_session(con, session_id):
     return row
 
 
-def create_session(con, *, agent_id, mode='voice'):
+def create_session(con, *, agent_id, mode='voice', origin='manual'):
     from datetime import datetime
     name = datetime.now().strftime('Session %Y-%m-%d %H:%M')  # local wall clock
     cur = con.execute(
-        "INSERT INTO sessions (name, agent_id, mode, state) VALUES (?, ?, ?, 'draft')",
-        (name, agent_id, mode),
+        "INSERT INTO sessions (name, agent_id, mode, state, origin) VALUES (?, ?, ?, 'draft', ?)",
+        (name, agent_id, mode, origin),
     )
     return get_session(con, cur.lastrowid)
 
@@ -327,10 +327,23 @@ def attachments_for_message(con, message_id):
 
 
 def insert_attachment(con, message_id, a):
+    # imagine_image_id is browser-supplied (round-tripped from the upload
+    # response) — only link a library row that actually exists, keeping the
+    # link honest against stale or forged refs.
+    imagine_id = a.get('imagine_image_id')
+    try:
+        imagine_id = int(imagine_id) if imagine_id else None
+    except (TypeError, ValueError):
+        imagine_id = None
+    if imagine_id and not con.execute(
+        "SELECT 1 FROM imagine_images WHERE id = ?", (imagine_id,)
+    ).fetchone():
+        imagine_id = None
     con.execute(
         """INSERT INTO message_attachments
-               (message_id, xai_file_id, filename, size_bytes, mimetype, expires_at, uploaded_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (message_id, xai_file_id, filename, size_bytes, mimetype, expires_at,
+                uploaded_at, imagine_image_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             message_id,
             str(a['xai_file_id']),
@@ -339,6 +352,7 @@ def insert_attachment(con, message_id, a):
             str(a.get('mimetype') or ''),
             a.get('expires_at') or None,
             utcnow(),
+            imagine_id,
         ),
     )
 

@@ -46,6 +46,9 @@ async def session_upload(session_id: int, file: UploadFile = File(...), con=Depe
         content_bytes=content,
         mimetype=file.content_type,
     )
+    # Image uploads are also ingested into the Imagine library (new row) —
+    # make that durable before the response goes out.
+    con.commit()
     # Drop the raw upstream body so the response stays small and we don't
     # leak xAI internals to the browser.
     return {k: v for k, v in result.items() if k != "raw"}
@@ -70,11 +73,14 @@ def session_end(session_id: int, payload: dict = Body(default={}), con=Depends(d
 def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
     limit = int(payload.get("limit") or 20)
     # No mode filter: voice conversations are resumable as text (and
-    # vice-versa), so the history list shows every conversation.
+    # vice-versa), so the history list shows every conversation. Delegated
+    # task workspaces are hidden — they're delegate_task's background
+    # artifacts, not conversations the user held.
     rows = con.execute(
         "SELECT s.*, a.name AS agent_name,"
         " (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count"
         " FROM sessions s JOIN agents a ON a.id = s.agent_id"
+        " WHERE s.origin != 'delegated'"
         " ORDER BY s.started_at DESC, s.id DESC LIMIT ?",
         (limit,),
     ).fetchall()

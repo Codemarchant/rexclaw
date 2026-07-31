@@ -472,17 +472,19 @@ export default function VoiceView({ active = true }) {
     const sendTextMessage = () => {
         const text = draftText.trim();
         const images = pendingImages;
-        if (!text && !images.length) return;
-        if (images.length) {
+        const docs = pendingDocs;
+        if (!text && !images.length && !docs.length) return;
+        if (images.length || docs.length) {
             // Hidden note first (no response prompt), THEN the visible turn —
             // the model reads both and reacts once. With no typed text the
             // service default decides (react now solo; inform-next-turn in
             // group calls, where an unprompted reaction would steal the floor).
-            voice.sendContextEvent(attachmentNote(images), {
+            voice.sendContextEvent(attachmentNote(images, docs), {
                 ...(text ? { promptResponse: false } : {}),
                 minIntervalMs: 0,
             });
             setPendingImages([]);
+            setPendingDocs([]);
         }
         if (text && voice.sendText(text)) setDraftText("");
     };
@@ -582,50 +584,96 @@ export default function VoiceView({ active = true }) {
         voice.state.backgroundPickedByUser = true;
     };
 
-    // Voice-mode image attachments: picked files upload eagerly into the
-    // Imagine library (kind 'upload') and queue as chips on the message box;
-    // SEND delivers one hidden context note for the whole batch alongside
-    // the typed text, so the model reacts once — to message + images
-    // together — instead of after every upload. The voice model can't SEE
-    // the images, but create_video's source_image / reference_images can
-    // USE them.
+    // Voice-mode attachments: picked files upload eagerly and queue as
+    // chips on the message box; SEND delivers one hidden context note for
+    // the whole batch alongside the typed text, so the model reacts once —
+    // to message + attachments together — instead of after every upload.
+    // Images downscale to a data URI and land in the Imagine library
+    // (create_video/create_image can USE them); any other file type (PDF,
+    // CSV, …) streams to xAI /v1/files and the note carries its
+    // xai_file_id so the model can hand it to delegate_task for analysis.
+    // The voice model itself can't see or read either kind.
     const imageInputRef = useRef(null);
     const [pendingImages, setPendingImages] = useState([]);
+    const [pendingDocs, setPendingDocs] = useState([]);
     const [uploadingImages, setUploadingImages] = useState(false);
-    const onImagesChosen = async (ev) => {
+    const onFilesChosen = async (ev) => {
         const files = [...(ev.target.files || [])].slice(0, 6);
         ev.target.value = "";
         if (!files.length || !sv.sessionId) return;
         setUploadingImages(true);
         try {
             for (const file of files) {
-                const dataUrl = await downscaleImageFile(file);
-                const result = await rpc(`/api/voice/session/${sv.sessionId}/upload_image`, {
-                    image_data_url: dataUrl,
-                    name: file.name,
-                });
-                setPendingImages((prev) => [...prev, result]);
+                if ((file.type || "").startsWith("image/")) {
+                    const dataUrl = await downscaleImageFile(file);
+                    const result = await rpc(`/api/voice/session/${sv.sessionId}/upload_image`, {
+                        image_data_url: dataUrl,
+                        name: file.name,
+                    });
+                    setPendingImages((prev) => [...prev, result]);
+                } else {
+                    if (file.size > 48 * 1024 * 1024) {
+                        throw new Error(_t('"%s" is too large (max 48 MB).', file.name));
+                    }
+                    const fd = new FormData();
+                    fd.append("file", file, file.name);
+                    const resp = await fetch(`/api/voice/session/${sv.sessionId}/upload_file`, {
+                        method: "POST",
+                        body: fd,
+                        credentials: "same-origin",
+                    });
+                    if (!resp.ok) {
+                        const errBody = await resp.json().catch(() => ({}));
+                        throw new Error(errBody.error || `Upload failed (${resp.status})`);
+                    }
+                    const meta = await resp.json();
+                    setPendingDocs((prev) => [...prev, {
+                        xai_file_id: meta.file_id,
+                        name: meta.filename || file.name,
+                    }]);
+                }
             }
         } catch (e) {
-            notification.add(_t("Image upload failed: %s", e?.data?.message || e?.message || e), { type: "danger" });
+            notification.add(_t("Upload failed: %s", e?.data?.message || e?.message || e), { type: "danger" });
         } finally {
             setUploadingImages(false);
         }
     };
     const removePendingImage = (id) => {
-        // Chip removal only unqueues it from THIS message — the upload
+        // Chip removal only unqueues it from THIS message — an image upload
         // already lives in the Imagine library, which is harmless.
         setPendingImages((prev) => prev.filter((p) => p.imagine_image_id !== id));
     };
-    const attachmentNote = (images) => {
-        const listing = images
-            .map((p) => `"${p.name}" (image_url=${p.image_url}, imagine_image_id=${p.imagine_image_id})`)
-            .join("; ");
-        return `[System] The user attached ${images.length} image(s) to their message: `
-            + `${listing}. You cannot see them (voice is audio-only), but you can `
-            + `use them — pass an image_url to create_video as source_image `
-            + `(animate that exact image) or reference_images (feature its `
-            + `people/objects in a new clip, up to 3).`;
+    const removePendingDoc = (fileId) => {
+        setPendingDocs((prev) => prev.filter((p) => p.xai_file_id !== fileId));
+    };
+    const attachmentNote = (images, docs) => {
+        const parts = [];
+        if (images.length) {
+            const listing = images
+                .map((p) => `"${p.name}" (image_url=${p.image_url}, imagine_image_id=${p.imagine_image_id})`)
+                .join("; ");
+            parts.push(
+                `The user attached ${images.length} image(s): ${listing}. `
+                + `You cannot see them (voice is audio-only), but you can use `
+                + `them — call delegate_task with an imagine_image_id in files `
+                + `to have their content described/analyzed, or pass an `
+                + `image_url to create_video as source_image (animate that `
+                + `exact image) or reference_images (feature its people/objects `
+                + `in a new clip, up to 3).`
+            );
+        }
+        if (docs.length) {
+            const listing = docs
+                .map((p) => `"${p.name}" (xai_file_id=${p.xai_file_id})`)
+                .join("; ");
+            parts.push(
+                `The user attached ${docs.length} file(s): ${listing}. You `
+                + `cannot read them yourself — call delegate_task with the `
+                + `xai_file_id value(s) in files to read/analyze their content.`
+            );
+        }
+        return `[System] ${parts.join(" ")}`;
     };
 
     const onOutfitChange = (ev) => {
@@ -938,7 +986,7 @@ export default function VoiceView({ active = true }) {
                 <div className="o_voice_full_transcript">
                     <Transcript messages={sv.messages} isLive={isLive}
                                 thinking={sv.thinking} truncated={sv.transcriptTruncated} />
-                    {isLive && pendingImages.length > 0 && (
+                    {isLive && (pendingImages.length > 0 || pendingDocs.length > 0) && (
                         <div className="o_voice_text_attachments">
                             {pendingImages.map((p) => (
                                 <span key={p.imagine_image_id} className="o_voice_text_attach_chip" title={p.name}>
@@ -951,6 +999,17 @@ export default function VoiceView({ active = true }) {
                                     </button>
                                 </span>
                             ))}
+                            {pendingDocs.map((d) => (
+                                <span key={d.xai_file_id} className="o_voice_text_attach_chip" title={d.name}>
+                                    <i className="fa fa-file-o" />
+                                    <span className="o_voice_text_attach_name">{d.name}</span>
+                                    <button className="btn btn-link p-0"
+                                            onClick={() => removePendingDoc(d.xai_file_id)}
+                                            title={_t("Remove")}>
+                                        <i className="fa fa-times" />
+                                    </button>
+                                </span>
+                            ))}
                         </div>
                     )}
                     {isLive && (
@@ -958,11 +1017,11 @@ export default function VoiceView({ active = true }) {
                             <button className="btn btn-sm btn-secondary"
                                     disabled={sv.compacting || uploadingImages}
                                     onClick={() => imageInputRef.current?.click()}
-                                    title={_t("Attach images")}>
+                                    title={_t("Attach files")}>
                                 <i className={uploadingImages ? "fa fa-spinner fa-spin" : "fa fa-paperclip"} />
                             </button>
-                            <input ref={imageInputRef} type="file" accept="image/*" multiple
-                                   style={{ display: "none" }} onChange={onImagesChosen} />
+                            <input ref={imageInputRef} type="file" multiple
+                                   style={{ display: "none" }} onChange={onFilesChosen} />
                             <textarea rows={1}
                                       ref={textInputRef}
                                       placeholder={sv.compacting ? _t("Compacting context…") : _t("Type a message…")}
@@ -971,7 +1030,7 @@ export default function VoiceView({ active = true }) {
                                       onChange={(ev) => setDraftText(ev.target.value)}
                                       onKeyDown={onTextKeydown} />
                             <button className="btn btn-sm btn-primary"
-                                    disabled={(!draftText.trim() && !pendingImages.length) || sv.compacting}
+                                    disabled={(!draftText.trim() && !pendingImages.length && !pendingDocs.length) || sv.compacting}
                                     onClick={sendTextMessage}
                                     title={_t("Send")}>
                                 <i className="fa fa-paper-plane" />

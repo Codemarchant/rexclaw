@@ -1657,11 +1657,12 @@ export class AgentConnection {
             );
             return false;
         }
-        // If the assistant is mid-reply, cancel it so the typed turn isn't
-        // queued behind streaming audio — same shape as the barge-in path.
-        if (this._responseInFlight) {
-            this.cancelActiveResponse("typed-input");
-        }
+        // If the assistant is mid-reply — or the response already completed
+        // server-side but its audio tail is still playing out locally (the
+        // common case: audio streams faster than realtime) — cut it off,
+        // same shape as the VAD barge-in path. cancelActiveResponse checks
+        // both conditions itself and no-ops when idle.
+        this.cancelActiveResponse("typed-input");
         this._sendWs({
             type: "conversation.item.create",
             item: {

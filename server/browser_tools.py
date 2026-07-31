@@ -43,12 +43,15 @@ SELFIE_TOOL = {
         "include_background=true to keep the current scene backdrop in "
         "frame — nice for 'selfie at this place' moments. The image is "
         "saved to the Imagine library and returned as image_url + "
-        "imagine_image_id, which you can pass to create_video "
-        "(reference_images to star in a clip, or source_image to animate "
-        "the shot itself). Use when the user asks for a selfie or a "
-        "photo/video featuring you as you currently look. Strike a pose "
-        "with play_gesture or set_emotion BEFORE calling this if the "
-        "moment calls for it."
+        "imagine_image_id. A selfie is usually step one — the natural "
+        "follow-up is generating from it: create_video (reference_images "
+        "to star in a clip, source_image to animate the shot itself) or "
+        "create_image (source_images to restyle, remix or place yourself "
+        "in a scene). When generating from a selfie, prompt for an "
+        "animated/stylized look matching the avatar as captured — NOT "
+        "photorealistic — unless the user explicitly asks for a different "
+        "style. Use when the user asks for a selfie or a photo/video "
+        "featuring you as you currently look."
     ),
     "parameters": {
         "type": "object",

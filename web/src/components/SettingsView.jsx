@@ -108,6 +108,28 @@ export default function SettingsView({ active }) {
                                    onChange={(ev) => setField("director_model", ev.target.value)} />
                         </div>
                     </div>
+                    <div className="rx_row">
+                        <div>
+                            <label title={_t("xAI multi-agent model used when delegate_task is called with multi_agent=true. Several agents collaborate on the query and a leader synthesizes — every sub-agent bills tokens, so this is markedly more expensive than a standard call. Beta on xAI's side; custom function tools are NOT supported there.")}>
+                                {_t("Multi-agent model")}
+                            </label>
+                            <input type="text" value={config.multi_agent_model || ""}
+                                   placeholder="grok-4.20-multi-agent"
+                                   onChange={(ev) => setField("multi_agent_model", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label title={_t("reasoning.effort sent on multi-agent delegations — xAI maps low/medium to 4 collaborating agents, high/xhigh to 16.")}>
+                                {_t("Multi-agent effort")}
+                            </label>
+                            <select value={config.multi_agent_effort || "low"}
+                                    onChange={(ev) => setField("multi_agent_effort", ev.target.value)}>
+                                <option value="low">{_t("Low (4 agents)")}</option>
+                                <option value="medium">{_t("Medium (4 agents)")}</option>
+                                <option value="high">{_t("High (16 agents)")}</option>
+                                <option value="xhigh">{_t("X-High (16 agents)")}</option>
+                            </select>
+                        </div>
+                    </div>
                 </section>
 
                 <section>

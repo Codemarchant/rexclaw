@@ -58,6 +58,13 @@ CREATE TABLE IF NOT EXISTS config (
     -- fall back to the Text Model.
     director_model TEXT NOT NULL DEFAULT 'grok-4.20-non-reasoning',
     imagine_model TEXT NOT NULL DEFAULT 'grok-imagine-image-quality-latest',
+    -- xAI multi-agent model used when delegate_task is called with
+    -- multi_agent=true. Several agents collaborate and a leader synthesizes
+    -- — every sub-agent bills tokens, so it is markedly more expensive than
+    -- a standard call. Effort maps to agent count: low/medium = 4 agents,
+    -- high/xhigh = 16.
+    multi_agent_model TEXT NOT NULL DEFAULT 'grok-4.20-multi-agent',
+    multi_agent_effort TEXT NOT NULL DEFAULT 'low',
     -- Grok Imagine video generation (animated backgrounds + create_video).
     -- Priced per second. The base model is the default because -1.5 does
     -- NOT support reference-to-video (the create_video reference_images /
@@ -177,6 +184,12 @@ CREATE TABLE IF NOT EXISTS agents (
     enable_grok_imagine_tools INTEGER NOT NULL DEFAULT 1,
     enable_memory_tools INTEGER NOT NULL DEFAULT 1,
     core_memory_cap INTEGER NOT NULL DEFAULT 100,
+    -- delegate_task: hand file/image analysis, coding and deep research to
+    -- a background text-mode task session. The multi-agent flag additionally
+    -- allows multi_agent=true calls on the (much pricier) xAI multi-agent
+    -- model — off by default.
+    enable_delegate_tool INTEGER NOT NULL DEFAULT 1,
+    enable_multi_agent_delegation INTEGER NOT NULL DEFAULT 0,
     -- Group voice calls: enable_call_agents_tool exposes the
     -- add_agent_to_call / remove_agent_from_call browser tools so this agent
     -- can manage the group call; when_to_call_description is shown to OTHER
@@ -211,6 +224,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- between voice and text (cross-mode resume flips this), so it tracks
     -- the latest surface, not where the session was born.
     mode TEXT NOT NULL DEFAULT 'voice',      -- voice | text
+    -- 'manual' sessions are started interactively by the user; 'delegated'
+    -- sessions are background task workspaces spawned by the delegate_task
+    -- tool — hidden from the history/resume lists, continued across turns
+    -- via the tool, and left active so follow-ups work without ceremony.
+    origin TEXT NOT NULL DEFAULT 'manual',   -- manual | delegated
+    -- For delegated task sessions: the interactive session whose
+    -- delegate_task call spawned this workspace.
+    delegate_parent_session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
     started_at TEXT,
     ended_at TEXT,
     last_active_at TEXT,
@@ -268,7 +289,13 @@ CREATE TABLE IF NOT EXISTS message_attachments (
     size_bytes INTEGER NOT NULL DEFAULT 0,
     mimetype TEXT,
     expires_at TEXT,
-    uploaded_at TEXT
+    uploaded_at TEXT,
+    -- Library copy created at upload time for image attachments (kind
+    -- 'upload'). Lets the model keep editing/animating the image via
+    -- create_image/create_video source refs after the turn has passed —
+    -- the xAI file id alone expires with the chain and is invisible to
+    -- those tools.
+    imagine_image_id INTEGER REFERENCES imagine_images(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS memories (
@@ -292,7 +319,10 @@ CREATE TABLE IF NOT EXISTS imagine_images (
     name TEXT NOT NULL,
     agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
-    kind TEXT NOT NULL,                      -- background | image | edit
+    -- background | image | edit | video | background_video | selfie |
+    -- upload ('upload' = a user-shared picture: the voice-mode paperclip,
+    -- or a text-mode image attachment ingested at upload time)
+    kind TEXT NOT NULL,
     prompt TEXT NOT NULL,
     image_path TEXT NOT NULL,                -- web path under /files
     mimetype TEXT,
@@ -361,6 +391,19 @@ MIGRATIONS = (
     # Grok Imagine video (animated backgrounds + create_video).
     "ALTER TABLE config ADD COLUMN xai_videos_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/videos/generations'",
     "ALTER TABLE config ADD COLUMN imagine_video_model TEXT NOT NULL DEFAULT 'grok-imagine-video'",
+    # Text-mode image uploads ingested into the Imagine library at upload
+    # time — the attachment row keeps a link to its library copy so the
+    # refs resurface on replay/resume.
+    "ALTER TABLE message_attachments ADD COLUMN imagine_image_id INTEGER REFERENCES imagine_images(id) ON DELETE SET NULL",
+    # delegate_task background analyst: hidden 'delegated' task sessions
+    # linked to the conversation that spawned them, per-agent enable flags,
+    # and the configurable multi-agent model/effort.
+    "ALTER TABLE sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'",
+    "ALTER TABLE sessions ADD COLUMN delegate_parent_session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL",
+    "ALTER TABLE agents ADD COLUMN enable_delegate_tool INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE agents ADD COLUMN enable_multi_agent_delegation INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN multi_agent_model TEXT NOT NULL DEFAULT 'grok-4.20-multi-agent'",
+    "ALTER TABLE config ADD COLUMN multi_agent_effort TEXT NOT NULL DEFAULT 'low'",
 )
 
 

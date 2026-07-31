@@ -51,6 +51,8 @@ const AGENT_FLAGS = [
     ["enable_grok_imagine_tools", "Grok Imagine"],
     ["enable_memory_tools", "Memory"],
     ["enable_code_execution", "Code execution (text)"],
+    ["enable_delegate_tool", "Task delegation (delegate_task)"],
+    ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)"],
 ];
 
 export default function CompanionsView({ active }) {
@@ -95,6 +97,8 @@ export default function CompanionsView({ active }) {
             enable_x_search: 1,
             enable_grok_imagine_tools: 1,
             enable_memory_tools: 1,
+            enable_delegate_tool: 1,
+            enable_multi_agent_delegation: 0,
             enable_call_agents_tool: 1,
             when_to_call_description: "",
             core_memory_cap: 100,

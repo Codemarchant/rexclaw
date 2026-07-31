@@ -1,6 +1,5 @@
 # Copyright 2026 Codemarchant
-"""Grok Imagine tools: change_background + create_image + edit_image +
-create_video.
+"""Grok Imagine tools: change_background + create_image + create_video.
 
 All are server-side function tools — they call xAI's image/video endpoints
 with the configured Imagine models, persist the result as an imagine_images
@@ -14,12 +13,11 @@ can speak about and the browser can act on:
     still (kind 'background_video', rendered as a muted <video> layer).
 
   - `create_image` is offered in both voice and text mode. The browser side
-    surfaces the link in the transcript.
-
-  - `edit_image` is text-mode only. It targets /v1/images/edits and picks up
-    the user's most-recent message's image attachments (up to 3) as source
-    images. No upload surface exists in voice mode, so the tool is omitted
-    there.
+    just surfaces the thumbnail in the transcript. `source_images` targets
+    /v1/images/edits with Imagine-library entries — generated images,
+    selfies, AND user uploads (both surfaces ingest image uploads into the
+    library at upload time), so creating, editing and remixing is one
+    uniform tool across both modes.
 
   - `create_video` mirrors create_image in both modes — the transcript
     surfaces an inline playable clip. Grok Imagine videos carry native audio.
@@ -85,14 +83,18 @@ _CREATE_IMAGE_TOOL = {
     'type': 'function',
     'name': 'create_image',
     'description': (
-        "Generate an image from a prompt and post a link to it in the "
-        "transcript. The image is saved to this agent's Imagine library; "
-        "the user can click the transcript link to open it full-size. "
+        "Generate an image from a prompt. The image is saved to this agent's "
+        "Imagine library and appears automatically in the transcript as "
+        "a clickable thumbnail — NEVER say or write the URL, file name "
+        "or link; just react to the result naturally in your own words. "
         "Optional `source_images` builds the new image FROM up to 3 "
         "Imagine-library entries (pass the image_url or imagine_image_id "
         "a previous tool call or user upload provided) — restyle, remix "
         "or combine them; with multiple sources, reference them in the "
         "prompt as <IMAGE_0>, <IMAGE_1>, <IMAGE_2> in the order passed. "
+        "This is also how you EDIT images the user uploaded: their "
+        "attachments are saved to the library and the imagine_image_id "
+        "refs appear in the conversation next to the upload. "
         "Does NOT change the avatar background — use change_background "
         "for that when the user wants a new scene behind the avatar."
     ),
@@ -120,43 +122,15 @@ _CREATE_IMAGE_TOOL = {
     },
 }
 
-_EDIT_IMAGE_TOOL = {
-    'type': 'function',
-    'name': 'edit_image',
-    'description': (
-        "Edit the image(s) the user just attached to their message. Use "
-        "when the user asks to modify, restyle, remix, or combine images "
-        "they uploaded — e.g. 'make this black and white', 'put this dog "
-        "into a forest scene', 'combine these two photos'. The server "
-        "automatically picks up to 3 images from the user's most recent "
-        "message in upload order. If the user uploaded more than one image, "
-        "reference them in your prompt as <IMAGE_0>, <IMAGE_1>, <IMAGE_2> "
-        "(xAI's convention) so the model knows which is which. Result is "
-        "saved to the agent's Imagine library and surfaced as a thumbnail "
-        "in the transcript."
-    ),
-    'parameters': {
-        'type': 'object',
-        'properties': {
-            'prompt': {
-                'type': 'string',
-                'description': (
-                    'Editing instruction. For multi-image edits, refer to '
-                    'inputs as <IMAGE_0>, <IMAGE_1>, etc.'
-                ),
-            },
-        },
-        'required': ['prompt'],
-    },
-}
-
-
 _CREATE_VIDEO_TOOL = {
     'type': 'function',
     'name': 'create_video',
     'description': (
-        "Generate a short video clip (with native sound) from a prompt and "
-        "post it in the transcript for the user to play. Good for little "
+        "Generate a short video clip (with native sound) from a prompt. "
+        "The finished clip appears automatically in the transcript as a "
+        "playable thumbnail — NEVER say or write the URL, file name or "
+        "link; just react to the result naturally in your own words. "
+        "Good for little "
         "gifts, jokes, and 'show me' moments. Optional ways to build on "
         "the Imagine library (pass the image_url/video_url or "
         "imagine_image_id that a previous tool call returned or a user "
@@ -228,16 +202,16 @@ _CREATE_VIDEO_TOOL = {
 }
 
 
-# Voice mode gets background + image + video generation. Text mode swaps
-# change_background (no live canvas) for edit_image (uses uploaded files).
-# Session builders below clone create_video per-agent to append the avatar's
-# outfit reference images to its description.
+# Voice mode gets background + image + video generation. Text mode drops
+# change_background (no live canvas). Session builders below clone
+# create_video per-surface (voice appends the take_selfie hint). Editing
+# user uploads needs no dedicated tool: both surfaces ingest image uploads
+# into the Imagine library at upload time, so create_image's source_images
+# reaches them like any other library entry.
 IMAGINE_TOOLS = [_CHANGE_BACKGROUND_TOOL, _CREATE_IMAGE_TOOL, _CREATE_VIDEO_TOOL]
-IMAGINE_TEXT_TOOLS = [_CREATE_IMAGE_TOOL, _EDIT_IMAGE_TOOL, _CREATE_VIDEO_TOOL]
-IMAGINE_TOOL_NAMES = (
-    {t['name'] for t in IMAGINE_TOOLS}
-    | {_EDIT_IMAGE_TOOL['name']}
-)
+# Every tool name — used by the voice tool_call route's name-based dispatch
+# and by the text loop's native-tool routing.
+IMAGINE_TOOL_NAMES = {t['name'] for t in IMAGINE_TOOLS}
 
 
 def build_create_video_tool(*, voice_mode):
@@ -251,7 +225,9 @@ def build_create_video_tool(*, voice_mode):
         " When the user wants a video featuring YOU, call take_selfie "
         "first to capture how you look right now and pass its image_url "
         "here (reference_images to star in a new scene, source_image to "
-        "animate the shot itself)."
+        "animate the shot itself). Keep selfie-based prompts in the "
+        "avatar's animated/stylized look — not photorealistic — unless "
+        "the user asks for a different style."
     )
     return tool
 
@@ -269,7 +245,6 @@ def build_text_tools(con, agent):
     """Imagine function tools for a text turn."""
     return [
         _CREATE_IMAGE_TOOL,
-        _EDIT_IMAGE_TOOL,
         build_create_video_tool(voice_mode=False),
     ]
 
@@ -299,29 +274,6 @@ def _truncate_name(prompt, limit=60):
     return s[:limit].rstrip() + '…'
 
 
-def _collect_recent_user_images(con, session, max_count=3):
-    """Return up to `max_count` xai_file_ids from the most-recent user message
-    in the session whose attachments are images. Order matches attachment
-    upload order so the model's <IMAGE_0> / <IMAGE_1> references line up."""
-    row = con.execute(
-        "SELECT id FROM messages WHERE session_id = ? AND role = 'user' "
-        "ORDER BY sequence DESC, id DESC LIMIT 1",
-        (session['id'],),
-    ).fetchone()
-    if not row:
-        return []
-    atts = con.execute(
-        "SELECT * FROM message_attachments WHERE message_id = ? ORDER BY id",
-        (row['id'],),
-    ).fetchall()
-    images = [
-        a['xai_file_id']
-        for a in atts
-        if a['xai_file_id'] and (a['mimetype'] or '').startswith('image/')
-    ]
-    return images[:max_count]
-
-
 def execute_imagine_tool(con, session, tool_name, arguments):
     """Call Grok Imagine, persist the result, return a payload for the model
     and the browser. Errors are returned as {'error': str} so the realtime
@@ -349,45 +301,14 @@ def execute_imagine_tool(con, session, tool_name, arguments):
     if not xai_key:
         return {'error': 'xAI API key is not configured.'}
 
-    if tool_name == 'edit_image':
-        if session['mode'] != 'text':
-            return {'error': 'edit_image is only available in text mode.'}
-        file_ids = _collect_recent_user_images(con, session, max_count=3)
-        if not file_ids:
-            return {'error': (
-                'No images found on latest message. Tell the user to '
-                're-attach the image(s) — image edits only work on files '
-                'uploaded in the current turn.'
-            )}
-        try:
-            body = xai_client.edit_image(
-                xai_api_key=xai_key,
-                edits_url=config['xai_images_edits_url'],
-                model=config['imagine_model'],
-                prompt=prompt,
-                image_file_ids=file_ids,
-                response_format='b64_json',
-            )
-        except UserError as e:
-            return {'error': str(e)}
-        except Exception as e:
-            _logger.exception('Imagine edit failed for session %s', session['id'])
-            return {'error': f'Image edit failed: {e}'}
-        result = _persist_imagine_result(con, session, agent, config, body, prompt, kind='edit')
-        if 'error' not in result:
-            result['source_image_count'] = len(file_ids)
-        return result
-
     if tool_name == 'create_video' or (
             tool_name == 'change_background' and (arguments or {}).get('animated')):
         return _execute_video_tool(con, session, agent, config, xai_key, tool_name,
                                    prompt, arguments or {})
 
     # create_image from library sources → the images/edits endpoint with
-    # data URIs (restyle/remix/combine). Distinct from edit_image, which
-    # reads the text-mode message ATTACHMENTS via xAI file ids — this path
-    # works in both modes and reaches everything in the Imagine library
-    # (generated images, selfies, voice uploads).
+    # data URIs (restyle/remix/combine). Works in both modes and reaches
+    # everything in the Imagine library (generated images, selfies, uploads).
     source_refs = (arguments or {}).get('source_images')
     if tool_name == 'create_image' and source_refs:
         if not isinstance(source_refs, list):
@@ -626,6 +547,13 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         'name': _truncate_name(prompt),
         'duration_seconds': video.get('duration') or duration,
         'created_at': created_at,
+        'note': (
+            'The animated background is already applied to the scene — do '
+            'not say or write the URL or file name, just react to it.'
+            if kind == 'background_video' else
+            'The clip is already visible in the transcript — do not say '
+            'or write the URL or file name, just react to it.'
+        ),
     }
 
 
@@ -664,4 +592,11 @@ def _persist_imagine_result(con, session, agent, config, body, prompt, *, kind):
         'prompt': prompt,
         'name': _truncate_name(prompt),
         'created_at': created_at,
+        'note': (
+            'The new background is already applied to the scene — do not '
+            'say or write the URL or file name, just react to it.'
+            if kind == 'background' else
+            'The image is already visible in the transcript — do not say '
+            'or write the URL or file name, just react to it.'
+        ),
     }

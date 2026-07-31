@@ -132,33 +132,29 @@ def generate_image(*, xai_api_key, images_url, model, prompt,
     return body
 
 
-def edit_image(*, xai_api_key, edits_url, model, prompt, image_file_ids=None,
+def edit_image(*, xai_api_key, edits_url, model, prompt,
                image_data_uris=None, aspect_ratio=None,
                response_format='b64_json', user=None):
     """POST /v1/images/edits with one or more source images.
 
-    Sources come as EITHER `image_file_ids` (xAI file_ids from the files
-    API — the text-mode attachment flow) or `image_data_uris` (base64 data
-    URIs — the Imagine-library flow, since our files are local). xAI's
-    endpoint accepts `image: {...}` (single) or `images: [{...}, ...]`
-    (multi); the two are mutually exclusive in the request body, so we pick
-    the form based on how many sources we have.
+    Sources come as `image_data_uris` (base64 data URIs — the
+    Imagine-library flow, since our files are local). xAI's endpoint
+    accepts `image: {...}` (single) or `images: [{...}, ...]` (multi);
+    the two are mutually exclusive in the request body, so we pick the
+    form based on how many sources we have.
     """
     if not xai_api_key:
         raise UserError(NO_KEY_MSG)
     if not prompt:
         raise UserError("Edit prompt is required.")
-    if not image_file_ids and not image_data_uris:
-        raise UserError("edit_image requires at least one source image.")
+    if not image_data_uris:
+        raise UserError("Image edit requires at least one source image.")
     payload = {
         'model': model,
         'prompt': prompt,
         'response_format': response_format,
     }
-    if image_data_uris:
-        entries = [{'url': u, 'type': 'image_url'} for u in image_data_uris[:3]]
-    else:
-        entries = [{'file_id': fid} for fid in image_file_ids[:3]]
+    entries = [{'url': u, 'type': 'image_url'} for u in image_data_uris[:3]]
     if len(entries) == 1:
         payload['image'] = entries[0]
     else:
@@ -484,8 +480,9 @@ def create_response(*, xai_api_key, responses_url, model, input_items,
       * `instructions` cannot be combined with `previous_response_id` (xAI
         carries forward the prior call's system prompt). We silently drop
         `instructions` when chaining.
-      * `reasoning.effort` accepts only `low | medium | high`. Anything else
-        (including 'none') omits the reasoning block entirely.
+      * `reasoning.effort` accepts `low | medium | high` per the spec, plus
+        `xhigh` on the multi-agent model (it maps effort to agent count).
+        Anything else (including 'none') omits the reasoning block entirely.
     """
     if not xai_api_key:
         raise UserError(NO_KEY_MSG)
@@ -500,7 +497,7 @@ def create_response(*, xai_api_key, responses_url, model, input_items,
         payload['instructions'] = instructions
     if tools:
         payload['tools'] = tools
-    if reasoning_effort in ('low', 'medium', 'high'):
+    if reasoning_effort in ('low', 'medium', 'high', 'xhigh'):
         payload['reasoning'] = {'effort': reasoning_effort}
     if max_output_tokens:
         payload['max_output_tokens'] = int(max_output_tokens)

@@ -136,6 +136,11 @@ class TextService {
             size_bytes: meta.size_bytes,
             mimetype: meta.mimetype,
             expires_at: meta.expires_at,
+            // Present for image uploads ingested into the Imagine library —
+            // round-tripped on /send so the turn can hand the model a
+            // durable, editable reference (see upload_text_attachment).
+            imagine_image_id: meta.imagine_image_id || null,
+            image_url: meta.image_url || null,
         };
         this.pendingFiles.push(entry);
         return entry;
@@ -172,6 +177,7 @@ class TextService {
             size_bytes: f.size_bytes,
             mimetype: f.mimetype,
             expires_at: f.expires_at,
+            imagine_image_id: f.imagine_image_id || null,
         }));
         this.pendingFiles = [];
 

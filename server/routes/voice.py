@@ -5,9 +5,9 @@ import base64
 import logging
 import uuid
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, File, UploadFile
 
-from .. import imagine_tools, memory_tools, session_service, store
+from .. import delegate_tools, imagine_tools, memory_tools, session_service, store
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -49,8 +49,10 @@ def session_start(payload: dict = Body(default={}), con=Depends(db_con)):
     # Mode-agnostic on purpose: a conversation last held in text continues
     # seamlessly as voice (start_session flips its mode).
     if payload.get("resume_last") and not resume_session:
+        # origin filter: delegated task workspaces are background artifacts —
+        # never silently resumed as an interactive conversation.
         q = ("SELECT * FROM sessions WHERE agent_id = ?"
-             " AND state IN ('ended', 'active')")
+             " AND state IN ('ended', 'active') AND origin != 'delegated'")
         params = [agent["id"]]
         if call_parent_session:
             q += " AND id != ?"
@@ -111,8 +113,6 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         # Defence in depth: surface gating mirrors the tool lists.
         if tool_name in imagine_tools.VOICE_ONLY_TOOL_NAMES and session["mode"] == "text":
             raise AccessError(f"{tool_name} is not available in text mode.")
-        if tool_name == "edit_image" and session["mode"] != "text":
-            raise AccessError("edit_image is only available in text mode.")
         result = imagine_tools.execute_imagine_tool(con, session, tool_name, arguments)
         con.commit()
         return result
@@ -120,6 +120,12 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         if not agent["enable_memory_tools"]:
             raise AccessError("Memory tools are disabled on this agent.")
         result = memory_tools.execute_memory_tool(con, session, tool_name, arguments)
+        con.commit()
+        return result
+    if tool_name == delegate_tools.DELEGATE_TOOL_NAME:
+        # Flag + recursion checks live in the executor; it returns
+        # {'error': ...} so the realtime model gets a structured failure.
+        result = delegate_tools.execute_delegate_tool(con, session, arguments)
         con.commit()
         return result
     raise ValidationError(f"Unknown native tool: {tool_name}")
@@ -205,6 +211,28 @@ def session_upload_image(session_id: int, payload: dict = Body(default={}), con=
     )
 
 
+@router.post("/session/{session_id}/upload_file")
+async def session_upload_file(session_id: int, file: UploadFile = File(...), con=Depends(db_con)):
+    """Voice-mode document upload (PDF, CSV, anything non-image): multipart
+    proxy to xAI /v1/files, same shape as /api/text/session/<id>/upload. The
+    realtime model can't read the file — the client injects a context note
+    with the returned xai_file_id so the model can pass it to delegate_task
+    for analysis. Images take the /upload_image data-URI route instead
+    (they land in the Imagine library)."""
+    session = resolve_session(con, session_id)
+    content = await file.read()
+    result = session_service.upload_text_attachment(
+        con, session=session,
+        filename=file.filename,
+        content_bytes=content,
+        mimetype=file.content_type,
+    )
+    con.commit()
+    # Drop the raw upstream body so the response stays small and we don't
+    # leak xAI internals to the browser.
+    return {k: v for k, v in result.items() if k != "raw"}
+
+
 @router.post("/session/{session_id}/end")
 def session_end(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
     session = resolve_session(con, session_id)
@@ -239,11 +267,14 @@ def director_decide(payload: dict = Body(default={}), con=Depends(db_con)):
 def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
     limit = int(payload.get("limit") or 20)
     # No mode filter: text conversations are resumable as voice (and
-    # vice-versa), so the history list shows every conversation.
+    # vice-versa), so the history list shows every conversation. Delegated
+    # task workspaces are hidden — they're delegate_task's background
+    # artifacts, not conversations the user held.
     rows = con.execute(
         "SELECT s.*, a.name AS agent_name,"
         " (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count"
         " FROM sessions s JOIN agents a ON a.id = s.agent_id"
+        " WHERE s.origin != 'delegated'"
         " ORDER BY s.last_active_at DESC, s.id DESC LIMIT ?",
         (limit,),
     ).fetchall()
@@ -278,10 +309,11 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
     out = []
     for a in agents:
         # Mode-agnostic: the latest conversation with this agent is
-        # resumable as voice even if it was last held in text.
+        # resumable as voice even if it was last held in text. Delegated
+        # task workspaces are excluded — not user conversations.
         sess = con.execute(
             "SELECT * FROM sessions WHERE agent_id = ?"
-            " AND state IN ('ended', 'active')"
+            " AND state IN ('ended', 'active') AND origin != 'delegated'"
             " ORDER BY last_active_at DESC, id DESC LIMIT 1",
             (a["id"],),
         ).fetchone()

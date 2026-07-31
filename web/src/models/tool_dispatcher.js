@@ -35,6 +35,10 @@ const NATIVE_TOOL_NAMES = new Set([
     "remember",
     "recall",
     "forget",
+    // Task delegation runs entirely server-side (spawns/continues a hidden
+    // text-mode task session). Slow — seconds to minutes — but dispatch()
+    // already runs server tools without blocking the UI.
+    "delegate_task",
 ]);
 
 export class ToolDispatcher {
