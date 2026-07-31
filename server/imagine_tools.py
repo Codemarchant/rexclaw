@@ -95,6 +95,9 @@ _CREATE_IMAGE_TOOL = {
         "This is also how you EDIT images the user uploaded: their "
         "attachments are saved to the library and the imagine_image_id "
         "refs appear in the conversation next to the upload. "
+        "When a source is an avatar selfie, match its art style in the "
+        "prompt — stylized anime/cel-shaded 3D, NOT photorealistic — "
+        "unless the user asks for a different style. "
         "Does NOT change the avatar background — use change_background "
         "for that when the user wants a new scene behind the avatar."
     ),
@@ -142,7 +145,11 @@ _CREATE_VIDEO_TOOL = {
         "describes what happens NEXT, duration_seconds is the length of "
         "the added part); `edit_video` modifies an existing clip while "
         "keeping the rest intact (the prompt describes the change, e.g. "
-        "'add sunglasses'). Takes ~30-60 seconds to render and costs a "
+        "'add sunglasses'). When a source/reference image is an avatar "
+        "selfie, match its art style in the prompt — stylized "
+        "anime/cel-shaded 3D, NOT photorealistic — unless the user asks "
+        "for a different style. "
+        "Takes ~30-60 seconds to render and costs a "
         "few cents per second, so keep clips short and don't spam it. "
         "Does NOT change the avatar background — use "
         "change_background(animated=true) for that."
@@ -225,9 +232,7 @@ def build_create_video_tool(*, voice_mode):
         " When the user wants a video featuring YOU, call take_selfie "
         "first to capture how you look right now and pass its image_url "
         "here (reference_images to star in a new scene, source_image to "
-        "animate the shot itself). Keep selfie-based prompts in the "
-        "avatar's animated/stylized look — not photorealistic — unless "
-        "the user asks for a different style."
+        "animate the shot itself)."
     )
     return tool
 
