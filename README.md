@@ -29,7 +29,7 @@ in a SQLite file on your disk, and your API key never leaves your machine.
 | 🧍 **Living 3D avatars** | three.js + @pixiv/three-vrm: viseme lip-sync from the live audio, idle breath/blink/eye-saccades, camera eye contact, emotions and body-language gestures the model triggers itself mid-conversation. Full-body view comes with the standard three.js orbit camera — drag to orbit, Shift+drag to move the character around the frame, scroll wheel to zoom. |
 | 🚶 **Walkable 3D scenes** | GLB environments as backgrounds with WASD/arrow walk mode and a trailing camera. A grid playground ships in the box. In a group call, number keys pick which character you're steering. |
 | 📞 **Multi-agent group calls** | Add companions to a live call — or let them invite each other ("call Rex for this one"). Each joins with its own voice, avatar and memory; a fast LLM turn director decides who speaks next, with no audio cross-feeding between agents. |
-| 🥽 **VR & mixed reality (WebXR)** | Step into the room with your companion on a Quest/Pico headset — passthrough MR where available, spatial audio at the avatar's head, controller haptics, an in-headset panel (mute, emotions, gestures, move mode), physical hand-to-hair/clothing contact, and an opt-in full-body ragdoll you can grab. |
+| 🥽 **VR & mixed reality (WebXR)** | Stand with your companion in VR — or in your real room via passthrough MR on headset browsers that support it — with spatial audio at the avatar's head, controller haptics, an in-headset panel (mute, emotions, gestures, move mode), physical hand-to-hair/clothing contact, and an opt-in full-body ragdoll you can grab. |
 | 🤝 **Combo gestures** | Two-character VRMA animations — dancing together, hugs — where a partner VRM joins the scene in sync with your avatar, with per-character placement controls. A live call peer is borrowed as the partner instead of spawning a duplicate. |
 | 🎨 **Grok Imagine built in** | Ask them to redecorate (`change_background` swaps the live scene), generate images into the transcript, edit photos you upload in chat, or remix anything in the Imagine library — selfies, uploads, past generations — into new images (`create_image` with `source_images`). Uploaded images are saved to the library at upload time, so "edit that photo" keeps working turns — or whole sessions — later. |
 | 🎬 **Imagine video** | Ask for a living scene and `change_background` generates an animated looping backdrop instead of a still — both stay selectable in the background picker. `create_video` drops short clips with native sound into the transcript, and can animate a library image (image-to-video), put the people and things from earlier generations into a new clip (reference-to-video), continue a clip with what happens next (extension), or tweak one in place — "add sunglasses" (editing). Companions can even `take_selfie` — snapshot their current look, pose and outfit straight off the canvas, with or without the scene backdrop — and star in their own clips. And you can share your own photos mid-call (paperclip) for the same treatment: animate them or put their subjects into new clips. Per-second Grok Imagine pricing, so clips stay short and cheap. |
@@ -195,6 +195,53 @@ re-scanned on every server start.
 
 Animation clips are `.vrma` — the bundled gesture pack (pixiv's VRoid Project
 Motion Pack) covers the built-ins, and packs can add custom clips per avatar.
+
+## 🥽 Using VR
+
+Open the app in your headset's own browser (Quest, Pico, …) and press the
+cube button to stand with your companion in VR. On browsers that support
+passthrough, the same button enters **mixed reality** — your companion in
+your real room — and the in-headset panel toggles Virtual/Passthrough.
+WebXR and the microphone only work on secure (HTTPS) origins, so the app
+has a built-in HTTPS mode; the headset and the PC just need to be on the
+same WiFi.
+
+**Windows app (recommended):**
+
+1. Turn on **Settings → VR headset access**. The app restarts its server
+   in HTTPS mode and reloads; allow access if Windows Firewall asks.
+2. The setting now shows an address like `https://192.168.1.42:8990/` —
+   open it in the headset's browser and accept the one-time certificate
+   warning (Advanced → proceed).
+3. Press the cube button. The conversation starts (or resumes)
+   automatically as you enter VR.
+
+**From source (`run.sh` / `run.bat`):**
+
+1. Start with HTTPS + LAN enabled:
+   - Linux/macOS: `REXCLAW_SSL=1 REXCLAW_HOST=0.0.0.0 ./run.sh`
+   - Windows: `set REXCLAW_SSL=1`, then `set REXCLAW_HOST=0.0.0.0`, then
+     `run.bat` — on native Windows, not WSL (LAN devices can't reach a
+     server inside WSL's virtual network).
+2. Find the PC's LAN address (`ipconfig` on Windows, `ip addr` on Linux)
+   and open `https://<pc-ip>:8990` in the headset's browser; accept the
+   certificate warning.
+3. Press the cube button.
+
+**Docker:**
+
+1. In `docker-compose.yml`, change the port mapping to `"8990:8990"` and
+   add `REXCLAW_SSL=1` under an `environment:` key.
+2. Open `https://<host-ip>:8990` in the headset's browser; accept the
+   certificate warning.
+3. Press the cube button.
+
+The self-signed certificate is generated once under `data/certs/`; set
+`REXCLAW_SSL_CERT` / `REXCLAW_SSL_KEY` to use your own pair instead. The
+app has no authentication, so only enable LAN serving on a network you
+trust. (A PCVR/OpenXR setup works as well — the Windows app's cube button
+opens the scene in a VR-capable browser window — but the headset-browser
+flow above is the recommended one.)
 
 ## 🔌 Remote MCP connections
 

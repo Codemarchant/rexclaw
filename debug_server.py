@@ -20,10 +20,12 @@ import uvicorn
 
 
 def main():
+    from server.tls import resolve_ssl
     config = uvicorn.Config(
         "server.main:app",
-        host="127.0.0.1",
+        host=os.environ.get("REXCLAW_HOST", "127.0.0.1"),
         port=int(os.environ.get("REXCLAW_PORT", "8990")),
+        **resolve_ssl(),
     )
     server = uvicorn.Server(config)
     loop = asyncio.new_event_loop()

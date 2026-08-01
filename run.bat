@@ -14,7 +14,7 @@ if "%REXCLAW_PORT%"=="" (set PORT=8990) else (set PORT=%REXCLAW_PORT%)
 set PY=.venv\Scripts\python.exe
 
 rem ---- Python venv + backend deps ------------------------------------------
-"%PY%" -c "import fastapi, uvicorn, requests" >nul 2>&1
+"%PY%" -c "import fastapi, uvicorn, requests, cryptography" >nul 2>&1
 if errorlevel 1 (
     echo [rexclaw] setting up Python environment...
     if exist .venv rmdir /s /q .venv
@@ -59,6 +59,16 @@ if "%NEED_BUILD%"=="1" (
 )
 
 rem ---- Launch -----------------------------------------------------------------
-echo [rexclaw] starting at http://localhost:%PORT%  (Ctrl+C to stop)
-start "" "http://localhost:%PORT%"
-"%PY%" -m uvicorn server.main:app --port %PORT%
+rem REXCLAW_SSL=1 (or REXCLAW_SSL_CERT/KEY) serves HTTPS - needed for WebXR
+rem and the mic when opening the app from a headset browser over LAN.
+set SCHEME=http
+if defined REXCLAW_SSL set SCHEME=https
+if defined REXCLAW_SSL_CERT set SCHEME=https
+echo [rexclaw] starting at %SCHEME%://localhost:%PORT%  (Ctrl+C to stop)
+start "" "%SCHEME%://localhost:%PORT%"
+if "%SCHEME%"=="https" (
+    rem server.main resolves/generates the certificate pair itself.
+    "%PY%" -m server.main
+) else (
+    "%PY%" -m uvicorn server.main:app --port %PORT%
+)

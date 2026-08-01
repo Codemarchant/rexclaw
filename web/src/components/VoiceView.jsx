@@ -81,6 +81,8 @@ export default function VoiceView({ active = true }) {
     const [draftText, setDraftText] = useState("");
     const [xrSupported, setXrSupported] = useState(false);   // headset/browser can present immersive VR
     const [mrSupported, setMrSupported] = useState(false);   // immersive-ar (passthrough MR) also available
+    const [desktopVR, setDesktopVR] = useState(false);       // Electron shell: OpenXR runtime + browser for handoff
+    const [vrPrompt, setVrPrompt] = useState(false);         // #vr auto-enter blocked by activation → one-click overlay
     const [addAgentId, setAddAgentId] = useState("");        // group-call "Add agent" dropdown selection
     const loadedAvatarId = useRef(null);
     const moveKeys = useRef(new Set());
@@ -125,6 +127,11 @@ export default function VoiceView({ active = true }) {
             .catch(() => {});
         avatarRenderer.checkARSupport?.()
             .then((ok) => setMrSupported(!!ok))
+            .catch(() => {});
+        // Electron shell (WebXR compiled out): offer the browser handoff
+        // instead, but only when the machine can actually present VR.
+        window.rexclawDesktop?.vrAvailable?.()
+            .then((ok) => setDesktopVR(!!ok))
             .catch(() => {});
         // VR controllers/push-to-talk/haptics — attaches to the renderer's
         // XR lifecycle; dormant until enterVR() starts a session.
@@ -423,7 +430,21 @@ export default function VoiceView({ active = true }) {
      *  dolly rig, and render-loop switch; we just kick it off and surface
      *  failures. Exiting VR is done from the headset and restores the desktop
      *  framing automatically (renderer _onXRSessionEnd). */
+    /** VR has no reach into the flat-view call controls, so entering it
+     *  with no call running strands the user in a mute scene. Kick the
+     *  session off alongside the immersive transition: resume the agent's
+     *  last conversation when there is one, else start fresh. Deliberately
+     *  not awaited by callers — requestSession must spend the click's
+     *  transient activation in the same tick. */
+    const startCallIfIdle = () => {
+        const st = voice.state.status;
+        if (st === "live" || st === "connecting") return;
+        (lastResumableSession ? resumeSession(lastResumableSession) : startSession())
+            .catch((e) => console.error("[voice] VR call auto-start failed", e));
+    };
+
     const enterVR = async () => {
+        startCallIfIdle();
         try {
             await avatarRenderer.enterXR(XR_MODE);
         } catch (e) {
@@ -431,6 +452,34 @@ export default function VoiceView({ active = true }) {
             notification.add(_t("Could not start VR: %s", e?.message || e), { type: "danger" });
         }
     };
+
+    // The auto-enter below fires up to 15 s after mount — go through a ref
+    // so it sees the current session/agent state, not the first render's.
+    const startCallIfIdleRef = useRef(startCallIfIdle);
+    startCallIfIdleRef.current = startCallIfIdle;
+
+    // Desktop VR handoff lands here with #vr in the URL: try to enter the
+    // immersive session without another click. Chrome enforces user
+    // activation for requestSession (the no-gesture switch no longer covers
+    // WebXR), so when the silent attempt is rejected we fall back to a
+    // single-click overlay rather than an error toast. Waits for the VRM
+    // first — session-start placement runs once, on the first XR frame, and
+    // needs a body to stand the viewer in front of.
+    useEffect(() => {
+        if (!xrSupported || !/vr/.test(window.location.hash)) return;
+        // Drop the hash so a manual reload of the window behaves normally.
+        window.history.replaceState(null, "", window.location.pathname);
+        let tries = 0;
+        const timer = setInterval(() => {
+            if (avatarRenderer.vrm || ++tries > 50) {   // ≤15 s wait
+                clearInterval(timer);
+                startCallIfIdleRef.current();   // talking works either way
+                avatarRenderer.enterXR(XR_MODE).catch(() => setVrPrompt(true));
+            }
+        }, 300);
+        return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [xrSupported]);
 
     // ---- group calls (multi-agent) -----------------------------------------
 
@@ -747,6 +796,16 @@ export default function VoiceView({ active = true }) {
     return (
         <div ref={rootRef}
              className={"o_voice_full_view" + (ui.immersive ? " o_voice_full_view--immersive" : "")}>
+            {vrPrompt && (
+                <div style={{ position: "fixed", inset: 0, zIndex: 2000,
+                              background: "rgba(15, 23, 42, 0.75)", display: "flex",
+                              alignItems: "center", justifyContent: "center" }}>
+                    <button className="btn btn-primary btn-lg"
+                            onClick={() => { setVrPrompt(false); enterVR(); }}>
+                        <i className="fa fa-cube" /> {_t("Enter VR")}
+                    </button>
+                </div>
+            )}
             {!ui.immersive && showHistory && (
                 <div className="o_voice_full_history">
                     <div className="o_voice_full_history_header"><strong>{_t("History")}</strong></div>
@@ -779,6 +838,23 @@ export default function VoiceView({ active = true }) {
                                 title={showHistory ? _t("Hide history") : _t("Show history")}>
                             <i className="fa fa-history" />
                         </button>
+                        {xrSupported ? (
+                            <button className="btn btn-light" onClick={enterVR}
+                                    title={mrSupported
+                                        ? _t("Enter MR/VR — passthrough mixed reality (toggle Virtual/Passthrough on the in-headset panel)")
+                                        : _t("Enter VR — stand with your companion in a headset (passthrough MR unavailable on this browser)")}>
+                                <i className="fa fa-cube" />
+                            </button>
+                        ) : (desktopVR && (
+                            // Electron shell: WebXR is compiled out of Electron, so
+                            // hand off to a real Chromium browser in --app mode
+                            // (same server, same session) where it works.
+                            <button className="btn btn-light"
+                                    onClick={() => window.rexclawDesktop.openVR()}
+                                    title={_t("Enter VR — opens this companion in a VR-capable browser window")}>
+                                <i className="fa fa-cube" />
+                            </button>
+                        ))}
                         <button className={"btn btn-light" + (fullBody ? " active" : "")}
                                 onClick={toggleFullBody}
                                 title={fullBody ? _t("Switch to face view") : _t("Switch to full body (drag to rotate, scroll to zoom)")}>
@@ -789,14 +865,6 @@ export default function VoiceView({ active = true }) {
                                     onClick={() => setMoveModeOn(!moveMode)}
                                     title={moveMode ? _t("Disable walk mode") : _t("Enable walk mode (WASD / arrow keys — number keys pick which character to move in a group call)")}>
                                 <i className="fa fa-gamepad" />
-                            </button>
-                        )}
-                        {xrSupported && (
-                            <button className="btn btn-light" onClick={enterVR}
-                                    title={mrSupported
-                                        ? _t("Enter MR/VR — passthrough mixed reality (toggle Virtual/Passthrough on the in-headset panel)")
-                                        : _t("Enter VR — stand with your companion in a headset (passthrough MR unavailable on this browser)")}>
-                                <i className="fa fa-cube" />
                             </button>
                         )}
                         <button className={"btn btn-light" + (showSettings ? " active" : "")}

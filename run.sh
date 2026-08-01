@@ -18,7 +18,7 @@ PY="$VENV/bin/python"
 # A venv that was moved/copied from another path is silently broken (its
 # scripts hard-code the old location), so probe it by actually importing the
 # deps rather than just checking the folder exists.
-if ! "$PY" -c "import fastapi, uvicorn, requests" >/dev/null 2>&1; then
+if ! "$PY" -c "import fastapi, uvicorn, requests, cryptography" >/dev/null 2>&1; then
     echo "[rexclaw] setting up Python environment…"
     rm -rf "$VENV"
     if command -v uv >/dev/null 2>&1; then
@@ -75,7 +75,11 @@ if [ "$NEED_BUILD" = 1 ]; then
 fi
 
 # ---- Launch ------------------------------------------------------------------
-URL="http://localhost:$PORT"
+# REXCLAW_SSL=1 (or REXCLAW_SSL_CERT/KEY) serves HTTPS — needed for WebXR
+# and the mic when opening the app from a headset browser over LAN.
+SCHEME="http"
+if [ -n "${REXCLAW_SSL:-}" ] || [ -n "${REXCLAW_SSL_CERT:-}" ]; then SCHEME="https"; fi
+URL="$SCHEME://localhost:$PORT"
 if [ "${REXCLAW_NO_BROWSER:-0}" != "1" ]; then
     # Open the browser once the server is up. Best-effort per platform;
     # wslview covers WSL → Windows browser.
@@ -94,4 +98,8 @@ if [ "${REXCLAW_NO_BROWSER:-0}" != "1" ]; then
 fi
 
 echo "[rexclaw] starting at $URL  (Ctrl+C to stop)"
+if [ "$SCHEME" = "https" ]; then
+    # server.main resolves/generates the certificate pair itself.
+    exec "$PY" -m server.main
+fi
 exec "$PY" -m uvicorn server.main:app --port "$PORT"

@@ -24,6 +24,16 @@ import { avatarRenderer } from "../services/avatar_renderer";
  * triggers a response when the queue empties.
  */
 
+// Default avatars whose `happy` blendshape squints both eyes shut and holds
+// the mouth open — a frozen cartoon pose if it lingers. Matched as a whole
+// word so user copies ("Eve Copy") count but "Evelyn"/"Sara" don't. Shared
+// with the VR touch reactions (vr_manager), which trigger `happy` outside
+// this dispatcher.
+const SQUINTY_HAPPY_RE = /\b(Eve|Leo|Ara)\b/;
+export function isSquintyHappyAvatar(name) {
+    return SQUINTY_HAPPY_RE.test(name || "");
+}
+
 const NATIVE_TOOL_NAMES = new Set([
     // Grok Imagine tools execute server-side (xAI API key required) and come
     // back with an image/video URL. Side effects (swap background) are
@@ -239,14 +249,11 @@ export class ToolDispatcher {
             clearTimeout(this._emotionDecayTimer);
             this._emotionDecayTimer = null;
         }
-        // Eve/Leo/Ara-specific decay: these default avatars' `happy`
-        // blendshape squints both eyes shut and holds the mouth open, which
-        // reads as a frozen cartoon pose if it lingers after the reaction
-        // beat. Settle into `relaxed` so the warmth remains but the pose
-        // softens. Keyed off the avatar's name (not the agent's).
+        // Eve/Leo/Ara-specific decay: settle into `relaxed` so the warmth
+        // remains but the squinty pose softens after the reaction beat.
+        // Keyed off the avatar's name (not the agent's).
         const avatarName = this.conversationState?.avatar?.name;
-        const squintyHappyAvatars = new Set(["Eve", "Leo", "Ara"]);
-        if (emotion === "happy" && squintyHappyAvatars.has(avatarName)) {
+        if (emotion === "happy" && isSquintyHappyAvatar(avatarName)) {
             this._emotionDecayTimer = setTimeout(() => {
                 this.avatarApi?.setEmotion?.("relaxed");
                 if (this.conversationState) {

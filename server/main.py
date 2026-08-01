@@ -97,12 +97,20 @@ def run():
     """
     import os
     import uvicorn
+    from .tls import resolve_ssl
     host = os.environ.get("REXCLAW_HOST", "127.0.0.1")
     try:
         port = int(os.environ.get("REXCLAW_PORT", "8990"))
     except ValueError:
         port = 8990
-    uvicorn.run("server.main:app", host=host, port=port)
+    ssl = resolve_ssl()
+    if ssl and host == "127.0.0.1":
+        # HTTPS exists to reach the app from another device (headset browser
+        # needs a secure origin for WebXR/mic) — loopback-only defeats that.
+        # Bind stays explicit because the app has no authentication.
+        _logger.info("HTTPS is on but the bind is loopback-only — set "
+                     "REXCLAW_HOST=0.0.0.0 to reach it from a headset/LAN")
+    uvicorn.run("server.main:app", host=host, port=port, **ssl)
 
 
 if __name__ == "__main__":

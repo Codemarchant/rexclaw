@@ -11,6 +11,7 @@ export default function SettingsView({ active }) {
     const [apiKeyDraft, setApiKeyDraft] = useState("");
     const [agents, setAgents] = useState([]);
     const [saving, setSaving] = useState(false);
+    const [headset, setHeadset] = useState(null);   // desktop shell only: HTTPS-on-WiFi state
 
     const load = async () => {
         try {
@@ -27,8 +28,22 @@ export default function SettingsView({ active }) {
 
     useEffect(() => {
         if (active) load();
+        // Desktop shell only: current headset-access state from the Electron
+        // bridge (null in plain browsers → the section stays hidden).
+        if (active) {
+            window.rexclawDesktop?.headsetInfo?.().then(setHeadset).catch(() => {});
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
+
+    /** Flip HTTPS-on-WiFi. On success the shell restarts its server and
+     *  reloads the window, so this component remounts on the new scheme. */
+    const toggleHeadset = async () => {
+        setHeadset((h) => (h ? { ...h, busy: true } : h));
+        const res = await window.rexclawDesktop.headsetToggle();
+        setHeadset(res);
+        if (res?.error) notification.add(res.error, { type: "warning" });
+    };
 
     if (!config) {
         return <div className="rx_settings"><div className="rx_settings_inner">{_t("Loading…")}</div></div>;
@@ -190,6 +205,39 @@ export default function SettingsView({ active }) {
                         </div>
                     </div>
                 </section>
+
+                {headset && !headset.external && (
+                    <section>
+                        <h3><i className="fa fa-wifi" /> {_t("VR headset access")}</h3>
+                        <p className="text-muted">
+                            {_t("Lets a VR headset's browser (Quest, Pico, …) open this app over "
+                                + "your WiFi. Turning it on restarts the app's server in HTTPS mode "
+                                + "and reloads this window — WebXR and the microphone only work on "
+                                + "secure (HTTPS) origins. On the headset, accept the one-time "
+                                + "certificate warning; on the PC, allow access if Windows Firewall "
+                                + "asks. Takes effect immediately (independent of Save settings).")}
+                        </p>
+                        <div className="rx_row">
+                            <div>
+                                <label>{_t("Serve over HTTPS on WiFi")}</label>
+                                <div>
+                                    <button className={"btn " + (headset.enabled ? "btn-primary" : "btn-light")}
+                                            disabled={headset.busy}
+                                            onClick={toggleHeadset}>
+                                        <i className="fa fa-wifi" /> {headset.enabled ? _t("On") : _t("Off")}
+                                    </button>
+                                </div>
+                            </div>
+                            {headset.enabled && headset.url && (
+                                <div>
+                                    <label>{_t("Open this in the headset browser")}</label>
+                                    <input type="text" readOnly value={headset.url}
+                                           onFocus={(ev) => ev.target.select()} />
+                                </div>
+                            )}
+                        </div>
+                    </section>
+                )}
 
                 <section>
                     <button className="btn btn-primary" disabled={saving} onClick={saveConfig}>

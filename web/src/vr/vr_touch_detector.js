@@ -6,6 +6,7 @@ import { pulseXRController } from "./xr_haptics";
 
 const TOUCH_RADIUS = 0.09;          // metres — auto-touch proximity
 const TRIGGER_TOUCH_RADIUS = 0.25;  // extended reach when the trigger is pressed
+const HEAD_TOP_OFFSET = 0.12;       // metres — lift the head test point toward the crown
 const TOUCH_COOLDOWN_MS = 2500;     // per-hand, so a resting hand doesn't spam
 const HAPTIC_INTENSITY = 0.8;
 const HAPTIC_DURATION = 150;
@@ -40,12 +41,15 @@ export class VRTouchDetector {
         this.handIndicators = handIndicators || [];
         this.onTouch = onTouch || null;
 
+        this._vrm = avatar.vrm || null;
         this.bones = avatar.getHumanoidBones?.() || [];
         this.lastTouchTime = [0, 0];
         this.activeTouches = [false, false];
 
         this._gripPos = new THREE.Vector3();
         this._bonePos = new THREE.Vector3();
+        this._headOffset = new THREE.Vector3();
+        this._headQuat = new THREE.Quaternion();
         this._colorIdle = new THREE.Color(0x88ccff);
         this._colorNear = new THREE.Color(0xffcc44);
         this._colorTouch = new THREE.Color(0x44ff88);
@@ -56,11 +60,19 @@ export class VRTouchDetector {
     disable() { this._enabled = false; }
 
     /** Re-read bone nodes after an avatar swap (the humanoid is rebuilt by loadVRM). */
-    refreshBones() { this.bones = this.avatar.getHumanoidBones?.() || []; }
+    refreshBones() {
+        this._vrm = this.avatar.vrm || null;
+        this.bones = this.avatar.getHumanoidBones?.() || [];
+    }
 
     /** Per-frame, from the renderer's XR loop (after vrm.update). */
     update() {
-        if (!this._enabled || !this.bones.length) return;
+        if (!this._enabled) return;
+        // Avatar swaps rebuild the humanoid, and a VRM may finish loading
+        // after the session started — stale nodes keep reporting positions
+        // of a scene that's no longer attached, so touches stop landing.
+        if (this.avatar.vrm !== this._vrm) this.refreshBones();
+        if (!this.bones.length) return;
         const now = Date.now();
         for (let i = 0; i < this.controllerGrips.length; i++) {
             const grip = this.controllerGrips[i];
@@ -110,6 +122,13 @@ export class VRTouchDetector {
         let dist = Infinity;
         for (const b of this.bones) {
             b.node.getWorldPosition(this._bonePos);
+            if (b.name === "head") {
+                // The head bone origin is at the base of the skull, which put
+                // the pat zone at mid-head — lift the test point along the
+                // head's local up so it sits around the crown.
+                b.node.getWorldQuaternion(this._headQuat);
+                this._bonePos.add(this._headOffset.set(0, HEAD_TOP_OFFSET, 0).applyQuaternion(this._headQuat));
+            }
             const d = pos.distanceTo(this._bonePos);
             if (d < dist) { dist = d; bone = b; }
         }

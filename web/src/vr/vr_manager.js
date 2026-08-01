@@ -3,6 +3,7 @@ import { VRTouchDetector } from "./vr_touch_detector";
 import { VRPanel } from "./vr_panel";
 import { VRRagdoll } from "./vr_ragdoll";
 import { EMOTIONS, EMOTION_GESTURE_MAP } from "../models/avatar_catalog";
+import { isSquintyHappyAvatar } from "../models/tool_dispatcher";
 
 // Grip mechanics (research-grounded: variable-grip / graduated escalation).
 const GRAB_RADIUS = 0.18;      // metres — squeeze this close to a region = a "grab"
@@ -75,11 +76,11 @@ export class VRManager {
         this.touchDetector = null;
         this.panel = null;          // world-space UI (exit + emotions)
 
-        // Feature toggles (panel → Options tab). Canned reaction gestures are
-        // OFF by default — the physical response (spring-bone hand colliders,
-        // ragdoll) is the primary touch feedback; the voice reaction always
-        // plays either way.
-        this.reactionsEnabled = false;
+        // Feature toggles (panel → Options tab). Reaction gestures are ON by
+        // default — panel → Options turns them off if the canned gestures get
+        // repetitive; the physical response (spring-bone hand colliders,
+        // ragdoll) plays either way.
+        this.reactionsEnabled = true;
         this.moveMode = false;         // point at the floor + trigger = walk there
         this.ragdoll = null;           // VRRagdoll, created on first toggle
         this._ragdollBusy = false;     // ragdoll enable in flight (first-use WASM download)
@@ -87,6 +88,7 @@ export class VRManager {
         this._lastMovedActorId = "base"; // thumbstick rotation target in move mode
         this._reticle = null;          // floor marker shown in move mode
         this._hp = [null, null];       // per-hand world-position scratches
+        this._touchDecayTimer = null;  // squinty-happy settle (see _reactToTouch)
         this._panelBtnDown = false;    // A/X → toggle the settings panel
         this._exitBtnDown = false;     // B/Y → exit VR
         this._recenterBtnDown = false; // thumbstick press → recenter the view
@@ -229,6 +231,28 @@ export class VRManager {
         const t = r[tier];
         if (!t) return;
         this.avatar.setEmotion?.(t.emotion, { explicit: false });
+        // Same Eve/Leo/Ara decay as the dispatcher's set_emotion: their
+        // `happy` squints both eyes shut — settle into `relaxed` after the
+        // reaction beat instead of freezing the pose.
+        if (this._touchDecayTimer) {
+            clearTimeout(this._touchDecayTimer);
+            this._touchDecayTimer = null;
+        }
+        // Session state only carries the avatar once a call starts — fall
+        // back to the renderer's hydrated payload so pats decay pre-call too.
+        const avatarName = this.voice?.state?.avatar?.name
+            ?? this.avatar._currentAvatarPayload?.name;
+        if (t.emotion === "happy" && isSquintyHappyAvatar(avatarName)) {
+            this._touchDecayTimer = setTimeout(() => {
+                this._touchDecayTimer = null;
+                // The agent may have set a different emotion in the meantime
+                // (its own decay timer lives in the dispatcher) — only soften
+                // a still-lingering happy.
+                if (this.avatar._currentEmotion === "happy") {
+                    this.avatar.setEmotion?.("relaxed", { explicit: false });
+                }
+            }, 4000);
+        }
         const gestureUrl = EMOTION_GESTURE_MAP[t.emotion];
         if (gestureUrl) this.avatar.playGesture?.(gestureUrl);
         this.voice?.sendContextEvent?.(t.text);
