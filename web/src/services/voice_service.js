@@ -83,9 +83,10 @@ class VoiceCallService {
         this._micWorkletReady = false;
         this._micStartPromise = null;
 
-        // UI-side preference shared by side panel + full view so a companion
-        // pick in one view persists into the other.
-        this.preferredAgentId = null;
+        // UI-side companion preference — see the preferredAgentId accessors
+        // below (localStorage-backed so pop-out windows and reloads inherit
+        // the pick; this in-memory field is only the private-mode fallback).
+        this._preferredAgentId = null;
 
         // ---- group-call orchestration state ----
         this._peerSeq = 0;
@@ -334,8 +335,34 @@ class VoiceCallService {
     // Public API (unchanged surface for systray / side panel / full view)
     // ------------------------------------------------------------------
 
+    /** Last companion the user picked. localStorage-backed so it survives
+     *  reloads AND crosses windows — the mascot pop-out is a separate page
+     *  instance whose own service starts fresh; without this it fell back
+     *  to the default agent instead of the one on the call. */
+    get preferredAgentId() {
+        try {
+            return Number(localStorage.getItem("rexclaw.preferred_agent_id")) || this._preferredAgentId || null;
+        } catch (e) {
+            return this._preferredAgentId || null;
+        }
+    }
+
+    set preferredAgentId(id) {
+        this._preferredAgentId = Number(id) || null;
+        try {
+            if (id) localStorage.setItem("rexclaw.preferred_agent_id", String(id));
+            else localStorage.removeItem("rexclaw.preferred_agent_id");
+        } catch (e) { /* private mode — in-memory fallback covers this page */ }
+    }
+
     async start(agentId = null, resumeSessionId = null) {
-        return this.primary.start(agentId, resumeSessionId, false);
+        const ok = await this.primary.start(agentId, resumeSessionId, false);
+        // Fire-and-forget: rebuild the group-call roster the resumed
+        // session last ended with (the server sends it on resume). Covers
+        // both manual "Resume last" and window handoffs (mascot pop-out),
+        // which are just resumes.
+        if (ok !== false) this._restoreCallRoster();
+        return ok;
     }
 
     async end(reason = "client") {
@@ -524,7 +551,30 @@ class VoiceCallService {
      *  loads its avatar beside the primary one, and announces the arrival.
      *  It receives NO pre-join transcript — like anyone walking into a
      *  call, it only hears the conversation from the moment it joins. */
-    async addAgentToCall(agentId, agentName = "") {
+    /** Silently re-add the agents from the resumed session's last group
+     *  call. Their legs resume their own sessions (memory intact), so a
+     *  greeting round would read as amnesia — the silent join path skips
+     *  it. Skips anyone already in the call, making the restore idempotent
+     *  across resume paths. */
+    async _restoreCallRoster() {
+        const roster = this.primary?._callPeerAgents || [];
+        if (this.primary) this.primary._callPeerAgents = [];
+        if (!roster.length) return;
+        await this._waitForLive(this.primary, 15000);
+        if (this.primary.state.status !== "live") return;
+        for (const r of roster) {
+            const id = Number(r.agent_id);
+            if (!id || id === Number(this.primary.state.agentId)) continue;
+            if (this.state.peers.some((p) => Number(p.agentId) === id)) continue;
+            try {
+                await this.addAgentToCall(id, r.agent_name || "", { silent: true });
+            } catch (e) {
+                console.error("[voice] call roster restore failed", e);
+            }
+        }
+    }
+
+    async addAgentToCall(agentId, agentName = "", { silent = false } = {}) {
         const check = this.canAddAgentToCall(agentId);
         if (!check.ok) {
             this.env.services.notification?.add?.(check.reason, { type: "warning" });
@@ -567,6 +617,23 @@ class VoiceCallService {
         // configured) before injecting context — items sent earlier drop.
         await this._waitForLive(conn, 15000);
         if (conn.isTerminal) return false;
+
+        if (silent) {
+            // Window-handoff restore (mascot pop-out/in): this peer isn't
+            // NEW to the conversation — its resumed session already carries
+            // the original join/group notes and everything said since, so
+            // the full join ceremony (join note, room broadcast, greeting
+            // round) would read as amnesia and set off a chatter cascade.
+            // Reconnect quietly; whoever speaks next goes through the
+            // normal director flow.
+            conn.injectContextItem(
+                _t("[System]: The call reconnected after a window change on the user's side. "
+                    + "Do not greet or announce yourself — simply continue the "
+                    + "conversation from where it left off."),
+                { promptResponse: false },
+            );
+            return true;
+        }
 
         // Deliberately NO transcript seed: someone walking into a call
         // realistically doesn't know what was said before they arrived, and
@@ -627,7 +694,11 @@ class VoiceCallService {
     async removeAgentFromCall(connId) {
         const conn = this.connections.get(connId);
         if (!conn || conn.role !== "peer") return;
-        await conn.end("client");
+        // 'removed', not 'client': a deliberate removal unlinks the leg
+        // from the call server-side, so the resume-time roster restore
+        // doesn't bring this agent back. Whole-call teardown keeps the
+        // link (reason 'client') — that roster SHOULD restore.
+        await conn.end("removed");
     }
 
     /** Synchronous pre-check for the remove_agent_from_call browser tool:

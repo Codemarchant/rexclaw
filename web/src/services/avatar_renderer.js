@@ -60,6 +60,13 @@ const FULL_FOV = 35;
 // 10% for full body keeps feet+top with a touch of breathing room.
 const FACE_FRAME_PADDING = 1.20;
 const FULL_FRAME_PADDING = 1.10;
+// Some avatars read wider than the height-driven face solve accounts for —
+// Sal's silhouette especially — so their face shot clips at the sides of
+// narrow hosts (the mascot window above all). Zoom their face preset out a
+// touch. Word-match on the avatar name so user copies ("Sal Copy") inherit
+// it; same convention as the squinty-happy avatar list in tool_dispatcher.
+const WIDE_FACE_AVATAR_RE = /\bSal\b/;
+const WIDE_FACE_EXTRA_PADDING = 1.25;
 // Lower bound for the face shot region — extends frame this far below the
 // head bone so the upper chest is visible (otherwise framing reads as a
 // floating disembodied head).
@@ -1595,8 +1602,34 @@ class AvatarRenderer {
         if (current !== next) {
             this._moveTarget = null;
             if (current._moving) this._stopWalkAnim(current);
-            // Follow camera re-anchors on the new actor without jumping.
-            this._camFollowPos = null;
+            // Snap the camera onto the NEW actor, centred: keep the
+            // camera's current offset vector from its look-target (same
+            // viewing angle + zoom) but place the target on the actor.
+            // Translating by the follow-anchor delta (previous approach)
+            // preserved the group-framing offset — the rig looks at the
+            // ROW's midpoint, not at any one character — so the selected
+            // character ended up at the edge of frame instead of centred.
+            if (next.vrm && this.camera && this.libs) {
+                const np = next.vrm.scene.position;
+                if (this._orbitControls) {
+                    const t = this._orbitControls.target;
+                    const ox = this.camera.position.x - t.x;
+                    const oz = this.camera.position.z - t.z;
+                    t.x = np.x;
+                    t.z = np.z;
+                    this.camera.position.x = np.x + ox;
+                    this.camera.position.z = np.z + oz;
+                    this._orbitControls.update?.();
+                } else {
+                    const anchor = this._camFollowPos
+                        || (current.vrm ? current.vrm.scene.position : np);
+                    this.camera.position.x += np.x - anchor.x;
+                    this.camera.position.z += np.z - anchor.z;
+                }
+                this._camFollowPos = new this.libs.THREE.Vector3(np.x, 0, np.z);
+            } else {
+                this._camFollowPos = null;
+            }
         }
         return true;
     }
@@ -2651,7 +2684,11 @@ class AvatarRenderer {
         // at least some breathing room above the bone.
         const frameTop = Math.max(meshTopY, headY + FACE_LOWER_OFFSET);
         const center = (frameTop + frameBottom) / 2;
-        const height = (frameTop - frameBottom) * FACE_FRAME_PADDING;
+        let facePadding = FACE_FRAME_PADDING;
+        if (WIDE_FACE_AVATAR_RE.test(this._currentAvatarPayload?.name || "")) {
+            facePadding *= WIDE_FACE_EXTRA_PADDING;
+        }
+        const height = (frameTop - frameBottom) * facePadding;
         const distance = fitWidth(FACE_FOV, Math.max(
             FACE_MIN_DISTANCE,
             height / (2 * Math.tan((FACE_FOV * Math.PI) / 360)),

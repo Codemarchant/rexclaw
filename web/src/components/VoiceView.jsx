@@ -13,6 +13,7 @@ import Transcript from "./Transcript.jsx";
 import { downscaleImageFile, attachmentNote } from "../lib/attachments";
 import { useFileDrop } from "../lib/use_file_drop";
 import { screenCapture } from "../lib/screen_capture";
+import { storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
 
 // WASD + arrows → camera-relative movement axes for the manual walk toggle.
 const MOVE_KEY_MAP = {
@@ -240,11 +241,14 @@ export default function VoiceView({ active = true }) {
         voice.state.activeBackground = resolved;
         voice.state.backgroundPickedByUser = false;
         avatarRenderer.setBackground?.(resolved);
-        // Restore the user's last outfit pick if it belongs to this avatar.
+        // Restore the user's last outfit pick if it belongs to this avatar —
+        // in-page state first, else the persisted preference (which is what
+        // fresh page instances like the mascot hydrate from).
         const wantId = Number(voice.state.selectedOutfitId || 0);
-        const wantOutfit = (avatar.outfits || []).find((o) => Number(o.id) === wantId);
+        const wantOutfit = (avatar.outfits || []).find((o) => Number(o.id) === wantId)
+            || storedOutfit(avatar);
         const targetUrl = wantOutfit?.vrm_url || avatar.vrm_url;
-        voice.state.selectedOutfitId = wantOutfit ? wantOutfit.id : 0;
+        voice.state.selectedOutfitId = wantOutfit ? Number(wantOutfit.id) : 0;
         avatarRenderer.loadVRM(targetUrl).catch((e) => {
             console.error("[voice] avatar VRM load failed", e);
             loadedAvatarId.current = null;
@@ -441,6 +445,8 @@ export default function VoiceView({ active = true }) {
     const startCallIfIdle = () => {
         const st = voice.state.status;
         if (st === "live" || st === "connecting") return;
+        // Group-call peers restore automatically: the resume payload
+        // carries the last call roster and voice.start() re-adds them.
         (lastResumableSession ? resumeSession(lastResumableSession) : startSession())
             .catch((e) => console.error("[voice] VR call auto-start failed", e));
     };
@@ -830,6 +836,9 @@ export default function VoiceView({ active = true }) {
         const outfit = (avatar?.outfits || []).find((o) => Number(o.id) === id);
         if (!outfit) return;
         voice.state.selectedOutfitId = id;
+        // Persist so fresh page instances (mascot pop-out, reloads) hydrate
+        // with this outfit instead of snapping back to the default.
+        storeOutfitPref(avatar?.id, id);
         avatarRenderer.setOutfit(outfit.vrm_url, avatar?.vrma_idle_url || null).catch((e) => {
             console.error("[voice] outfit load failed", e);
         });

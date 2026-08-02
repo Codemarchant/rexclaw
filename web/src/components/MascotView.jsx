@@ -4,14 +4,20 @@ import { _t } from "../lib/i18n";
 import { useReactive } from "../lib/reactive";
 import { voice, avatarRenderer } from "../services";
 import { screenCapture } from "../lib/screen_capture";
+import { storedOutfit } from "../lib/outfit_pref";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 
 // Window sizes the ⤢ button cycles through (bottom-right corner anchored by
-// the shell). Portrait 2:3-ish — a standing character's natural frame.
+// the shell). Portrait 2:3-ish — a standing character's natural frame. The
+// old 280×420 step is gone (it clipped the controls island); the two big
+// steps mainly serve full-body view, and the shell clamps them to the
+// screen's work area on smaller displays. Scroll on the avatar still gives
+// fine-grained sizing between the presets.
 const SIZES = [
-    { width: 280, height: 420 },
     { width: 380, height: 560 },
     { width: 480, height: 700 },
+    { width: 620, height: 900 },
+    { width: 760, height: 1100 },
 ];
 
 /** Desktop mascot overlay — the whole (transparent, always-on-top) Electron
@@ -40,7 +46,8 @@ export default function MascotView() {
     const [selectedAgentId, setSelectedAgentId] = useState(null);
     const [pinned, setPinned] = useState(true);
     const [fullBody, setFullBody] = useState(false);
-    const [sizeIdx, setSizeIdx] = useState(1);
+    // Index 0 matches the shell's MASCOT_DEFAULT_SIZE (380×560).
+    const [sizeIdx, setSizeIdx] = useState(0);
     const [ghost, setGhost] = useState(false);
     // Tray "Hide avatar controls": the island doesn't render at all — not
     // even on hover. Escape hatches stay in the tray (uncheck it, pop back).
@@ -58,6 +65,29 @@ export default function MascotView() {
     const isLive = sv.status === "live";
     const isConnecting = sv.status === "connecting";
     const busy = isLive || isConnecting;
+
+    // Group calls: widen the window per extra character (the camera fits
+    // the row horizontally, so extra width means bigger characters instead
+    // of a zoomed-out squeeze) and mirror the main view's auto full-body
+    // switch. Restores the current preset width when the call empties.
+    // prev-ref guard: skip the mount run so a remembered scroll-resized
+    // geometry isn't stomped back to the preset on every mascot open.
+    const peerCount = (sv.peers || []).length;
+    const prevPeerCount = useRef(0);
+    useEffect(() => {
+        if (peerCount === prevPeerCount.current) return;
+        prevPeerCount.current = peerCount;
+        if (peerCount > 0 && !fullBody) {
+            setFullBody(true);
+            avatarRenderer.setFullBodyMode?.(true);
+        }
+        const base = SIZES[sizeIdx];
+        const width = Math.round(base.width * (1 + 0.55 * peerCount));
+        window.rexclawDesktop?.setMascotSize?.({
+            width, height: base.height, anchor: "bottom-center",
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [peerCount]);
 
     const currentAgent = useMemo(
         () => agents.find((a) => Number(a.id) === Number(selectedAgentId)),
@@ -113,7 +143,9 @@ export default function MascotView() {
     }, []);
 
     // Avatar hydration, minus everything mascot mode suppresses (backgrounds
-    // paint nothing on a --mascot host; outfit prefs live in the main window).
+    // paint nothing on a --mascot host). The stored outfit preference DOES
+    // apply — without it this fresh page snapped back to the default outfit
+    // even when the main window had another one selected.
     useEffect(() => {
         const avatar = currentAgent?.avatar;
         if (!avatar || !avatar.vrm_url) {
@@ -126,7 +158,9 @@ export default function MascotView() {
         if (loadedAvatarId.current === avatar.id) return;
         loadedAvatarId.current = avatar.id;
         avatarRenderer.resetExpression?.();
-        avatarRenderer.loadVRM(avatar.vrm_url).catch((e) => {
+        const outfit = storedOutfit(avatar);
+        if (outfit) voice.state.selectedOutfitId = Number(outfit.id);
+        avatarRenderer.loadVRM(outfit?.vrm_url || avatar.vrm_url).catch((e) => {
             console.error("[mascot] avatar VRM load failed", e);
             loadedAvatarId.current = null;
         });
@@ -135,10 +169,15 @@ export default function MascotView() {
         }
     }, [currentAgent]);
 
-    const startOrResume = () => {
+    const startOrResume = async () => {
         const sess = currentAgent?.last_resumable_session;
-        (sess ? voice.start(selectedAgentId, sess.id) : voice.start(selectedAgentId))
-            .catch((e) => console.error("[mascot] call start failed", e));
+        try {
+            // Group-call peers restore automatically: the resume payload
+            // carries the last call roster and voice.start() re-adds them.
+            await (sess ? voice.start(selectedAgentId, sess.id) : voice.start(selectedAgentId));
+        } catch (e) {
+            console.error("[mascot] call start failed", e);
+        }
     };
 
     useEffect(() => {
@@ -348,7 +387,16 @@ export default function MascotView() {
     const cycleSize = () => {
         const next = (sizeIdx + 1) % SIZES.length;
         setSizeIdx(next);
-        window.rexclawDesktop?.setMascotSize?.(SIZES[next]);
+        // Apply the group-call widening here too — cycling mid-call used to
+        // snap back to the solo preset width and clip the outer characters.
+        const base = SIZES[next];
+        window.rexclawDesktop?.setMascotSize?.(peerCount > 0
+            ? {
+                width: Math.round(base.width * (1 + 0.55 * peerCount)),
+                height: base.height,
+                anchor: "bottom-center",
+            }
+            : base);
     };
 
     const toggleFullBody = () => {

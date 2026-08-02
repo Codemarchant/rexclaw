@@ -964,9 +964,24 @@ ipcMain.handle("mascot-pin", (event, flag) => {
 
 ipcMain.handle("mascot-size", (event, size) => {
     if (!mascotWindow || mascotWindow.isDestroyed()) return false;
-    const width = Math.round(Math.min(1000, Math.max(220, Number(size && size.width) || 0)));
-    const height = Math.round(Math.min(1400, Math.max(320, Number(size && size.height) || 0)));
+    // Width cap 1600, not 1000: group calls in the mascot widen the window
+    // per extra character; the work-area clamp below still bounds it to the
+    // actual screen.
+    let width = Math.round(Math.min(1600, Math.max(220, Number(size && size.width) || 0)));
+    let height = Math.round(Math.min(1400, Math.max(320, Number(size && size.height) || 0)));
     if (!width || !height) return false;
+    // Clamp to the current display's work area — the biggest presets are
+    // taller than a 1080p screen, and with the bottom edge pinned the
+    // overflow would push the avatar's head off the top.
+    try {
+        const { screen } = require("electron");
+        const wa = screen.getDisplayMatching(mascotWindow.getBounds()).workArea;
+        if (height > wa.height) {
+            width = Math.round(width * (wa.height / height));
+            height = wa.height;
+        }
+        width = Math.min(width, wa.width);
+    } catch (e) { /* no display info — keep the requested size */ }
     const b = mascotWindow.getBounds();
     // Anchor: presets grow around the bottom-right corner (the mascot
     // usually sits by the taskbar corner, which should stay put);

@@ -402,10 +402,32 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
 
     avatar = store.avatar_payload(con, agent['avatar_id'])
     active_background = _resolve_active_background(con, agent)
+
+    # Group-call roster from the LAST call on this session: peer legs still
+    # LINKED to it. Membership is maintained explicitly — a deliberate
+    # "remove from call" clears the link (end_session, reason 'removed'),
+    # and an agent joining a newer call gets repointed there (latest call
+    # wins) — so no timing heuristics are needed. Only meaningful when
+    # resuming a primary leg; the client silently re-adds these agents once
+    # the resumed call is live.
+    call_peer_agents = []
+    if resume_session and not manual_turn and not call_parent_session:
+        rows = con.execute(
+            """SELECT s.agent_id, a.name AS agent_name
+                   FROM sessions s JOIN agents a ON a.id = s.agent_id
+                   WHERE s.call_parent_session_id = ?
+                   GROUP BY s.agent_id, a.name""",
+            (session['id'],),
+        ).fetchall()
+        call_peer_agents = [
+            {'agent_id': r['agent_id'], 'agent_name': r['agent_name']}
+            for r in rows
+        ]
     con.commit()
 
     return {
         'session_id': session['id'],
+        'call_peer_agents': call_peer_agents,
         'agent_id': agent['id'],
         'agent_name': agent['name'],
         'xai_ephemeral_token': xai_resp['token'],
@@ -688,6 +710,11 @@ def end_session(con, session, *, reason='client', total_input_tokens=0, total_ou
     if total_output_tokens and total_output_tokens > (session['total_output_tokens'] or 0):
         token_updates['total_output_tokens'] = int(total_output_tokens)
     ended = utcnow()
+    # Deliberate mid-call removal: unlink the leg from its call, so the
+    # roster restore on resume doesn't bring the agent back. Membership is
+    # exactly "still linked" — no timing heuristics.
+    if reason == 'removed' and session['call_parent_session_id']:
+        token_updates['call_parent_session_id'] = None
     store.update_session(con, session['id'], state='ended', ended_at=ended,
                          last_active_at=ended, **token_updates)
     session = store.get_session(con, session['id'])

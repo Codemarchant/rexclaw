@@ -303,6 +303,9 @@ export class AgentConnection {
         this.agentName = payload.agent_name || null;
         this.state.avatar = payload.avatar;
         this.state.voice = payload.voice;
+        // Last group-call roster (resume only) — the manager silently
+        // re-adds these agents once the call is live (_restoreCallRoster).
+        this._callPeerAgents = payload.call_peer_agents || [];
         this._sessionUpdate = payload.session_update;
         // Two parallel feeds from start_session:
         //   * replay_items     — compacted (filtered + rollup-hoisted),

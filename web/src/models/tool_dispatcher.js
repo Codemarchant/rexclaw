@@ -8,6 +8,7 @@ import { avatarRenderer } from "../services/avatar_renderer";
 // Screen-share singleton for take_screenshot / record_screen_clip — same
 // direct-import pattern as the renderer.
 import { screenCapture } from "../lib/screen_capture";
+import { storeOutfitPref } from "../lib/outfit_pref";
 
 /**
  * Browser-side tool dispatcher.
@@ -478,10 +479,12 @@ export class ToolDispatcher {
             return { ok: false, error: `Outfit ${outfit_id} has no VRM file uploaded.` };
         }
         // Write the new selection onto the shared reactive state so the
-        // pickers re-render to match.
+        // pickers re-render to match, and persist it so fresh page
+        // instances (mascot pop-out, reloads) hydrate with this outfit.
         if (this.conversationState) {
             this.conversationState.selectedOutfitId = Number(outfit_id);
         }
+        storeOutfitPref(avatar?.id, outfit_id);
         // Fire-and-forget: setOutfit is async (VRM load), but the model just
         // needs the ack to continue speaking.
         Promise.resolve(this.avatarApi.setOutfit(outfit.vrm_url, avatar?.vrma_idle_url || null)).catch((e) => {
