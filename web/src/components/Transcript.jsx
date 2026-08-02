@@ -292,9 +292,9 @@ export default function Transcript({
                         )}
                         {msg.attachments && msg.attachments.length > 0 && (
                             <div className="o_voice_msg_attachments">
-                                {msg.attachments.map((att) => (
+                                {msg.attachments.map((att, attIdx) => (
                                     <span
-                                        key={att.xai_file_id}
+                                        key={`${att.xai_file_id}-${attIdx}`}
                                         className="o_voice_msg_attachment_chip"
                                         title={att.filename + (att.size_bytes ? ` (${att.size_bytes} bytes)` : "")}
                                     >

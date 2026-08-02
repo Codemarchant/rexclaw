@@ -320,14 +320,22 @@ CREATE TABLE IF NOT EXISTS imagine_images (
     agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
     -- background | image | edit | video | background_video | selfie |
-    -- upload ('upload' = a user-shared picture: the voice-mode paperclip,
-    -- or a text-mode image attachment ingested at upload time)
+    -- upload | screenshot | screen_clip ('upload' = any user-shared file —
+    -- image, video or document — ingested at upload time from either
+    -- mode's paperclip or drag-and-drop; 'screenshot'/'screen_clip' come
+    -- from the take_screenshot / record_screen_clip tools over the user's
+    -- armed screen share)
     kind TEXT NOT NULL,
     prompt TEXT NOT NULL,
     image_path TEXT NOT NULL,                -- web path under /files
     mimetype TEXT,
     xai_model TEXT,
-    created_at TEXT
+    created_at TEXT,
+    -- Last known /v1/files id for this file, cached from upload so tools
+    -- can reuse it without re-uploading; may be expired — ensure_xai_file
+    -- checks and refreshes from the local bytes.
+    xai_file_id TEXT,
+    xai_file_expires_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_imagine_agent ON imagine_images (agent_id, kind, created_at DESC);
 """
@@ -404,6 +412,11 @@ MIGRATIONS = (
     "ALTER TABLE agents ADD COLUMN enable_multi_agent_delegation INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE config ADD COLUMN multi_agent_model TEXT NOT NULL DEFAULT 'grok-4.20-multi-agent'",
     "ALTER TABLE config ADD COLUMN multi_agent_effort TEXT NOT NULL DEFAULT 'low'",
+    # Files library: every upload is ingested with a durable ref; the
+    # upload's xAI file id + expiry are cached on the row so tools reuse a
+    # still-valid id and re-upload from the local copy only when it lapsed.
+    "ALTER TABLE imagine_images ADD COLUMN xai_file_id TEXT",
+    "ALTER TABLE imagine_images ADD COLUMN xai_file_expires_at TEXT",
 )
 
 

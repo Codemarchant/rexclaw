@@ -41,13 +41,26 @@ export function attachmentNote(images, docs) {
     }
     if (docs.length) {
         const listing = docs
-            .map((p) => `"${p.name}" (xai_file_id=${p.xai_file_id})`)
+            .map((p) => `"${p.name}" (xai_file_id=${p.xai_file_id}`
+                + (p.imagine_image_id
+                    ? `, imagine_image_id=${p.imagine_image_id}` : "")
+                + `)`)
             .join("; ");
         parts.push(
             `The user attached ${docs.length} file(s): ${listing}. You `
             + `cannot read them yourself — call delegate_task with the `
-            + `xai_file_id value(s) in files to read/analyze their content.`
+            + `imagine_image_id value(s) (preferred — they stay valid `
+            + `forever) or xai_file_id value(s) in files to read/analyze `
+            + `their content.`
         );
+        if (docs.some((p) => (p.mimetype || "").startsWith("video/"))) {
+            parts.push(
+                `Attached videos can also be modified: pass the `
+                + `imagine_image_id as create_video edit_video to change `
+                + `one or extend_video to continue it (never a file_… `
+                + `id there).`
+            );
+        }
     }
     return `[System] ${parts.join(" ")}`;
 }

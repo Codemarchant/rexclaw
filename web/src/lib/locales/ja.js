@@ -438,4 +438,10 @@ export const JA = {
   "Spin": "スピン",
   "Model Pose": "モデルポーズ",
   "Squat": "スクワット",
+  // Screen share / capture tools
+  "Share your screen — lets the companion take screenshots or record clips of it on request":
+    "画面を共有 — コンパニオンがリクエストに応じてスクリーンショットやクリップ録画を撮れるようになります",
+  "Stop screen sharing": "画面共有を停止",
+  "Recording your screen…": "画面を録画中…",
+  "Screen sharing failed: %s": "画面共有に失敗しました: %s",
 };

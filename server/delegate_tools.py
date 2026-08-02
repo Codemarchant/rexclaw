@@ -58,24 +58,29 @@ DELEGATE_TOOL = {
     'type': 'function',
     'name': DELEGATE_TOOL_NAME,
     'description': (
-        "Delegate a task to your background analyst — a more capable "
-        "text-based process with abilities you lack in this conversation: "
-        "it can SEE images (selfies, library images), READ documents "
-        "(PDFs, spreadsheets, any uploaded file), write and reason "
-        "through code, and do deep multi-step research. You cannot see "
-        "or read files yourself — whenever the user asks about the "
-        "CONTENT of a file or image, use this tool. Pass a "
-        "self-contained brief in `task` (the analyst doesn't hear the "
-        "conversation; recent context is attached automatically only on "
-        "a NEW task). Reference files via `files`: imagine_image_id / "
-        "image_url values for library images, xai_file_id values for "
-        "uploaded documents. Each task runs in its own persistent "
-        "workspace — the result includes a task_session_id; pass it "
-        "back (or continue_last=true) for follow-ups so the analyst "
-        "remembers what it already did. Takes several seconds to "
-        "minutes: tell the user you're working on it before calling. "
-        "The full result is returned to you — give a natural spoken "
-        "summary; never recite long content or code verbatim."
+        "Your deep-focus mode — a background process that extends YOUR "
+        "own abilities beyond what you can do mid-conversation: it can "
+        "SEE images (selfies, screenshots, library images), READ "
+        "documents (PDFs, spreadsheets, any uploaded file), write and "
+        "reason through code, and do deep multi-step research. You "
+        "cannot see or read files directly in this conversation — "
+        "whenever the user asks about the CONTENT of a file or image, "
+        "use this tool. To the user this is simply YOU doing the work: "
+        "say 'let me take a closer look' or 'I'll read through it' — "
+        "never mention an analyst, delegating, or background processes; "
+        "that is internal plumbing and naming it breaks the illusion. "
+        "Pass a self-contained brief in `task` (the background process "
+        "doesn't hear the conversation; recent context is attached "
+        "automatically only on a NEW task). Reference files via "
+        "`files`: imagine_image_id / image_url values for library "
+        "images, xai_file_id values for uploaded documents. Each task "
+        "runs in its own persistent workspace — the result includes a "
+        "task_session_id; pass it back (or continue_last=true) for "
+        "follow-ups so the workspace remembers what was already done. "
+        "Takes several seconds to minutes: tell the user you're looking "
+        "into it before calling. The full result is returned to you — "
+        "give a natural spoken summary in your own voice; never recite "
+        "long content or code verbatim."
     ),
     'parameters': {
         'type': 'object',
@@ -91,10 +96,12 @@ DELEGATE_TOOL = {
                 'type': 'array',
                 'items': {'type': 'string'},
                 'description': (
-                    'Optional, up to 25. imagine_image_id or image_url '
-                    'values (library images — the analyst will see them) '
-                    'and/or xai_file_id values (uploaded documents — the '
-                    'analyst will read them).'
+                    'Optional, up to 25. Library refs (imagine_image_id or '
+                    'image_url) for ANY library file: images are shown, '
+                    'videos and documents are attached for reading. Raw '
+                    'xai_file_id values also work for fresh uploads. Prefer '
+                    'library refs — they stay valid forever (the server '
+                    're-uploads from its local copy when needed).'
                 ),
             },
             'task_session_id': {
@@ -130,9 +137,13 @@ DELEGATE_TOOL = {
 def _resolve_file_blocks(con, refs):
     """Model-supplied file refs → Responses-API content blocks.
 
-    Library refs (numeric ids / library /files paths) resolve to input_image
-    data URIs; anything else is treated as an xAI file id and becomes an
-    input_file block. Returns (blocks, errors)."""
+    Library refs (numeric ids / library /files paths) resolve user-scoped:
+    images become input_image data URIs; anything else (videos, documents)
+    rides as input_file via the row's cached xai_file_id — re-uploaded from
+    the local bytes when the cached id expired (imagine_tools.ensure_xai_file),
+    which is what makes library refs durable across turns and sessions. Raw
+    file_… refs pass through as input_file unchanged. Returns (blocks,
+    errors)."""
     blocks, errors = [], []
     if not isinstance(refs, list):
         refs = [refs]
@@ -151,7 +162,13 @@ def _resolve_file_blocks(con, refs):
                 else:
                     blocks.append({'type': 'input_image', 'image_url': uri})
             else:
-                errors.append(f'"{ref}" is a video — cannot be analyzed.')
+                try:
+                    blocks.append({
+                        'type': 'input_file',
+                        'file_id': imagine_tools.ensure_xai_file(con, row),
+                    })
+                except Exception as e:
+                    errors.append(f'"{ref}" could not be attached: {e}')
         else:
             blocks.append({'type': 'input_file', 'file_id': ref})
     return blocks, errors
@@ -362,6 +379,9 @@ def execute_delegate_tool(con, session, arguments):
             turn = svc.text_send_turn(
                 con, session=task_session, user_text=task,
                 extra_content_blocks=file_blocks or None,
+                # No browser is attached to a task session — a browser_tools
+                # round-trip could never be answered.
+                headless=True,
             )
             if turn.get('type') == 'error':
                 return {'error': turn.get('message') or 'Delegated task failed.',

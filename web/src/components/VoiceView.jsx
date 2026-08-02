@@ -12,6 +12,7 @@ import Transcript from "./Transcript.jsx";
 
 import { downscaleImageFile, attachmentNote } from "../lib/attachments";
 import { useFileDrop } from "../lib/use_file_drop";
+import { screenCapture } from "../lib/screen_capture";
 
 // WASD + arrows → camera-relative movement axes for the manual walk toggle.
 const MOVE_KEY_MAP = {
@@ -54,6 +55,21 @@ function ensureIconsPaint(rootRef) {
 export default function VoiceView({ active = true }) {
     const sv = useReactive(voice.state);
     const ui = useReactive(uiState);
+    const scap = useReactive(screenCapture.state);
+
+    /** Arm/stop screen sharing for the screen-capture tools. Arming must
+     *  happen in this click handler — getDisplayMedia needs the gesture. */
+    const toggleScreenShare = async () => {
+        if (screenCapture.isArmed) {
+            screenCapture.disarm();
+            return;
+        }
+        try {
+            await screenCapture.arm();
+        } catch (e) {
+            notification.add(_t("Screen sharing failed: %s", e?.message || e), { type: "danger" });
+        }
+    };
     const [agents, setAgents] = useState([]);
     const [history, setHistory] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState(null);
@@ -455,6 +471,14 @@ export default function VoiceView({ active = true }) {
     const popOutMascot = async () => {
         const wasLive = isLive || isConnecting;
         if (wasLive) await voice.end("client");
+        // A MediaStream can't migrate between windows — flag the handoff so
+        // the mascot page silently re-arms the same share source, and drop
+        // ours (this window keeps running hidden; without the disarm it
+        // would keep capturing in the background).
+        if (screenCapture.isArmed) {
+            await window.rexclawDesktop.shareHandoffSet?.();
+            screenCapture.disarm();
+        }
         await window.rexclawDesktop.openMascot({ resume: wasLive });
         loadHistory();
     };
@@ -462,6 +486,11 @@ export default function VoiceView({ active = true }) {
     useEffect(() => {
         window.rexclawDesktop?.onMascotReturned?.((data) => {
             if (data?.resume) startCallIfIdleRef.current();
+            // Reverse handoff: if the mascot had sharing armed, pick the
+            // same source back up here.
+            window.rexclawDesktop.shareHandoffTake?.().then((src) => {
+                if (src) screenCapture.armSilent(src);
+            });
             loadHistory();
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -763,6 +792,11 @@ export default function VoiceView({ active = true }) {
                     setPendingDocs((prev) => [...prev, {
                         xai_file_id: meta.file_id,
                         name: meta.filename || file.name,
+                        // Library ref — every upload is ingested server-side
+                        // now; this is the durable ref the note advertises
+                        // (delegate_task any file, edit/extend for videos).
+                        imagine_image_id: meta.imagine_image_id || null,
+                        mimetype: meta.mimetype || file.type || "",
                     }]);
                 }
             }
@@ -903,6 +937,17 @@ export default function VoiceView({ active = true }) {
                                 title={showHistory ? _t("Hide history") : _t("Show history")}>
                             <i className="fa fa-history" />
                         </button>
+                        {screenCapture.isSupported && (
+                            <button className={"btn btn-light" + (scap.armed ? " active" : "")}
+                                    onClick={toggleScreenShare}
+                                    title={scap.recording
+                                        ? _t("Recording your screen…")
+                                        : scap.armed
+                                            ? _t("Stop screen sharing")
+                                            : _t("Share your screen — lets the companion take screenshots or record clips of it on request")}>
+                                <i className={scap.recording ? "fa fa-circle text-danger" : "fa fa-desktop"} />
+                            </button>
+                        )}
                         {xrSupported ? (
                             <button className="btn btn-light" onClick={enterVR}
                                     title={mrSupported

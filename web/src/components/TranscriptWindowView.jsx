@@ -107,6 +107,11 @@ export default function TranscriptWindowView() {
                     setPendingDocs((prev) => [...prev, {
                         xai_file_id: meta.file_id,
                         name: meta.filename || file.name,
+                        // Library ref — every upload is ingested server-side
+                        // now; the main window's attachmentNote advertises it
+                        // (delegate_task any file, edit/extend for videos).
+                        imagine_image_id: meta.imagine_image_id || null,
+                        mimetype: meta.mimetype || file.type || "",
                     }]);
                 }
             }
@@ -173,8 +178,8 @@ export default function TranscriptWindowView() {
                             </button>
                         </span>
                     ))}
-                    {pendingDocs.map((d) => (
-                        <span key={d.xai_file_id} className="rx_transcript_win_chip" title={d.name}>
+                    {pendingDocs.map((d, dIdx) => (
+                        <span key={`${d.xai_file_id}-${dIdx}`} className="rx_transcript_win_chip" title={d.name}>
                             <i className="fa fa-file-o" />
                             <span className="rx_transcript_win_chip_name">{d.name}</span>
                             <button className="btn btn-link p-0"

@@ -1,7 +1,8 @@
 # Copyright 2026 Codemarchant
 """Text-mode (Responses API) session routes. Mirrors the Odoo module's
-controllers/text_session.py — no /tool_results round-trip in the standalone
-because every tool executes server-side inside text_send_turn."""
+controllers/text_session.py. Server-side tools execute inline in
+text_send_turn; browser tools (the screen-capture pair) round-trip through
+the client via the 'browser_tools' response type + /tool_results."""
 import logging
 
 from fastapi import APIRouter, Body, Depends, UploadFile, File
@@ -31,6 +32,18 @@ def session_send(session_id: int, payload: dict = Body(default={}), con=Depends(
         con, session=session,
         user_text=payload.get("user_text") or "",
         attachment_file_ids=payload.get("attachment_file_ids") or None,
+    )
+
+
+@router.post("/session/{session_id}/tool_results")
+def session_tool_results(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """Continuation of a turn that returned {type: 'browser_tools'}: the
+    client dispatched the calls and posts the outputs back; the turn loop
+    resumes on the same response chain."""
+    session = resolve_session(con, session_id)
+    return session_service.text_send_turn(
+        con, session=session,
+        tool_results=payload.get("results") or [],
     )
 
 

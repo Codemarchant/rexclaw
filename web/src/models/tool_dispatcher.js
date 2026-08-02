@@ -5,6 +5,9 @@ import { EMOTION_GESTURE_MAP, GESTURE_FILE_MAP, GESTURE_LOOP_MAP } from "./avata
 // whole live canvas, not one agent's model, so it bypasses the per-agent
 // avatarApi adapter.
 import { avatarRenderer } from "../services/avatar_renderer";
+// Screen-share singleton for take_screenshot / record_screen_clip — same
+// direct-import pattern as the renderer.
+import { screenCapture } from "../lib/screen_capture";
 
 /**
  * Browser-side tool dispatcher.
@@ -196,6 +199,10 @@ export class ToolDispatcher {
                 return this._changeOutfit(args);
             case "take_selfie":
                 return this._takeSelfie(args);
+            case "take_screenshot":
+                return this._takeScreenshot(args);
+            case "record_screen_clip":
+                return this._recordScreenClip(args);
             case "add_agent_to_call":
                 return this._addAgentToCall(args);
             case "remove_agent_from_call":
@@ -227,6 +234,150 @@ export class ToolDispatcher {
             ...result,
             note: "Snapshot saved. Pass image_url (or imagine_image_id) to "
                 + "create_video as reference_images or source_image.",
+        };
+    }
+
+    /** Shared precondition for the screen-capture tools. Returns an error
+     *  result when capture can't proceed, null when it can. Distinguishes
+     *  "this device can never do it" (mobile/headset browsers have no
+     *  Screen Capture API — steer the model toward the paperclip fallback)
+     *  from "the user just hasn't armed sharing yet". */
+    _screenCaptureUnavailable() {
+        if (!screenCapture.isSupported) {
+            return {
+                ok: false,
+                error: "Screen capture is not supported on this device's "
+                    + "browser (mobile browsers don't allow it) — there is "
+                    + "no Share-screen button to click. Instead, suggest the "
+                    + "user take a screenshot or screen recording with their "
+                    + "device and attach it via the paperclip; you can then "
+                    + "analyze it via delegate_task.",
+            };
+        }
+        if (!screenCapture.isArmed) {
+            return {
+                ok: false,
+                error: "Screen sharing is not active. Ask the user to click the "
+                    + "Share-screen button (desktop icon) in the header, then "
+                    + "call this tool again.",
+            };
+        }
+        return null;
+    }
+
+    /** Resolve once no call leg is audibly speaking, or after maxMs. Polling
+     *  (150 ms) rather than event plumbing: _assistantAudioActive() is a
+     *  live computation on each connection and this only runs once per
+     *  recording. */
+    async _waitForSpeechIdle(maxMs) {
+        const connections = this.callManager?.connections;
+        if (!connections) return;
+        const anySpeaking = () => [...connections.values()].some(
+            (c) => !c.isTerminal && c._assistantAudioActive?.());
+        const deadline = Date.now() + maxMs;
+        while (anySpeaking() && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 150));
+        }
+    }
+
+    /** take_screenshot: grab a frame from the user's armed screen share and
+     *  persist it as a files-library image (kind 'screenshot'). The capture
+     *  can't be initiated from here — getDisplayMedia needs a user gesture
+     *  — so when sharing isn't armed the tool returns an error telling the
+     *  model to ask the user for the Share-screen button. */
+    async _takeScreenshot({ name } = {}) {
+        if (!this.sessionId) {
+            return { ok: false, error: "take_screenshot requires an active session." };
+        }
+        const unavailable = this._screenCaptureUnavailable();
+        if (unavailable) return unavailable;
+        const dataUrl = screenCapture.grabFrame();
+        if (!dataUrl) {
+            return {
+                ok: false,
+                error: "The shared screen has not produced a frame yet — "
+                    + "try again in a moment.",
+            };
+        }
+        const result = await rpc(`/api/voice/session/${this.sessionId}/screenshot`, {
+            image_data_url: dataUrl,
+            ...(typeof name === "string" && name.trim() ? { name } : {}),
+        });
+        return {
+            ok: true,
+            ...result,
+            note: "Screenshot captured — the user can see it in the "
+                + "transcript. You cannot see it yourself: pass the "
+                + "imagine_image_id to delegate_task in files to "
+                + "read/analyze what is on the screen.",
+        };
+    }
+
+    /** record_screen_clip: record the armed screen share for N seconds and
+     *  store the clip in the files library (kind 'screen_clip'). Same
+     *  arming contract as take_screenshot; the tool blocks for the whole
+     *  recording, which the schema warns the model about. Multipart, not a
+     *  data URI — clips run to tens of MB. */
+    async _recordScreenClip({ duration_seconds, name } = {}) {
+        if (!this.sessionId) {
+            return { ok: false, error: "record_screen_clip requires an active session." };
+        }
+        const unavailable = this._screenCaptureUnavailable();
+        if (unavailable) return unavailable;
+        const seconds = Number(duration_seconds);
+        if (!Number.isFinite(seconds) || seconds < 1) {
+            return {
+                ok: false,
+                error: "duration_seconds must be a number of seconds (1-90). "
+                    + "Ask the user how long to record if they didn't say.",
+            };
+        }
+        // The function call lands while the agent's own "I'll start
+        // recording now…" is still playing out — starting immediately both
+        // eats into the requested duration before the user can act and,
+        // with shared system audio, literally records the agent talking.
+        // Wait for every call leg to finish speaking first (capped so a
+        // stuck audio flag can't hang the tool).
+        await this._waitForSpeechIdle(12000);
+        let clip;
+        try {
+            clip = await screenCapture.recordClip(seconds);
+        } catch (e) {
+            return { ok: false, error: String(e?.message || e) };
+        }
+        if (!clip?.blob) {
+            return { ok: false, error: "Recording produced no clip — is the share still active?" };
+        }
+        const blob = clip.blob;
+        const ext = (blob.type || "").includes("mp4") ? "mp4" : "webm";
+        const fd = new FormData();
+        fd.append("file", blob, `screen-recording.${ext}`);
+        if (typeof name === "string" && name.trim()) {
+            fd.append("name", name.trim());
+        }
+        const resp = await fetch(`/api/voice/session/${this.sessionId}/screen_clip`, {
+            method: "POST",
+            body: fd,
+            credentials: "same-origin",
+        });
+        const meta = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            return { ok: false, error: meta.error || meta.detail || `Clip upload failed (${resp.status}).` };
+        }
+        return {
+            ok: true,
+            ...meta,
+            has_audio: clip.hasAudio,
+            note: "Clip recorded"
+                + (clip.hasAudio
+                    ? " with audio"
+                    : " WITHOUT audio (the user didn't tick 'share audio' "
+                      + "when starting the share, or their platform doesn't "
+                      + "support audio for the shared surface — e.g. "
+                      + "whole-monitor shares carry audio on Windows only)")
+                + " — the user can play it in the transcript. You cannot "
+                + "watch it yourself: pass the imagine_image_id to "
+                + "delegate_task in files to have its content analyzed.",
         };
     }
 

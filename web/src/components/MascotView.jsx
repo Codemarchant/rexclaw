@@ -3,6 +3,7 @@ import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { useReactive } from "../lib/reactive";
 import { voice, avatarRenderer } from "../services";
+import { screenCapture } from "../lib/screen_capture";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 
 // Window sizes the ⤢ button cycles through (bottom-right corner anchored by
@@ -20,6 +21,21 @@ const SIZES = [
  *  like the VR handoff. */
 export default function MascotView() {
     const sv = useReactive(voice.state);
+    const scap = useReactive(screenCapture.state);
+
+    /** Arm/stop screen sharing for the screen-capture tools. Arming must
+     *  happen in this click handler — getDisplayMedia needs the gesture. */
+    const toggleScreenShare = async () => {
+        if (screenCapture.isArmed) {
+            screenCapture.disarm();
+            return;
+        }
+        try {
+            await screenCapture.arm();
+        } catch (e) {
+            console.error("[mascot] screen share failed", e);
+        }
+    };
     const [agents, setAgents] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState(null);
     const [pinned, setPinned] = useState(true);
@@ -136,8 +152,23 @@ export default function MascotView() {
     const popBackIn = async () => {
         const resume = busy;
         if (resume) await voice.end("client");
+        // Reverse share handoff: this window (and its stream) is about to
+        // close — flag it so the main window re-arms the same source.
+        if (screenCapture.isArmed) {
+            await window.rexclawDesktop?.shareHandoffSet?.();
+            screenCapture.disarm();
+        }
         window.rexclawDesktop?.closeMascot?.({ resume });
     };
+
+    // Forward share handoff: if the main window had sharing armed when it
+    // popped us out, silently re-arm the same source here (take() returns
+    // null when nothing is pending, so this is a no-op otherwise).
+    useEffect(() => {
+        window.rexclawDesktop?.shareHandoffTake?.().then((src) => {
+            if (src) screenCapture.armSilent(src);
+        });
+    }, []);
 
     // Tray → "Pop back in" routes through this page so a live call ends
     // cleanly before the window swap. Ref indirection: the handler is
@@ -376,6 +407,21 @@ export default function MascotView() {
                 {busy && (
                     <button onClick={() => voice.end("client")} title={_t("End")}>
                         <i className="fa fa-stop" />
+                    </button>
+                )}
+                {screenCapture.isSupported && (
+                    // The mascot runs its own page instance — the call (and
+                    // its tool dispatcher) live HERE, so screen sharing must
+                    // be armable here too or the capture tools would point
+                    // the user at a button that doesn't exist.
+                    <button className={scap.armed ? "is-active" : ""}
+                            onClick={toggleScreenShare}
+                            title={scap.recording
+                                ? _t("Recording your screen…")
+                                : scap.armed
+                                    ? _t("Stop screen sharing")
+                                    : _t("Share your screen — lets the companion take screenshots or record clips of it on request")}>
+                        <i className={scap.recording ? "fa fa-circle text-danger" : "fa fa-desktop"} />
                     </button>
                 )}
                 <button className={fullBody ? "is-active" : ""} onClick={toggleFullBody}

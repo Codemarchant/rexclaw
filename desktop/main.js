@@ -682,6 +682,129 @@ ipcMain.handle("mascot-drag-end", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Screen-share picker
+// ---------------------------------------------------------------------------
+// Electron has no built-in getDisplayMedia picker on Windows/Linux, so we
+// follow the standard pattern (Discord/Slack/Teams all do this): a small
+// modal listing every screen and window with a live thumbnail; the pick is
+// handed back to the display-media request handler. Closing without picking
+// denies the request, which surfaces web-side as the same NotAllowedError a
+// dismissed browser picker produces.
+
+let pickerWindow = null;
+// Last granted share source + whether loopback audio was granted with it.
+// Powers the pop-out handoff: a window that had sharing armed sets the
+// pending flag before the switch, and the arriving window silently re-arms
+// the SAME source (legacy desktop-capture constraints need no gesture).
+let lastShareSource = null;
+let shareHandoffPending = false;
+
+function _escapeHtml(s) {
+    return String(s || "").replace(/[&<>"']/g, (c) => (
+        { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+    ));
+}
+
+async function showScreenSharePicker(request, callback) {
+    const { desktopCapturer } = require("electron");
+    if (pickerWindow && !pickerWindow.isDestroyed()) {
+        // One request at a time — deny the newcomer rather than stacking
+        // modals (the tools retry cleanly on NotAllowedError).
+        callback(null);
+        return;
+    }
+    const sources = await desktopCapturer.getSources({
+        types: ["screen", "window"],
+        thumbnailSize: { width: 320, height: 180 },
+        fetchWindowIcons: false,
+    });
+    if (!sources.length) {
+        callback(null);
+        return;
+    }
+    // Screens first — they're what "share your screen" usually means.
+    sources.sort((a, b) => (a.id.startsWith("screen") ? 0 : 1) - (b.id.startsWith("screen") ? 0 : 1));
+    const cards = sources.map((s) => `
+        <button class="card" data-id="${_escapeHtml(s.id)}">
+            <img src="${s.thumbnail.toDataURL()}" alt=""/>
+            <span>${_escapeHtml(s.name)}</span>
+        </button>`).join("");
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Share your screen</title><style>
+        body { margin: 0; background: #0f172a; color: #e2e8f0; font: 14px system-ui, sans-serif; }
+        h1 { font-size: 15px; font-weight: 600; margin: 14px 16px 10px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+                gap: 10px; padding: 0 16px 16px; max-height: 400px; overflow-y: auto; }
+        .card { background: #1e293b; border: 2px solid transparent; border-radius: 8px;
+                padding: 8px; cursor: pointer; color: inherit; text-align: left; }
+        .card:hover, .card:focus { border-color: #3b82f6; outline: none; }
+        .card img { width: 100%; border-radius: 4px; background: #000; display: block; }
+        .card span { display: block; margin-top: 6px; white-space: nowrap;
+                     overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+        .foot { display: flex; justify-content: flex-end; padding: 0 16px 14px; }
+        .cancel { background: #334155; border: 0; border-radius: 6px; color: inherit;
+                  padding: 8px 18px; cursor: pointer; }
+        .cancel:hover { background: #475569; }
+    </style></head><body>
+        <h1>Choose what to share</h1>
+        <div class="grid">${cards}</div>
+        <div class="foot"><button class="cancel">Cancel</button></div>
+        <script>
+            for (const el of document.querySelectorAll(".card")) {
+                el.addEventListener("click", () => window.rexclawPicker.choose(el.dataset.id));
+            }
+            document.querySelector(".cancel").addEventListener("click",
+                () => window.rexclawPicker.choose(null));
+            window.addEventListener("keydown", (ev) => {
+                if (ev.key === "Escape") window.rexclawPicker.choose(null);
+            });
+        <\/script>
+    </body></html>`;
+    pickerWindow = new BrowserWindow({
+        width: 780,
+        height: 520,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        alwaysOnTop: true,
+        autoHideMenuBar: true,
+        title: "Share your screen",
+        webPreferences: {
+            preload: path.join(__dirname, "picker_preload.js"),
+            contextIsolation: true,
+            nodeIntegration: false,
+        },
+    });
+    let done = false;
+    const finish = (sourceId) => {
+        if (done) return;
+        done = true;
+        ipcMain.removeAllListeners("rexclaw-screen-pick");
+        const source = sourceId && sources.find((s) => s.id === sourceId);
+        if (!source) {
+            callback(null);
+        } else {
+            const audioGranted = !!(request.audioRequested && process.platform === "win32");
+            lastShareSource = { id: source.id, audio: audioGranted };
+            callback({
+                video: source,
+                // System ('loopback') audio capture is Windows-only in
+                // Electron; other platforms record silent clips.
+                ...(audioGranted ? { audio: "loopback" } : {}),
+            });
+        }
+        const w = pickerWindow;
+        pickerWindow = null;
+        if (w && !w.isDestroyed()) w.close();
+    };
+    ipcMain.once("rexclaw-screen-pick", (_ev, sourceId) => finish(sourceId));
+    pickerWindow.on("closed", () => {
+        pickerWindow = null;
+        finish(null);   // no-op if a pick already resolved this request
+    });
+    pickerWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+}
+
+// ---------------------------------------------------------------------------
 // Transcript window
 // ---------------------------------------------------------------------------
 // A normal window on /#transcript — a live mirror of whichever window owns
@@ -800,6 +923,20 @@ function createTray() {
     rebuildTrayMenu();
 }
 
+// Screen-share handoff across the mascot pop-out/in: the leaving window
+// (which is about to lose its MediaStream — streams are per-document) sets
+// the flag; the arriving window takes it exactly once and silently re-arms
+// the remembered source.
+ipcMain.handle("share-handoff-set", () => {
+    shareHandoffPending = !!lastShareSource;
+    return shareHandoffPending;
+});
+ipcMain.handle("share-handoff-take", () => {
+    if (!shareHandoffPending || !lastShareSource) return null;
+    shareHandoffPending = false;
+    return lastShareSource;
+});
+
 ipcMain.handle("mascot-open", (event, opts) => {
     createMascotWindow(!!(opts && opts.resume));
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
@@ -894,6 +1031,22 @@ if (!app.requestSingleInstanceLock()) {
             // keeps localStorage (locale, UI prefs) intact, and costs
             // nothing meaningful against a localhost server.
             await session.defaultSession.clearCache();
+            // Electron ships no screen-share picker: without this handler
+            // every getDisplayMedia call (the Share-screen button /
+            // take_screenshot / record_screen_clip) fails with "Not
+            // supported". useSystemPicker shows the native picker where the
+            // OS has one (macOS 15+, experimental); elsewhere we show our
+            // own thumbnail picker — the standard Electron pattern, since
+            // Windows/Linux get nothing built-in. Cancelling denies the
+            // request (NotAllowedError), which the web side already treats
+            // as a benign dismissal. 'loopback' system audio is
+            // Windows-only; other platforms record silent.
+            session.defaultSession.setDisplayMediaRequestHandler(
+                (request, callback) => {
+                    showScreenSharePicker(request, callback).catch(() => callback(null));
+                },
+                { useSystemPicker: true },
+            );
             headsetAccess = !!loadSettings().headsetAccess;
             const port = await ensureServer();
             serverPort = port;

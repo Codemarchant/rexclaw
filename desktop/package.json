@@ -25,6 +25,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "picker_preload.js",
       "package.json"
     ],
     "extraResources": [

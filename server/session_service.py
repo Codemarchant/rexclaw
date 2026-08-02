@@ -9,6 +9,7 @@ are stripped rather than evaluated (no server-side eval surface here).
 """
 import json
 import logging
+import mimetypes
 import re
 import threading
 import uuid
@@ -350,7 +351,11 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     if agent['enable_grok_imagine_tools']:
         # take_selfie is a browser tool (it captures the live canvas), but it
         # exists to feed create_video — same feature gate as the imagine set.
+        # The screen-capture pair rides the same gate: captures land in the
+        # files library, whose upload path lives behind this flag.
         tools.append(browser_tools.SELFIE_TOOL)
+        tools.append(browser_tools.SCREENSHOT_TOOL)
+        tools.append(browser_tools.RECORD_SCREEN_CLIP_TOOL)
 
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='voice')
     native_function_tools = []
@@ -1054,15 +1059,21 @@ NATIVE_TOOL_NAMES_TEXT = (
     | memory_tools.MEMORY_TOOL_NAMES
     | {delegate_tools.DELEGATE_TOOL_NAME}
 )
-TEXT_BROWSER_TOOL_NAMES = set()
+# Browser tools that round-trip through the text client (dispatch in the
+# page's ToolDispatcher, results fed back via /tool_results). The screen
+# capture pair are the standalone's first text-mode browser tools.
+TEXT_BROWSER_TOOL_NAMES = {'take_screenshot', 'record_screen_clip'}
 
 
 def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_search,
                       enable_code_execution=False,
                       enable_grok_imagine_tools=False,
                       enable_memory_tools=False,
-                      enable_delegate_tool=False):
-    """Assemble the tools list for /v1/responses calls in text mode."""
+                      enable_delegate_tool=False,
+                      enable_browser_tools=False):
+    """Assemble the tools list for /v1/responses calls in text mode.
+    enable_browser_tools is False for headless turns (delegated task
+    sessions) — a browser round-trip needs a browser to answer it."""
     tools = []
     for entry in mcp_entries or []:
         tools.append(entry)
@@ -1073,6 +1084,18 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         # source_images (uploads are ingested into the Imagine library).
         for entry in imagine_tools.build_text_tools(con, agent):
             tools.append(entry)
+    if enable_browser_tools and enable_grok_imagine_tools:
+        # The screen-capture pair round-trip through the browser (see
+        # TEXT_BROWSER_TOOL_NAMES). Same imagine gate as voice mode —
+        # captures store via the files library.
+        for shared_tool in (browser_tools.SCREENSHOT_TOOL,
+                            browser_tools.RECORD_SCREEN_CLIP_TOOL):
+            tools.append({
+                'type': 'function',
+                'name': shared_tool['name'],
+                'description': shared_tool['description'],
+                'parameters': shared_tool['parameters'],
+            })
     if enable_memory_tools:
         for entry in memory_tools.MEMORY_TOOLS:
             tools.append(entry)
@@ -1122,15 +1145,26 @@ def _text_input_items_from_rows(con, session, rows):
                 continue
             content = [{'type': 'input_text', 'text': text}] if text else []
             if lib_atts:
+                def _label(a):
+                    mt = a['mimetype'] or ''
+                    return ('image' if mt.startswith('image/')
+                            else 'video' if mt.startswith('video/')
+                            else 'document')
                 refs = '; '.join(
-                    f'"{a["filename"]}" = imagine_image_id {a["imagine_image_id"]}'
+                    f'"{a["filename"]}" = imagine_image_id {a["imagine_image_id"]} '
+                    f'({_label(a)})'
                     for a in lib_atts
                 )
                 content.append({'type': 'input_text', 'text': (
-                    f'[User attached image(s), saved in the Imagine library: '
-                    f'{refs}. Pass an imagine_image_id to create_image '
-                    f'source_images to edit it, or to create_video '
-                    f'source_image/reference_images to animate it.]'
+                    f'[User attached file(s), saved in the files library: '
+                    f'{refs}. Images: pass the imagine_image_id to '
+                    f'create_image source_images to edit, or create_video '
+                    f'source_image/reference_images to animate. Videos: pass '
+                    f'it as create_video edit_video to modify or extend_video '
+                    f'to continue. Any file: pass the imagine_image_id to '
+                    f'delegate_task files to read/analyze it — these refs '
+                    f'stay valid even though the original upload has '
+                    f'expired.]'
                 )})
             items.append({'role': 'user', 'content': content})
         elif m['role'] == 'assistant':
@@ -1406,14 +1440,18 @@ def _maybe_flag_summary_text(con, session):
 
 
 def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
-                   extra_content_blocks=None):
+                   extra_content_blocks=None, tool_results=None, headless=False):
     """Drive one or more /v1/responses legs until the assistant returns plain
-    text. All function tools in the standalone (imagine + memory + delegate)
-    execute server-side inside this loop — there is no browser round-trip in
-    text mode. MCP tools are entirely server-side at xAI; they appear in the
-    response output for diagnostics only. `extra_content_blocks` lets a
-    server-side caller (delegate_task) append resolved input_image /
-    input_file blocks to the first leg's user content."""
+    text or needs the browser. Server-side function tools (imagine + memory +
+    delegate) execute inline; TEXT_BROWSER_TOOL_NAMES calls return a
+    'browser_tools' payload instead — the client dispatches them and feeds
+    the outputs back via /tool_results, which re-enters this function with
+    `tool_results` set (native outputs parked at the split ride along via
+    pending_native_outputs_json). MCP tools are entirely server-side at xAI;
+    they appear in the response output for diagnostics only.
+    `extra_content_blocks` lets a server-side caller (delegate_task) append
+    resolved input_image / input_file blocks to the first leg's user
+    content."""
     if session['state'] != 'active':
         raise ValidationError("Session is not active.")
     if session['mode'] != 'text':
@@ -1464,6 +1502,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         # further — one level of background work, no self-spawning chains.
         enable_delegate_tool=(bool(agent['enable_delegate_tool'])
                               and session['origin'] != 'delegated'),
+        # Headless turns (delegate task sessions) have no browser to answer
+        # a browser_tools round-trip — don't offer the screen tools there.
+        enable_browser_tools=not headless,
     )
     instructions = (
         _env_preamble(config)
@@ -1472,6 +1513,35 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     )
 
     pending_outputs = []
+    if tool_results is not None:
+        # Browser round-trip continuation: persist the browser results,
+        # merge any native outputs parked when the turn split, and feed
+        # them all to the next leg as function_call_output items.
+        if session['pending_native_outputs_json']:
+            try:
+                pending_outputs.extend(json.loads(session['pending_native_outputs_json']))
+            except Exception:
+                _logger.exception('Discarding unparseable pending native outputs '
+                                  'for session %s', session['id'])
+            store.update_session(con, session['id'], pending_native_outputs_json=None)
+        for r in tool_results:
+            if not isinstance(r, dict) or not r.get('call_id'):
+                continue
+            output = r.get('output')
+            output_str = output if isinstance(output, str) else json.dumps(output or {}, default=str)
+            _persist_text_message(
+                con, session,
+                role='tool_result',
+                content=output_str,
+                tool_name=r.get('name'),
+                tool_result_json=output_str,
+                xai_call_id=r['call_id'],
+            )
+            pending_outputs.append({
+                'type': 'function_call_output',
+                'call_id': r['call_id'],
+                'output': output_str,
+            })
     is_first_leg = True
     max_iterations = 8
     accumulated_native_echo = []
@@ -1514,21 +1584,31 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 if file_id:
                     content.append({'type': 'input_file', 'file_id': file_id})
                 if isinstance(entry, dict) and entry.get('imagine_image_id'):
+                    mt = entry.get('mimetype') or ''
+                    label = ('image' if mt.startswith('image/')
+                             else 'video' if mt.startswith('video/')
+                             else 'document')
                     library_refs.append(
-                        f'"{entry.get("filename") or "image"}" = '
-                        f'imagine_image_id {entry["imagine_image_id"]}'
+                        f'"{entry.get("filename") or "file"}" = '
+                        f'imagine_image_id {entry["imagine_image_id"]} ({label})'
                     )
             if library_refs:
-                # Uploaded images were copied into the Imagine library at
-                # upload time; hand the model the refs so it can edit or
-                # animate them (this turn or any later one) via
-                # create_image source_images / create_video source refs.
+                # Every upload was copied into the files library at upload
+                # time; hand the model the refs — they never expire (the
+                # server re-uploads from its copy when the xAI id lapses)
+                # and they are the ONLY refs the imagine tools accept.
                 content.append({'type': 'input_text', 'text': (
-                    '[Attached image(s) saved to the Imagine library: '
+                    '[Attached file(s) saved to the files library: '
                     + '; '.join(library_refs)
-                    + '. To edit/restyle/remix one, pass its imagine_image_id '
-                      'in create_image source_images; to animate it, use '
-                      'create_video source_image or reference_images.]'
+                    + '. Images: pass the imagine_image_id in create_image '
+                      'source_images to edit/restyle, or create_video '
+                      'source_image / reference_images to animate. Videos: '
+                      'pass it as create_video edit_video to modify or '
+                      'extend_video to continue. Any file: pass the '
+                      'imagine_image_id to delegate_task files to '
+                      'read/analyze it — library refs stay valid forever, '
+                      'unlike file_… ids. Never pass a file_… id to the '
+                      'imagine tools.]'
                 )})
             # Caller-supplied blocks (delegate_task file refs: input_image
             # data URIs / input_file ids resolved server-side).
@@ -1735,19 +1815,32 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 'mcp_unavailable': mcp_dropped,
             }
 
-        # Every function call executes server-side in the standalone.
-        native_outputs = []
+        # Split: TEXT_BROWSER_TOOL_NAMES round-trip through the client;
+        # everything else executes server-side. tool_call rows persist for
+        # ALL calls in arrival order; browser results are persisted by the
+        # /tool_results continuation.
         for fc in function_calls:
-            call_id = fc.get('call_id')
-            name = fc.get('name')
             _persist_text_message(
                 con, session,
                 role='tool_call',
-                content=f"{name}({fc.get('arguments') or ''})",
-                tool_name=name,
+                content=f"{fc.get('name')}({fc.get('arguments') or ''})",
+                tool_name=fc.get('name'),
                 tool_arguments_json=fc.get('arguments') or '',
-                xai_call_id=call_id,
+                xai_call_id=fc.get('call_id'),
             )
+        # Headless turns route everything through the native path — a
+        # browser-named call there (shouldn't happen; the tools aren't
+        # offered) falls through to the unknown-tool error instead of
+        # returning a browser_tools payload nobody can answer.
+        native_calls = [fc for fc in function_calls
+                        if headless or (fc.get('name') or '') not in TEXT_BROWSER_TOOL_NAMES]
+        browser_calls = [] if headless else [
+            fc for fc in function_calls
+            if (fc.get('name') or '') in TEXT_BROWSER_TOOL_NAMES]
+        native_outputs = []
+        for fc in native_calls:
+            call_id = fc.get('call_id')
+            name = fc.get('name')
             try:
                 args = json.loads(fc.get('arguments') or '{}')
             except Exception:
@@ -1786,6 +1879,36 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 'arguments': fc.get('arguments') or '',
                 'output': output_str,
             })
+
+        if browser_calls:
+            # Park this leg's native outputs; the /tool_results continuation
+            # merges them with the browser results and feeds both back to
+            # the next leg on the same response chain.
+            store.update_session(
+                con, session['id'],
+                pending_native_outputs_json=(json.dumps(native_outputs)
+                                             if native_outputs else None),
+            )
+            con.commit()
+            return {
+                'type': 'browser_tools',
+                'response_id': response_id,
+                'assistant_text': assistant_text,
+                'tool_calls': [
+                    {
+                        'call_id': fc.get('call_id'),
+                        'name': fc.get('name'),
+                        'arguments': fc.get('arguments') or '',
+                    }
+                    for fc in browser_calls
+                ],
+                'mcp_results': accumulated_mcp_results_echo,
+                'native_results': accumulated_native_echo,
+                'usage': usage,
+                'cap_warning': False,
+                'cap_exceeded': False,
+                'mcp_unavailable': mcp_dropped,
+            }
 
         pending_outputs.extend(native_outputs)
 
@@ -1860,33 +1983,39 @@ def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
         mimetype=mimetype,
         expires_after_seconds=config['file_default_expiry_seconds'] or 0,
     )
-    # Mirror the voice-mode paperclip (session_upload_image): image uploads
-    # ALSO land in the Imagine library, because the xai_file_id alone is
-    # invisible to create_image/create_video source refs — without a library
-    # row the image expires with the response chain and can never be edited
-    # or animated in a later turn. Same mimetype/size gate as
-    # _store_session_image. Ingestion failure must not break the upload; the
-    # file still works as a plain chat attachment.
+    # EVERY upload also lands in the files library (imagine_images, kind
+    # 'upload'), whatever its type. The xai_file_id alone is (a) invisible
+    # to the imagine tools — without a library row an image can never be
+    # edited/animated later and a video can never go through edit_video /
+    # extend_video — and (b) ephemeral: it expires server-side, while the
+    # library row keeps the bytes and can transparently re-upload
+    # (imagine_tools.ensure_xai_file). The upload's file id + expiry are
+    # cached on the row so tools reuse it while it's still valid.
+    # Ingestion failure must not break the upload; the file still works as
+    # a plain chat attachment for this turn.
     agent = store.get_agent(con, session['agent_id'])
-    if (agent['enable_grok_imagine_tools']
-            and (mimetype or '') in ('image/png', 'image/jpeg', 'image/webp')
-            and len(content_bytes) <= 10 * 1024 * 1024):
-        try:
-            name = (filename or 'Uploaded image').strip().replace('\n', ' ')[:80]
-            ext = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp'}[mimetype]
-            fname = f'imagine_{uuid.uuid4().hex}{ext}'
-            (FILES_DIR / fname).write_bytes(content_bytes)
-            image_path = f'/files/{fname}'
-            cur = con.execute(
-                """INSERT INTO imagine_images
-                       (name, agent_id, session_id, kind, prompt, image_path,
-                        mimetype, xai_model, created_at)
-                   VALUES (?, ?, ?, 'upload', ?, ?, ?, NULL, ?)""",
-                (name or 'Uploaded image', agent['id'], session['id'],
-                 name or 'Uploaded image', image_path, mimetype, utcnow()),
-            )
-            result = dict(result, imagine_image_id=cur.lastrowid,
-                          image_url=image_path)
-        except Exception:
-            _logger.exception('Imagine library ingestion failed for upload %r', filename)
+    try:
+        mt = mimetype or 'application/octet-stream'
+        fallback = ('Uploaded image' if mt.startswith('image/')
+                    else 'Uploaded video' if mt.startswith('video/')
+                    else 'Uploaded file')
+        name = (filename or fallback).strip().replace('\n', ' ')[:80]
+        ext = mimetypes.guess_extension(mt) or ''
+        fname = f'imagine_{uuid.uuid4().hex}{ext}'
+        (FILES_DIR / fname).write_bytes(content_bytes)
+        image_path = f'/files/{fname}'
+        cur = con.execute(
+            """INSERT INTO imagine_images
+                   (name, agent_id, session_id, kind, prompt, image_path,
+                    mimetype, xai_model, created_at, xai_file_id,
+                    xai_file_expires_at)
+               VALUES (?, ?, ?, 'upload', ?, ?, ?, NULL, ?, ?, ?)""",
+            (name or fallback, agent['id'], session['id'],
+             name or fallback, image_path, mimetype, utcnow(),
+             result.get('file_id'), result.get('expires_at')),
+        )
+        result = dict(result, imagine_image_id=cur.lastrowid,
+                      image_url=image_path)
+    except Exception:
+        _logger.exception('Files library ingestion failed for upload %r', filename)
     return result

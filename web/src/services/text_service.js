@@ -109,6 +109,20 @@ class TextService {
         return true;
     }
 
+    /** Next local sequence: one past the highest sequence in the transcript.
+     *  NOT `messages.length + 1` — resumed sessions hydrate rows with their
+     *  server sequences, which run higher than the array length (summary-
+     *  absorbed rows leave gaps, the display cap trims older rows), so
+     *  length-based numbering can re-mint an existing sequence and give the
+     *  transcript duplicate `m-<seq>` row keys (React warns + misrenders). */
+    _nextSeq() {
+        let max = 0;
+        for (const m of this.state.messages) {
+            if (m.sequence > max) max = m.sequence;
+        }
+        return max + 1;
+    }
+
     /** Upload a file. Returns the metadata dict the user can attach via
      *  sendText, or throws on failure. */
     async uploadFile(file) {
@@ -167,7 +181,7 @@ class TextService {
         const localUserMsg = {
             role: "user",
             content: trimmed,
-            sequence: this.state.messages.length + 1,
+            sequence: this._nextSeq(),
             attachments: [...this.pendingFiles],
         };
         this.state.messages.push(localUserMsg);
@@ -247,14 +261,14 @@ class TextService {
                     content: `${mr.name}(${mr.arguments || ""})`,
                     tool_name: mr.name,
                     tool_arguments_json: mr.arguments || "",
-                    sequence: this.state.messages.length + 1,
+                    sequence: this._nextSeq(),
                 });
                 this.state.messages.push({
                     role: "tool_result",
                     content: mr.output || "",
                     tool_name: mr.name,
                     tool_result_json: mr.output || "",
-                    sequence: this.state.messages.length + 1,
+                    sequence: this._nextSeq(),
                 });
             }
             const nativeResultsTop = current.native_results || [];
@@ -264,14 +278,14 @@ class TextService {
                     content: `${nr.name}(${nr.arguments || ""})`,
                     tool_name: nr.name,
                     tool_arguments_json: nr.arguments || "",
-                    sequence: this.state.messages.length + 1,
+                    sequence: this._nextSeq(),
                 });
                 this.state.messages.push({
                     role: "tool_result",
                     content: nr.output || "",
                     tool_name: nr.name,
                     tool_result_json: nr.output || "",
-                    sequence: this.state.messages.length + 1,
+                    sequence: this._nextSeq(),
                 });
             }
             // Append any assistant text the server already streamed back.
@@ -280,7 +294,7 @@ class TextService {
                 this.state.messages.push({
                     role: "assistant",
                     content: assistantText,
-                    sequence: this.state.messages.length + 1,
+                    sequence: this._nextSeq(),
                     incomplete_reason: current.incomplete_reason || null,
                 });
             }
@@ -304,7 +318,7 @@ class TextService {
                         content: `${call.name}(${call.arguments || ""})`,
                         tool_name: call.name,
                         tool_arguments_json: call.arguments || "",
-                        sequence: this.state.messages.length + 1,
+                        sequence: this._nextSeq(),
                     });
                 }
                 const results = [];
@@ -325,7 +339,7 @@ class TextService {
                         content: outputStr,
                         tool_name: call.name,
                         tool_result_json: outputStr,
-                        sequence: this.state.messages.length + 1,
+                        sequence: this._nextSeq(),
                     });
                     results.push({ call_id: call.call_id, name: call.name, output: outputStr });
                 }

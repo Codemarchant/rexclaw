@@ -128,7 +128,7 @@ def generate_image(*, xai_api_key, images_url, model, prompt,
     body = resp.json()
     if not isinstance(body, dict) or not isinstance(body.get('data'), list) or not body['data']:
         _logger.error('xAI image generation: unexpected response shape: %s', body)
-        raise UserError("Image generation returned an unexpected response — see server log.")
+        raise UserError(f"Image generation returned an unexpected response: {str(body)[:300]}")
     return body
 
 
@@ -174,7 +174,7 @@ def edit_image(*, xai_api_key, edits_url, model, prompt,
     body = resp.json()
     if not isinstance(body, dict) or not isinstance(body.get('data'), list) or not body['data']:
         _logger.error('xAI image edit: unexpected response shape: %s', body)
-        raise UserError("Image edit returned an unexpected response — see server log.")
+        raise UserError(f"Image edit returned an unexpected response: {str(body)[:300]}")
     return body
 
 
@@ -255,7 +255,7 @@ def generate_video(*, xai_api_key, videos_url, model, prompt,
     request_id = body.get('request_id') or body.get('id')
     if not request_id:
         _logger.error('xAI video %s: no request_id in response: %s', mode, body)
-        raise UserError("Video job returned no request id — see server log.")
+        raise UserError(f"Video job returned no request id: {str(body)[:300]}")
 
     status_url = f"{base_url}/{request_id}"
 
@@ -278,7 +278,7 @@ def generate_video(*, xai_api_key, videos_url, model, prompt,
             url = video.get('url') or status_body.get('url')
             if not url:
                 _logger.error('xAI video done but no url: %s', status_body)
-                raise UserError("Video finished but xAI returned no URL — see server log.")
+                raise UserError(f"Video finished but xAI returned no URL: {str(status_body)[:300]}")
             return {
                 'url': url,
                 'duration': video.get('duration'),
@@ -287,7 +287,19 @@ def generate_video(*, xai_api_key, videos_url, model, prompt,
             }
         if last_status in ('failed', 'expired'):
             _logger.error('xAI video generation %s: %s', last_status, status_body)
-            raise UserError(f"Video generation {last_status}.")
+            # Surface whatever reason the status body carries — without it
+            # the model (and user) just see "failed" while the actual cause
+            # (e.g. a moderation rejection of the source video) only lands
+            # in the server log.
+            reason = (status_body.get('error') or status_body.get('failure_reason')
+                      or status_body.get('detail') or status_body.get('message') or '')
+            if isinstance(reason, dict):
+                reason = reason.get('message') or str(reason)
+            raise UserError(
+                f"Video generation {last_status}."
+                + (f" Reason: {str(reason)[:300]}" if reason
+                   else " xAI returned no reason — see the server log.")
+            )
         time.sleep(poll_interval)
     raise UserError(
         f"Video generation timed out after {poll_timeout}s (last status: {last_status})."

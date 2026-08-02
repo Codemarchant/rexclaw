@@ -20,6 +20,11 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     // hides this one). resume:true → the mascot page auto-resumes the
     // session the caller just ended.
     openMascot: (opts) => ipcRenderer.invoke("mascot-open", opts || {}),
+    // Screen-share handoff across pop-out/in: the leaving window sets the
+    // flag when its share is armed; the arriving window takes it (once) and
+    // silently re-arms the same source. take resolves {id, audio} or null.
+    shareHandoffSet: () => ipcRenderer.invoke("share-handoff-set"),
+    shareHandoffTake: () => ipcRenderer.invoke("share-handoff-take"),
     // Called FROM the mascot window: restore the main window (telling it
     // whether to resume the call) and close this one.
     closeMascot: (opts) => ipcRenderer.invoke("mascot-close", opts || {}),

@@ -5,7 +5,7 @@ import base64
 import logging
 import uuid
 
-from fastapi import APIRouter, Body, Depends, File, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
 from .. import delegate_tools, imagine_tools, memory_tools, session_service, store
 from ..db import FILES_DIR, get_config, utcnow
@@ -209,6 +209,69 @@ def session_upload_image(session_id: int, payload: dict = Body(default={}), con=
         con, session_id, payload.get("image_data_url"),
         kind="upload", name=name,
     )
+
+
+@router.post("/session/{session_id}/screenshot")
+def session_screenshot(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """Persist a frame the take_screenshot tool grabbed from the user's
+    armed screen share. Lands in the files library (kind 'screenshot') so
+    the transcript can thumbnail it and delegate_task can analyze it."""
+    name = payload.get("name")
+    if not isinstance(name, str) or not name.strip():
+        name = "Screenshot"
+    name = name.strip().replace("\n", " ")[:80]
+    return _store_session_image(
+        con, session_id, payload.get("image_data_url"),
+        kind="screenshot", name=name,
+    )
+
+
+@router.post("/session/{session_id}/screen_clip")
+async def session_screen_clip(
+    session_id: int,
+    file: UploadFile = File(...),
+    name: str = Form(default=""),
+    con=Depends(db_con),
+):
+    """Persist a clip the record_screen_clip tool captured from the user's
+    armed screen share. Multipart (clips run to tens of MB — no base64
+    JSON round-trip), stored as a files-library row only: no eager xAI
+    upload, imagine_tools.ensure_xai_file re-uploads lazily if
+    delegate_task ever needs to watch it."""
+    session = resolve_session(con, session_id)
+    if session["state"] != "active":
+        raise ValidationError("Session is not active.")
+    agent = store.get_agent(con, session["agent_id"])
+    if not agent["enable_grok_imagine_tools"]:
+        raise AccessError("Grok Imagine tools are disabled on this agent.")
+    content = await file.read()
+    mimetype = file.content_type or "video/webm"
+    if not content:
+        raise ValidationError("No clip provided.")
+    if not mimetype.startswith("video/"):
+        raise ValidationError(f"Unsupported clip mimetype {mimetype!r}.")
+    if len(content) > 48 * 1024 * 1024:
+        raise ValidationError("Clip too large (max 48 MB).")
+    if not isinstance(name, str) or not name.strip():
+        name = "Screen recording"
+    name = name.strip().replace("\n", " ")[:80]
+    ext = ".mp4" if "mp4" in mimetype else ".webm"
+    fname = f"imagine_{uuid.uuid4().hex}{ext}"
+    (FILES_DIR / fname).write_bytes(content)
+    image_path = f"/files/{fname}"
+    cur = con.execute(
+        """INSERT INTO imagine_images
+               (name, agent_id, session_id, kind, prompt, image_path, mimetype, xai_model, created_at)
+           VALUES (?, ?, ?, 'screen_clip', ?, ?, ?, NULL, ?)""",
+        (name, agent["id"], session["id"], name, image_path, mimetype, utcnow()),
+    )
+    con.commit()
+    return {
+        "imagine_image_id": cur.lastrowid,
+        "kind": "screen_clip",
+        "video_url": image_path,
+        "name": name,
+    }
 
 
 @router.post("/session/{session_id}/upload_file")

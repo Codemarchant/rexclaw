@@ -68,6 +68,92 @@ SELFIE_TOOL = {
     },
 }
 
+# Screen capture is armed by the USER — browser security demands a share
+# picker plus a user gesture, so the model can never see a screen nobody
+# offered. Once armed (Share-screen button in the voice view) the dispatcher
+# grabs frames from the live stream on demand. Gated with the imagine set
+# because captures land in the files library, and VOICE MODE ONLY in the
+# standalone — text mode has no browser-tool round-trip here.
+SCREENSHOT_TOOL = {
+    "name": "take_screenshot",
+    "description": (
+        "Capture a screenshot of the user's screen from their live "
+        "screen-share and post it to the transcript. Requires the user to "
+        "have started sharing via the Share-screen button (desktop icon) in "
+        "the call header — if sharing is not active this returns an error; "
+        "ask them to click it, then call the tool again. You cannot see the "
+        "screenshot yourself: pass the returned imagine_image_id to "
+        "delegate_task in files to read/analyze what is on screen. Use when "
+        "the user asks you to look at their screen, an error message, a "
+        "document or app they have open, or anything they are currently "
+        "looking at."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": (
+                    "Optional short label for the capture, e.g. 'Invoice "
+                    "error dialog'. Defaults to 'Screenshot'."
+                ),
+            },
+        },
+        "required": [],
+    },
+}
+
+# Screen recording rides the same user-armed share as take_screenshot: no
+# share, no capture. Duration is model-supplied and capped at 90 s browser-
+# side (web/src/lib/screen_capture.js MAX_CLIP_SECONDS — keep in sync). The
+# clip stores locally in the files library only; xAI upload happens lazily
+# if delegate_task is asked to watch it.
+RECORD_SCREEN_CLIP_TOOL = {
+    "name": "record_screen_clip",
+    "description": (
+        "Record the user's screen (their live screen-share) for a set number "
+        "of seconds and post the clip to the transcript as a playable video. "
+        "Requires the user to have started sharing via the Share-screen "
+        "button (desktop icon) in the call header — if sharing is not "
+        "active this returns an error; ask them to click it. IMPORTANT: if "
+        "the user did not say how long to record, ASK them for the number "
+        "of seconds before calling this tool — do not guess. Max 90 "
+        "seconds. The tool blocks for the whole recording plus upload, so "
+        "tell the user you're recording and that they should perform "
+        "whatever they want captured. Audio: the clip includes sound only "
+        "if the user ticked 'share audio' when they started the share (tab "
+        "shares support audio everywhere; whole-monitor audio is "
+        "Windows-only) — the result reports has_audio, and if the user "
+        "wants sound but has_audio came back false, ask them to re-share "
+        "with the audio box ticked. During a voice call, shared system "
+        "audio also captures YOUR own spoken replies. You cannot watch the "
+        "clip yourself: pass the returned imagine_image_id to delegate_task "
+        "in files to have its content analyzed. Use when the user wants to "
+        "capture a sequence a screenshot can't — reproducing a bug, "
+        "demonstrating a workflow, recording an animation."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "duration_seconds": {
+                "type": "integer",
+                "description": (
+                    "How long to record, in seconds (1-90). Ask the user "
+                    "for this if they didn't specify it."
+                ),
+            },
+            "name": {
+                "type": "string",
+                "description": (
+                    "Optional short label for the clip, e.g. 'Invoice "
+                    "posting bug repro'. Defaults to 'Screen recording'."
+                ),
+            },
+        },
+        "required": ["duration_seconds"],
+    },
+}
+
 # Built-in gesture ids shipped in web/src/models/avatar_catalog.js. Kept here
 # verbatim so build_play_gesture_tool can produce the right enum without
 # reading the JS.

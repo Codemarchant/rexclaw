@@ -24,6 +24,21 @@
       "description": "Swimsuit — a halter-neck triangle bikini in a muted botanical camo print: mottled olive, khaki, sage and sand tones broken up by darker leaf-like shapes, a soft military-floral look rather than a bright beachwear print. Shaped cups with slight gathering at the centre and ties running up to the back of the neck, with matching side-tie briefs knotted at each hip. Barefoot. The same suit Ara owns — matching beach fits. For the beach, pool, hot springs or any swimming and summer-sun scene."
     },
     {
+      "name": "Soft goth casual",
+      "vrm": "eve_casual_dress.vrm",
+      "description": "All-black soft goth / jirai-kei coordinate that leans on texture contrast rather than colour — satin against velvet against lace. An oversized glossy black satin bomber worn off the shoulders, sleeves long enough to swallow the hands, with tonal ribbed banding at the hem and cuffs, over a black off-shoulder boat-neck top with a matte velvet panel across the bust. Short pleated skirt in a tonal rose-damask print with a scalloped lace-edged hem, sheer black tights, and chunky black lace-up combat boots on a thick lugged platform. Finished with a delicate silver choker and dark drop earrings. For casual outings with a moody, edgy-cute vibe."
+    },
+    {
+      "name": "Victorian maid uniform",
+      "vrm": "eve_maid_outfit.vrm",
+      "description": "Classic Victorian-style maid uniform — long and modest rather than short and frilly, strictly black and white with the interest coming from layered ruffles and crisp pleating. A floor-length black dress with long fitted sleeves turned back into wide white folded cuffs, a high collar with a small lace neckline detail and a black ribbon bow at the throat. Over it, a full white pinafore apron: ruffled shoulder straps, a pintuck-pleated bib, a wide waist sash, and a long deep-ruffled skirt panel, with the black underskirt and its own white ruffled trim showing beneath. White stockings and black strapped Mary Jane shoes, topped with a white ruffled maid headband. For housekeeping bits, tea service, or playing the dutiful maid."
+    },
+    {
+      "name": "Sailor school uniform",
+      "vrm": "eve_schoolgirl_uniform.vrm",
+      "description": "Japanese school uniform — a navy sailor seifuku layered under a knit cardigan, a very standard winter-term school look in navy and white softened by the grey knit. An oversized light-grey cable-knit cardigan worn open at the top with the lower buttons done up, patch pockets and ribbed trim, sleeves reaching past the wrists, over a navy sailor blouse with the classic broad square collar edged in double white stripes and a long navy necktie hanging over the cardigan. Knife-pleated navy skirt above the knee with two distinctive white stripes banding the lower third, charcoal knee-high socks with a stretch of bare leg, brown penny loafers, and thin-framed rectangular glasses. For school-days energy, study sessions, or a studious daily look."
+    },
+    {
       "name": "Gym athleisure fit",
       "vrm": "eve_gym_fit.vrm",
       "description": "Sporty gym look in white and navy. A cropped, boxy white short-sleeve tee with dark navy ribbed trim at the collar and sleeve cuffs, the hem sitting just above the navel to show a narrow strip of midriff. Fitted navy charcoal-blue shorts with a mid-rise waistband, mid-thigh length, lighter trim along the hem edges and a faint centre seam down the front. Dark navy low-top canvas trainers with white laces and thick white platform soles, worn with short navy ankle socks peeking above the shoe collar. For workouts, sports, or a sporty casual day out."

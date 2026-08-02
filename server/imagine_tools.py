@@ -36,9 +36,10 @@ import base64
 import copy
 import logging
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from . import xai_client, store
-from .db import FILES_DIR, utcnow
+from .db import FILES_DIR, get_config, utcnow
 from .errors import UserError
 
 _logger = logging.getLogger(__name__)
@@ -193,14 +194,24 @@ _CREATE_VIDEO_TOOL = {
                 'type': 'string',
                 'description': (
                     'Optional. video_url (/files/...mp4) or imagine_image_id '
-                    'of a library video to continue.'
+                    'of a library video to continue — generated clips and '
+                    'user-uploaded videos alike (uploads are ingested into '
+                    'the library; a file_… id never works here). MUTUALLY '
+                    'EXCLUSIVE with edit_video, source_image and '
+                    'reference_images — to continue a clip, set extend_video '
+                    'ALONE.'
                 ),
             },
             'edit_video': {
                 'type': 'string',
                 'description': (
                     'Optional. video_url (/files/...mp4) or imagine_image_id '
-                    'of a library video to modify.'
+                    'of a library video to modify — generated clips and '
+                    'user-uploaded videos alike (uploads are ingested into '
+                    'the library; a file_… id never works here). MUTUALLY '
+                    'EXCLUSIVE with extend_video, source_image and '
+                    'reference_images — to change a clip, set edit_video '
+                    'ALONE.'
                 ),
             },
         },
@@ -438,6 +449,46 @@ def _library_image_data_uri(con, ref):
     return _read_media_data_uri(row['image_path'], row['mimetype'] or 'image/jpeg')
 
 
+def ensure_xai_file(con, row):
+    """Usable /v1/files id for a library row — the cached one while it is
+    still valid (5-minute safety margin), else a fresh upload of the locally
+    stored bytes, refreshing the cache. This is what makes library refs
+    durable: the original upload's file id expires with xAI, the local copy
+    doesn't. Raises UserError when the row has no usable bytes."""
+    keys = row.keys()
+    file_id = row['xai_file_id'] if 'xai_file_id' in keys else None
+    expires = row['xai_file_expires_at'] if 'xai_file_expires_at' in keys else None
+    if file_id:
+        margin = (datetime.now(timezone.utc).replace(tzinfo=None)
+                  + timedelta(minutes=5)).isoformat(timespec='seconds')
+        if not expires or expires > margin:
+            return file_id
+    path = _web_path_to_file(row['image_path'])
+    if path is None:
+        raise UserError(f'Library entry {row["id"]} has no servable file.')
+    try:
+        data = path.read_bytes()
+    except OSError:
+        raise UserError(f'Library entry {row["id"]} file is missing on disk.')
+    config = get_config(con)
+    xai_key = config['xai_api_key']
+    if not xai_key:
+        raise UserError("xAI API key is not configured.")
+    result = xai_client.upload_file(
+        xai_api_key=xai_key,
+        files_url=config['xai_files_url'],
+        filename=row['name'] or f'file-{row["id"]}',
+        content_bytes=data,
+        mimetype=row['mimetype'] or 'application/octet-stream',
+        expires_after_seconds=config['file_default_expiry_seconds'] or 0,
+    )
+    con.execute(
+        "UPDATE imagine_images SET xai_file_id = ?, xai_file_expires_at = ? WHERE id = ?",
+        (result['file_id'], result.get('expires_at'), row['id']),
+    )
+    return result['file_id']
+
+
 def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt, arguments):
     """Shared branch for video generation — change_background(animated=true)
     and create_video (plain / image-to-video / reference-to-video). Builds
@@ -569,7 +620,11 @@ def _persist_imagine_result(con, session, agent, config, body, prompt, *, kind):
     first = body['data'][0]
     b64 = first.get('b64_json')
     if not b64:
-        return {'error': 'Image generation returned no inline image data.'}
+        # Name the fields that DID arrive — when xAI declines a generation
+        # (e.g. moderation) the refusal often rides in an unexpected field,
+        # and the keys tell the model (and us) where to look.
+        return {'error': 'Image generation returned no inline image data '
+                         f'(response fields: {sorted(first)}).'}
     try:
         raw_bytes = base64.b64decode(b64)
     except Exception as e:
