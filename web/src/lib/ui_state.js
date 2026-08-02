@@ -5,6 +5,17 @@ import { reactive } from "./reactive";
 import { notification } from "./notification";
 import { _t } from "./i18n";
 
+// Mascot mode: this window was opened by the desktop shell as a frameless
+// transparent always-on-top overlay (/#mascot or /#mascot-resume). Fixed for
+// the window's lifetime — a reload keeps the mode (the hash stays put; only
+// the -resume suffix is consumed after it triggers).
+export const MASCOT_MODE = /^#mascot/.test(window.location.hash);
+
+// Transcript-mirror mode: a standalone window (Electron tray or a second
+// browser tab on /#transcript) that mirrors the live call's transcript via
+// BroadcastChannel. Like MASCOT_MODE, fixed for the window's lifetime.
+export const TRANSCRIPT_MODE = /^#transcript/.test(window.location.hash);
+
 export const uiState = reactive({
     // Immersive mode: hide the app header AND all in-canvas controls for a
     // pure full-screen avatar. Paired with the browser Fullscreen API so the

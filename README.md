@@ -29,6 +29,7 @@ in a SQLite file on your disk, and your API key never leaves your machine.
 | 🧍 **Living 3D avatars** | three.js + @pixiv/three-vrm: viseme lip-sync from the live audio, idle breath/blink/eye-saccades, camera eye contact, emotions and body-language gestures the model triggers itself mid-conversation. Full-body view comes with the standard three.js orbit camera — drag to orbit, Shift+drag to move the character around the frame, scroll wheel to zoom. |
 | 🚶 **Walkable 3D scenes** | GLB environments as backgrounds with WASD/arrow walk mode and a trailing camera. A grid playground ships in the box. In a group call, number keys pick which character you're steering. |
 | 📞 **Multi-agent group calls** | Add companions to a live call — or let them invite each other ("call Rex for this one"). Each joins with its own voice, avatar and memory; a fast LLM turn director decides who speaks next, with no audio cross-feeding between agents. |
+| 🖥️ **Desktop mascot mode** | In the desktop app, pop the avatar out of the window: a small frameless, transparent, always-on-top overlay floats your companion on the desktop while you work — live call and all. Drag the character (or the handle) anywhere, pin/unpin, cycle sizes, snap to a corner from the tray icon, pop back in — the conversation resumes across the handoff. **Ghost mode** goes further: clicks pass straight through the window and the avatar fades out of your cursor's way (real per-pixel hit-testing), so they can stand over your work without ever being in it. |
 | 🥽 **VR & mixed reality (WebXR)** | Stand with your companion in VR — or in your real room via passthrough MR on headset browsers that support it — with spatial audio at the avatar's head, controller haptics, an in-headset panel (mute, emotions, gestures, move mode), physical hand-to-hair/clothing contact, and an opt-in full-body ragdoll you can grab. |
 | 🤝 **Combo gestures** | Two-character VRMA animations — dancing together, hugs — where a partner VRM joins the scene in sync with your avatar, with per-character placement controls. A live call peer is borrowed as the partner instead of spawning a duplicate. |
 | 🎨 **Grok Imagine built in** | Ask them to redecorate (`change_background` swaps the live scene), generate images into the transcript, edit photos you upload in chat, or remix anything in the Imagine library — selfies, uploads, past generations — into new images (`create_image` with `source_images`). Uploaded images are saved to the library at upload time, so "edit that photo" keeps working turns — or whole sessions — later. |
@@ -40,12 +41,15 @@ in a SQLite file on your disk, and your API key never leaves your machine.
 
 ## 🚀 Quick start
 
-### 💻 Windows app — easiest
+### 💻 Windows app — recommended
 
 Grab `Rexclaw-<version>-win.zip` from the
 [latest release](https://github.com/Codemarchant/rexclaw/releases/latest),
 unzip, run `Rexclaw.exe`. Fully self-contained — no Python, Node or Docker
-needed (Windows 10/11, 64-bit).
+needed (Windows 10/11, 64-bit) — and it includes the desktop-only features
+the browser version can't offer: the pop-out desktop mascot (with ghost
+mode, tray controls and the transcript window) and one-click VR / HTTPS
+device access.
 
 ### 🛠 From source
 
@@ -58,30 +62,26 @@ First run sets everything up (Python venv, backend deps, frontend build) and
 opens http://localhost:8990. After that it skips straight to launch.
 Requirements: Python ≥ 3.10 and Node.js.
 
+On Windows, the packaged app above is the easier path — `run.bat` is mainly
+for development, or for running the browser version without the desktop
+shell.
+
 Then in the app: **Settings → paste your xAI API key** (grab one at
 [x.ai/api](https://x.ai/api)) → back to **Voice** → pick a companion → **Start**.
-
-The script just automates:
-
-```bash
-python3 -m venv .venv && .venv/bin/pip install -e .   # once
-(cd web && npm install && npm run build)              # once, → web/dist/
-.venv/bin/uvicorn server.main:app --port 8990         # every start
-```
-
-**Tip:** at http://localhost:8990 your browser will offer **Install app**
-(PWA) — a desktop/home-screen icon and its own window, no extra runtime.
 
 ### 🐳 Docker
 
 ```bash
+git clone https://github.com/Codemarchant/rexclaw.git && cd rexclaw
 docker compose up -d                          # → http://localhost:8990
 docker compose pull && docker compose up -d   # update to the latest release
 ```
 
-No Python or Node needed — the image (`ghcr.io/codemarchant/rexclaw`)
-bundles everything, with all state (settings, history, images) in the
-`/data` volume, so updates never lose your data.
+All state (settings, history, images) lives in the `/data` volume, so
+updates never lose your data. To reach the app from phones, tablets or a
+VR headset on your network, enable HTTPS mode in `docker-compose.yml`
+(port mapping `"8990:8990"` + `REXCLAW_SSL=1` under `environment:`) —
+details in [Using VR](#-using-vr).
 
 ## 👥 Meet the crew
 
@@ -206,10 +206,17 @@ WebXR and the microphone only work on secure (HTTPS) origins, so the app
 has a built-in HTTPS mode; the headset and the PC just need to be on the
 same WiFi.
 
+The same HTTPS mode is what unlocks **phones and tablets** too: any device
+on your WiFi can open the same URL, and because the page is served over
+HTTPS the microphone works there — full voice calls from your phone, plus
+installing it as an app (Add to Home Screen). Over plain HTTP another
+device could only browse and text-chat.
+
 **Windows app (recommended):**
 
-1. Turn on **Settings → VR headset access**. The app restarts its server
-   in HTTPS mode and reloads; allow access if Windows Firewall asks.
+1. Turn on **Settings → VR headset & other devices (HTTPS)**. The app
+   restarts its server in HTTPS mode and reloads; allow access if Windows
+   Firewall asks.
 2. The setting now shows an address like `https://192.168.1.42:8990/` —
    open it in the headset's browser and accept the one-time certificate
    warning (Advanced → proceed).

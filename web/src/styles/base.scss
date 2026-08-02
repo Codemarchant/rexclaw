@@ -96,6 +96,32 @@ body {
     height: 100%;
 }
 
+// ---- File drop zones --------------------------------------------------------
+// Containers marked .rx_dropzone accept dragged files (useFileDrop toggles
+// is-dragover); the hint text comes from the element's data-drop-hint.
+
+.rx_dropzone.is-dragover {
+    position: relative;
+
+    &::after {
+        content: attr(data-drop-hint);
+        position: absolute;
+        inset: 0.4rem;
+        z-index: 60;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px dashed #3b82f6;
+        border-radius: 0.6rem;
+        background: rgba(37, 99, 235, 0.18);
+        color: #dbeafe;
+        font-size: 0.95rem;
+        font-weight: 600;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        pointer-events: none;
+    }
+}
+
 // ---- Toasts ---------------------------------------------------------------
 
 .rx_toasts {

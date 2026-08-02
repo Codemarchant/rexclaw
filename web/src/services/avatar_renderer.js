@@ -2161,6 +2161,17 @@ class AvatarRenderer {
     _applyBackgroundToActiveHost() {
         const host = this.activeCanvas;
         if (!host) return;
+        // Desktop mascot overlay: the window itself is transparent, so the
+        // host never paints a backdrop of any kind (the --mascot modifier
+        // also suppresses the SCSS default gradient), and 3D rooms / video
+        // backdrops tear down like on a mini host.
+        if (host.classList?.contains("o_voice_avatar_canvas--mascot")) {
+            host.style.background = "";
+            host.style.backgroundImage = "";
+            this._removeBackgroundVideo();
+            this.clearRoom();
+            return;
+        }
         const isFull = host.classList?.contains("o_voice_avatar_canvas--full");
         // Clear inline styles first so the SCSS default can take over for
         // anything we don't override below (e.g. mini hosts in image mode).
@@ -2317,6 +2328,55 @@ class AvatarRenderer {
         return out.toDataURL("image/png");
     }
 
+    /** Hit-test the rendered avatar at host-relative CSS coordinates.
+     *  Renders one frame and reads back a small alpha block around the point
+     *  (the drawing buffer isn't preserved, so sampling must immediately
+     *  follow an explicit render — same constraint as captureSnapshot).
+     *
+     *  Returns { exact, fuzzy }:
+     *    exact — an opaque pixel sits within ~1px of the point;
+     *    fuzzy — any opaque pixel within radiusCss (damps flicker when the
+     *            cursor skims the model's edge).
+     *  Cheap enough for the mascot's ~15 Hz ghost-mode poll: one readPixels
+     *  of a ~50px square. */
+    sampleAlphaRegion(clientX, clientY, radiusCss = 24, threshold = 10) {
+        const host = this.activeCanvas;
+        const none = { exact: false, fuzzy: false };
+        if (!this.renderer || !this.scene || !this.camera || !host) return none;
+        const canvas = this.renderer.domElement;
+        const gl = this.renderer.getContext();
+        if (!gl || !canvas.width || !canvas.height) return none;
+        const sx = canvas.width / (host.clientWidth || 1);
+        const cx = Math.round(clientX * sx);
+        const cy = Math.round(clientY * (canvas.height / (host.clientHeight || 1)));
+        const r = Math.max(2, Math.round(radiusCss * sx));
+        const x0 = Math.max(0, cx - r);
+        const y0 = Math.max(0, cy - r);
+        const x1 = Math.min(canvas.width - 1, cx + r);
+        const y1 = Math.min(canvas.height - 1, cy + r);
+        const w = x1 - x0 + 1;
+        const h = y1 - y0 + 1;
+        if (w <= 0 || h <= 0) return none;
+        this.renderer.render(this.scene, this.camera);
+        const buf = new Uint8Array(w * h * 4);
+        // readPixels is bottom-left origin; client coords are top-left.
+        gl.readPixels(x0, canvas.height - y0 - h, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        let exact = false;
+        let fuzzy = false;
+        const r2 = r * r;
+        for (let py = 0; py < h && !exact; py++) {
+            for (let px = 0; px < w; px++) {
+                if (buf[(py * w + px) * 4 + 3] < threshold) continue;
+                const dx = x0 + px - cx;
+                const dy = y0 + (h - 1 - py) - cy;   // un-flip the row
+                if (dx * dx + dy * dy <= r2) fuzzy = true;
+                if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) { exact = true; break; }
+            }
+        }
+        if (exact) fuzzy = true;
+        return { exact, fuzzy };
+    }
+
     /** Paint the current 2D backdrop onto a snapshot canvas: the animated
      *  <video> frame if one is mounted, else the image/imagine background,
      *  else an approximation of the SCSS default studio gradient (static
@@ -2404,11 +2464,12 @@ class AvatarRenderer {
             if (fallback) {
                 this._reparent(fallback);
                 this._resize(fallback);
+                // The pending rAF may belong to a dying window (PiP close) —
+                // reschedule on the new host's window so the loop can't strand.
+                this._cancelRaf();
+                if (!this._xrActive) this._loop();
             } else {
-                if (this.rafHandle) {
-                    cancelAnimationFrame(this.rafHandle);
-                    this.rafHandle = null;
-                }
+                this._cancelRaf();
             }
         }
     }
@@ -3087,8 +3148,22 @@ class AvatarRenderer {
         // XR owns the loop via renderer.setAnimationLoop while a session is
         // presenting — don't double-drive (and don't reschedule rAF).
         if (this._xrActive) { this.rafHandle = null; return; }
-        this.rafHandle = requestAnimationFrame(() => this._loop());
+        // Schedule on the window that owns the active host: when the canvas
+        // lives in a document picture-in-picture window, the MAIN window's
+        // rAF stops as soon as its tab is hidden — which would freeze the
+        // avatar in the very window the user popped out to keep watching.
+        const win = this.activeCanvas?.ownerDocument?.defaultView || window;
+        this._rafWindow = win;
+        this.rafHandle = win.requestAnimationFrame(() => this._loop());
         this._renderFrame();
+    }
+
+    /** Cancel the pending rAF on whichever window scheduled it. The owning
+     *  window may be a closing PiP window — swallow the throw. */
+    _cancelRaf() {
+        if (!this.rafHandle) return;
+        try { (this._rafWindow || window).cancelAnimationFrame(this.rafHandle); } catch (e) { /* window gone */ }
+        this.rafHandle = null;
     }
 
     /** One rendered frame. Driven by requestAnimationFrame in flat mode and by
@@ -3395,7 +3470,7 @@ class AvatarRenderer {
         if (this._xrActive) return;
         this._xrActive = true;
         // Stop the flat rAF loop — the headset drives frames from here on.
-        if (this.rafHandle) { cancelAnimationFrame(this.rafHandle); this.rafHandle = null; }
+        this._cancelRaf();
         this._disableOrbit();
         // Capture the base reference space (may be null until the first frame)
         // and defer initial placement to the first XR frame, when the viewer

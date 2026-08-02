@@ -1,0 +1,256 @@
+// Desktop mascot overlay (/#mascot in the Electron shell) and the browser
+// picture-in-picture pop-out. The Electron window is frameless + transparent
+// — the page paints ONLY the avatar and one floating controls island; the
+// desktop shows through everywhere else. The PiP window is a normal framed
+// window, so it keeps the studio-gradient backdrop instead.
+
+html.rx_mascot_mode {
+    &, body, #root {
+        background: transparent;
+    }
+}
+
+.rx_mascot_app {
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    position: relative;
+}
+
+.rx_mascot {
+    height: 100%;
+    width: 100%;
+    position: relative;
+
+    // Ghost mode: the avatar steps out of the cursor's way (MascotView
+    // toggles the class from the alpha hit-test).
+    .o_voice_avatar_canvas--mascot {
+        transition: opacity 0.25s ease;
+
+        &.is-ghost-faded { opacity: 0.15; }
+    }
+
+    // Desktop mascot: the island is fully hidden until the cursor enters the
+    // window — nothing breaks the "character on the desktop" illusion. The
+    // half-second exit delay keeps it from flickering at the window edge.
+    //
+    // Deliberately NOT :hover-driven: a click-through window's forwarded
+    // event stream has no reliable mouseleave, so CSS hover sticks "on"
+    // after ghost mode touches the window (and stays stuck after it's off).
+    // MascotView toggles is-cursor-inside from real enter/move/leave events
+    // (normal mode) or the shell's cursor feed (ghost mode) instead.
+    .rx_mascot_island {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease 0.5s;
+    }
+
+    &.is-cursor-inside .rx_mascot_island {
+        opacity: 1;
+        pointer-events: auto;
+        transition-delay: 0s;
+    }
+}
+
+// Document PiP body (class stamped on the PiP window's <body>).
+.rx_pip_body {
+    margin: 0;
+    overflow: hidden;
+}
+
+.rx_pip {
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    position: relative;
+    // Same studio gradient as the default avatar backdrop — the PiP window
+    // can't be transparent, so give it the app's stage look.
+    background: radial-gradient(ellipse 80% 90% at 50% 35%, #3b424f 0%, #1c2230 55%, #0a0d14 100%);
+}
+
+// ---- Floating controls island (shared: mascot window + PiP window) --------
+
+// Faded until the cursor enters the window, so the companion reads as a
+// character on the desktop, not a widget with buttons.
+.rx_mascot_island {
+    position: absolute;
+    left: 50%;
+    bottom: 0.6rem;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.78);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    opacity: 0.25;
+    transition: opacity 0.2s ease;
+    z-index: 10;
+    white-space: nowrap;
+
+    button {
+        -webkit-app-region: no-drag;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: 0;
+        color: rgba(255, 255, 255, 0.85);
+        border-radius: 999px;
+        width: 1.9rem;
+        height: 1.9rem;
+        cursor: pointer;
+        font-size: 0.85rem;
+
+        &:hover { background: rgba(255, 255, 255, 0.15); color: white; }
+        &.is-active { background: #2563eb; color: white; }
+    }
+}
+
+// PiP keeps the faint-pill affordance instead of full hiding — it's a framed
+// window that already reads as an app, and the pill hints where controls are.
+.rx_pip:hover .rx_mascot_island {
+    opacity: 1;
+}
+
+// The one draggable spot in the Electron mascot: the shell moves the whole
+// window with it. (The avatar itself is also grab-draggable in face view —
+// see MascotView's pointer-capture handler.)
+.rx_mascot_drag {
+    -webkit-app-region: drag;
+    cursor: grab;
+    color: rgba(255, 255, 255, 0.8);
+    padding: 0.25rem 0.45rem;
+}
+
+.rx_mascot_status {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    margin: 0 0.25rem;
+    background: rgba(255, 255, 255, 0.35);
+    flex: 0 0 auto;
+
+    &.is-live { background: #22c55e; }
+    &.is-connecting { background: #fbbf24; }
+}
+
+// ---- Transcript mirror window (/#transcript) ------------------------------
+
+.rx_transcript_win {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #0f172a;
+    color: #e2e8f0;
+
+    .rx_transcript_win_header {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.55rem 0.9rem;
+        background: #0b1220;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+
+        .rx_transcript_win_state {
+            margin-left: auto;
+            font-size: 0.78rem;
+            color: rgba(255, 255, 255, 0.6);
+        }
+    }
+
+    .rx_transcript_win_body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 0.75rem 0.9rem;
+    }
+
+    .rx_transcript_win_waiting {
+        color: rgba(255, 255, 255, 0.55);
+        font-size: 0.85rem;
+        padding: 1.5rem 0.5rem;
+        text-align: center;
+    }
+
+    .rx_transcript_win_attachments {
+        flex: 0 0 auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        padding: 0.5rem 0.9rem 0;
+
+        .rx_transcript_win_chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 0.45rem;
+            padding: 0.2rem 0.45rem;
+            font-size: 0.78rem;
+            max-width: 100%;
+
+            img {
+                height: 1.6rem;
+                width: 1.6rem;
+                object-fit: cover;
+                border-radius: 0.3rem;
+            }
+
+            .rx_transcript_win_chip_name {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                max-width: 11rem;
+            }
+
+            .btn-link { color: rgba(255, 255, 255, 0.65); text-decoration: none; }
+        }
+    }
+
+    .rx_transcript_win_input {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: flex-end;
+        gap: 0.5rem;
+        padding: 0.6rem 0.9rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+
+        textarea {
+            flex: 1 1 auto;
+            resize: none;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 0.5rem;
+            color: #e2e8f0;
+            padding: 0.45rem 0.6rem;
+            font-size: 0.875rem;
+            font-family: inherit;
+
+            &:focus { outline: 2px solid #2563eb; }
+            &:disabled { opacity: 0.5; }
+        }
+    }
+}
+
+.rx_mascot_error {
+    position: absolute;
+    top: 0.6rem;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 90%;
+    z-index: 10;
+    background: rgba(185, 28, 28, 0.92);
+    color: white;
+    font-size: 0.78rem;
+    padding: 0.35rem 0.7rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

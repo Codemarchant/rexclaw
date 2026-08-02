@@ -24,4 +24,11 @@
         min-height: 80vh;
         border-radius: 0;
     }
+
+    // Desktop mascot overlay — the Electron window is transparent, so the
+    // host paints nothing at all (the avatar floats on the desktop).
+    &--mascot {
+        background: transparent;
+        border-radius: 0;
+    }
 }

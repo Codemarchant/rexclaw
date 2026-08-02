@@ -15,9 +15,9 @@ export default function AvatarCanvas({ size = "full" }) {
         };
     }, []);
 
-    const cls =
-        size === "full"
-            ? "o_voice_avatar_canvas o_voice_avatar_canvas--full"
-            : "o_voice_avatar_canvas o_voice_avatar_canvas--mini";
-    return <div ref={hostRef} className={cls} />;
+    // full: fullscreen Voice tab · mini: compact embed · mascot: transparent
+    // desktop-overlay host (no backdrop of any kind — see avatar_renderer
+    // _applyBackgroundToActiveHost).
+    const variant = ["full", "mini", "mascot"].includes(size) ? size : "full";
+    return <div ref={hostRef} className={`o_voice_avatar_canvas o_voice_avatar_canvas--${variant}`} />;
 }

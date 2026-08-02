@@ -15,6 +15,35 @@ export const JA = {
   "Immersive view — hide all UI (H · Esc to exit)":
     "没入ビュー — UI をすべて隠す（H で切替 · Esc で終了）",
 
+  // ── Desktop mascot (pop-out overlay) ──────────────────────────────────
+  "Pop out — float the avatar in a small always-on-top window":
+    "ポップアウト — アバターを小さな最前面ウィンドウに切り離す",
+  "Drag to move": "ドラッグで移動",
+  "Always on top": "常に最前面",
+  "Cycle window size — or scroll on the avatar for fine control":
+    "ウィンドウサイズを切り替え — アバター上でスクロールすると微調整できます",
+  "Transcript": "トランスクリプト",
+  "Drop files to attach": "ここにドロップしてファイルを添付",
+  "Open the transcript in its own window": "トランスクリプトを別ウィンドウで開く",
+  "Waiting for an active call…": "通話の開始を待っています…",
+  "Start or resume a call in the app (or the desktop avatar) and the conversation appears here.":
+    "アプリ（またはデスクトップのアバター）で通話を開始・再開すると、会話がここに表示されます。",
+  "Back to the app window": "アプリウィンドウに戻る",
+  "Ghost mode — clicks pass through the window; the avatar steps out of the cursor's way":
+    "ゴーストモード — クリックはウィンドウを素通りし、アバターはカーソルを避けてフェードします",
+  "Could not open picture-in-picture: %s":
+    "ピクチャーインピクチャーを開けませんでした: %s",
+
+  // ── Settings: HTTPS / LAN access ──────────────────────────────────────
+  "VR headset & other devices (HTTPS)": "VR ヘッドセット・他のデバイス（HTTPS）",
+  "Opens this app to every device on your WiFi — VR headsets (Quest, Pico, …), phones and tablets — via the URL below. HTTPS is what makes the full experience work there: browsers only allow the microphone (voice calls) and WebXR on secure origins, so over plain HTTP another device could browse and text-chat but never talk. It also enables installing the app from the phone's browser (Add to Home Screen). Turning it on restarts the app's server in HTTPS mode and reloads this window; on each device, accept the one-time certificate warning, and on the PC allow access if Windows Firewall asks. Takes effect immediately (independent of Save settings).":
+    "同じ WiFi 上のあらゆるデバイス — VR ヘッドセット（Quest、Pico など）、スマートフォン、タブレット — から下記の URL でこのアプリを開けるようにします。フル機能が動くのは HTTPS のおかげです：ブラウザはマイク（音声通話）と WebXR をセキュアなオリジンでしか許可しないため、HTTP のままでは他のデバイスから閲覧やテキストチャットはできても会話はできません。スマートフォンのブラウザからのアプリインストール（ホーム画面に追加）も可能になります。オンにするとアプリのサーバーが HTTPS モードで再起動し、このウィンドウが再読み込みされます。各デバイスで初回のみ証明書の警告を承認し、PC 側では Windows ファイアウォールに許可を与えてください。（設定の保存とは独立して）即座に反映されます。",
+  "Serve over HTTPS on WiFi": "WiFi 上で HTTPS 配信",
+  "Open this URL on the device (headset, phone, tablet)":
+    "この URL をデバイス（ヘッドセット・スマホ・タブレット）で開く",
+  "On": "オン",
+  "Off": "オフ",
+
   // ── Shared bits ───────────────────────────────────────────────────────
   "Loading…": "読み込み中…",
   "Ready": "準備完了",
@@ -152,6 +181,8 @@ export const JA = {
   // ── Text view ─────────────────────────────────────────────────────────
   "No previous chats yet.": "まだチャット履歴はありません。",
   "Start chat": "チャット開始",
+  "Start new": "新規開始",
+  "New chat": "新規チャット",
   "Light theme": "ライトテーマ",
   "Dark theme": "ダークテーマ",
   "Attach a file": "ファイルを添付",

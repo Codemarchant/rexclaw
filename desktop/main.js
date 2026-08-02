@@ -12,7 +12,7 @@
 // If a rexclaw server is already running on the default port (run.sh, PyCharm,
 // Docker), the shell attaches to it instead of spawning a second one — handy
 // for developing the wrapper against a live session.
-const { app, BrowserWindow, dialog, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, session, shell } = require("electron");
 const { execFile, spawn } = require("child_process");
 const http = require("http");
 const https = require("https");
@@ -42,6 +42,10 @@ let externalServer = false;      // attached to a server we didn't spawn
 let headsetAccess = false;       // persisted toggle: HTTPS + LAN bind for headset browsers
 let restartInFlight = false;     // toggle restart underway — child exits are ours to handle
 let mainWindow = null;
+let mascotWindow = null;         // pop-out avatar overlay (frameless, transparent)
+let transcriptWindow = null;     // pop-out transcript mirror (normal window)
+let tray = null;
+let ghostTimer = null;           // mascot ghost mode: cursor feed interval
 let quitting = false;
 
 // ---------------------------------------------------------------------------
@@ -459,6 +463,394 @@ function createWindow(port) {
     mainWindow.loadURL(`${serverScheme}://127.0.0.1:${port}/`);
 }
 
+// ---------------------------------------------------------------------------
+// Desktop mascot (pop-out avatar overlay)
+// ---------------------------------------------------------------------------
+// "Pop out" floats the avatar in a small frameless transparent always-on-top
+// window — the companion stays on the desktop while the user works. The
+// mascot is a second full instance of the web app (its own renderer, audio
+// pipeline and realtime websocket — a live call cannot move between browser
+// windows), so the handoff mirrors the VR flow: the main view ends its call
+// leg first, and #mascot-resume tells the mascot page to resume the session
+// server-side. Popping back in reverses it via the "mascot-returned" event.
+
+const MASCOT_DEFAULT_SIZE = { width: 380, height: 560 };
+
+function mascotStartBounds() {
+    const { screen } = require("electron");
+    const saved = loadSettings().mascotBounds || {};
+    const width = Math.max(220, saved.width || MASCOT_DEFAULT_SIZE.width);
+    const height = Math.max(320, saved.height || MASCOT_DEFAULT_SIZE.height);
+    let x = saved.x;
+    let y = saved.y;
+    // A remembered position is only good while it still lands on a display
+    // (monitors unplug, resolutions change) — else park at the bottom-right
+    // of the primary work area, clear of the taskbar.
+    const onScreen = Number.isFinite(x) && Number.isFinite(y)
+        && screen.getAllDisplays().some((d) => {
+            const wa = d.workArea;
+            return x + width > wa.x + 40 && x < wa.x + wa.width - 40
+                && y + height > wa.y + 20 && y < wa.y + wa.height - 20;
+        });
+    if (!onScreen) {
+        const wa = screen.getPrimaryDisplay().workArea;
+        x = wa.x + wa.width - width - 24;
+        y = wa.y + wa.height - height - 24;
+    }
+    return { x: Math.round(x), y: Math.round(y), width, height };
+}
+
+function createMascotWindow(resume) {
+    if (mascotWindow && !mascotWindow.isDestroyed()) {
+        mascotWindow.focus();
+        return;
+    }
+    mascotWindow = new BrowserWindow({
+        ...mascotStartBounds(),
+        title: "Rexclaw",
+        frame: false,
+        // The page paints only the avatar (see rx_mascot_mode CSS) — the
+        // desktop shows through everywhere else.
+        transparent: true,
+        hasShadow: false,
+        // Electron: native resize of a transparent window is unreliable on
+        // Windows — size changes go through the mascot-size IPC instead.
+        resizable: false,
+        maximizable: false,
+        minimizable: false,
+        fullscreenable: false,
+        alwaysOnTop: true,
+        webPreferences: {
+            preload: path.join(__dirname, "preload.js"),
+            contextIsolation: true,
+            nodeIntegration: false,
+            spellcheck: false,
+            // The live call keeps running whether or not the tiny window
+            // has focus.
+            backgroundThrottling: false,
+        },
+    });
+    // 'screen-saver' level keeps the mascot above fullscreen apps too.
+    mascotWindow.setAlwaysOnTop(true, "screen-saver");
+    mascotWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // Same policy as the main window: same-origin navigation stays in-app,
+    // everything else goes to the system browser. (Permission handlers are
+    // session-level and already cover this window.)
+    mascotWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(url)) return { action: "allow" };
+        shell.openExternal(url);
+        return { action: "deny" };
+    });
+    // Remember where the user parked it ("move" fires continuously — debounce).
+    let saveTimer = null;
+    const rememberBounds = () => {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+            if (mascotWindow && !mascotWindow.isDestroyed()) {
+                saveSettings({ mascotBounds: mascotWindow.getBounds() });
+            }
+        }, 300);
+    };
+    mascotWindow.on("move", rememberBounds);
+    mascotWindow.on("resize", rememberBounds);
+    mascotWindow.on("closed", () => {
+        clearTimeout(saveTimer);
+        stopGhostFeed();
+        mascotWindow = null;
+        rebuildTrayMenu();
+        // However the mascot went away (pop-back IPC, Alt+F4, crash), never
+        // leave the user with no window at all.
+        if (!quitting && mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+            mainWindow.show();
+        }
+    });
+    mascotWindow.loadURL(`${serverScheme}://127.0.0.1:${serverPort}/#mascot${resume ? "-resume" : ""}`);
+    rebuildTrayMenu();
+}
+
+/** Pop-out/pop-back requests from the tray are routed THROUGH the renderer
+ *  that owns the live call, so it can end its leg cleanly before the window
+ *  swap (the handoff protocol lives in VoiceView/MascotView). Direct window
+ *  manipulation is only the no-renderer fallback. */
+function requestMascotPopOut() {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("mascot-popout-request");
+    } else {
+        createMascotWindow(false);
+    }
+}
+
+function requestMascotPopBack() {
+    if (mascotWindow && !mascotWindow.isDestroyed()) {
+        mascotWindow.webContents.send("mascot-popback-request");
+    }
+}
+
+/** Snap the mascot to a corner of whichever display it currently occupies. */
+function alignMascot(corner) {
+    if (!mascotWindow || mascotWindow.isDestroyed()) return;
+    const { screen } = require("electron");
+    const b = mascotWindow.getBounds();
+    const wa = screen.getDisplayMatching(b).workArea;
+    const m = 24;
+    const x = corner.endsWith("left") ? wa.x + m : wa.x + wa.width - b.width - m;
+    const y = corner.startsWith("top") ? wa.y + m : wa.y + wa.height - b.height - m;
+    mascotWindow.setPosition(x, y);
+}
+
+function stopGhostFeed() {
+    if (ghostTimer) { clearInterval(ghostTimer); ghostTimer = null; }
+}
+
+// Ghost mode: the renderer needs a cursor position feed while the window
+// ignores mouse events (a click-through window receives no native mouse
+// events at all) — global polling from the main process is the only source.
+// ~30 Hz, running only while ghost mode is on.
+ipcMain.handle("mascot-ghost", (event, on) => {
+    stopGhostFeed();
+    if (!mascotWindow || mascotWindow.isDestroyed()) return false;
+    if (!on) {
+        mascotWindow.setIgnoreMouseEvents(false);
+        return false;
+    }
+    const { screen } = require("electron");
+    ghostTimer = setInterval(() => {
+        if (!mascotWindow || mascotWindow.isDestroyed()) { stopGhostFeed(); return; }
+        const p = screen.getCursorScreenPoint();
+        const b = mascotWindow.getBounds();
+        mascotWindow.webContents.send("mascot-cursor", {
+            x: p.x - b.x,
+            y: p.y - b.y,
+            inside: p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height,
+        });
+    }, 33);
+    return true;
+});
+
+ipcMain.handle("mascot-ignore-mouse", (event, on) => {
+    if (mascotWindow && !mascotWindow.isDestroyed()) {
+        // forward:true keeps delivering hover events to the page while
+        // clicks fall through to whatever sits behind the window.
+        mascotWindow.setIgnoreMouseEvents(!!on, { forward: true });
+    }
+    return true;
+});
+
+// Grab-the-character dragging: the renderer pointer-captures the canvas and
+// streams absolute screen-coordinate targets (window origin + cursor delta).
+// On fractional display scaling, repeated setPosition on a NON-RESIZABLE
+// window accumulates DIP↔physical rounding error — the window grows a few
+// pixels per move event (electron#10862 family). Mitigation: lift the
+// resizable lock for the drag's duration and re-assert the captured size on
+// every move so rounding can never compound.
+let mascotDragSize = null;
+
+ipcMain.handle("mascot-drag-start", () => {
+    if (!mascotWindow || mascotWindow.isDestroyed()) return null;
+    const b = mascotWindow.getBounds();
+    mascotDragSize = { width: b.width, height: b.height };
+    mascotWindow.setResizable(true);
+    return { x: b.x, y: b.y };
+});
+
+ipcMain.handle("mascot-drag-move", (event, pos) => {
+    if (!mascotWindow || mascotWindow.isDestroyed()) return false;
+    const x = Math.round(Number(pos && pos.x));
+    const y = Math.round(Number(pos && pos.y));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const size = mascotDragSize || mascotWindow.getBounds();
+    mascotWindow.setBounds({ x, y, width: size.width, height: size.height });
+    return true;
+});
+
+// Tray "Hide avatar controls" — a hard pin: the island doesn't render even
+// on hover (useful with ghost mode, where any UI defeats the point). Living
+// in the tray means it stays reachable while every in-window control is
+// hidden. Persisted, so a hidden bar stays hidden across restarts.
+ipcMain.handle("mascot-controls-hidden", () => !!loadSettings().mascotControlsHidden);
+
+ipcMain.handle("mascot-drag-end", () => {
+    if (mascotWindow && !mascotWindow.isDestroyed()) {
+        if (mascotDragSize) {
+            const b = mascotWindow.getBounds();
+            mascotWindow.setBounds({ x: b.x, y: b.y, width: mascotDragSize.width, height: mascotDragSize.height });
+        }
+        mascotWindow.setResizable(false);
+    }
+    mascotDragSize = null;
+    return true;
+});
+
+// ---------------------------------------------------------------------------
+// Transcript window
+// ---------------------------------------------------------------------------
+// A normal window on /#transcript — a live mirror of whichever window owns
+// the current call (main view or mascot), synced in the page layer over a
+// BroadcastChannel. Pairs with the mascot: avatar floating on the desktop,
+// conversation readable (and typable) on another monitor.
+
+function createTranscriptWindow() {
+    if (transcriptWindow && !transcriptWindow.isDestroyed()) {
+        transcriptWindow.focus();
+        return;
+    }
+    transcriptWindow = new BrowserWindow({
+        width: 420,
+        height: 640,
+        minWidth: 300,
+        minHeight: 400,
+        title: "Rexclaw — Transcript",
+        backgroundColor: "#0f172a",
+        autoHideMenuBar: true,
+        webPreferences: {
+            preload: path.join(__dirname, "preload.js"),
+            contextIsolation: true,
+            nodeIntegration: false,
+            spellcheck: false,
+            backgroundThrottling: false,
+        },
+    });
+    transcriptWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(url)) return { action: "allow" };
+        shell.openExternal(url);
+        return { action: "deny" };
+    });
+    transcriptWindow.on("closed", () => { transcriptWindow = null; });
+    transcriptWindow.loadURL(`${serverScheme}://127.0.0.1:${serverPort}/#transcript`);
+}
+
+// ---------------------------------------------------------------------------
+// Tray
+// ---------------------------------------------------------------------------
+// The mascot makes a tray icon earn its place: with the main window hidden
+// and a small frameless overlay as the app's face, the tray is the reliable
+// "where did Rexclaw go" anchor. Menu state follows the mascot lifecycle.
+
+function trayIconPath() {
+    // Dev serves the repo tree; packaged builds bundle web/dist under
+    // resources/app-server. Vite copies web/public/* into dist verbatim.
+    const candidates = [
+        path.join(serverCwd(), "web", "dist", "icons", "lobster.png"),
+        path.join(REPO_ROOT, "web", "public", "icons", "lobster.png"),
+    ];
+    return candidates.find((c) => fs.existsSync(c)) || null;
+}
+
+function rebuildTrayMenu() {
+    if (!tray) return;
+    const mascotOpen = !!(mascotWindow && !mascotWindow.isDestroyed());
+    tray.setContextMenu(Menu.buildFromTemplate([
+        {
+            label: "Show Rexclaw",
+            click: () => {
+                if (mascotOpen) { mascotWindow.focus(); return; }
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    if (mainWindow.isMinimized()) mainWindow.restore();
+                    mainWindow.show();
+                    mainWindow.focus();
+                }
+            },
+        },
+        mascotOpen
+            ? { label: "Pop back in", click: requestMascotPopBack }
+            : { label: "Pop out avatar", click: requestMascotPopOut },
+        { label: "Transcript window", click: createTranscriptWindow },
+        {
+            label: "Align avatar",
+            enabled: mascotOpen,
+            submenu: ["top-left", "top-right", "bottom-left", "bottom-right"].map((corner) => ({
+                label: corner.replace("-", " "),
+                click: () => alignMascot(corner),
+            })),
+        },
+        {
+            label: "Hide avatar controls",
+            type: "checkbox",
+            checked: !!loadSettings().mascotControlsHidden,
+            click: (item) => {
+                saveSettings({ mascotControlsHidden: item.checked });
+                if (mascotWindow && !mascotWindow.isDestroyed()) {
+                    mascotWindow.webContents.send("mascot-controls-hidden", item.checked);
+                }
+            },
+        },
+        { type: "separator" },
+        { label: "Quit Rexclaw", click: () => app.quit() },
+    ]));
+}
+
+function createTray() {
+    const iconPath = trayIconPath();
+    if (!iconPath) return;   // icon missing (very early dev tree) — skip the tray
+    try {
+        tray = new Tray(nativeImage.createFromPath(iconPath));
+    } catch (e) {
+        console.warn("[desktop] tray unavailable:", e.message);
+        return;
+    }
+    tray.setToolTip("Rexclaw Companions");
+    tray.on("click", () => {
+        if (mascotWindow && !mascotWindow.isDestroyed()) { mascotWindow.focus(); return; }
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+        }
+    });
+    rebuildTrayMenu();
+}
+
+ipcMain.handle("mascot-open", (event, opts) => {
+    createMascotWindow(!!(opts && opts.resume));
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+    return true;
+});
+
+ipcMain.handle("mascot-close", (event, opts) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.focus();
+        // resume:true → the mascot ended a live call for this handoff; the
+        // main view picks the session back up (VoiceView onMascotReturned).
+        mainWindow.webContents.send("mascot-returned", { resume: !!(opts && opts.resume) });
+    }
+    if (mascotWindow && !mascotWindow.isDestroyed()) mascotWindow.close();
+    return true;
+});
+
+ipcMain.handle("mascot-pin", (event, flag) => {
+    if (mascotWindow && !mascotWindow.isDestroyed()) {
+        mascotWindow.setAlwaysOnTop(!!flag, "screen-saver");
+    }
+    return !!flag;
+});
+
+ipcMain.handle("mascot-size", (event, size) => {
+    if (!mascotWindow || mascotWindow.isDestroyed()) return false;
+    const width = Math.round(Math.min(1000, Math.max(220, Number(size && size.width) || 0)));
+    const height = Math.round(Math.min(1400, Math.max(320, Number(size && size.height) || 0)));
+    if (!width || !height) return false;
+    const b = mascotWindow.getBounds();
+    // Anchor: presets grow around the bottom-right corner (the mascot
+    // usually sits by the taskbar corner, which should stay put);
+    // scroll-to-resize passes bottom-center so the character scales in
+    // place. Bottom edge is pinned either way — her feet stay planted.
+    // resizable:false blocks programmatic setBounds on some platforms, so
+    // lift it for the call.
+    const x = size && size.anchor === "bottom-center"
+        ? b.x + Math.round((b.width - width) / 2)
+        : b.x + b.width - width;
+    mascotWindow.setResizable(true);
+    mascotWindow.setBounds({
+        x,
+        y: b.y + b.height - height,
+        width,
+        height,
+    });
+    mascotWindow.setResizable(false);
+    return true;
+});
+
 // Headset mode serves the app's own self-signed certificate — trust it for
 // loopback only; anything else keeps Chromium's normal verdict.
 app.on("certificate-error", (event, webContents, url, error, certificate, callback) => {
@@ -480,8 +872,14 @@ if (!app.requestSingleInstanceLock()) {
     app.quit();
 } else {
     app.on("second-instance", () => {
+        // While popped out, the mascot is the app's face — focus it.
+        if (mascotWindow && !mascotWindow.isDestroyed()) {
+            mascotWindow.focus();
+            return;
+        }
         if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
+            if (!mainWindow.isVisible()) mainWindow.show();
             mainWindow.focus();
         }
     });
@@ -500,6 +898,7 @@ if (!app.requestSingleInstanceLock()) {
             const port = await ensureServer();
             serverPort = port;
             createWindow(port);
+            createTray();
             app.on("activate", () => {   // macOS dock re-activation
                 if (BrowserWindow.getAllWindows().length === 0) createWindow(port);
             });

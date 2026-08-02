@@ -7,6 +7,7 @@ import { useReactive as useReactiveUi } from "../lib/reactive";
 import { notification } from "../lib/notification";
 import Transcript from "./Transcript.jsx";
 import { _t } from "../lib/i18n";
+import { useFileDrop } from "../lib/use_file_drop";
 
 /** Text companion view, ported from the Odoo text_full_view. No avatar canvas
  *  — static agent thumbnail in the header, markdown transcript in the middle,
@@ -26,6 +27,7 @@ export default function TextView({ active = true }) {
     const [, forceRender] = useState(0);
     const fileInputRef = useRef(null);
     const textInputRef = useRef(null);
+    const rootRef = useRef(null);
 
     const isLive = st.status === "live";
     const isConnecting = st.status === "connecting";
@@ -146,9 +148,7 @@ export default function TextView({ active = true }) {
 
     const pickFile = () => fileInputRef.current?.click();
 
-    const onFileSelected = async (ev) => {
-        const files = Array.from(ev.target.files || []);
-        ev.target.value = "";
+    const addFiles = async (files) => {
         if (!files.length) return;
         setUploadingFile(true);
         for (const file of files) {
@@ -161,6 +161,16 @@ export default function TextView({ active = true }) {
         setUploadingFile(false);
         forceRender((n) => n + 1);
     };
+
+    const onFileSelected = (ev) => {
+        const files = Array.from(ev.target.files || []);
+        ev.target.value = "";
+        addFiles(files);
+    };
+
+    // Drag & drop anywhere on the chat view queues files exactly like the
+    // paperclip (they wait as chips until the message is sent).
+    useFileDrop(rootRef, addFiles, active && !st.compacting);
 
     const removeFile = (fileId) => {
         text.removePendingFile(fileId);
@@ -207,7 +217,8 @@ export default function TextView({ active = true }) {
     })();
 
     return (
-        <div className={"o_text_full_view" + (dark ? " o_text_full_view--dark" : "")}>
+        <div className={"o_text_full_view rx_dropzone" + (dark ? " o_text_full_view--dark" : "")}
+             ref={rootRef} data-drop-hint={_t("Drop files to attach")}>
             {showHistory && (
                 <div className="o_text_full_history">
                     <div className="o_text_full_history_header"><strong>{_t("History")}</strong></div>
@@ -260,16 +271,20 @@ export default function TextView({ active = true }) {
                                 title={showHistory ? _t("Hide history") : _t("Show history")}>
                             <i className="fa fa-history" />
                         </button>
-                        {!isLive && !isConnecting && (
-                            <button className="btn btn-primary" onClick={startSession}>
-                                <i className="fa fa-comments" /> {_t("Start chat")}
-                            </button>
-                        )}
+                        {/* Resume last leads (primary) when available — continuing the
+                            rolling conversation is the intended default; Start chat is
+                            the deliberate fresh-session choice. */}
                         {!isLive && !isConnecting && lastResumableSession && (
-                            <button className="btn btn-secondary"
+                            <button className="btn btn-primary"
                                     title={_t("Resume %s", lastResumableSession.name)}
                                     onClick={() => resumeSession(lastResumableSession)}>
                                 <i className="fa fa-history" /> {_t("Resume last")}
+                            </button>
+                        )}
+                        {!isLive && !isConnecting && (
+                            <button className={"btn " + (lastResumableSession ? "btn-secondary" : "btn-primary")}
+                                    onClick={startSession}>
+                                <i className="fa fa-comments" /> {_t(lastResumableSession ? "New chat" : "Start chat")}
                             </button>
                         )}
                         {(isLive || isConnecting) && (

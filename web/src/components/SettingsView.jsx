@@ -208,14 +208,19 @@ export default function SettingsView({ active }) {
 
                 {headset && !headset.external && (
                     <section>
-                        <h3><i className="fa fa-wifi" /> {_t("VR headset access")}</h3>
+                        <h3><i className="fa fa-wifi" /> {_t("VR headset & other devices (HTTPS)")}</h3>
                         <p className="text-muted">
-                            {_t("Lets a VR headset's browser (Quest, Pico, …) open this app over "
-                                + "your WiFi. Turning it on restarts the app's server in HTTPS mode "
-                                + "and reloads this window — WebXR and the microphone only work on "
-                                + "secure (HTTPS) origins. On the headset, accept the one-time "
-                                + "certificate warning; on the PC, allow access if Windows Firewall "
-                                + "asks. Takes effect immediately (independent of Save settings).")}
+                            {_t("Opens this app to every device on your WiFi — VR headsets "
+                                + "(Quest, Pico, …), phones and tablets — via the URL below. "
+                                + "HTTPS is what makes the full experience work there: browsers "
+                                + "only allow the microphone (voice calls) and WebXR on secure "
+                                + "origins, so over plain HTTP another device could browse and "
+                                + "text-chat but never talk. It also enables installing the app "
+                                + "from the phone's browser (Add to Home Screen). Turning it on "
+                                + "restarts the app's server in HTTPS mode and reloads this "
+                                + "window; on each device, accept the one-time certificate "
+                                + "warning, and on the PC allow access if Windows Firewall asks. "
+                                + "Takes effect immediately (independent of Save settings).")}
                         </p>
                         <div className="rx_row">
                             <div>
@@ -230,7 +235,7 @@ export default function SettingsView({ active }) {
                             </div>
                             {headset.enabled && headset.url && (
                                 <div>
-                                    <label>{_t("Open this in the headset browser")}</label>
+                                    <label>{_t("Open this URL on the device (headset, phone, tablet)")}</label>
                                     <input type="text" readOnly value={headset.url}
                                            onFocus={(ev) => ev.target.select()} />
                                 </div>

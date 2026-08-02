@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal, flushSync } from "react-dom";
 import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { useReactive } from "../lib/reactive";
@@ -9,23 +10,8 @@ import { VRManager } from "../vr/vr_manager";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 import Transcript from "./Transcript.jsx";
 
-/** Downscale a user-picked image file to a data URL (long edge ≤ maxSize).
- *  createImageBitmap honours EXIF orientation, so phone photos come out
- *  upright. PNG keeps transparency; everything else re-encodes as JPEG. */
-async function downscaleImageFile(file, maxSize = 2048) {
-    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-    const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
-    const w = Math.max(1, Math.round(bitmap.width * scale));
-    const h = Math.max(1, Math.round(bitmap.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
-    bitmap.close?.();
-    return file.type === "image/png"
-        ? canvas.toDataURL("image/png")
-        : canvas.toDataURL("image/jpeg", 0.9);
-}
+import { downscaleImageFile, attachmentNote } from "../lib/attachments";
+import { useFileDrop } from "../lib/use_file_drop";
 
 // WASD + arrows → camera-relative movement axes for the manual walk toggle.
 const MOVE_KEY_MAP = {
@@ -458,6 +444,104 @@ export default function VoiceView({ active = true }) {
     const startCallIfIdleRef = useRef(startCallIfIdle);
     startCallIfIdleRef.current = startCallIfIdle;
 
+    // ---- desktop mascot pop-out --------------------------------------------
+    // The mascot is a second Electron window running its own page instance
+    // (own renderer, audio pipeline, realtime websocket) — a live call can't
+    // move between windows. Same handoff shape as VR: end the call leg here,
+    // let the mascot page resume it server-side (#mascot-resume). The shell
+    // hides this window; onMascotReturned reverses the trip.
+    const desktopMascot = !!window.rexclawDesktop?.openMascot;
+
+    const popOutMascot = async () => {
+        const wasLive = isLive || isConnecting;
+        if (wasLive) await voice.end("client");
+        await window.rexclawDesktop.openMascot({ resume: wasLive });
+        loadHistory();
+    };
+
+    useEffect(() => {
+        window.rexclawDesktop?.onMascotReturned?.((data) => {
+            if (data?.resume) startCallIfIdleRef.current();
+            loadHistory();
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Tray → "Pop out avatar" routes through this page so a live call ends
+    // cleanly first. Ref indirection so the once-registered handler sees
+    // current session state.
+    const popOutMascotRef = useRef(popOutMascot);
+    popOutMascotRef.current = popOutMascot;
+    useEffect(() => {
+        window.rexclawDesktop?.onMascotPopoutRequest?.(() => popOutMascotRef.current());
+    }, []);
+
+    // ---- browser picture-in-picture (non-Electron pop-out) -----------------
+    // Document PiP (Chromium 116+) is the web-mode approximation of the
+    // mascot: a real always-on-top window, but framed and opaque. Unlike the
+    // Electron handoff it is the SAME page — the document just spans two
+    // windows — so the live call, mic and canvas carry over with no
+    // resume gap. The avatar canvas transplants via the normal host-stack
+    // mount/unmount, and the renderer schedules rAF on the PiP window so the
+    // avatar keeps animating when this tab is hidden.
+    const [pipWindow, setPipWindow] = useState(null);
+    const pipSupported = !desktopMascot
+        && typeof window.documentPictureInPicture?.requestWindow === "function";
+
+    // Companion window to the PiP avatar: the transcript mirror in a small
+    // popup (same /#transcript page the desktop tray opens — BroadcastChannel
+    // does the rest). Named + ref-tracked so repeat clicks focus, not spawn.
+    const transcriptWinRef = useRef(null);
+    const openTranscriptWindow = () => {
+        const w = transcriptWinRef.current;
+        if (w && !w.closed) {
+            try { w.focus(); } catch (e) { /* non-fatal */ }
+            return;
+        }
+        transcriptWinRef.current = window.open(
+            "/#transcript", "rexclaw_transcript", "popup=yes,width=420,height=640");
+    };
+
+    const openPip = async () => {
+        if (pipWindow) {
+            try { pipWindow.focus(); } catch (e) { /* non-fatal */ }
+            return;
+        }
+        try {
+            const pw = await window.documentPictureInPicture.requestWindow({ width: 360, height: 540 });
+            // Copy this document's stylesheets so the PiP document matches.
+            for (const sheet of [...document.styleSheets]) {
+                try {
+                    if (sheet.href) {
+                        const link = pw.document.createElement("link");
+                        link.rel = "stylesheet";
+                        link.href = sheet.href;
+                        pw.document.head.appendChild(link);
+                    } else if (sheet.ownerNode) {
+                        const style = pw.document.createElement("style");
+                        style.textContent = [...sheet.cssRules].map((r) => r.cssText).join("\n");
+                        pw.document.head.appendChild(style);
+                    }
+                } catch (e) { /* cross-origin sheet — skip */ }
+            }
+            pw.document.body.classList.add("rx_pip_body");
+            // Unmount the portal SYNCHRONOUSLY while the PiP document is
+            // still alive: an async state update loses the race against the
+            // document's destruction, and a WebGL canvas stranded in a
+            // destroyed document drops its GL context — avatar gone until a
+            // full reload. flushSync runs the AvatarCanvas cleanup (which
+            // transplants the canvas back to the fullscreen host) before the
+            // browser proceeds with teardown.
+            pw.addEventListener("pagehide", () => {
+                try { flushSync(() => setPipWindow(null)); } catch (e) { setPipWindow(null); }
+            });
+            setPipWindow(pw);
+        } catch (e) {
+            console.error("[voice] document PiP failed", e);
+            notification.add(_t("Could not open picture-in-picture: %s", e?.message || e), { type: "danger" });
+        }
+    };
+
     // Desktop VR handoff lands here with #vr in the URL: try to enter the
     // immersive session without another click. Chrome enforces user
     // activation for requestSession (the no-gesture switch no longer covers
@@ -643,12 +727,12 @@ export default function VoiceView({ active = true }) {
     // xai_file_id so the model can hand it to delegate_task for analysis.
     // The voice model itself can't see or read either kind.
     const imageInputRef = useRef(null);
+    const transcriptPanelRef = useRef(null);
     const [pendingImages, setPendingImages] = useState([]);
     const [pendingDocs, setPendingDocs] = useState([]);
     const [uploadingImages, setUploadingImages] = useState(false);
-    const onFilesChosen = async (ev) => {
-        const files = [...(ev.target.files || [])].slice(0, 6);
-        ev.target.value = "";
+    const addFiles = async (picked) => {
+        const files = (picked || []).slice(0, 6);
         if (!files.length || !sv.sessionId) return;
         setUploadingImages(true);
         try {
@@ -688,6 +772,16 @@ export default function VoiceView({ active = true }) {
             setUploadingImages(false);
         }
     };
+    const onFilesChosen = (ev) => {
+        const files = [...(ev.target.files || [])];
+        ev.target.value = "";
+        addFiles(files);
+    };
+    // Drag & drop anywhere on the transcript panel queues files exactly like
+    // the paperclip. Enabled only while the panel is actually mounted (the
+    // hook captures the element per enable).
+    useFileDrop(transcriptPanelRef, addFiles,
+                active && isLive && showTranscript && !ui.immersive);
     const removePendingImage = (id) => {
         // Chip removal only unqueues it from THIS message — an image upload
         // already lives in the Imagine library, which is harmless.
@@ -696,35 +790,6 @@ export default function VoiceView({ active = true }) {
     const removePendingDoc = (fileId) => {
         setPendingDocs((prev) => prev.filter((p) => p.xai_file_id !== fileId));
     };
-    const attachmentNote = (images, docs) => {
-        const parts = [];
-        if (images.length) {
-            const listing = images
-                .map((p) => `"${p.name}" (image_url=${p.image_url}, imagine_image_id=${p.imagine_image_id})`)
-                .join("; ");
-            parts.push(
-                `The user attached ${images.length} image(s): ${listing}. `
-                + `You cannot see them (voice is audio-only), but you can use `
-                + `them — call delegate_task with an imagine_image_id in files `
-                + `to have their content described/analyzed, or pass an `
-                + `image_url to create_video as source_image (animate that `
-                + `exact image) or reference_images (feature its people/objects `
-                + `in a new clip, up to 3).`
-            );
-        }
-        if (docs.length) {
-            const listing = docs
-                .map((p) => `"${p.name}" (xai_file_id=${p.xai_file_id})`)
-                .join("; ");
-            parts.push(
-                `The user attached ${docs.length} file(s): ${listing}. You `
-                + `cannot read them yourself — call delegate_task with the `
-                + `xai_file_id value(s) in files to read/analyze their content.`
-            );
-        }
-        return `[System] ${parts.join(" ")}`;
-    };
-
     const onOutfitChange = (ev) => {
         const id = Number(ev.target.value);
         const avatar = currentAgent?.avatar;
@@ -855,6 +920,18 @@ export default function VoiceView({ active = true }) {
                                 <i className="fa fa-cube" />
                             </button>
                         ))}
+                        {desktopMascot && (
+                            <button className="btn btn-light" onClick={popOutMascot}
+                                    title={_t("Pop out — float the avatar in a small always-on-top window")}>
+                                <i className="fa fa-external-link" />
+                            </button>
+                        )}
+                        {pipSupported && (
+                            <button className={"btn btn-light" + (pipWindow ? " active" : "")} onClick={openPip}
+                                    title={_t("Pop out — float the avatar in a small always-on-top window")}>
+                                <i className="fa fa-external-link" />
+                            </button>
+                        )}
                         <button className={"btn btn-light" + (fullBody ? " active" : "")}
                                 onClick={toggleFullBody}
                                 title={fullBody ? _t("Switch to face view") : _t("Switch to full body (drag to rotate, scroll to zoom)")}>
@@ -973,16 +1050,23 @@ export default function VoiceView({ active = true }) {
                                 </select>
                             )}
                             <div className="o_voice_full_controls_buttons">
-                                {!isLive && !isConnecting && (
-                                    <button className="btn btn-primary btn-lg" onClick={startSession}>
-                                        <i className="fa fa-microphone" /> {_t("Start")}
-                                    </button>
-                                )}
+                                {/* Resume last leads (and gets the primary style) when a
+                                    session exists — it continues the rolling long-running
+                                    conversation, which is the intended default; Start is
+                                    the deliberate "fresh session" choice. */}
                                 {!isLive && !isConnecting && lastResumableSession && (
-                                    <button className="btn btn-secondary btn-lg"
+                                    <button className="btn btn-primary btn-lg"
                                             title={_t("Resume %s", lastResumableSession.name)}
                                             onClick={() => resumeSession(lastResumableSession)}>
                                         <i className="fa fa-history" /> {_t("Resume last")}
+                                    </button>
+                                )}
+                                {!isLive && !isConnecting && (
+                                    <button className={"btn btn-lg " + (lastResumableSession ? "btn-secondary" : "btn-primary")}
+                                            onClick={startSession}>
+                                        {/* "Start new" only beside Resume — that's when plain
+                                            "Start" turns ambiguous. Alone, it's just Start. */}
+                                        <i className="fa fa-microphone" /> {_t(lastResumableSession ? "Start new" : "Start")}
                                     </button>
                                 )}
                                 {isLive && (
@@ -1051,7 +1135,8 @@ export default function VoiceView({ active = true }) {
             </div>
 
             {!ui.immersive && showTranscript && (
-                <div className="o_voice_full_transcript">
+                <div className="o_voice_full_transcript rx_dropzone" ref={transcriptPanelRef}
+                     data-drop-hint={_t("Drop files to attach")}>
                     <Transcript messages={sv.messages} isLive={isLive}
                                 thinking={sv.thinking} truncated={sv.transcriptTruncated} />
                     {isLive && (pendingImages.length > 0 || pendingDocs.length > 0) && (
@@ -1106,6 +1191,68 @@ export default function VoiceView({ active = true }) {
                         </div>
                     )}
                 </div>
+            )}
+
+            {/* Browser PiP pop-out: same page, second window. The portal
+                target lives in the PiP document; the singleton canvas
+                transplants into its AvatarCanvas host while open and falls
+                back to the fullscreen host when it closes. */}
+            {pipWindow && createPortal(
+                <div className="rx_pip">
+                    <AvatarCanvas size="mascot" />
+                    <div className="rx_mascot_island">
+                        <span
+                            className={
+                                "rx_mascot_status"
+                                + (isLive ? " is-live" : "")
+                                + (isConnecting ? " is-connecting" : "")
+                            }
+                            title={statusLabel}
+                        />
+                        {!isLive && !isConnecting && (
+                            <button onClick={() => (lastResumableSession
+                                        ? resumeSession(lastResumableSession) : startSession())}
+                                    title={lastResumableSession ? _t("Resume last") : _t("Start")}>
+                                <i className="fa fa-microphone" />
+                            </button>
+                        )}
+                        {isLive && (
+                            <button className={sv.muted ? "is-active" : ""}
+                                    onClick={() => voice.setMuted(!sv.muted)}
+                                    title={sv.muted ? _t("Unmute") : _t("Mute")}>
+                                <i className={sv.muted ? "fa fa-microphone-slash" : "fa fa-microphone"} />
+                            </button>
+                        )}
+                        {(isLive || isConnecting) && (
+                            <button onClick={endSession} title={_t("End")}>
+                                <i className="fa fa-stop" />
+                            </button>
+                        )}
+                        <button className={fullBody ? "is-active" : ""} onClick={toggleFullBody}
+                                title={fullBody
+                                    ? _t("Switch to face view")
+                                    : _t("Switch to full body (drag to rotate, scroll to zoom)")}>
+                            <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
+                        </button>
+                        <button onClick={openTranscriptWindow}
+                                title={_t("Open the transcript in its own window")}>
+                            <i className="fa fa-comments" />
+                        </button>
+                        <button onClick={() => {
+                                    // Reclaim the canvas BEFORE closing (see
+                                    // the pagehide note in openPip) — then the
+                                    // close's own pagehide finds nothing left
+                                    // to unmount.
+                                    const pw = pipWindow;
+                                    try { flushSync(() => setPipWindow(null)); } catch (e) { setPipWindow(null); }
+                                    try { pw.close(); } catch (e) { /* already gone */ }
+                                }}
+                                title={_t("Back to the app window")}>
+                            <i className="fa fa-window-restore" />
+                        </button>
+                    </div>
+                </div>,
+                pipWindow.document.body,
             )}
         </div>
     );
