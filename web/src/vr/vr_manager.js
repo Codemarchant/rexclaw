@@ -1,5 +1,5 @@
-import { pulseXRController } from "./xr_haptics";
-import { VRTouchDetector } from "./vr_touch_detector";
+import { buzz, sourceAt } from "./haptics";
+import { AvatarProximity } from "./proximity";
 import { VRPanel } from "./vr_panel";
 import { VRRagdoll } from "./vr_ragdoll";
 import { EMOTIONS, EMOTION_GESTURE_MAP } from "../models/avatar_catalog";
@@ -15,15 +15,58 @@ const MOVE_ROT_SPEED = 1.8;        // rad/s
 const MOVE_STICK_DEADZONE = 0.2;
 const HAND_COLLIDER_RADIUS = 0.07; // metres
 
+// Rumble profile for a passive proximity touch — the lightest cue in the set,
+// well under the grab/confirm buzzes fired elsewhere so the escalation reads.
+const TOUCH_BUZZ_STRENGTH = 0.7;
+const TOUCH_BUZZ_MS = 120;
+
+// Both hands landing on the same place at once is just how people touch, and
+// the sensor correctly calls that two contacts — each hand gets its own buzz.
+// The *reaction* must not double up though, or one two-handed head pat sets
+// the expression and fires the gesture twice. Debounced per region+tier so
+// grab/hold/release keep their own cadence, and short enough that a deliberate
+// repeat poke still lands.
+const REACTION_DEBOUNCE_MS = 800;
+
 /**
  * Body-region → tiered reaction map. Each touch fires a multisensory-congruent
  * reaction (emotion blendshape + body-language gesture + controller haptic +
- * a hidden in-character context note so she reacts by VOICE). Only the head
- * pat is kept; touches on other regions produce no reaction.
+ * a hidden in-character context note so they react by VOICE).
+ *
+ * Tiers: `light` is a proximity touch or a trigger-reach; `grab` / `hold` /
+ * `release` come from the grip button (see _grip). A region with no entry —
+ * or an entry with no matching tier — is inert: the physical response
+ * (haptic + spring-bone displacement) still plays, but nothing is said.
+ * boneRegion() classifies more regions than are wired up here on purpose, so
+ * adding a reaction is a matter of adding one line.
+ *
+ * The emotion doubles as the gesture: setEmotion drives the blendshape and
+ * EMOTION_GESTURE_MAP plays the matching VRMA clip (surprised → Surprised).
+ *
+ * `settle` softens the pose after the reaction beat. Nothing decays emotions
+ * on its own — setEmotion holds until something overwrites it — so any
+ * expression meant to be momentary has to say so here or it freezes on the
+ * face until the agent happens to set another one.
+ *   `onlyIfSquinty` restricts the settle to the avatars whose blendshape is
+ *   the problem (Eve/Leo/Ara `happy` shuts both eyes); everything else settles
+ *   unconditionally.
  */
 const TOUCH_REACTIONS = {
     head: {
-        light:   { emotion: "happy",     text: "[The user gently pats your head.]" },
+        light: {
+            emotion: "happy",
+            text: "[The user gently pats your head.]",
+            settle: { to: "relaxed", afterMs: 4000, onlyIfSquinty: true },
+        },
+    },
+    belly: {
+        // Surprised is a snap expression (blendDuration 0.15, mouth open) —
+        // it reads as a flinch for a beat and as frozen shock after that.
+        light: {
+            emotion: "surprised",
+            text: "[The user pokes your belly — it tickles.]",
+            settle: { to: "relaxed", afterMs: 2500 },
+        },
     },
 };
 
@@ -42,11 +85,15 @@ const TOUCH_REACTIONS = {
  *  - three.js is taken from the session-start ctx (lazy-loaded by the
  *    renderer) — this module imports no heavy libs.
  *
- * Hand indicators are simple spheres; their colour is updated by the touch
- * detector (Phase 4) via userData.{sphere,glow}.
+ * Hand markers are simple spheres; AvatarProximity recolours them by distance
+ * via userData.{sphere,glow}, and reports contact back here — the haptic and
+ * the reaction policy stay in this class.
  */
 
-const HAND_COLOR_IDLE = 0x88ccff;
+// Resting tint of the hand marker. Must match proximity.js's TINT_REST so a
+// freshly built hand doesn't flash a different colour before the first frame
+// of proximity painting lands on it.
+const HAND_COLOR_IDLE = 0x9aa7b8;
 
 export class VRManager {
     /** @param avatarRenderer the AvatarRenderer singleton; opts: voice service +
@@ -63,13 +110,14 @@ export class VRManager {
 
         this.gl = null;          // three WebGLRenderer (from ctx) — needed for haptics
         this._scene = null;      // three scene (from ctx) — parent for controllers/panel
-        this.controller0 = null;
-        this.controller1 = null;
-        this.grip0 = null;
-        this.grip1 = null;
-        this.handIndicators = [null, null];
-        this._src0 = null;       // XRInputSource per controller (for gamepad grip value)
-        this._src1 = null;
+        // Everything per-hand is indexed 0/1 throughout: target-ray spaces
+        // (input events), grip spaces (hand pose/visuals), the hand models, and
+        // the XRInputSource the platform bound to each hand — the last is the
+        // authoritative handle for gamepad axes/buttons, handedness and rumble.
+        this.controllers = [null, null];
+        this.grips = [null, null];
+        this.handMarkers = [null, null];
+        this._sources = [null, null];
         this._debugStr = "";     // pressed-button-index readout shown on the panel
 
         // Set by Phase 4 (touch reactions). Optional — guarded everywhere.
@@ -88,24 +136,26 @@ export class VRManager {
         this._lastMovedActorId = "base"; // thumbstick rotation target in move mode
         this._reticle = null;          // floor marker shown in move mode
         this._hp = [null, null];       // per-hand world-position scratches
-        this._touchDecayTimer = null;  // squinty-happy settle (see _reactToTouch)
+        this._touchDecayTimer = null;  // expression settle beat (see _reactToTouch)
+        this._reactedAt = new Map();   // "region:tier" → last reaction time
         this._panelBtnDown = false;    // A/X → toggle the settings panel
         this._exitBtnDown = false;     // B/Y → exit VR
         this._recenterBtnDown = false; // thumbstick press → recenter the view
 
-        // Bound so add/removeEventListener pair up cleanly.
-        this._onSqueeze0 = () => this._grip(0, true);
-        this._onSqueezeEnd0 = () => this._grip(0, false);
-        this._onSqueeze1 = () => this._grip(1, true);
-        this._onSqueezeEnd1 = () => this._grip(1, false);
-        this._onSelect0 = () => this._select(0);
-        this._onSelect1 = () => this._select(1);
-        // Capture each controller's XRInputSource so we can read its gamepad
-        // (grip value → hand pose) and handedness (mirrors the hand model).
-        this._onConn0 = (e) => { this._src0 = e.data; this._applyHandedness(0, e.data?.handedness); };
-        this._onDisc0 = () => { this._src0 = null; };
-        this._onConn1 = (e) => { this._src1 = e.data; this._applyHandedness(1, e.data?.handedness); };
-        this._onDisc1 = () => { this._src1 = null; };
+        // One bound handler set per hand, kept so add/removeEventListener pair
+        // up cleanly. `connected` captures the XRInputSource, which is what
+        // gives us the gamepad (grip value → hand pose, thumbstick, buttons)
+        // and the handedness the hand model mirrors itself from.
+        this._handlers = [0, 1].map((hand) => ({
+            squeezestart: () => this._grip(hand, true),
+            squeezeend: () => this._grip(hand, false),
+            select: () => this._select(hand),
+            connected: (e) => {
+                this._sources[hand] = e.data;
+                this._applyHandedness(hand, e.data?.handedness);
+            },
+            disconnected: () => { this._sources[hand] = null; },
+        }));
     }
 
     /** Wire into the renderer's XR lifecycle. Call once (e.g. on full-view mount). */
@@ -113,8 +163,8 @@ export class VRManager {
         if (this._attached) return;
         this._attached = true;
         this._unsubSession = this.avatar.addXRSessionListener({
-            onStart: (ctx) => this._onSessionStart(ctx),
-            onEnd: () => this._onSessionEnd(),
+            onStart: (ctx) => this._enterSession(ctx),
+            onEnd: () => this._leaveSession(),
         });
         this._unsubFrame = this.avatar.addXRFrameCallback((delta, now) => this._update(delta, now));
     }
@@ -122,65 +172,65 @@ export class VRManager {
     detach() {
         if (!this._attached) return;
         this._attached = false;
-        if (this.avatar.isInXR) this._onSessionEnd();
+        if (this.avatar.isInXR) this._leaveSession();
         this._unsubSession?.();
         this._unsubFrame?.();
         this._unsubSession = null;
         this._unsubFrame = null;
     }
 
-    _onSessionStart(ctx) {
+    _enterSession(ctx) {
         const { THREE, renderer, scene } = ctx;
         this.gl = renderer;
         this._scene = scene;
         this._THREE = THREE;
         const xr = renderer.xr;
 
-        // Grip spaces (hand pose/visuals) + target-ray spaces (input events).
-        this.grip0 = xr.getControllerGrip(0);
-        this.grip1 = xr.getControllerGrip(1);
-        this.controller0 = xr.getController(0);
-        this.controller1 = xr.getController(1);
+        for (let hand = 0; hand < 2; hand++) {
+            // Grip space drives hand pose/visuals; the target-ray space is what
+            // raises the input events.
+            this.grips[hand] = xr.getControllerGrip(hand);
+            this.controllers[hand] = xr.getController(hand);
 
-        // Handedness guess (corrected on the input sources' connected events).
-        this.handIndicators[0] = this._makeHand(THREE, "left");
-        this.handIndicators[1] = this._makeHand(THREE, "right");
-        this.grip0.add(this.handIndicators[0]);
-        this.grip1.add(this.handIndicators[1]);
+            // Handedness starts as a guess and is corrected by the `connected`
+            // event, which rebuilds the model mirrored the right way.
+            const model = this._makeHand(THREE, hand === 0 ? "left" : "right");
+            this.handMarkers[hand] = model;
+            this.grips[hand].add(model);
 
-        // Controllers live in the scene; three updates their poses each frame
-        // from the (reference-space-offset) input source poses.
-        scene.add(this.grip0, this.grip1, this.controller0, this.controller1);
+            // Both spaces live in the scene; three re-poses them each frame
+            // from the (reference-space-offset) input source poses.
+            scene.add(this.grips[hand], this.controllers[hand]);
 
-        // Grip = grab (when near a body region) or mute (in open air); see _grip.
-        this.controller0.addEventListener("squeezestart", this._onSqueeze0);
-        this.controller0.addEventListener("squeezeend", this._onSqueezeEnd0);
-        this.controller1.addEventListener("squeezestart", this._onSqueeze1);
-        this.controller1.addEventListener("squeezeend", this._onSqueezeEnd1);
-        this.controller0.addEventListener("select", this._onSelect0);
-        this.controller1.addEventListener("select", this._onSelect1);
-        this.controller0.addEventListener("connected", this._onConn0);
-        this.controller0.addEventListener("disconnected", this._onDisc0);
-        this.controller1.addEventListener("connected", this._onConn1);
-        this.controller1.addEventListener("disconnected", this._onDisc1);
+            // Grip = grab when near a body region, mute in open air (see _grip).
+            for (const [event, fn] of Object.entries(this._handlers[hand])) {
+                this.controllers[hand].addEventListener(event, fn);
+            }
+        }
 
         // Proximity touch → physical + verbal reaction (the headline feature).
-        this.touchDetector = new VRTouchDetector(
-            this.avatar, this.gl, THREE,
-            { controllerGrips: [this.grip0, this.grip1], handIndicators: this.handIndicators },
-            { onTouch: (region) => this._reactToTouch(region, "light") },
+        // The sensor reports contact; the haptic and the reaction policy are
+        // ours, so both stay here rather than inside it.
+        this.touchDetector = new AvatarProximity(
+            this.avatar, THREE,
+            { grips: this.grips, indicators: this.handMarkers },
+            {
+                onContact: (region, boneName, hand) => {
+                    this._buzz(hand, TOUCH_BUZZ_STRENGTH, TOUCH_BUZZ_MS);
+                    this._reactToTouch(region, "light");
+                },
+            },
         );
-        this.touchDetector.enable();
+        this.touchDetector.start();
 
         // Hands are spring-bone colliders: touching hair / chest / clothing
         // physically displaces it (survives avatar swaps — the renderer
         // re-registers the group after each load). Hosted on the GRIP spaces,
         // not the hand meshes, so a handedness rebuild can't destroy them —
         // the grip origin is the fist centre, so no offset is needed.
-        this.avatar.attachSpringBoneColliders?.([
-            { object: this.grip0, radius: HAND_COLLIDER_RADIUS },
-            { object: this.grip1, radius: HAND_COLLIDER_RADIUS },
-        ]);
+        this.avatar.attachSpringBoneColliders?.(
+            this.grips.map((object) => ({ object, radius: HAND_COLLIDER_RADIUS })),
+        );
 
         // Floor reticle for move mode (hidden until the mode is on).
         this._reticle = this._makeReticle(THREE);
@@ -211,7 +261,7 @@ export class VRManager {
         });
         scene.add(this.panel.mesh);
 
-        // Position the companion's voice at her head (presence). No-op outside XR.
+        // Position the companion's voice at their head (presence). No-op outside XR.
         this.voice?.enableSpatialAudio?.();
         // Mic stays in whatever state the flat session had it (live by default);
         // mute is a simple toggle (grip button or the panel), not push-to-talk.
@@ -226,36 +276,49 @@ export class VRManager {
      *  grab/hold). */
     _reactToTouch(region, tier = "light") {
         if (!this.reactionsEnabled) return;
-        const r = TOUCH_REACTIONS[region];
-        if (!r) return;
-        const t = r[tier];
+        const t = TOUCH_REACTIONS[region]?.[tier];
         if (!t) return;
+        // Collapse the two hands' contacts into one reaction (see
+        // REACTION_DEBOUNCE_MS). The buzz already fired per-hand upstream.
+        const now = Date.now();
+        const key = `${region}:${tier}`;
+        if (now - (this._reactedAt.get(key) || 0) < REACTION_DEBOUNCE_MS) return;
+        this._reactedAt.set(key, now);
         this.avatar.setEmotion?.(t.emotion, { explicit: false });
-        // Same Eve/Leo/Ara decay as the dispatcher's set_emotion: their
-        // `happy` squints both eyes shut — settle into `relaxed` after the
-        // reaction beat instead of freezing the pose.
+        // One timer across all reactions, so a second touch inside the settle
+        // window restarts the beat rather than stacking timers that would
+        // fight each other.
         if (this._touchDecayTimer) {
             clearTimeout(this._touchDecayTimer);
             this._touchDecayTimer = null;
         }
-        // Session state only carries the avatar once a call starts — fall
-        // back to the renderer's hydrated payload so pats decay pre-call too.
-        const avatarName = this.voice?.state?.avatar?.name
-            ?? this.avatar._currentAvatarPayload?.name;
-        if (t.emotion === "happy" && isSquintyHappyAvatar(avatarName)) {
+        if (this._shouldSettle(t)) {
             this._touchDecayTimer = setTimeout(() => {
                 this._touchDecayTimer = null;
                 // The agent may have set a different emotion in the meantime
                 // (its own decay timer lives in the dispatcher) — only soften
-                // a still-lingering happy.
-                if (this.avatar._currentEmotion === "happy") {
-                    this.avatar.setEmotion?.("relaxed", { explicit: false });
+                // the expression THIS reaction left behind.
+                if (this.avatar._currentEmotion === t.emotion) {
+                    this.avatar.setEmotion?.(t.settle.to, { explicit: false });
                 }
-            }, 4000);
+            }, t.settle.afterMs);
         }
         const gestureUrl = EMOTION_GESTURE_MAP[t.emotion];
         if (gestureUrl) this.avatar.playGesture?.(gestureUrl);
         this.voice?.sendContextEvent?.(t.text);
+    }
+
+    /** Whether a reaction's expression should soften after its beat. Entries
+     *  flagged `onlyIfSquinty` settle just for the avatars whose blendshape
+     *  makes the held pose look wrong; everything else settles always. */
+    _shouldSettle(t) {
+        if (!t.settle) return false;
+        if (!t.settle.onlyIfSquinty) return true;
+        // Session state only carries the avatar once a call starts — fall
+        // back to the renderer's hydrated payload so pats settle pre-call too.
+        const avatarName = this.voice?.state?.avatar?.name
+            ?? this.avatar._currentAvatarPayload?.name;
+        return isSquintyHappyAvatar(avatarName);
     }
 
     /** Grip button: with ragdoll active, squeezing near the avatar physically
@@ -269,14 +332,14 @@ export class VRManager {
             if (this.ragdoll?.enabled) {
                 const wp = this._handWorldPos(controllerIndex);
                 if (wp && this.ragdoll.tryGrab(controllerIndex, wp)) {
-                    pulseXRController(this.gl, controllerIndex, 1.0, 200);
+                    this._buzz(controllerIndex, 1.0, 200);
                     return;
                 }
             }
-            const near = this.touchDetector?.nearestRegion?.(controllerIndex);
+            const near = this.touchDetector?.probe?.(controllerIndex);
             if (near?.region && near.distance < GRAB_RADIUS) {
                 this._grab = { i: controllerIndex, region: near.region, next: 0 };
-                pulseXRController(this.gl, controllerIndex, 1.0, 200);   // firm grab
+                this._buzz(controllerIndex, 1.0, 200);   // firm grab
                 this._reactToTouch(near.region, "grab");
                 return;
             }
@@ -310,19 +373,23 @@ export class VRManager {
         this.avatar.playGesture?.(g.url, { loop: !!g.loop });
     }
 
-    _onSessionEnd() {
-        for (const c of [this.controller0, this.controller1]) {
-            if (!c) continue;
-            const isC0 = c === this.controller0;
-            c.removeEventListener("squeezestart", isC0 ? this._onSqueeze0 : this._onSqueeze1);
-            c.removeEventListener("squeezeend", isC0 ? this._onSqueezeEnd0 : this._onSqueezeEnd1);
-            c.removeEventListener("select", isC0 ? this._onSelect0 : this._onSelect1);
-            c.removeEventListener("connected", isC0 ? this._onConn0 : this._onConn1);
-            c.removeEventListener("disconnected", isC0 ? this._onDisc0 : this._onDisc1);
+    _leaveSession() {
+        for (let hand = 0; hand < this.controllers.length; hand++) {
+            const controller = this.controllers[hand];
+            if (!controller) continue;
+            for (const [event, fn] of Object.entries(this._handlers[hand])) {
+                controller.removeEventListener(event, fn);
+            }
         }
         this._grab = null;
-        this._src0 = null;
-        this._src1 = null;
+        this._sources = [null, null];
+        // A settle beat left in flight would call setEmotion after the session
+        // is gone, dragging the flat view's expression around seconds later.
+        if (this._touchDecayTimer) {
+            clearTimeout(this._touchDecayTimer);
+            this._touchDecayTimer = null;
+        }
+        this._reactedAt.clear();
         // Physics/placement teardown: unhook the hand colliders from every
         // VRM, drop any ragdoll instantly (animation takes back over), and
         // reset move mode for the next session.
@@ -338,38 +405,49 @@ export class VRManager {
         this._disposeObject(this._reticle);
         this._reticle = null;
         this._hp = [null, null];
-        for (const h of this.handIndicators) this._disposeObject(h);
-        this.handIndicators = [null, null];
-        this.touchDetector?.disable?.();
+        for (const h of this.handMarkers) this._disposeObject(h);
+        this.handMarkers = [null, null];
+        this.touchDetector?.stop?.();
         this.touchDetector = null;
         this.panel?.dispose();
         this.panel = null;
         this.voice?.disableSpatialAudio?.();
         if (this._scene) {
-            for (const o of [this.grip0, this.grip1, this.controller0, this.controller1]) {
+            for (const o of [...this.grips, ...this.controllers]) {
                 if (o) this._scene.remove(o);
             }
         }
-        this.grip0 = this.grip1 = this.controller0 = this.controller1 = null;
+        this.grips = [null, null];
+        this.controllers = [null, null];
         this._scene = null;
         this.gl = null;
+    }
+
+    /**
+     * Rumble one hand. Prefers the XRInputSource captured from the `connected`
+     * event — that binding is authoritative — and falls back to the session's
+     * input source list for the window before the event has landed.
+     */
+    _buzz(hand, strength, ms) {
+        const source = this._sources[hand] || sourceAt(this.gl, hand);
+        return buzz(source, strength, ms);
     }
 
     /** Simple mute toggle (replaces push-to-talk): one press flips the mic. */
     _toggleMute(controllerIndex = 0) {
         const muted = this.voice?.state?.muted;
         this.voice?.setMuted?.(!muted);
-        pulseXRController(this.gl, controllerIndex, 0.4, 80);
+        this._buzz(controllerIndex, 0.4, 80);
     }
 
     /** Trigger: light haptic; the world-space UI gets first refusal, then in
      *  move mode a floor-pointing trigger walks the nearest character to the
      *  aimed spot; otherwise it's an extended-reach touch (Phase 4). */
     _select(controllerIndex) {
-        pulseXRController(this.gl, controllerIndex, 0.8, 150);
+        this._buzz(controllerIndex, 0.8, 150);
         // World-space UI gets first refusal on the trigger; if it consumed the
         // press (a button was hit), don't also fire a touch interaction.
-        const controllerObj = controllerIndex === 0 ? this.controller0 : this.controller1;
+        const controllerObj = this.controllers[controllerIndex];
         if (this.panel?.handleSelect?.(controllerObj)) return;
         if (this.moveMode) {
             // Prefer the triggering hand's own floor hit; fall back to the
@@ -389,12 +467,12 @@ export class VRManager {
                 }
                 if (best && this.avatar.walkActorTo?.(best.id, hit.x, hit.z)) {
                     this._lastMovedActorId = best.id;
-                    pulseXRController(this.gl, controllerIndex, 0.5, 80);
+                    this._buzz(controllerIndex, 0.5, 80);
                 }
                 return;
             }
         }
-        this.touchDetector?.handleTrigger?.(controllerIndex);
+        this.touchDetector?.reachOut?.(controllerIndex);
     }
 
     /** Toggle a panel Options item. Ragdoll enable is async (first use
@@ -436,12 +514,12 @@ export class VRManager {
                 }).finally(() => { this._ragdollBusy = false; });
             }
         }
-        pulseXRController(this.gl, 0, 0.4, 80);
+        this._buzz(0, 0.4, 80);
     }
 
     /** World-space position of a hand grip (reused scratch per hand). */
     _handWorldPos(i) {
-        const grip = i === 0 ? this.grip0 : this.grip1;
+        const grip = this.grips[i];
         if (!grip || !this._THREE) return null;
         const v = (this._hp[i] ||= new this._THREE.Vector3());
         return grip.getWorldPosition(v);
@@ -451,10 +529,10 @@ export class VRManager {
      *  floor hit when it has one, else the left's. Shared by the reticle
      *  preview and the trigger fallback so they can never disagree. */
     _placementHit() {
-        const right = this._src0?.handedness === "right" ? this.controller0
-            : this._src1?.handedness === "right" ? this.controller1
-            : this.controller0;
-        const other = right === this.controller0 ? this.controller1 : this.controller0;
+        const rightHand = this._sources.findIndex((s) => s?.handedness === "right");
+        const primary = rightHand === -1 ? 0 : rightHand;
+        const right = this.controllers[primary];
+        const other = this.controllers[primary === 0 ? 1 : 0];
         const hit = this._floorHit(right);
         if (hit) return hit;
         return this._floorHit(other);
@@ -557,12 +635,12 @@ export class VRManager {
      *  rebuild that hand's model mirrored correctly if we guessed wrong. */
     _applyHandedness(i, handedness) {
         if ((handedness !== "left" && handedness !== "right") || !this._THREE) return;
-        const current = this.handIndicators[i];
+        const current = this.handMarkers[i];
         if (!current || current.userData.handedness === handedness) return;
-        const grip = i === 0 ? this.grip0 : this.grip1;
+        const grip = this.grips[i];
         this._disposeObject(current);
         const fresh = this._makeHand(this._THREE, handedness);
-        this.handIndicators[i] = fresh;
+        this.handMarkers[i] = fresh;
         grip?.add(fresh);
     }
 
@@ -578,7 +656,7 @@ export class VRManager {
 
     _update(delta, now) {
         // The touch detector owns hand-indicator visuals (proximity colour/glow).
-        this.touchDetector?.update?.(delta, now);
+        this.touchDetector?.tick?.();
         // Move mode: live floor reticle + thumbstick-X rotates the
         // last-placed character in place. The reticle follows whichever hand
         // is actually aiming at the floor (right hand wins when both are), so
@@ -589,7 +667,7 @@ export class VRManager {
             this._reticle.visible = !!hit;
             if (hit) this._reticle.position.set(hit.x, 0.01, hit.z);
             let stick = 0;
-            for (const src of [this._src0, this._src1]) {
+            for (const src of this._sources) {
                 const x = src?.gamepad?.axes?.[2] ?? 0;
                 if (Math.abs(x) > Math.abs(stick)) stick = x;
             }
@@ -606,18 +684,20 @@ export class VRManager {
             if (!this._grab.next) this._grab.next = t + HOLD_INTERVAL_MS;
             else if (t >= this._grab.next) {
                 this._grab.next = t + HOLD_INTERVAL_MS;
-                pulseXRController(this.gl, this._grab.i, 0.6, 120);
+                this._buzz(this._grab.i, 0.6, 120);
                 this._reactToTouch(this._grab.region, "hold");
             }
         }
         // Pose each hand's fingers from its grip (squeeze) value → grip animation.
-        this.handIndicators[0]?.userData?.setGrip?.(this._src0?.gamepad?.buttons?.[1]?.value ?? 0);
-        this.handIndicators[1]?.userData?.setGrip?.(this._src1?.gamepad?.buttons?.[1]?.value ?? 0);
+        for (let hand = 0; hand < this.handMarkers.length; hand++) {
+            const squeeze = this._sources[hand]?.gamepad?.buttons?.[1]?.value ?? 0;
+            this.handMarkers[hand]?.userData?.setGrip?.(squeeze);
+        }
 
         if (this.panel) {
             this.panel.update({
                 hmd: this.gl?.xr?.getCamera?.(),   // floats in front of you (not hand-mounted)
-                controllers: [this.controller0, this.controller1],
+                controllers: this.controllers,
             });
         }
         this._checkButtons();
@@ -647,20 +727,20 @@ export class VRManager {
         if (panelBtn && !this._panelBtnDown) {
             this._panelBtnDown = true;
             this.panel?.toggle?.();
-            pulseXRController(this.gl, 0, 0.4, 80);
+            this._buzz(0, 0.4, 80);
         } else if (!panelBtn) {
             this._panelBtnDown = false;
         }
         if (recenter && !this._recenterBtnDown) {
             this._recenterBtnDown = true;
             this.avatar.recenterXR?.();
-            pulseXRController(this.gl, 0, 0.5, 100);
+            this._buzz(0, 0.5, 100);
         } else if (!recenter) {
             this._recenterBtnDown = false;
         }
         if (exit && !this._exitBtnDown) {
             this._exitBtnDown = true;
-            pulseXRController(this.gl, 1, 0.5, 120);
+            this._buzz(1, 0.5, 120);
             this.avatar.exitXR?.();
         } else if (!exit) {
             this._exitBtnDown = false;
