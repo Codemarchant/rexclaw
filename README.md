@@ -262,6 +262,39 @@ an allowed-tools whitelist, and toggles for voice/text sessions.
 How it works: the connection is injected into the session's tool list and
 **xAI's servers call the MCP endpoint directly** — The URL must be **publicly reachable over HTTPS**
 
+## 💰 xAI cost optimisation
+
+- **Voice is billed per minute the call is open, not per minute you talk** —
+  ~$0.05/min on `grok-voice-think-fast-1.0`, ~$0.08/min on 2.0, and **every
+  companion in a group call bills its own connection**, so three in a call is
+  roughly triple the rate whether they're speaking or not. **Muting does not
+  stop it either.** End calls instead of leaving them minimised. (xAI closes a
+  call by itself after 15 minutes with no speech.)
+- **Resuming a conversation costs ~$0.004 per message of unsummarised
+  history**, since it is replayed to xAI to restore the companion's memory.
+  Summarising resets that count — only what has built up since the last
+  summary replays message by message — so a 250-message backlog is about
+  **$1 every resume**.
+
+Two settings cut that second cost:
+
+- **Settings → Context management → Voice summarization threshold** — lower it
+  and conversations summarise more often, so less unsummarised history piles
+  up between resumes. Long-running conversations benefit most. The trade is a
+  few more summary calls, and more of the conversation carried as recap rather
+  than word for word.
+- **Settings → Cost optimization → Roll up older history** — bundles old
+  messages into one instead of hundreds, taking ~$1 to under a cent. Every
+  word is still sent verbatim; only the shape changes, so recall of the
+  bundled part may be slightly softer. Recent turns (20 by default) stay
+  whole. Off by default — recommended if you dip in and out of a conversation
+  for quick exchanges, since short frequent resumes are where replay dominates
+  the bill. On long calls the per-minute charge outweighs it anyway.
+
+Tools (web/X search, MCP, image and video generation), text chats and
+background summarisation bill on top. Real spend:
+[xAI console](https://console.x.ai) · rates: [xAI pricing](https://docs.x.ai/docs/models).
+
 ## 🛠 Development
 
 ```

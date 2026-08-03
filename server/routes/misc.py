@@ -25,6 +25,7 @@ _CONFIG_FIELDS = (
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
     "summary_threshold_tokens", "summary_threshold_tokens_text",
     "summary_keep_recent_messages", "enable_memory_extraction",
+    "replay_rollup_enabled", "replay_rollup_keep_recent",
     "transcript_display_limit",
     "transcript_retention_days", "file_default_expiry_seconds",
 )

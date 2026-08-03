@@ -187,6 +187,19 @@ export default function SettingsView({ active }) {
 
                 <section>
                     <h3><i className="fa fa-compress" /> {_t("Context management")}</h3>
+                    <p className="text-muted">
+                        {_t("A companion can only hold so much of a conversation in mind at "
+                            + "once, so long ones are condensed as they go. Once a conversation "
+                            + "has exceeded summarization threshold tokens since its last "
+                            + "summary, the older part is boiled down into a short recap and "
+                            + "carried forward in its place, while the most recent turns are "
+                            + "kept word for word. Your companion keeps the gist of everything "
+                            + "that came before, and the immediate thread stays sharp. Mid-call "
+                            + "this happens during a natural pause, so it never interrupts you. "
+                            + "Long-term memory and the full transcript stay accessible either "
+                            + "way — condensed conversations are stored as episodes your "
+                            + "companion can look up again with its recall tool.")}
+                    </p>
                     <div className="rx_row">
                         <div>
                             <label>{_t("Voice summarization threshold (tokens)")}</label>
@@ -199,11 +212,69 @@ export default function SettingsView({ active }) {
                                    onChange={(ev) => setField("summary_threshold_tokens_text", parseInt(ev.target.value, 10) || 0)} />
                         </div>
                         <div>
-                            <label>{_t("Recent turns kept verbatim")}</label>
-                            <input type="number" value={config.summary_keep_recent_messages ?? 2}
+                            <label title={_t("How many of the newest messages are left out of the recap "
+                                             + "and carried forward word for word.")}>
+                                {_t("Recent turns kept verbatim")}
+                            </label>
+                            <input type="number" min="0" value={config.summary_keep_recent_messages ?? 2}
                                    onChange={(ev) => setField("summary_keep_recent_messages", parseInt(ev.target.value, 10) || 0)} />
                         </div>
                     </div>
+                </section>
+
+                <section>
+                    <h3><i className="fa fa-tags" /> {_t("Cost optimization")}</h3>
+                    <p className="text-muted">
+                        {_t("When you resume a conversation, its history is sent to xAI to "
+                            + "restore the companion's memory of it — and xAI charges per "
+                            + "message sent, about $0.004 each, no matter how short. A long "
+                            + "relationship costs real money to pick up again: a 250-message "
+                            + "conversation is about $1 every single time you resume it. That "
+                            + "count is not your whole history, though — every summarization "
+                            + "resets it, since the messages it condenses replay as a single "
+                            + "recap. Only what has built up since the last summary is sent "
+                            + "message by message — so the costliest moment to resume is just "
+                            + "before a summary is due, when that backlog is at its largest.")}
+                    </p>
+                    <p className="text-muted">
+                        {_t("Rolling up the history bundles the older messages into one single "
+                            + "message instead of hundreds, taking that $1 down to under a cent. "
+                            + "Nothing is deleted or summarised — every word is still sent, "
+                            + "word for word. What changes is the shape: the bundled part "
+                            + "arrives as one transcript rather than as separate turns, so your "
+                            + "companion may recall it a little less sharply than the turns "
+                            + "kept whole below. Recent turns are what matter most for staying "
+                            + "in character, which is why they are left untouched.")}
+                    </p>
+                    <p className="text-muted">
+                        {_t("Recommended if you dip in and out of a conversation for quick "
+                            + "exchanges: short, frequent resumes are where replaying the "
+                            + "history dominates the bill. On long calls it matters much less, "
+                            + "because the per-minute charge for the call itself outweighs it.")}
+                    </p>
+                    <div className="rx_check">
+                        <input id="rx_replay_rollup" type="checkbox"
+                               checked={!!config.replay_rollup_enabled}
+                               onChange={(ev) => setField("replay_rollup_enabled", ev.target.checked ? 1 : 0)} />
+                        <label htmlFor="rx_replay_rollup">
+                            {_t("Roll up older history when resuming a conversation")}
+                        </label>
+                    </div>
+                    {!!config.replay_rollup_enabled && (
+                        <div className="rx_row">
+                            <div>
+                                <label title={_t("How many of the most recent messages stay as separate turns, "
+                                                 + "exactly as they are sent today. Everything older is bundled. "
+                                                 + "Higher keeps more of the conversation's natural shape and "
+                                                 + "costs a little more; 0 bundles everything.")}>
+                                    {_t("Recent turns kept whole")}
+                                </label>
+                                <input type="number" min="0"
+                                       value={config.replay_rollup_keep_recent ?? 20}
+                                       onChange={(ev) => setField("replay_rollup_keep_recent", parseInt(ev.target.value, 10) || 0)} />
+                            </div>
+                        </div>
+                    )}
                 </section>
 
                 {headset && !headset.external && (

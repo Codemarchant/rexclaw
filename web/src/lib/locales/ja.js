@@ -256,6 +256,24 @@ export const JA = {
   "Voice summarization threshold (tokens)": "音声の要約しきい値（トークン）",
   "Text summarization threshold (tokens)": "テキストの要約しきい値（トークン）",
   "Recent turns kept verbatim": "そのまま残す直近ターン数",
+  "A companion can only hold so much of a conversation in mind at once, so long ones are condensed as they go. Once a conversation has exceeded summarization threshold tokens since its last summary, the older part is boiled down into a short recap and carried forward in its place, while the most recent turns are kept word for word. Your companion keeps the gist of everything that came before, and the immediate thread stays sharp. Mid-call this happens during a natural pause, so it never interrupts you. Long-term memory and the full transcript stay accessible either way — condensed conversations are stored as episodes your companion can look up again with its recall tool.":
+    "コンパニオンが一度に把握できる会話量には限りがあるため、長い会話は進行に合わせて圧縮されます。前回の要約以降、会話が要約しきい値のトークン数を超えると、古い部分は短い要約にまとめられてその代わりに引き継がれ、直近のやり取りはそのままの言葉で保持されます。これにより、コンパニオンはそれまでの流れの要点を保ちつつ、目の前の話題を鮮明に把握できます。通話中は会話の自然な区切りで実行されるため、話の邪魔になることはありません。長期記憶と全文の記録はいずれの場合もアクセス可能です — 圧縮された会話はエピソードとして保存され、コンパニオンは recall ツールで再び参照できます。",
+  "How many of the newest messages are left out of the recap and carried forward word for word.":
+    "要約に含めず、そのままの言葉で引き継ぐ直近メッセージの件数です。",
+
+  // ── Settings: cost optimization ───────────────────────────────────────
+  "Cost optimization": "コスト最適化",
+  "When you resume a conversation, its history is sent to xAI to restore the companion's memory of it — and xAI charges per message sent, about $0.004 each, no matter how short. A long relationship costs real money to pick up again: a 250-message conversation is about $1 every single time you resume it. That count is not your whole history, though — every summarization resets it, since the messages it condenses replay as a single recap. Only what has built up since the last summary is sent message by message — so the costliest moment to resume is just before a summary is due, when that backlog is at its largest.":
+    "会話を再開すると、コンパニオンの記憶を戻すために履歴が xAI に送信されます。xAI は送信されたメッセージ 1 件ごとに、長さに関係なく約 $0.004 を課金します。長い関係を再開するには実際にコストがかかります — 250 メッセージの会話なら、再開するたびに約 $1 です。ただし、この件数は会話の全履歴ではありません。要約が行われるたびにこの件数はリセットされ、まとめられたメッセージは 1 件の要約として再送されるためです。1 件ずつ送信されるのは、前回の要約以降に積み上がった分だけです — したがって、再開のコストが最も高くなるのは、次の要約が行われる直前、この蓄積が最大になっているタイミングです。",
+  "Rolling up the history bundles the older messages into one single message instead of hundreds, taking that $1 down to under a cent. Nothing is deleted or summarised — every word is still sent, word for word. What changes is the shape: the bundled part arrives as one transcript rather than as separate turns, so your companion may recall it a little less sharply than the turns kept whole below. Recent turns are what matter most for staying in character, which is why they are left untouched.":
+    "履歴をまとめると、古いメッセージが数百件ではなく 1 件にまとめられ、この約 $1 が 1 セント未満になります。削除も要約もされず、すべての語句がそのまま送信されます。変わるのは形です — まとめられた部分は個別のやり取りではなく 1 つの記録として届くため、下で指定してそのまま残すターンよりも、コンパニオンの記憶がやや曖昧になる可能性があります。直近のやり取りはキャラクターを保つうえで最も重要なため、手を加えずに残されます。",
+  "Recommended if you dip in and out of a conversation for quick exchanges: short, frequent resumes are where replaying the history dominates the bill. On long calls it matters much less, because the per-minute charge for the call itself outweighs it.":
+    "短いやり取りのために会話を頻繁に開いたり閉じたりする場合におすすめです。短時間の再開を繰り返す使い方では、履歴の再送が料金の大部分を占めます。長時間の通話では、通話自体の分単位の料金の方が大きいため、影響はずっと小さくなります。",
+  "Roll up older history when resuming a conversation":
+    "会話の再開時に古い履歴をまとめる",
+  "Recent turns kept whole": "そのまま残す直近ターン数",
+  "How many of the most recent messages stay as separate turns, exactly as they are sent today. Everything older is bundled. Higher keeps more of the conversation's natural shape and costs a little more; 0 bundles everything.":
+    "直近の何件のメッセージを、現在と同じように個別のやり取りとして送信するかを指定します。それより古いものはまとめられます。大きくすると会話の自然な形がより多く保たれますが、コストはわずかに増えます。0 にするとすべてまとめられます。",
 
   // ── Settings: companions ──────────────────────────────────────────────
   "Companions": "コンパニオン",

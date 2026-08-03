@@ -80,6 +80,16 @@ CREATE TABLE IF NOT EXISTS config (
     -- one conversation episode from the rolled-up block. Off saves one model
     -- call per compaction (only `remember`-tool memories are kept then).
     enable_memory_extraction INTEGER NOT NULL DEFAULT 1,
+    -- Cost optimisation. xAI bills history replay per conversation.item.create
+    -- ($0.004 each, regardless of item size), so resuming a long conversation
+    -- costs real money — a 253-message session measured $1.01 every time it was
+    -- resumed. With this on, everything older than replay_rollup_keep_recent
+    -- messages is folded into ONE verbatim item instead of one item per
+    -- message. Nothing is summarised away, but the folded turns lose their
+    -- per-message role tagging, which may cost some conversational nuance —
+    -- hence opt-in, and hence a verbatim tail that keeps recent turns intact.
+    replay_rollup_enabled INTEGER NOT NULL DEFAULT 0,
+    replay_rollup_keep_recent INTEGER NOT NULL DEFAULT 20,
     transcript_display_limit INTEGER NOT NULL DEFAULT 200,
     transcript_retention_days INTEGER NOT NULL DEFAULT 0,
     file_default_expiry_seconds INTEGER NOT NULL DEFAULT 2592000,
@@ -417,6 +427,11 @@ MIGRATIONS = (
     # still-valid id and re-upload from the local copy only when it lapsed.
     "ALTER TABLE imagine_images ADD COLUMN xai_file_id TEXT",
     "ALTER TABLE imagine_images ADD COLUMN xai_file_expires_at TEXT",
+    # Resume rollup: fold old history into one replayed item to dodge xAI's
+    # per-item replay charge. Off by default — it trades context fidelity for
+    # cost, and existing conversations should not change behaviour on upgrade.
+    "ALTER TABLE config ADD COLUMN replay_rollup_enabled INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN replay_rollup_keep_recent INTEGER NOT NULL DEFAULT 20",
 )
 
 

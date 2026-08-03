@@ -291,6 +291,17 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # parent, and the current call is the relevant grouping.
         if call_parent_session:
             resume_vals['call_parent_session_id'] = call_parent_session['id']
+            # Exactly one session per agent per call. Without this an agent
+            # accumulates links across calls (resume_last picks whichever of
+            # its sessions was most recently active), and since the roster
+            # restore groups by agent_id, a leftover row is indistinguishable
+            # from live membership — which is how a removed companion came
+            # back on the next resume.
+            con.execute(
+                "UPDATE sessions SET call_parent_session_id = NULL "
+                "WHERE agent_id = ? AND call_parent_session_id = ? AND id != ?",
+                (agent['id'], call_parent_session['id'], session_id),
+            )
         store.update_session(con, session_id, **resume_vals)
         session = store.get_session(con, session_id)
     else:
@@ -395,7 +406,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     transcript_history = []
     transcript_truncated = False
     if resume_session:
-        replay_items = _build_replay_items(con, session)
+        replay_items = _build_replay_items(con, session, config)
         transcript_history, transcript_truncated = _build_transcript_history(
             con, session, limit=config['transcript_display_limit'] or 0,
         )
@@ -447,7 +458,105 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     }
 
 
-def _build_replay_items(con, session):
+def _replay_item_for(m, own_name):
+    """One message row → its conversation.item.create payload, or None for
+    rows that cannot replay (tool rows without an xai_call_id — xAI rejects
+    orphaned function_call / function_call_output pairs)."""
+    if m['role'] == 'user':
+        return {
+            'type': 'message',
+            'role': 'user',
+            'content': [{'type': 'input_text', 'text': m['content'] or ''}],
+        }
+    if m['role'] == 'assistant':
+        if m['speaker'] and m['speaker'] != own_name:
+            # Spoken by ANOTHER participant of a group call and mirrored
+            # into this session. Replay it the way it entered this leg's
+            # live context: a speaker-labelled user-side line, so the
+            # model never mistakes a peer's words for its own.
+            return {
+                'type': 'message',
+                'role': 'user',
+                'content': [{'type': 'input_text',
+                             'text': f'[{m["speaker"]}]: {m["content"] or ""}'}],
+            }
+        return {
+            'type': 'message',
+            'role': 'assistant',
+            'content': [{'type': 'text', 'text': m['content'] or ''}],
+        }
+    if m['role'] == 'system':
+        sys_item = {
+            'type': 'message',
+            'role': 'system',
+            'content': [{'type': 'text', 'text': m['content'] or ''}],
+        }
+        # Display-layer hint, stripped by the JS before forwarding to xAI.
+        if m['is_summary_rollup']:
+            sys_item['_summary_rollup'] = True
+        return sys_item
+    if m['role'] == 'tool_call' and m['xai_call_id']:
+        return {
+            'type': 'function_call',
+            'call_id': m['xai_call_id'],
+            'name': m['tool_name'] or '',
+            'arguments': m['tool_arguments_json'] or '{}',
+        }
+    if m['role'] == 'tool_result' and m['xai_call_id']:
+        return {
+            'type': 'function_call_output',
+            'call_id': m['xai_call_id'],
+            'output': m['tool_result_json'] or m['content'] or '',
+        }
+    return None
+
+
+def _render_history_block(msgs, own_name):
+    """Render message rows as one verbatim speaker-labelled transcript.
+
+    Deliberately NOT a summary: every line is carried through in full, so the
+    only thing lost versus per-item replay is the role structure. Tool traffic
+    becomes a short prose note — call_ids are meaningless once the structured
+    function_call/function_call_output pairing is gone.
+    """
+    lines = []
+    for m in msgs:
+        text = (m['content'] or '').strip()
+        role = m['role']
+        if role == 'user':
+            if text:
+                lines.append(f'User: {text}')
+        elif role == 'assistant':
+            speaker = m['speaker'] if (m['speaker'] and m['speaker'] != own_name) else own_name
+            if text:
+                lines.append(f'{speaker or "Assistant"}: {text}')
+        elif role == 'system':
+            if text:
+                lines.append(text if m['is_summary_rollup'] else f'[Note: {text}]')
+        elif role == 'tool_call':
+            args = (m['tool_arguments_json'] or '').strip()
+            lines.append(f'({own_name or "Assistant"} used {m["tool_name"] or "a tool"}'
+                         + (f' with {args}' if args and args != '{}' else '') + ')')
+        elif role == 'tool_result':
+            out = (m['tool_result_json'] or text or '').strip()
+            if out:
+                lines.append(f'(result: {out})')
+    if not lines:
+        return ''
+    return (
+        'The conversation so far, replayed verbatim from the log. This is your '
+        'own memory of what you and the user have already said to each other — '
+        'treat it as established history you both lived through, not as '
+        'something the user is telling you now. Continue naturally from where '
+        'it leaves off; do not greet the user as if meeting them for the first '
+        'time, and do not summarise it back to them.\n\n'
+        'BEGIN CONVERSATION HISTORY\n'
+        + '\n'.join(lines)
+        + '\nEND CONVERSATION HISTORY'
+    )
+
+
+def _build_replay_items(con, session, config=None):
     """Ordered conversation.item.create payloads for resuming a session.
 
     Filters out messages rolled up into a summary; the summary message itself
@@ -455,60 +564,41 @@ def _build_replay_items(con, session):
     order so the model sees background summary before recent verbatim turns.
     Tool rows replay too (function_call / function_call_output pairs by
     call_id); rows missing xai_call_id are skipped — xAI rejects orphans.
+
+    With `replay_rollup_enabled`, everything older than the most recent
+    `replay_rollup_keep_recent` messages is folded into ONE verbatim item, so
+    the resume is billed for a handful of items instead of hundreds. Off (the
+    default), every message replays as its own item exactly as before.
     """
+    config = config if config is not None else get_config(con)
     msgs = store.session_messages(con, session['id'], where="AND is_summarized_into IS NULL")
     rollups = [m for m in msgs if m['is_summary_rollup']]
     others = [m for m in msgs if not m['is_summary_rollup']]
     own_name = store.get_agent(con, session['agent_id'])['name'] or ''
+
+    if config['replay_rollup_enabled']:
+        keep = max(0, config['replay_rollup_keep_recent'] or 0)
+        tail = others[-keep:] if keep else []
+        head = rollups + others[:len(others) - len(tail)]
+        # A function_call must keep its function_call_output: if the split
+        # lands between a pair, push the orphaned call down into the tail.
+        while tail and head and head[-1]['role'] == 'tool_call':
+            tail.insert(0, head.pop())
+    else:
+        head, tail = [], rollups + others
+
     items = []
-    for m in rollups + others:
-        if m['role'] == 'user':
-            items.append({
-                'type': 'message',
-                'role': 'user',
-                'content': [{'type': 'input_text', 'text': m['content'] or ''}],
-            })
-        elif m['role'] == 'assistant':
-            if m['speaker'] and m['speaker'] != own_name:
-                # Spoken by ANOTHER participant of a group call and mirrored
-                # into this session. Replay it the way it entered this leg's
-                # live context: a speaker-labelled user-side line, so the
-                # model never mistakes a peer's words for its own.
-                items.append({
-                    'type': 'message',
-                    'role': 'user',
-                    'content': [{'type': 'input_text',
-                                 'text': f'[{m["speaker"]}]: {m["content"] or ""}'}],
-                })
-            else:
-                items.append({
-                    'type': 'message',
-                    'role': 'assistant',
-                    'content': [{'type': 'text', 'text': m['content'] or ''}],
-                })
-        elif m['role'] == 'system':
-            sys_item = {
-                'type': 'message',
-                'role': 'system',
-                'content': [{'type': 'text', 'text': m['content'] or ''}],
-            }
-            # Display-layer hint, stripped by the JS before forwarding to xAI.
-            if m['is_summary_rollup']:
-                sys_item['_summary_rollup'] = True
-            items.append(sys_item)
-        elif m['role'] == 'tool_call' and m['xai_call_id']:
-            items.append({
-                'type': 'function_call',
-                'call_id': m['xai_call_id'],
-                'name': m['tool_name'] or '',
-                'arguments': m['tool_arguments_json'] or '{}',
-            })
-        elif m['role'] == 'tool_result' and m['xai_call_id']:
-            items.append({
-                'type': 'function_call_output',
-                'call_id': m['xai_call_id'],
-                'output': m['tool_result_json'] or m['content'] or '',
-            })
+    block = _render_history_block(head, own_name)
+    if block:
+        items.append({
+            'type': 'message',
+            'role': 'system',
+            'content': [{'type': 'text', 'text': block}],
+        })
+    for m in tail:
+        item = _replay_item_for(m, own_name)
+        if item is not None:
+            items.append(item)
     return items
 
 
@@ -713,7 +803,20 @@ def end_session(con, session, *, reason='client', total_input_tokens=0, total_ou
     # Deliberate mid-call removal: unlink the leg from its call, so the
     # roster restore on resume doesn't bring the agent back. Membership is
     # exactly "still linked" — no timing heuristics.
+    #
+    # Unlink EVERY session this agent has pointing at the call, not just this
+    # leg's row. The roster restore groups by agent_id, so one stale link is
+    # enough to resurrect a removed companion — and stale links are normal:
+    # an agent joining a call resumes whichever of its sessions was most
+    # recently active, so across calls it accumulates several rows aimed at
+    # the same parent. Clearing only this row left the others to bring the
+    # agent straight back on the next resume.
     if reason == 'removed' and session['call_parent_session_id']:
+        con.execute(
+            "UPDATE sessions SET call_parent_session_id = NULL "
+            "WHERE agent_id = ? AND call_parent_session_id = ?",
+            (session['agent_id'], session['call_parent_session_id']),
+        )
         token_updates['call_parent_session_id'] = None
     store.update_session(con, session['id'], state='ended', ended_at=ended,
                          last_active_at=ended, **token_updates)
