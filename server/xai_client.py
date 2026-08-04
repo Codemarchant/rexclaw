@@ -154,7 +154,7 @@ def edit_image(*, xai_api_key, edits_url, model, prompt,
         'prompt': prompt,
         'response_format': response_format,
     }
-    entries = [{'url': u, 'type': 'image_url'} for u in image_data_uris[:3]]
+    entries = [{'url': u, 'type': 'image_url'} for u in image_data_uris]
     if len(entries) == 1:
         payload['image'] = entries[0]
     else:
@@ -180,7 +180,8 @@ def edit_image(*, xai_api_key, edits_url, model, prompt,
 
 def generate_video(*, xai_api_key, videos_url, model, prompt,
                    mode='generate', image_data_uri=None,
-                   reference_image_data_uris=None, video_data_uri=None,
+                   reference_image_data_uris=None, reference_voice_ids=None,
+                   video_data_uri=None,
                    duration_seconds=None,
                    aspect_ratio=None, resolution=None,
                    poll_interval=2.0, poll_timeout=240):
@@ -236,6 +237,13 @@ def generate_video(*, xai_api_key, videos_url, model, prompt,
         payload['image'] = {'url': image_data_uri}
     if reference_image_data_uris:
         payload['reference_images'] = [{'url': u} for u in reference_image_data_uris]
+    if reference_voice_ids:
+        # Reference audio picks a voice from xAI's built-in TTS roster by id —
+        # uploading your own clip is not supported. Sending this (with or
+        # without reference_images) puts the request in reference-to-video
+        # mode. Regionally gated: outside the enabled set xAI answers
+        # permission_denied, which surfaces to the caller as a UserError.
+        payload['reference_audios'] = [{'voice_id': v} for v in reference_voice_ids]
     if mode != 'edit':
         if duration_seconds:
             payload['duration'] = int(duration_seconds)

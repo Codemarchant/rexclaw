@@ -66,10 +66,10 @@ CREATE TABLE IF NOT EXISTS config (
     multi_agent_model TEXT NOT NULL DEFAULT 'grok-4.20-multi-agent',
     multi_agent_effort TEXT NOT NULL DEFAULT 'low',
     -- Grok Imagine video generation (animated backgrounds + create_video).
-    -- Priced per second. The base model is the default because -1.5 does
-    -- NOT support reference-to-video (the create_video reference_images /
-    -- selfie flow) — it only adds 1080p image-to-video.
-    imagine_video_model TEXT NOT NULL DEFAULT 'grok-imagine-video',
+    -- -1.5 is the default: it carries the current feature set (reference-to-
+    -- video with reference images and preset voices, native 1080p), and the
+    -- plain grok-imagine-video model stopped accepting requests in practice.
+    imagine_video_model TEXT NOT NULL DEFAULT 'grok-imagine-video-1.5',
     default_agent_id INTEGER,
     user_display_name TEXT,
     include_user_name_in_prompt INTEGER NOT NULL DEFAULT 0,
@@ -408,7 +408,7 @@ MIGRATIONS = (
     "ALTER TABLE sessions ADD COLUMN chain_tail_sequence INTEGER NOT NULL DEFAULT 0",
     # Grok Imagine video (animated backgrounds + create_video).
     "ALTER TABLE config ADD COLUMN xai_videos_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/videos/generations'",
-    "ALTER TABLE config ADD COLUMN imagine_video_model TEXT NOT NULL DEFAULT 'grok-imagine-video'",
+    "ALTER TABLE config ADD COLUMN imagine_video_model TEXT NOT NULL DEFAULT 'grok-imagine-video-1.5'",
     # Text-mode image uploads ingested into the Imagine library at upload
     # time — the attachment row keeps a link to its library copy so the
     # refs resurface on replay/resume.

@@ -21,13 +21,15 @@ can speak about and the browser can act on:
 
   - `create_video` mirrors create_image in both modes — the transcript
     surfaces an inline playable clip. Grok Imagine videos carry native audio.
-    Optional params (at most one) reuse the Imagine library:
-    `source_image` (image-to-video: the clip starts FROM that exact frame),
-    `reference_images` (reference-to-video: the people/objects in those
-    images appear in the clip without locking the first frame),
-    `extend_video` (/videos/extensions: continue an existing clip;
-    duration_seconds is the ADDED length), or `edit_video` (/videos/edits:
-    modify an existing clip in place — xAI ignores duration/aspect there).
+    Optional inputs select the mode, one at a time, and each mode accepts a
+    different subset of aspect_ratio / resolution / duration (see the matrix
+    in _execute_video_tool): `source_image` (Image-to-Video: the clip starts
+    FROM that exact frame), `reference_images` and/or `voice_ids`
+    (Reference-to-Video: those subjects and voices appear without locking the
+    first frame — one mode, so they combine), `extend_video`
+    (/videos/extensions: continue an existing clip; duration_seconds is the
+    ADDED length), or `edit_video` (/videos/edits: modify in place, prompt
+    only). Plain Generation takes all three knobs.
 
 Video generation is asynchronous on xAI's side (poll-until-done) and priced
 per second, so durations are capped conservatively here.
@@ -37,12 +39,22 @@ import copy
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from textwrap import dedent
 
 from . import xai_client, store
 from .db import FILES_DIR, get_config, utcnow
 from .errors import UserError
 
 _logger = logging.getLogger(__name__)
+
+# Video output shape — declared above the tool schemas because they enumerate
+# these. xAI defaults `resolution` to 480p when omitted, which looks soft on a
+# full-width transcript clip or a scene backdrop, so we always send one.
+# Whether a given model/mode accepts the requested value is xAI's call: it
+# answers with what is actually available, which beats guessing here.
+_VIDEO_RESOLUTIONS = ('480p', '720p', '1080p')
+_VIDEO_DEFAULT_RESOLUTION = '720p'
+_VIDEO_ASPECT_RATIOS = ('1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3')
 
 
 _CHANGE_BACKGROUND_TOOL = {
@@ -71,8 +83,10 @@ _CHANGE_BACKGROUND_TOOL = {
             'animated': {
                 'type': 'boolean',
                 'description': (
-                    'true = looping video background (slower, costs more); '
-                    'false/omitted = still image (fast, default).'
+                    'Set true ONLY for a looping video background (slower, '
+                    'costs more per second). For a still image — the default '
+                    '— omit this parameter entirely rather than passing a '
+                    'value.'
                 ),
             },
         },
@@ -88,7 +102,7 @@ _CREATE_IMAGE_TOOL = {
         "Imagine library and appears automatically in the transcript as "
         "a clickable thumbnail — NEVER say or write the URL, file name "
         "or link; just react to the result naturally in your own words. "
-        "Optional `source_images` builds the new image FROM up to 3 "
+        "Optional `source_images` builds the new image FROM one or more "
         "Imagine-library entries (pass the image_url or imagine_image_id "
         "a previous tool call or user upload provided) — restyle, remix "
         "or combine them; with multiple sources, reference them in the "
@@ -116,9 +130,11 @@ _CREATE_IMAGE_TOOL = {
                 'type': 'array',
                 'items': {'type': 'string'},
                 'description': (
-                    'Optional, up to 3. image_url (/files/...) or '
+                    'Optional. image_url (/files/...) or '
                     'imagine_image_id values of library images to edit, '
-                    'restyle or combine into the new image.'
+                    'restyle or combine into the new image. Omit this '
+                    'parameter entirely when generating from the prompt '
+                    'alone — never pass a placeholder value.'
                 ),
             },
         },
@@ -129,90 +145,152 @@ _CREATE_IMAGE_TOOL = {
 _CREATE_VIDEO_TOOL = {
     'type': 'function',
     'name': 'create_video',
-    'description': (
-        "Generate a short video clip (with native sound) from a prompt. "
-        "The finished clip appears automatically in the transcript as a "
-        "playable thumbnail — NEVER say or write the URL, file name or "
-        "link; just react to the result naturally in your own words. "
-        "Good for little "
-        "gifts, jokes, and 'show me' moments. Optional ways to build on "
-        "the Imagine library (pass the image_url/video_url or "
-        "imagine_image_id that a previous tool call returned or a user "
-        "upload provided — pick AT MOST ONE of these): "
-        "`source_image` animates that exact image — the clip "
-        "starts from it; `reference_images` makes the people/characters/"
-        "objects from those images appear in the clip without copying the "
-        "framing; `extend_video` continues an existing clip (the prompt "
-        "describes what happens NEXT, duration_seconds is the length of "
-        "the added part); `edit_video` modifies an existing clip while "
-        "keeping the rest intact (the prompt describes the change, e.g. "
-        "'add sunglasses'). When a source/reference image is an avatar "
-        "selfie, match its art style in the prompt — stylized "
-        "anime/cel-shaded 3D, NOT photorealistic — unless the user asks "
-        "for a different style. "
-        "Takes ~30-60 seconds to render and costs a "
-        "few cents per second, so keep clips short and don't spam it. "
-        "Does NOT change the avatar background — use "
-        "change_background(animated=true) for that."
-    ),
+    'description': dedent("""
+        Generate a short video clip (with native sound) from a prompt.
+
+        The finished clip appears automatically in the transcript as a playable
+        thumbnail — NEVER say or write the URL, file name or link; just react
+        to the result naturally in your own words. Good for little gifts,
+        jokes and "show me" moments.
+
+        MODES — the optional inputs select exactly one mode, and each mode
+        accepts only its own extra parameters:
+
+          Generation          nothing extra. Invented from the prompt alone.
+                              Takes aspect_ratio, resolution, duration_seconds.
+
+          Image-to-Video      source_image. The clip STARTS from that exact
+                              frame.
+                              Takes resolution, duration_seconds.
+
+          Reference-to-Video  reference_images and/or voice_ids. Those
+                              subjects and voices appear WITHOUT locking the
+                              opening frame — these two are one mode, so they
+                              are the only pair that may be used together.
+                              Takes aspect_ratio, resolution, duration_seconds.
+
+          Video Editing       edit_video. Changes the clip in place, keeping
+                              the rest intact; the prompt describes the change
+                              ("add sunglasses").
+                              Takes NO other parameters.
+
+          Video Extension     extend_video. Continues the clip; the prompt
+                              describes what happens NEXT.
+                              Takes duration_seconds (the ADDED length) only.
+
+        Library inputs take the image_url / video_url or imagine_image_id that
+        a previous tool call returned or a user upload provided.
+
+        OMIT every parameter you are not using — leave it out of the arguments
+        entirely. Never pass a placeholder like "false", "none" or "" to say
+        you don't want a mode; that reads as selecting it.
+
+        When a source or reference image is an avatar selfie, match its art
+        style in the prompt — stylized anime/cel-shaded 3D, NOT photorealistic
+        — unless the user asks for a different style.
+    """).strip(),
     'parameters': {
         'type': 'object',
         'properties': {
             'prompt': {
                 'type': 'string',
-                'description': (
-                    'What to generate — or, with extend_video, what happens '
-                    'next; with edit_video, the change to make.'
-                ),
+                'description': dedent("""
+                    What to generate.
+                    With extend_video: what happens NEXT in the continued clip.
+                    With edit_video: the change to make, e.g. "add sunglasses".
+                    When reference_images or voice_ids are set, address them
+                    positionally as <IMAGE_0>, <IMAGE_1>, <AUDIO_0>, ... so you
+                    control who does and says what — e.g. "<IMAGE_0> hands the
+                    cup to <IMAGE_1>".
+                """).strip(),
             },
             'duration_seconds': {
                 'type': 'integer',
-                'description': (
-                    'Clip length in seconds, 1-15 (default 8). For '
-                    'extend_video: length of the ADDED portion (default 5). '
-                    'Ignored for edit_video.'
-                ),
+                'description': dedent("""
+                    Clip length in seconds, 1-15 (default 8).
+                    Accepted by Generation, Image-to-Video, Reference-to-Video
+                    and Video Extension — for Extension it is the length of the
+                    ADDED part (default 5), not the total.
+                    Not accepted by Video Editing.
+                """).strip(),
             },
             'source_image': {
                 'type': 'string',
-                'description': (
-                    'Optional. image_url (/files/...) or imagine_image_id '
-                    'of a library image to animate — the video starts from '
-                    'this exact frame.'
-                ),
+                'description': dedent("""
+                    image_url (/files/...) or imagine_image_id of a library
+                    image to animate: the clip starts from this exact frame.
+                    Use ALONE — not with reference_images, voice_ids,
+                    extend_video or edit_video.
+                """).strip(),
             },
             'reference_images': {
                 'type': 'array',
                 'items': {'type': 'string'},
-                'description': (
-                    'Optional, up to 3. image_url (/files/...) or '
-                    'imagine_image_id values of library images whose '
-                    'subjects should appear in the video.'
-                ),
+                'description': dedent("""
+                    image_url (/files/...) or imagine_image_id values whose
+                    people, characters or objects should appear in the clip,
+                    without copying their framing.
+                    Address them in the prompt as <IMAGE_0>, <IMAGE_1>, ... in
+                    the order passed.
+                    May be combined with voice_ids — but not with source_image,
+                    extend_video or edit_video.
+                """).strip(),
+            },
+            'voice_ids': {
+                'type': 'array',
+                'items': {'type': 'string'},
+                'description': dedent("""
+                    xAI voice ids that speak in the clip. Your own voice id is
+                    given in your system prompt — pass it for a clip spoken in
+                    your voice.
+                    Address them in the prompt as <AUDIO_0>, <AUDIO_1>, ... in
+                    the order passed.
+                    May be combined with reference_images — but not with
+                    source_image, extend_video or edit_video.
+                """).strip(),
+            },
+            'aspect_ratio': {
+                'type': 'string',
+                'enum': list(_VIDEO_ASPECT_RATIOS),
+                'description': dedent("""
+                    Shape of the clip (default 16:9). Use 9:16 for phone-style
+                    vertical, 1:1 for square.
+                    Accepted by Generation and Reference-to-Video only.
+                    Not accepted by Image-to-Video (the clip takes the source
+                    image's own shape), Video Editing or Video Extension.
+                """).strip(),
+            },
+            'resolution': {
+                'type': 'string',
+                'enum': list(_VIDEO_RESOLUTIONS),
+                'description': dedent("""
+                    Output quality (default 720p); 480p renders fastest.
+                    Accepted by Generation, Image-to-Video and
+                    Reference-to-Video.
+                    Not accepted by Video Editing or Video Extension.
+                """).strip(),
             },
             'extend_video': {
                 'type': 'string',
-                'description': (
-                    'Optional. video_url (/files/...mp4) or imagine_image_id '
-                    'of a library video to continue — generated clips and '
-                    'user-uploaded videos alike (uploads are ingested into '
-                    'the library; a file_… id never works here). MUTUALLY '
-                    'EXCLUSIVE with edit_video, source_image and '
-                    'reference_images — to continue a clip, set extend_video '
-                    'ALONE.'
-                ),
+                'description': dedent("""
+                    video_url (/files/...mp4) or imagine_image_id of a library
+                    video to continue — generated clips and user uploads alike
+                    (uploads are ingested into the library; a file_… id never
+                    works here).
+                    Use ALONE — not with edit_video, source_image,
+                    reference_images or voice_ids.
+                """).strip(),
             },
             'edit_video': {
                 'type': 'string',
-                'description': (
-                    'Optional. video_url (/files/...mp4) or imagine_image_id '
-                    'of a library video to modify — generated clips and '
-                    'user-uploaded videos alike (uploads are ingested into '
-                    'the library; a file_… id never works here). MUTUALLY '
-                    'EXCLUSIVE with extend_video, source_image and '
-                    'reference_images — to change a clip, set edit_video '
-                    'ALONE.'
-                ),
+                'description': dedent("""
+                    video_url (/files/...mp4) or imagine_image_id of a library
+                    video to modify — generated clips and user uploads alike
+                    (uploads are ingested into the library; a file_… id never
+                    works here).
+                    Use ALONE — not with extend_video, source_image,
+                    reference_images or voice_ids.
+                """).strip(),
             },
         },
         'required': ['prompt'],
@@ -273,7 +351,6 @@ _VIDEO_DEFAULT_SECONDS = 8
 _VIDEO_MAX_SECONDS = 15
 _EXTEND_DEFAULT_SECONDS = 5      # added-portion default for extend_video
 _BACKGROUND_VIDEO_SECONDS = 10   # looping backdrop — fixed, not model-chosen
-_MAX_REFERENCE_IMAGES = 3
 
 _EXT_BY_MIME = {
     'image/jpeg': '.jpg',
@@ -318,19 +395,16 @@ def execute_imagine_tool(con, session, tool_name, arguments):
         return {'error': 'xAI API key is not configured.'}
 
     if tool_name == 'create_video' or (
-            tool_name == 'change_background' and (arguments or {}).get('animated')):
+            tool_name == 'change_background'
+            and _truthy((arguments or {}).get('animated'))):
         return _execute_video_tool(con, session, agent, config, xai_key, tool_name,
                                    prompt, arguments or {})
 
     # create_image from library sources → the images/edits endpoint with
     # data URIs (restyle/remix/combine). Works in both modes and reaches
     # everything in the Imagine library (generated images, selfies, uploads).
-    source_refs = (arguments or {}).get('source_images')
+    source_refs = _library_ref_list((arguments or {}).get('source_images'))
     if tool_name == 'create_image' and source_refs:
-        if not isinstance(source_refs, list):
-            source_refs = [source_refs]
-        if len(source_refs) > _MAX_REFERENCE_IMAGES:
-            return {'error': f'At most {_MAX_REFERENCE_IMAGES} source_images.'}
         source_uris = []
         for ref in source_refs:
             uri, err = _library_image_data_uri(con, ref)
@@ -489,6 +563,48 @@ def ensure_xai_file(con, row):
     return result['file_id']
 
 
+# Models routinely fill in every property a schema advertises rather than
+# omitting the ones they don't want, so an unused mode arrives as the STRING
+# "false" (or "", "null", "none") — all truthy in Python. Left as-is that reads
+# as a third mode being selected and the call is rejected as ambiguous, which
+# the model cannot see how to fix: observed live as an identical retry loop.
+_FALSEY_STRINGS = {'', 'false', 'none', 'null', 'n/a', 'undefined', '0', 'no', 'off'}
+# For a library reference a literal "true" is as meaningless as "false".
+_ABSENT_REF_VALUES = _FALSEY_STRINGS | {'true', 'yes'}
+
+
+def _truthy(value):
+    """Read a boolean property that may arrive as a string.
+
+    A model answering "false" to a boolean must not read as True. For
+    `animated` that would silently swap a still background for a video —
+    billed per second — so this is a cost bug, not just a wrong flag.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() not in _FALSEY_STRINGS
+
+
+def _library_ref(value):
+    """Normalise one optional library reference to its value or None."""
+    if value is None or isinstance(value, bool):
+        return None
+    text = str(value).strip()
+    return None if text.lower() in _ABSENT_REF_VALUES else text
+
+
+def _library_ref_list(value):
+    """Same for the list-valued params, dropping placeholder entries."""
+    if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, list):
+        value = [value]
+    cleaned = [ref for ref in (_library_ref(v) for v in value) if ref]
+    return cleaned or None
+
+
 def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt, arguments):
     """Shared branch for video generation — change_background(animated=true)
     and create_video (plain / image-to-video / reference-to-video). Builds
@@ -498,8 +614,10 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
     mode = 'generate'
     image_data_uri = None
     reference_data_uris = None
+    reference_voice_ids = None
     video_data_uri = None
     aspect_ratio = None
+    resolution = _VIDEO_DEFAULT_RESOLUTION
     if tool_name == 'change_background':
         kind = 'background_video'
         duration = _BACKGROUND_VIDEO_SECONDS
@@ -507,10 +625,15 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
     else:
         kind = 'video'
 
-        source_ref = arguments.get('source_image')
-        reference_refs = arguments.get('reference_images')
-        extend_ref = arguments.get('extend_video')
-        edit_ref = arguments.get('edit_video')
+        aspect_ratio = arguments.get('aspect_ratio') or None
+        resolution = arguments.get('resolution') or resolution
+
+        reference_voice_ids = _library_ref_list(arguments.get('voice_ids'))
+
+        source_ref = _library_ref(arguments.get('source_image'))
+        reference_refs = _library_ref_list(arguments.get('reference_images'))
+        extend_ref = _library_ref(arguments.get('extend_video'))
+        edit_ref = _library_ref(arguments.get('edit_video'))
         picked = [name for name, value in (
             ('source_image', source_ref),
             ('reference_images', reference_refs),
@@ -537,8 +660,6 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         elif reference_refs:
             if not isinstance(reference_refs, list):
                 reference_refs = [reference_refs]
-            if len(reference_refs) > _MAX_REFERENCE_IMAGES:
-                return {'error': f'At most {_MAX_REFERENCE_IMAGES} reference_images.'}
             reference_data_uris = []
             for ref in reference_refs:
                 uri, err = _library_image_data_uri(con, ref)
@@ -551,13 +672,24 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             if err:
                 return {'error': f'extend_video: {err}'}
         elif edit_ref:
-            # xAI ignores duration/aspect/resolution for edits — the output
-            # inherits the input (capped at 720p, ~8.7s max input).
             mode = 'edit'
-            duration = None
             video_data_uri, err = _library_video_data_uri(con, edit_ref)
             if err:
                 return {'error': f'edit_video: {err}'}
+
+        # Each xAI video mode accepts a different subset of the output knobs;
+        # sending one the mode doesn't take is an error, so drop them here
+        # rather than relying on the model to omit them:
+        #   Generation / Reference-to-Video  aspect_ratio, resolution, duration
+        #   Image-to-Video                   resolution, duration
+        #   Video Extension                  duration (of the added part)
+        #   Video Editing                    none — prompt only
+        if mode == 'edit':
+            duration = aspect_ratio = resolution = None
+        elif mode == 'extend':
+            aspect_ratio = resolution = None
+        elif image_data_uri:
+            aspect_ratio = None
 
     try:
         video = xai_client.generate_video(
@@ -568,9 +700,11 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             mode=mode,
             image_data_uri=image_data_uri,
             reference_image_data_uris=reference_data_uris,
+            reference_voice_ids=reference_voice_ids,
             video_data_uri=video_data_uri,
             duration_seconds=duration,
             aspect_ratio=aspect_ratio,
+            resolution=resolution,
         )
         raw_bytes = xai_client.download_video_bytes(video['url'], xai_api_key=xai_key)
     except UserError as e:

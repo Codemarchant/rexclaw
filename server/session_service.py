@@ -137,6 +137,17 @@ def _env_postamble(con, agent_row, mode='voice'):
             "`set_emotion`, `play_gesture`, an avatar, or vocal delivery "
             "through speech expression tags. Respond in text only.\n"
         )
+    if agent_row['enable_grok_imagine_tools'] and agent_row['voice']:
+        # create_video can put a spoken voice in the clip, chosen by id. The
+        # agent has no other way to learn its own — the voice is applied to
+        # the realtime session, never named in the conversation — so state it
+        # here rather than making the tool description guess at examples.
+        sections.append(
+            "## Your voice\n"
+            f"- **Your voice id:** `{agent_row['voice']}`. Pass it in "
+            f"`create_video`'s `voice_ids` when a clip should be spoken in "
+            f"your own voice.\n"
+        )
     if agent_row['enable_memory_tools']:
         sections.append(_memory_section(con, agent_row))
     if not sections:

@@ -232,8 +232,8 @@ export const JA = {
   "Summary model": "要約モデル",
   "Imagine model": "Imagine モデル",
   "Imagine video model": "Imagine 動画モデル",
-  "Grok Imagine video model for animated backgrounds and create_video. Priced per second of video. grok-imagine-video (default) supports reference-to-video — the selfie/reference_images flow; grok-imagine-video-1.5 adds 1080p image-to-video but does NOT support reference-to-video.":
-    "アニメーション背景と create_video 用の Grok Imagine 動画モデル。動画1秒ごとの課金です。grok-imagine-video(既定値)は参照→動画(セルフィー / reference_images フロー)に対応。grok-imagine-video-1.5 は 1080p の画像→動画に対応しますが、参照→動画には対応していません。",
+  "Grok Imagine video model used for animated backgrounds and the create_video tool.":
+    "アニメーション背景と create_video ツールで使用される Grok Imagine 動画モデル。",
   "Animated background": "アニメーション背景",
   "Attach images": "画像を添付",
   "Image upload failed: %s": "画像のアップロードに失敗しました: %s",
