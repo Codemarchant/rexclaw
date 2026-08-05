@@ -10,6 +10,7 @@ import MascotView from "./components/MascotView.jsx";
 import TranscriptWindowView from "./components/TranscriptWindowView.jsx";
 import Toasts from "./components/Toasts.jsx";
 import { uiState, toggleImmersive, MASCOT_MODE, TRANSCRIPT_MODE } from "./lib/ui_state";
+import { startHotkeys } from "./lib/hotkeys";
 import { startTranscriptOwner } from "./services/transcript_sync";
 import { useReactive } from "./lib/reactive";
 import { _t, i18nState } from "./lib/i18n";
@@ -43,6 +44,9 @@ export default function App() {
     useEffect(() => {
         if (!TRANSCRIPT_MODE) startTranscriptOwner();
     }, []);
+    // Keyboard shortcuts: every page instance loads the bindings and listens.
+    // The views register the handlers for the actions they own.
+    useEffect(() => startHotkeys(), []);
     // In immersive mode on the Voice tab, hide the whole header for a pure
     // full-screen avatar. Other tabs always keep their header.
     const hideHeader = ui.immersive && tab === "voice";

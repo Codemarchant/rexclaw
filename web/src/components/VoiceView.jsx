@@ -5,6 +5,7 @@ import { _t } from "../lib/i18n";
 import { useReactive } from "../lib/reactive";
 import { voice, avatarRenderer, notification } from "../services";
 import { uiState, toggleImmersive, exitImmersive } from "../lib/ui_state";
+import { registerHotkeyHandlers } from "../lib/hotkeys";
 import { EMOTIONS, EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
 import { VRManager } from "../vr/vr_manager";
 import AvatarCanvas from "./AvatarCanvas.jsx";
@@ -576,6 +577,49 @@ export default function VoiceView({ active = true }) {
             notification.add(_t("Could not open picture-in-picture: %s", e?.message || e), { type: "danger" });
         }
     };
+
+    // ---- hotkeys -------------------------------------------------------------
+    // The actions this window owns. Handlers are re-assigned on every render
+    // and reached through a ref, so the once-registered wrappers always run
+    // against current session state (same pattern as the tray handlers).
+    // Window placement, the pop-out handoff and — in the desktop shell — the
+    // transcript window belong to the shell; leaving them unregistered here
+    // is what routes them there.
+    const hotkeyHandlers = useRef({});
+    hotkeyHandlers.current = {
+        // Both call keys are toggles: idle → start (their two flavours),
+        // live/connecting → end. See the catalog note in lib/hotkeys.js.
+        "call.startOrResume": () => {
+            if (isLive || isConnecting) endSession();
+            else startCallIfIdle();
+        },
+        "call.startNew": () => {
+            if (isLive || isConnecting) endSession();
+            else startSession();
+        },
+        // Only inside a call: unmuting is what asks for the microphone, and
+        // a permission prompt out of nowhere is a startling way to learn you
+        // fat-fingered a shortcut.
+        "call.toggleMute": () => {
+            if (isLive) voice.setMuted(!voice.state.muted);
+        },
+        "call.screenShare": () => { toggleScreenShare(); },
+        "app.immersive": () => {
+            // Only the Voice tab has an avatar to go full-screen with, so
+            // bring it forward rather than full-screening the settings page.
+            if (!uiState.immersive) uiState.requestedTab = "voice";
+            toggleImmersive();
+        },
+        "app.transcriptWindow": () => openTranscriptWindow(),
+    };
+    useEffect(() => {
+        const ids = ["call.startOrResume", "call.startNew",
+                     "call.toggleMute", "call.screenShare", "app.immersive"];
+        if (!window.rexclawDesktop) ids.push("app.transcriptWindow");
+        return registerHotkeyHandlers(Object.fromEntries(
+            ids.map((id) => [id, () => hotkeyHandlers.current[id]?.()]),
+        ));
+    }, []);
 
     // Desktop VR handoff lands here with #vr in the URL: try to enter the
     // immersive session without another click. Chrome enforces user

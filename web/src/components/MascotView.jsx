@@ -5,6 +5,7 @@ import { useReactive } from "../lib/reactive";
 import { voice, avatarRenderer } from "../services";
 import { screenCapture } from "../lib/screen_capture";
 import { storedOutfit } from "../lib/outfit_pref";
+import { registerHotkeyHandlers } from "../lib/hotkeys";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 
 // Window sizes the ⤢ button cycles through (bottom-right corner anchored by
@@ -19,6 +20,24 @@ const SIZES = [
     { width: 620, height: 900 },
     { width: 760, height: 1100 },
 ];
+
+// The island toggles (ghost, pin, view, size preset) persist across pop-outs:
+// every pop-out is a FRESH page instance, so without storage each one reset
+// to defaults — set ghost mode, pop back in and out, and it was gone.
+// localStorage rather than the shell settings file because the page owns
+// these (same pattern as the outfit + companion prefs); window bounds and
+// "hide controls" are the shell's and already persist on its side.
+const PREFS_KEY = "rexclaw.mascot_prefs";
+
+function loadMascotPrefs() {
+    try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch (e) { return {}; }
+}
+
+function saveMascotPref(patch) {
+    try {
+        localStorage.setItem(PREFS_KEY, JSON.stringify({ ...loadMascotPrefs(), ...patch }));
+    } catch (e) { /* private mode — prefs just won't stick */ }
+}
 
 /** Desktop mascot overlay — the whole (transparent, always-on-top) Electron
  *  window is the avatar plus one floating controls island. This is a fresh
@@ -44,11 +63,20 @@ export default function MascotView() {
     };
     const [agents, setAgents] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState(null);
-    const [pinned, setPinned] = useState(true);
-    const [fullBody, setFullBody] = useState(false);
+    // Toggles hydrate from the persisted prefs so they survive pop-out
+    // cycles. Their side effects are applied by the effects below: ghost has
+    // a [ghost] effect that arms on mount, pin and full-body get a one-shot
+    // mount effect, and sizeIdx needs no apply at all — the shell already
+    // restores the actual window bounds; the index only seeds the next cycle
+    // step and the group-call widening base.
+    const [pinned, setPinned] = useState(() => loadMascotPrefs().pinned !== false);
+    const [fullBody, setFullBody] = useState(() => !!loadMascotPrefs().fullBody);
     // Index 0 matches the shell's MASCOT_DEFAULT_SIZE (380×560).
-    const [sizeIdx, setSizeIdx] = useState(0);
-    const [ghost, setGhost] = useState(false);
+    const [sizeIdx, setSizeIdx] = useState(() => {
+        const idx = Number(loadMascotPrefs().sizeIdx);
+        return Number.isInteger(idx) && idx >= 0 && idx < SIZES.length ? idx : 0;
+    });
+    const [ghost, setGhost] = useState(() => !!loadMascotPrefs().ghost);
     // Tray "Hide avatar controls": the island doesn't render at all — not
     // even on hover. Escape hatches stay in the tray (uncheck it, pop back).
     const [controlsHidden, setControlsHidden] = useState(false);
@@ -65,6 +93,17 @@ export default function MascotView() {
     const isLive = sv.status === "live";
     const isConnecting = sv.status === "connecting";
     const busy = isLive || isConnecting;
+
+    // Apply the restored toggles that need a side effect beyond their state.
+    // The window is created always-on-top, so pin only needs a call when the
+    // remembered value is off; full-body records its flag on the renderer
+    // even before the VRM lands (framing applies once it does). Ghost is
+    // handled by its own [ghost] effect, which arms on mount.
+    useEffect(() => {
+        if (!pinned) window.rexclawDesktop?.setMascotPin?.(false);
+        if (fullBody) avatarRenderer.setFullBodyMode?.(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Group calls: widen the window per extra character (the camera fits
     // the row horizontally, so extra width means bigger characters instead
@@ -279,7 +318,20 @@ export default function MascotView() {
         };
     }, [ghost]);
 
-    const toggleGhost = () => setGhost((prev) => !prev);
+    const toggleGhost = () => {
+        const next = !ghost;
+        setGhost(next);
+        saveMascotPref({ ghost: next });
+    };
+
+    // Tray → "Ghost mode" routes through this page like pop-back does (the
+    // ghost machinery and pref live here). Ref indirection: registered once,
+    // must see the current ghost value.
+    const toggleGhostRef = useRef(toggleGhost);
+    toggleGhostRef.current = toggleGhost;
+    useEffect(() => {
+        window.rexclawDesktop?.onMascotGhostRequest?.(() => toggleGhostRef.current());
+    }, []);
 
     // ---- scroll-to-resize ---------------------------------------------------
     // Face view only: full-body view gives the wheel to OrbitControls
@@ -381,12 +433,14 @@ export default function MascotView() {
     const togglePin = () => {
         const next = !pinned;
         setPinned(next);
+        saveMascotPref({ pinned: next });
         window.rexclawDesktop?.setMascotPin?.(next);
     };
 
     const cycleSize = () => {
         const next = (sizeIdx + 1) % SIZES.length;
         setSizeIdx(next);
+        saveMascotPref({ sizeIdx: next });
         // Apply the group-call widening here too — cycling mid-call used to
         // snap back to the solo preset width and clip the outer characters.
         const base = SIZES[next];
@@ -399,12 +453,87 @@ export default function MascotView() {
             : base);
     };
 
+    // Persist only here — the group-call effect above also flips full-body
+    // on, but that's an automatic camera aid, not a user choice to remember.
     const toggleFullBody = () => {
-        setFullBody((prev) => {
-            avatarRenderer.setFullBodyMode?.(!prev);
-            return !prev;
-        });
+        const next = !fullBody;
+        setFullBody(next);
+        avatarRenderer.setFullBodyMode?.(next);
+        saveMascotPref({ fullBody: next });
     };
+
+    // ---- hotkey call feedback -----------------------------------------------
+    // A hotkey press has no visual echo here: the island only shows on
+    // hover (or not at all with controls hidden), so starting or ending a
+    // call blind felt like nothing happened. Flash a small corner badge for
+    // a few seconds — green "Live" when the call comes up, red "Ended" when
+    // it goes down. Armed by the hotkey handlers and fired on the ACTUAL
+    // status transition, so it confirms the call really changed state, not
+    // merely that the key was seen. Island clicks stay flash-free — the
+    // user is hovering and the island's own status dot is visible.
+    const [flash, setFlash] = useState(null);   // null | "live" | "ended"
+    const flashTimer = useRef(null);
+    const flashArmed = useRef(false);
+    const prevStatus = useRef(sv.status);
+    useEffect(() => {
+        const prev = prevStatus.current;
+        prevStatus.current = sv.status;
+        if (sv.status === prev) return;
+        // Armed by a hotkey press — or by the idle watchdog's hangup, which
+        // deserves the signal even more: it ends the call precisely when the
+        // user is NOT looking at the mascot. (start() clears endReason, so a
+        // watchdog end can't ghost-flash a later transition.)
+        if (!flashArmed.current && sv.endReason !== "inactivity") return;
+        const show = (kind) => {
+            flashArmed.current = false;
+            setFlash(kind);
+            clearTimeout(flashTimer.current);
+            flashTimer.current = setTimeout(() => setFlash(null), 3500);
+        };
+        if (sv.status === "live") show("live");
+        else if (sv.status === "ended" || sv.status === "idle") show("ended");
+        // Errors disarm quietly — the error banner is the feedback there.
+        else if (sv.status === "error") flashArmed.current = false;
+    }, [sv.status]);
+    useEffect(() => () => clearTimeout(flashTimer.current), []);
+
+    // ---- hotkeys -------------------------------------------------------------
+    // While the overlay is out, it is the window that owns the call — the
+    // shell routes the call actions here, plus the overlay's own toggles.
+    // Corners, monitors and the pop-back handoff stay with the shell.
+    // Both call keys are toggles: idle → start, live/connecting → end (see
+    // the catalog note in lib/hotkeys.js).
+    const hotkeyHandlers = useRef({});
+    hotkeyHandlers.current = {
+        "call.startOrResume": () => {
+            flashArmed.current = true;
+            if (busy) voice.end("client");
+            else startOrResume();
+        },
+        "call.startNew": () => {
+            flashArmed.current = true;
+            if (busy) voice.end("client");
+            else voice.start(selectedAgentId);
+        },
+        // In-call only — see the note on VoiceView's copy.
+        "call.toggleMute": () => { if (isLive) voice.setMuted(!voice.state.muted); },
+        "call.screenShare": () => { toggleScreenShare(); },
+        "mascot.ghost": toggleGhost,
+        "mascot.pin": togglePin,
+        "mascot.size": cycleSize,
+        "mascot.fullBody": toggleFullBody,
+        // Persisted shell-side (it also drives the tray checkbox), so flip it
+        // there and let the push update this window's copy.
+        "mascot.controls": () => {
+            window.rexclawDesktop?.setMascotControlsHidden?.(!controlsHidden);
+        },
+    };
+    useEffect(() => registerHotkeyHandlers(Object.fromEntries(
+        ["call.startOrResume", "call.startNew", "call.toggleMute",
+         "call.screenShare", "mascot.ghost", "mascot.pin", "mascot.size",
+         "mascot.fullBody", "mascot.controls"]
+            .map((id) => [id, () => hotkeyHandlers.current[id]?.()]),
+    )), []);
 
     const dismissError = () => {
         voice.state.errorMessage = null;
@@ -496,6 +625,12 @@ export default function MascotView() {
                     <i className="fa fa-window-restore" />
                 </button>
             </div>}
+            {flash && (
+                <div className={"rx_mascot_flash rx_mascot_flash--" + flash} key={flash}>
+                    <span className="rx_mascot_flash_dot" />
+                    {flash === "live" ? _t("Live") : _t("Ended")}
+                </div>
+            )}
             {sv.errorMessage && (
                 <div className="rx_mascot_error" onClick={dismissError} title={_t("Dismiss")}>
                     {sv.errorMessage}

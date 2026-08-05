@@ -90,6 +90,20 @@ CREATE TABLE IF NOT EXISTS config (
     -- hence opt-in, and hence a verbatim tail that keeps recent turns intact.
     replay_rollup_enabled INTEGER NOT NULL DEFAULT 0,
     replay_rollup_keep_recent INTEGER NOT NULL DEFAULT 20,
+    -- Auto-end a voice call after this many minutes with nothing happening
+    -- (nobody spoke or typed, no companion turn, no tool run). xAI bills a
+    -- realtime call by connection time, so a forgotten call is a bill that
+    -- keeps running. 0 disables it. xAI drops a realtime session at 15
+    -- minutes regardless, which is why the UI caps the field there.
+    call_inactivity_minutes INTEGER NOT NULL DEFAULT 5,
+    -- Keyboard shortcuts, as a JSON object of {action_id: "Ctrl+Alt+M"}.
+    -- Empty/NULL means "use the built-in defaults" (web/src/lib/hotkeys.js
+    -- owns the catalog); stored entries override per action, and "" unbinds
+    -- one. hotkeys_global_enabled registers them OS-wide in the desktop app
+    -- (the mascot overlay is normally unfocused, so page-level key handling
+    -- would never see them).
+    hotkeys_json TEXT,
+    hotkeys_global_enabled INTEGER NOT NULL DEFAULT 1,
     transcript_display_limit INTEGER NOT NULL DEFAULT 200,
     transcript_retention_days INTEGER NOT NULL DEFAULT 0,
     file_default_expiry_seconds INTEGER NOT NULL DEFAULT 2592000,
@@ -432,6 +446,10 @@ MIGRATIONS = (
     # cost, and existing conversations should not change behaviour on upgrade.
     "ALTER TABLE config ADD COLUMN replay_rollup_enabled INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE config ADD COLUMN replay_rollup_keep_recent INTEGER NOT NULL DEFAULT 20",
+    # Idle-call auto-hangup + configurable keyboard shortcuts.
+    "ALTER TABLE config ADD COLUMN call_inactivity_minutes INTEGER NOT NULL DEFAULT 5",
+    "ALTER TABLE config ADD COLUMN hotkeys_json TEXT",
+    "ALTER TABLE config ADD COLUMN hotkeys_global_enabled INTEGER NOT NULL DEFAULT 1",
 )
 
 

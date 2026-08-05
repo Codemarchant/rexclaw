@@ -324,6 +324,11 @@ export class AgentConnection {
             input: payload.total_input_tokens || 0,
             output: payload.total_output_tokens || 0,
         };
+        // Idle auto-hangup: the call-level watchdog belongs to the manager,
+        // and only the mic-bearing leg's start carries the user's config.
+        if (this.role === "primary") {
+            this.manager.setInactivityLimit?.(payload.call_inactivity_minutes);
+        }
         // Compact-budget display (see the original singleton for details).
         this._tokensAtLastSummary = payload.tokens_at_last_summary || 0;
         this.state.tokenLimit = payload.summary_threshold_tokens || 0;

@@ -1,5 +1,6 @@
 import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
+import { MASCOT_MODE } from "../lib/ui_state";
 import { makeConversationState } from "../models/conversation_state";
 import {
     AgentConnection,
@@ -55,6 +56,11 @@ const INTER_TURN_PAUSE_MS = 350;
 // non-reasoning model, so typical round-trips are well under a second.
 const DIRECTOR_TIMEOUT_MS = 4000;
 
+// How often the idle-call watchdog looks at the clock. Fine-grained enough
+// that the hangup lands within a few seconds of the configured minute, cheap
+// enough to ignore.
+const INACTIVITY_TICK_MS = 15000;
+
 class VoiceCallService {
     // xAI's accepted PCM sample rates (from the server validator). Browsers
     // can return native rates outside this set on studio-grade hardware
@@ -97,6 +103,14 @@ class VoiceCallService {
         // Set once the chain cap fired and the wrap-up nudge turn was
         // granted — no further agent-to-agent turns until the user speaks.
         this._userTurnNudgeSent = false;
+
+        // ---- idle-call watchdog ----
+        // xAI bills a realtime call by connection time, so a call left open
+        // after everyone stopped talking keeps costing money. Configured in
+        // Settings → Cost optimization; 0 disables it.
+        this._inactivityMinutes = 0;
+        this._lastActivityAt = 0;
+        this._inactivityTimer = null;
 
         // Debug handle, mirroring the renderer's window.__voiceRenderer.
         if (typeof window !== "undefined") {
@@ -324,11 +338,79 @@ class VoiceCallService {
 
     /** Toggle mic mute. Unmuting lazy-prompts for mic permission if needed. */
     async setMuted(muted) {
+        this.noteActivity();
         if (!muted && !this.micProcessor) {
             const ok = await this.startMic();
             if (!ok) return;  // permission denied again; stay muted
         }
         this.state.muted = !!muted;
+    }
+
+    // ------------------------------------------------------------------
+    // Idle-call watchdog
+    // ------------------------------------------------------------------
+    // A call nobody is using still bills by the minute, and the usual way
+    // that happens is that the user simply walks away. Everything that means
+    // "this call is still in use" — someone spoke or typed, a companion took
+    // a turn, a tool ran, the roster changed — pushes the deadline out.
+    // Muting counts as an action, but staying muted does not: a muted call
+    // costs exactly as much as an unmuted one.
+
+    /** Reset the idle countdown. */
+    noteActivity() {
+        this._lastActivityAt = Date.now();
+    }
+
+    /** Adopt the configured idle budget (minutes; 0/absent disables) and arm
+     *  the watchdog. Called at session start with the server's config. */
+    setInactivityLimit(minutes) {
+        const value = Number(minutes);
+        this._inactivityMinutes = Number.isFinite(value) && value > 0 ? value : 0;
+        this.noteActivity();
+        this._stopInactivityWatch();
+        if (!this._inactivityMinutes) return;
+        this._inactivityTimer = setInterval(
+            () => this._checkInactivity(), INACTIVITY_TICK_MS);
+    }
+
+    _stopInactivityWatch() {
+        if (this._inactivityTimer) {
+            clearInterval(this._inactivityTimer);
+            this._inactivityTimer = null;
+        }
+    }
+
+    _checkInactivity() {
+        if (!this._inactivityMinutes) {
+            this._stopInactivityWatch();
+            return;
+        }
+        // Only a live call can go idle: "connecting" hasn't started billing
+        // in earnest, and a terminal one is already over.
+        if (this.state.status !== "live") return;
+        // A companion mid-sentence (or mid-tool-call) is activity even though
+        // no transcript has landed yet — a long monologue must not be cut off.
+        const busy = [...this.connections.values()].some(
+            (c) => !c.isTerminal
+                && (c._responseInFlight || c._pendingToolReply || c._assistantAudioActive()));
+        if (busy) {
+            this.noteActivity();
+            return;
+        }
+        if (Date.now() - this._lastActivityAt < this._inactivityMinutes * 60000) return;
+        const minutes = this._inactivityMinutes;
+        this._stopInactivityWatch();
+        console.log(`[voice] idle for ${minutes} min — ending the call`);
+        // The mascot overlay skips the toast: its corner flash badge is the
+        // feedback there, and a toast box floating over the transparent
+        // window reads as clutter. The main window keeps it.
+        if (!MASCOT_MODE) {
+            this.env.services.notification?.add?.(
+                _t("Call ended after %s minutes with nothing happening.", minutes),
+                { type: "info" },
+            );
+        }
+        this.end("inactivity").catch((e) => console.error("[voice] idle hangup failed", e));
     }
 
     // ------------------------------------------------------------------
@@ -356,6 +438,10 @@ class VoiceCallService {
     }
 
     async start(agentId = null, resumeSessionId = null) {
+        this.noteActivity();
+        // Stale end reasons must not outlive the call they described — the
+        // mascot's flash badge reads it on the NEXT end transition.
+        this.state.endReason = null;
         const ok = await this.primary.start(agentId, resumeSessionId, false);
         // Fire-and-forget: rebuild the group-call roster the resumed
         // session last ended with (the server sends it on resume). Covers
@@ -366,6 +452,10 @@ class VoiceCallService {
     }
 
     async end(reason = "client") {
+        // Observable end reason: lets the UI tell an automatic hangup (the
+        // idle watchdog) from a user-initiated one after the fact.
+        this.state.endReason = reason;
+        this._stopInactivityWatch();
         // Peers go first (their playback stops and the avatars leave the
         // scene), then the primary leg, then the shared capture graph.
         for (const conn of [...this.connections.values()]) {
@@ -381,6 +471,7 @@ class VoiceCallService {
     /** Typed input. Solo calls behave exactly as before; group calls ask
      *  the LLM director who answers, same as spoken input. */
     sendText(text) {
+        this.noteActivity();
         if (!this.hasPeers()) {
             return this.primary.sendText(text);
         }
@@ -410,6 +501,7 @@ class VoiceCallService {
      *  spoken reaction would talk over whichever agent the user actually
      *  addressed (the "wrong agent answers first" failure mode). */
     sendContextEvent(text, opts) {
+        this.noteActivity();
         return this.primary.sendContextEvent(text, {
             promptResponse: !this.hasPeers(),
             ...opts,
@@ -575,6 +667,7 @@ class VoiceCallService {
     }
 
     async addAgentToCall(agentId, agentName = "", { silent = false } = {}) {
+        this.noteActivity();
         const check = this.canAddAgentToCall(agentId);
         if (!check.ok) {
             this.env.services.notification?.add?.(check.reason, { type: "warning" });
@@ -692,6 +785,7 @@ class VoiceCallService {
      *  its avatar leaves the scene). The departure announcement happens in
      *  onConnectionEnded so it also covers legs that die on their own. */
     async removeAgentFromCall(connId) {
+        this.noteActivity();
         const conn = this.connections.get(connId);
         if (!conn || conn.role !== "peer") return;
         // 'removed', not 'client': a deliberate removal unlinks the leg
@@ -807,6 +901,9 @@ class VoiceCallService {
         this._suppressPrimaryOnce = false;
         this._consecutiveAgentTurns = 0;
         this._userTurnNudgeSent = false;
+        // However the call died (End click, ws death, token cap, idle
+        // hangup), there's nothing left to time out.
+        this._stopInactivityWatch();
     }
 
     // ------------------------------------------------------------------
@@ -950,6 +1047,7 @@ class VoiceCallService {
      *  The primary's server-VAD auto-response is held back while the
      *  director deliberates so the answer can come from any leg. */
     onUserTranscript(conn, text) {
+        this.noteActivity();
         if (conn !== this.primary || !this.hasPeers()) return;
         this._directorGeneration++;
         const generation = this._directorGeneration;
@@ -1019,6 +1117,7 @@ class VoiceCallService {
      *  Silence every leg (the primary's own handler already stopped its
      *  local audio) and invalidate any pending director decision. */
     onUserSpeechStarted(conn) {
+        this.noteActivity();
         if (conn !== this.primary) return;
         this._directorGeneration++;
         console.log(`[voice] chatter: VAD speech_started — generation now ${this._directorGeneration} (pending grants invalidated)`);
@@ -1032,6 +1131,7 @@ class VoiceCallService {
     /** A response started on some leg. Consume the one-shot suppression
      *  when the primary auto-responds to a turn that was routed to a peer. */
     onAgentResponseStarted(conn) {
+        this.noteActivity();
         if (conn === this.primary && this._suppressPrimaryOnce) {
             this._suppressPrimaryOnce = false;
             console.log("[voice] suppressing primary auto-response (turn routed to a peer)");
@@ -1044,6 +1144,7 @@ class VoiceCallService {
      *  whether another agent should respond (LLM director, hard chain
      *  cap). */
     onAgentFinalTranscript(conn, text) {
+        this.noteActivity();
         if (!this.hasPeers()) return;
         if (conn.role === "peer") {
             // Display-only mirror: the peer leg already persisted the row

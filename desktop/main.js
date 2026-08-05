@@ -12,7 +12,8 @@
 // If a rexclaw server is already running on the default port (run.sh, PyCharm,
 // Docker), the shell attaches to it instead of spawning a second one — handy
 // for developing the wrapper against a live session.
-const { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain,
+        nativeImage, session, shell } = require("electron");
 const { execFile, spawn } = require("child_process");
 const http = require("http");
 const https = require("https");
@@ -47,6 +48,7 @@ let transcriptWindow = null;     // pop-out transcript mirror (normal window)
 let tray = null;
 let ghostTimer = null;           // mascot ghost mode: cursor feed interval
 let quitting = false;
+let hotkeyAccelerators = [];     // accelerators currently held OS-wide
 
 // ---------------------------------------------------------------------------
 // Shell settings (persisted under userData)
@@ -412,12 +414,16 @@ async function restartServer() {
 // Window
 // ---------------------------------------------------------------------------
 
-function createWindow(port) {
+/** `show:false` is the "open in mascot mode" boot: the app window still
+ *  exists (it owns the pop-back destination, and closing every window quits
+ *  the app) — it just never appears. */
+function createWindow(port, { show = true } = {}) {
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 860,
         minWidth: 720,
         minHeight: 520,
+        show,
         title: "Rexclaw Companions",
         backgroundColor: "#0f172a",
         autoHideMenuBar: true,
@@ -598,19 +604,68 @@ function alignMascot(corner) {
     mascotWindow.setPosition(x, y);
 }
 
+/** Send the mascot to the next display, keeping where it sits WITHIN the
+ *  work area (a bottom-right companion stays bottom-right over there). The
+ *  position is carried as a fraction of the free space rather than as an
+ *  offset, so it survives monitors of different sizes; the last display
+ *  wraps back to the first. No-op with a single monitor. */
+function moveMascotToNextDisplay() {
+    if (!mascotWindow || mascotWindow.isDestroyed()) return;
+    const { screen } = require("electron");
+    const displays = screen.getAllDisplays();
+    if (displays.length < 2) return;
+    const b = mascotWindow.getBounds();
+    const current = screen.getDisplayMatching(b);
+    const idx = displays.findIndex((d) => d.id === current.id);
+    const target = displays[(Math.max(0, idx) + 1) % displays.length].workArea;
+    const wa = current.workArea;
+    const frac = (pos, start, span, size) => (span > size ? Math.min(1, Math.max(0, (pos - start) / (span - size))) : 0);
+    const fx = frac(b.x, wa.x, wa.width, b.width);
+    const fy = frac(b.y, wa.y, wa.height, b.height);
+    mascotWindow.setPosition(
+        Math.round(target.x + fx * Math.max(0, target.width - b.width)),
+        Math.round(target.y + fy * Math.max(0, target.height - b.height)),
+    );
+}
+
+/** Flip the "Hide avatar controls" pin from anywhere (tray, hotkey, the
+ *  mascot page itself) — persist it, push it to the overlay, and keep the
+ *  tray checkbox honest. */
+function setMascotControlsHidden(hidden) {
+    saveSettings({ mascotControlsHidden: !!hidden });
+    if (mascotWindow && !mascotWindow.isDestroyed()) {
+        mascotWindow.webContents.send("mascot-controls-hidden", !!hidden);
+    }
+    rebuildTrayMenu();
+    return !!hidden;
+}
+
 function stopGhostFeed() {
     if (ghostTimer) { clearInterval(ghostTimer); ghostTimer = null; }
+}
+
+/** Tray "Ghost mode" routes through the page (like pop-back): the ghost
+ *  machinery — cursor feed consumption, per-pixel fade, the persisted pref —
+ *  all lives in MascotView, so the shell only asks it to toggle. */
+function requestMascotGhostToggle() {
+    if (mascotWindow && !mascotWindow.isDestroyed()) {
+        mascotWindow.webContents.send("mascot-ghost-request");
+    }
 }
 
 // Ghost mode: the renderer needs a cursor position feed while the window
 // ignores mouse events (a click-through window receives no native mouse
 // events at all) — global polling from the main process is the only source.
 // ~30 Hz, running only while ghost mode is on.
+// ghostTimer doubles as the shell's knowledge of ghost state — the page
+// calls this on every arm/disarm (including the restored-pref arm on
+// mount), so rebuilding the tray here keeps its checkbox honest.
 ipcMain.handle("mascot-ghost", (event, on) => {
     stopGhostFeed();
     if (!mascotWindow || mascotWindow.isDestroyed()) return false;
     if (!on) {
         mascotWindow.setIgnoreMouseEvents(false);
+        rebuildTrayMenu();
         return false;
     }
     const { screen } = require("electron");
@@ -624,6 +679,7 @@ ipcMain.handle("mascot-ghost", (event, on) => {
             inside: p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height,
         });
     }, 33);
+    rebuildTrayMenu();
     return true;
 });
 
@@ -881,21 +937,36 @@ function rebuildTrayMenu() {
         {
             label: "Align avatar",
             enabled: mascotOpen,
-            submenu: ["top-left", "top-right", "bottom-left", "bottom-right"].map((corner) => ({
-                label: corner.replace("-", " "),
-                click: () => alignMascot(corner),
-            })),
+            submenu: [
+                ...["top-left", "top-right", "bottom-left", "bottom-right"].map((corner) => ({
+                    label: corner.replace("-", " "),
+                    click: () => alignMascot(corner),
+                })),
+                { type: "separator" },
+                { label: "Next monitor", click: moveMascotToNextDisplay },
+            ],
+        },
+        {
+            // Especially useful together with "Hide avatar controls" below —
+            // with the island hidden, the tray (and the hotkey) are the only
+            // ways in and out of ghost mode.
+            label: "Ghost mode",
+            type: "checkbox",
+            enabled: mascotOpen,
+            checked: !!ghostTimer,
+            click: requestMascotGhostToggle,
         },
         {
             label: "Hide avatar controls",
             type: "checkbox",
             checked: !!loadSettings().mascotControlsHidden,
-            click: (item) => {
-                saveSettings({ mascotControlsHidden: item.checked });
-                if (mascotWindow && !mascotWindow.isDestroyed()) {
-                    mascotWindow.webContents.send("mascot-controls-hidden", item.checked);
-                }
-            },
+            click: (item) => setMascotControlsHidden(item.checked),
+        },
+        {
+            label: "Open in mascot mode on start",
+            type: "checkbox",
+            checked: !!loadSettings().startInMascot,
+            click: (item) => saveSettings({ startInMascot: item.checked }),
         },
         { type: "separator" },
         { label: "Quit Rexclaw", click: () => app.quit() },
@@ -922,6 +993,115 @@ function createTray() {
     });
     rebuildTrayMenu();
 }
+
+// ---------------------------------------------------------------------------
+// Hotkeys
+// ---------------------------------------------------------------------------
+// The web app owns the catalog and the bindings (web/src/lib/hotkeys.js,
+// stored in the server config); the shell's job is to hold the accelerators
+// OS-wide and put each action in front of the right window. That matters
+// because the mascot overlay is normally unfocused — in ghost mode it can't
+// even be clicked — so page-level key handling would never fire while the
+// user is off working in another app, which is exactly when a desktop
+// companion's shortcuts need to work.
+//
+// Window placement and the pop-out handoff are handled here directly; every
+// other action is forwarded to the window that owns the call, whose view
+// knows how to perform it.
+
+const SHELL_HOTKEY_ACTIONS = {
+    "mascot.toggle": () => (
+        mascotWindow && !mascotWindow.isDestroyed()
+            ? requestMascotPopBack()
+            : requestMascotPopOut()
+    ),
+    "mascot.cornerTopLeft": () => alignMascot("top-left"),
+    "mascot.cornerTopRight": () => alignMascot("top-right"),
+    "mascot.cornerBottomLeft": () => alignMascot("bottom-left"),
+    "mascot.cornerBottomRight": () => alignMascot("bottom-right"),
+    "mascot.nextDisplay": () => moveMascotToNextDisplay(),
+    "app.transcriptWindow": () => createTranscriptWindow(),
+};
+
+function dispatchHotkeyAction(action) {
+    const shellAction = SHELL_HOTKEY_ACTIONS[action];
+    if (shellAction) {
+        shellAction();
+        return true;
+    }
+    // "app.*" is about the main window itself; everything else follows the
+    // call, which lives in the mascot while it is popped out.
+    const target = action.startsWith("app.")
+        ? mainWindow
+        : ((mascotWindow && !mascotWindow.isDestroyed()) ? mascotWindow : mainWindow);
+    if (!target || target.isDestroyed()) return false;
+    target.webContents.send("hotkey-action", action);
+    return true;
+}
+
+/** Replace the OS-wide registration wholesale. An accelerator another
+ *  application already holds comes back in `failed` — Windows gives it to
+ *  whoever asked first, and a shortcut that silently does nothing is worth
+ *  saying out loud in Settings. */
+ipcMain.handle("set-global-hotkeys", (event, list) => {
+    for (const acc of hotkeyAccelerators) {
+        try { globalShortcut.unregister(acc); } catch (e) { /* never registered */ }
+    }
+    hotkeyAccelerators = [];
+    const failed = [];
+    for (const entry of Array.isArray(list) ? list : []) {
+        const accelerator = String((entry && entry.accelerator) || "");
+        const action = String((entry && entry.action) || "");
+        if (!accelerator || !action) continue;
+        try {
+            if (globalShortcut.register(accelerator, () => dispatchHotkeyAction(action))) {
+                hotkeyAccelerators.push(accelerator);
+            } else {
+                failed.push(accelerator);
+            }
+        } catch (e) {
+            // Electron throws on a malformed accelerator rather than
+            // returning false — same outcome for the user either way.
+            failed.push(accelerator);
+        }
+    }
+    return { registered: hotkeyAccelerators.length, failed };
+});
+
+/** In-page path (global shortcuts off, or a plain browser window): the page
+ *  ran what it could and hands the shell-owned actions over. Deliberately
+ *  does NOT fall back to dispatchHotkeyAction — forwarding an unknown action
+ *  back to the renderer that just asked us would loop. */
+ipcMain.handle("run-hotkey-action", (event, action) => {
+    const shellAction = SHELL_HOTKEY_ACTIONS[String(action || "")];
+    if (!shellAction) return false;
+    shellAction();
+    return true;
+});
+
+// "Open in mascot mode": start straight into the desktop overlay, with the
+// app window loaded but hidden behind it.
+ipcMain.handle("startup-mascot-get", () => !!loadSettings().startInMascot);
+
+ipcMain.handle("startup-mascot-set", (event, flag) => {
+    saveSettings({ startInMascot: !!flag });
+    rebuildTrayMenu();
+    return !!flag;
+});
+
+ipcMain.handle("mascot-align", (event, corner) => {
+    const valid = ["top-left", "top-right", "bottom-left", "bottom-right"];
+    if (!valid.includes(corner)) return false;
+    alignMascot(corner);
+    return true;
+});
+
+ipcMain.handle("mascot-next-display", () => {
+    moveMascotToNextDisplay();
+    return true;
+});
+
+ipcMain.handle("mascot-controls-hidden-set", (event, flag) => setMascotControlsHidden(flag));
 
 // Screen-share handoff across the mascot pop-out/in: the leaving window
 // (which is about to lose its MediaStream — streams are per-document) sets
@@ -1063,10 +1243,15 @@ if (!app.requestSingleInstanceLock()) {
                 { useSystemPicker: true },
             );
             headsetAccess = !!loadSettings().headsetAccess;
+            // "Open in mascot mode": boot straight to the desktop overlay.
+            // The app window is still created (hidden) — it is where "pop
+            // back in" lands, and window-all-closed quits the app.
+            const startInMascot = !!loadSettings().startInMascot;
             const port = await ensureServer();
             serverPort = port;
-            createWindow(port);
+            createWindow(port, { show: !startInMascot });
             createTray();
+            if (startInMascot) createMascotWindow(false);
             app.on("activate", () => {   // macOS dock re-activation
                 if (BrowserWindow.getAllWindows().length === 0) createWindow(port);
             });
@@ -1087,5 +1272,8 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     app.on("before-quit", () => { quitting = true; stopServer(); });
+    // Accelerators are held process-wide — hand them back so a restart (or
+    // another app) can claim them again.
+    app.on("will-quit", () => { globalShortcut.unregisterAll(); hotkeyAccelerators = []; });
     process.on("exit", stopServer);
 }

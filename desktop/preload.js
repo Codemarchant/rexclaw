@@ -40,8 +40,27 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     mascotDragStart: () => ipcRenderer.invoke("mascot-drag-start"),
     mascotDragMove: (pos) => ipcRenderer.invoke("mascot-drag-move", pos || {}),
     mascotDragEnd: () => ipcRenderer.invoke("mascot-drag-end"),
-    // Tray "Hide avatar controls" pin — initial value + change pushes.
+    // Snap the overlay to a corner of its current display, or send it to the
+    // next monitor (keeping the corner it sits in).
+    alignMascot: (corner) => ipcRenderer.invoke("mascot-align", corner),
+    mascotNextDisplay: () => ipcRenderer.invoke("mascot-next-display"),
+    // Tray "Hide avatar controls" pin — initial value, setter, change pushes.
     mascotControlsHidden: () => ipcRenderer.invoke("mascot-controls-hidden"),
+    setMascotControlsHidden: (flag) => ipcRenderer.invoke("mascot-controls-hidden-set", !!flag),
+    // "Open in mascot mode": open straight into the desktop overlay at launch.
+    startupMascot: () => ipcRenderer.invoke("startup-mascot-get"),
+    setStartupMascot: (flag) => ipcRenderer.invoke("startup-mascot-set", !!flag),
+    // Hotkeys. setGlobalHotkeys replaces the OS-wide registration wholesale
+    // ([{action, accelerator}]) and resolves {registered, failed};
+    // runHotkeyAction asks the shell to perform the actions it owns (window
+    // placement, the pop-out handoff, the transcript window); onHotkeyAction
+    // receives the ones this window should perform.
+    setGlobalHotkeys: (list) => ipcRenderer.invoke("set-global-hotkeys", list || []),
+    runHotkeyAction: (action) => ipcRenderer.invoke("run-hotkey-action", action),
+    onHotkeyAction: (cb) => {
+        ipcRenderer.removeAllListeners("hotkey-action");
+        ipcRenderer.on("hotkey-action", (event, action) => cb(action));
+    },
     onMascotControlsHidden: (cb) => {
         ipcRenderer.removeAllListeners("mascot-controls-hidden");
         ipcRenderer.on("mascot-controls-hidden", (event, flag) => cb(flag));
@@ -63,5 +82,12 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     onMascotPopbackRequest: (cb) => {
         ipcRenderer.removeAllListeners("mascot-popback-request");
         ipcRenderer.on("mascot-popback-request", () => cb());
+    },
+    // Tray "Ghost mode" → the page toggles (it owns the ghost machinery and
+    // the persisted pref; the shell's checkbox follows via the mascot-ghost
+    // IPC the toggle itself makes).
+    onMascotGhostRequest: (cb) => {
+        ipcRenderer.removeAllListeners("mascot-ghost-request");
+        ipcRenderer.on("mascot-ghost-request", () => cb());
     },
 });

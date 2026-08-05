@@ -466,6 +466,10 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         'total_output_tokens': session['total_output_tokens'] or 0,
         'summary_threshold_tokens': config['summary_threshold_tokens'] or 0,
         'tokens_at_last_summary': session['tokens_at_last_summary'] or 0,
+        # Idle auto-hangup budget (minutes, 0 = off). The browser owns the
+        # clock — it is the side that knows when anyone last spoke, typed or
+        # ran a tool — so the setting rides along with the session start.
+        'call_inactivity_minutes': config['call_inactivity_minutes'] or 0,
     }
 
 

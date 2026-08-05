@@ -230,6 +230,66 @@ body {
         input { width: auto; }
     }
 
+    // ── Hotkey editor ─────────────────────────────────────────────────────
+    .rx_hotkey_group {
+        margin-top: 1rem;
+
+        h4 {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #64748b;
+            margin: 0 0 0.3rem;
+        }
+    }
+
+    .rx_hotkey_row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.4rem 0;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.875rem;
+
+        .rx_hotkey_label {
+            flex: 1;
+            min-width: 0;
+            small { display: block; font-size: 0.75rem; line-height: 1.35; }
+        }
+
+        .rx_hotkey_tag {
+            margin-left: 0.4rem;
+            padding: 0.05rem 0.35rem;
+            border-radius: 0.25rem;
+            background: #e2e8f0;
+            color: #475569;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            vertical-align: 0.1em;
+        }
+
+        // Fixed width so the column of keys reads as a column.
+        .rx_hotkey_key {
+            flex: 0 0 auto;
+            min-width: 8.5rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.8rem;
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+
+            &.is-capturing { border-color: #3b82f6; background: #dbeafe; color: #1d4ed8; }
+            &.is-clashing { border-color: #ef4444; color: #b91c1c; }
+        }
+
+        .rx_hotkey_reset {
+            flex: 0 0 auto;
+            color: #94a3b8;
+            &:disabled { visibility: hidden; }   // keeps the row width steady
+        }
+    }
+
     .rx_memory_row {
         display: flex;
         align-items: baseline;

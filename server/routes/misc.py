@@ -26,6 +26,7 @@ _CONFIG_FIELDS = (
     "summary_threshold_tokens", "summary_threshold_tokens_text",
     "summary_keep_recent_messages", "enable_memory_extraction",
     "replay_rollup_enabled", "replay_rollup_keep_recent",
+    "call_inactivity_minutes", "hotkeys_json", "hotkeys_global_enabled",
     "transcript_display_limit",
     "transcript_retention_days", "file_default_expiry_seconds",
 )

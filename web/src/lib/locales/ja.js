@@ -274,6 +274,74 @@ export const JA = {
   "Recent turns kept whole": "そのまま残す直近ターン数",
   "How many of the most recent messages stay as separate turns, exactly as they are sent today. Everything older is bundled. Higher keeps more of the conversation's natural shape and costs a little more; 0 bundles everything.":
     "直近の何件のメッセージを、現在と同じように個別のやり取りとして送信するかを指定します。それより古いものはまとめられます。大きくすると会話の自然な形がより多く保たれますが、コストはわずかに増えます。0 にするとすべてまとめられます。",
+  "A call bills for as long as it stays connected, whether or not anyone is talking — so the expensive mistake is walking away from one. Rexclaw can hang up for you after a stretch with nothing happening: nobody spoke or typed, no companion took a turn, no tool ran. Muting does not count as leaving, and a companion mid-sentence is never cut off. The conversation is only ended, never lost — resuming picks it straight back up. xAI drops a call at 15 minutes regardless, so anything longer than that would never get the chance to fire. 0 turns it off.":
+    "通話は接続している間ずっと課金され、誰かが話しているかどうかは関係ありません — つまり、通話をそのままにして離席することが最も高くつきます。Rexclaw は、何も起きない状態が続いたあと自動的に通話を終了できます。誰も話さず、入力もせず、コンパニオンの発言もツールの実行もない状態が対象です。ミュートは離席とはみなされず、発言の途中でコンパニオンが打ち切られることもありません。会話は終了されるだけで失われることはなく、再開すればそのまま続きから始まります。なお xAI は 15 分で通話を切断するため、それより長い値を設定しても発動する機会はありません。0 で無効になります。",
+  "End the call after this many idle minutes": "この分数だけ何も起きなければ通話を終了",
+
+  // ── Settings: hotkeys ─────────────────────────────────────────────────
+  "Hotkeys": "ホットキー",
+  "Click a shortcut to record a new one, then press the keys you want. Backspace clears it, Escape keeps what was there. Shortcuts apply once you save.":
+    "ショートカットをクリックしてから使いたいキーを押すと登録されます。Backspace で解除、Escape で変更を取り消します。ショートカットは保存すると有効になります。",
+  "Use these shortcuts system-wide (desktop app)":
+    "これらのショートカットをシステム全体で使う（デスクトップアプリ）",
+  "System-wide shortcuts work while you are in another application — which is the point of the desktop avatar: it floats on top unfocused, so shortcuts it can only see when focused would rarely fire. The cost is that these key combinations stop reaching every other program while Rexclaw runs. Turn this off to have them work only while a Rexclaw window has focus. On some keyboard layouts Ctrl+Alt is how AltGr characters are typed — pick different keys if typing breaks elsewhere.":
+    "システム全体のショートカットは、他のアプリを使っている間でも動作します。デスクトップアバターはフォーカスされないまま最前面に浮かんでいるため、フォーカス時にしか反応しないショートカットではほとんど役に立ちません。その代わり、Rexclaw の起動中はこれらのキーの組み合わせが他のすべてのプログラムに届かなくなります。オフにすると、Rexclaw のウィンドウにフォーカスがあるときだけ動作します。一部のキーボードレイアウトでは Ctrl+Alt が AltGr の入力に使われます — 他のアプリで入力がおかしくなる場合は別のキーを選んでください。",
+  "Another application already owns these shortcuts, so they do nothing here: %s":
+    "これらのショートカットは他のアプリケーションがすでに使用しているため、ここでは動作しません：%s",
+  "This is a browser tab, so shortcuts only work while it has focus, and the avatar-window ones do nothing — they need the desktop app.":
+    "これはブラウザのタブのため、ショートカットはこのタブにフォーカスがあるときのみ動作し、アバターウィンドウ関連の項目は動作しません（デスクトップアプリが必要です）。",
+  "Call": "通話",
+  "Desktop avatar": "デスクトップアバター",
+  "App window": "アプリウィンドウ",
+  "desktop app": "デスクトップアプリ",
+  "Press keys…": "キーを押してください…",
+  "Not set": "未設定",
+  "Click, then press the keys to use": "クリックしてから使いたいキーを押します",
+  "Back to the default (%s)": "デフォルトに戻す（%s）",
+  "Restore default shortcuts": "ショートカットを既定値に戻す",
+  "Another action uses this shortcut — only one of them will run.":
+    "このショートカットは他の操作でも使われています — 実行されるのは一方だけです。",
+  "Without a modifier key this swallows the key in every other application.":
+    "修飾キーがないと、他のすべてのアプリケーションでこのキーが使えなくなります。",
+  "Resume the last call / end the call": "前回の通話を再開／通話を終了",
+  "No call: picks the conversation back up where it left off (or starts fresh when there is nothing to resume). In a call: ends it.":
+    "通話していないとき：前回の続きから会話を再開します（再開できる会話がなければ新しく開始）。通話中：通話を終了します。",
+  "Start a new conversation / end the call": "新しい会話を開始／通話を終了",
+  "No call: begins from scratch, without resuming (and without replaying history to xAI). In a call: ends it.":
+    "通話していないとき：常に最初から始めます（再開せず、履歴を xAI に再送もしません）。通話中：通話を終了します。",
+  "Mute / unmute the microphone": "マイクのミュート切り替え",
+  "Muting does not reduce what xAI charges — a connected call bills by the minute either way.":
+    "ミュートしても xAI の料金は下がりません — 接続中の通話はいずれにせよ分単位で課金されます。",
+  "Start / stop screen sharing": "画面共有の開始／停止",
+  "Picking a screen needs a click, so the first use opens the picker rather than sharing outright.":
+    "画面の選択にはクリックが必要なため、最初は共有ではなく選択画面が開きます。",
+  "Pop the avatar out / back in": "アバターをポップアウト／戻す",
+  "The same handoff as the pop-out button: a live call is ended and resumed in the other window.":
+    "ポップアウトボタンと同じ引き継ぎです。通話中の場合はいったん終了し、もう一方のウィンドウで再開します。",
+  "Ghost mode (clicks pass through)": "ゴーストモード（クリックが背面に通る）",
+  "Show / hide the avatar controls": "アバターの操作パネルを表示／非表示",
+  "Cycle the window size": "ウィンドウサイズを切り替え",
+  "Face view / full body": "顔ビュー／全身ビュー",
+  "Move to the top-left corner": "左上に移動",
+  "Move to the top-right corner": "右上に移動",
+  "Move to the bottom-left corner": "左下に移動",
+  "Move to the bottom-right corner": "右下に移動",
+  "Move to the next monitor": "次のモニターに移動",
+  "Keeps the corner it is parked in; cycles back to the first monitor after the last.":
+    "置かれている位置（隅）は保たれます。最後のモニターの次は最初に戻ります。",
+  "Immersive view (hide all UI)": "没入ビュー（UI をすべて隠す）",
+  "H on its own does the same thing while the Voice tab has focus.":
+    "ボイスタブにフォーカスがあるときは H だけでも同じ操作ができます。",
+  "Open the transcript window": "トランスクリプトウィンドウを開く",
+
+  // ── Settings: desktop app ─────────────────────────────────────────────
+  "Desktop app": "デスクトップアプリ",
+  "Mascot mode is the pop-out avatar: a small transparent always-on-top window with no app chrome around it. Start there and Rexclaw opens as the companion on your desktop rather than as an application window — the full window is still one \"pop back in\" away, from the avatar's controls or the tray icon. Takes effect on the next launch (independent of Save settings).":
+    "マスコットモードとは、ポップアウトしたアバターのことです。アプリの枠がない、小さく透明な最前面ウィンドウとして表示されます。これを有効にすると、Rexclaw はアプリウィンドウではなくデスクトップ上のコンパニオンとして起動します。通常のウィンドウには、アバターの操作パネルかトレイアイコンから「戻す」だけでいつでも切り替えられます。次回の起動から反映されます（「設定を保存」とは独立して適用されます）。",
+  "Open in mascot mode": "マスコットモードで起動する",
+  "Could not save that.": "保存できませんでした。",
+  "Call ended after %s minutes with nothing happening.":
+    "%s 分間なにも操作がなかったため通話を終了しました。",
 
   // ── Settings: companions ──────────────────────────────────────────────
   "Companions": "コンパニオン",

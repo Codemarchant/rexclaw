@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t, i18nState, setLocale, LOCALES } from "../lib/i18n";
+import { applyHotkeys } from "../lib/hotkeys";
+import HotkeysSettings from "./HotkeysSettings.jsx";
 
 /** Settings: global app configuration — BYOK key + models, user identity and
  *  context-management thresholds. Companions and avatar packs have their own
@@ -12,6 +14,10 @@ export default function SettingsView({ active }) {
     const [agents, setAgents] = useState([]);
     const [saving, setSaving] = useState(false);
     const [headset, setHeadset] = useState(null);   // desktop shell only: HTTPS-on-WiFi state
+    const [startInMascot, setStartInMascot] = useState(null);  // desktop shell only
+    // Hotkey overrides, parsed out of config.hotkeys_json for editing and
+    // serialised back on save.
+    const [hotkeys, setHotkeys] = useState({});
 
     const load = async () => {
         try {
@@ -21,6 +27,12 @@ export default function SettingsView({ active }) {
             ]);
             setConfig(cfg);
             setAgents(ags);
+            let parsed = {};
+            try {
+                const raw = cfg.hotkeys_json ? JSON.parse(cfg.hotkeys_json) : null;
+                if (raw && typeof raw === "object") parsed = raw;
+            } catch (e) { /* corrupt blob — fall back to the defaults */ }
+            setHotkeys(parsed);
         } catch (e) {
             notification.add(e?.message || _t("Could not load settings"), { type: "danger" });
         }
@@ -28,13 +40,27 @@ export default function SettingsView({ active }) {
 
     useEffect(() => {
         if (active) load();
-        // Desktop shell only: current headset-access state from the Electron
-        // bridge (null in plain browsers → the section stays hidden).
+        // Desktop shell only: current headset-access + startup-mode state from
+        // the Electron bridge (null in plain browsers → sections stay hidden).
         if (active) {
             window.rexclawDesktop?.headsetInfo?.().then(setHeadset).catch(() => {});
+            window.rexclawDesktop?.startupMascot?.().then((v) => setStartInMascot(!!v)).catch(() => {});
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
+
+    /** Startup mode lives in the shell's own settings file (it has to be
+     *  readable before any window exists), so it applies immediately rather
+     *  than on Save — same as the headset toggle. */
+    const toggleStartInMascot = async (flag) => {
+        setStartInMascot(flag);
+        try {
+            await window.rexclawDesktop.setStartupMascot(flag);
+        } catch (e) {
+            setStartInMascot(!flag);
+            notification.add(e?.message || _t("Could not save that."), { type: "danger" });
+        }
+    };
 
     /** Flip HTTPS-on-WiFi. On success the shell restarts its server and
      *  reloads the window, so this component remounts on the new scheme. */
@@ -59,9 +85,16 @@ export default function SettingsView({ active }) {
             delete payload.api_key_hint;
             delete payload.spend_today_usd;
             delete payload.spend_lifetime_usd;
+            payload.hotkeys_json = JSON.stringify(hotkeys);
             if (apiKeyDraft.trim()) payload.xai_api_key = apiKeyDraft.trim();
             await rpc("/api/config/set", payload);
             setApiKeyDraft("");
+            // Re-bind immediately — including the OS-wide registration, which
+            // only the shell can change.
+            applyHotkeys({
+                bindings: hotkeys,
+                globalEnabled: !!config.hotkeys_global_enabled,
+            });
             notification.add(_t("Settings saved."), { type: "info" });
             load();
         } catch (e) {
@@ -275,7 +308,65 @@ export default function SettingsView({ active }) {
                             </div>
                         </div>
                     )}
+                    <div className="rx_editor_section">
+                        <p className="text-muted">
+                            {_t("A call bills for as long as it stays connected, whether "
+                                + "or not anyone is talking — so the expensive mistake is "
+                                + "walking away from one. Rexclaw can hang up for you "
+                                + "after a stretch with nothing happening: nobody spoke or "
+                                + "typed, no companion took a turn, no tool ran. Muting "
+                                + "does not count as leaving, and a companion mid-sentence "
+                                + "is never cut off. The conversation is only ended, never "
+                                + "lost — resuming picks it straight back up. xAI drops a "
+                                + "call at 15 minutes regardless, so anything longer than "
+                                + "that would never get the chance to fire. 0 turns it off.")}
+                        </p>
+                        <div className="rx_row">
+                            <div>
+                                <label>{_t("End the call after this many idle minutes")}</label>
+                                <input type="number" min="0" max="15"
+                                       value={config.call_inactivity_minutes ?? 5}
+                                       onChange={(ev) => setField(
+                                           "call_inactivity_minutes",
+                                           Math.max(0, Math.min(15, parseInt(ev.target.value, 10) || 0)))} />
+                            </div>
+                            <div />
+                            <div />
+                        </div>
+                    </div>
                 </section>
+
+                <section>
+                    <h3><i className="fa fa-keyboard-o" /> {_t("Hotkeys")}</h3>
+                    <HotkeysSettings
+                        value={hotkeys}
+                        globalEnabled={config.hotkeys_global_enabled}
+                        onChange={setHotkeys}
+                        onGlobalChange={(v) => setField("hotkeys_global_enabled", v)} />
+                </section>
+
+                {startInMascot !== null && (
+                    <section>
+                        <h3><i className="fa fa-desktop" /> {_t("Desktop app")}</h3>
+                        <p className="text-muted">
+                            {_t("Mascot mode is the pop-out avatar: a small transparent "
+                                + "always-on-top window with no app chrome around it. Start "
+                                + "there and Rexclaw opens as the companion on your desktop "
+                                + "rather than as an application window — the full window is "
+                                + "still one \"pop back in\" away, from the avatar's controls "
+                                + "or the tray icon. Takes effect on the next launch "
+                                + "(independent of Save settings).")}
+                        </p>
+                        <div className="rx_check">
+                            <input id="rx_start_mascot" type="checkbox"
+                                   checked={!!startInMascot}
+                                   onChange={(ev) => toggleStartInMascot(ev.target.checked)} />
+                            <label htmlFor="rx_start_mascot">
+                                {_t("Open in mascot mode")}
+                            </label>
+                        </div>
+                    </section>
+                )}
 
                 {headset && !headset.external && (
                     <section>
