@@ -341,18 +341,23 @@ Don't go overboard with reply length — tend toward keeping it short, especiall
 # right crew member without the user naming them.
 AGENT_SEEDS = [
     {"name": "Eve", "voice": "eve", "sequence": 10, "prompt": EVE_PROMPT, "pack": "Eve",
+     "wake": "hey eve",
      "when_to_call": "Junior research assistant — enthusiastic digging, quick lookups, "
                      "brainstorming energy, and general high-caffeine company."},
     {"name": "Ara", "voice": "ara", "sequence": 20, "prompt": ARA_PROMPT, "pack": "Ara",
+     "wake": "hey ara",
      "when_to_call": "Warm, patient guide — call her when the user needs calm support, "
                      "step-by-step explanations, or a steady voice on a stressful day."},
     {"name": "Rex", "voice": "rex", "sequence": 30, "prompt": REX_PROMPT, "pack": "Rex",
+     "wake": "hey rex",
      "when_to_call": "Quartermaster with mission-control comms — terse status reports, "
                      "logistics, keeping a plan on track under pressure."},
     {"name": "Sal", "voice": "sal", "sequence": 40, "prompt": SAL_PROMPT, "pack": "Sal",
+     "wake": "hey sal",
      "when_to_call": "Thoughtful, even-keeled analyst — careful reasoning, second opinions, "
                      "and questions that deserve a slow, watchful answer."},
     {"name": "Leo", "voice": "leo", "sequence": 50, "prompt": LEO_PROMPT, "pack": "Leo",
+     "wake": "hey leo",
      "when_to_call": "Senior stage manager — running an agenda, calling cues, keeping a "
                      "session or event moving with dignified authority."},
 ]
@@ -375,9 +380,10 @@ def seed_if_empty(con):
                             seed["pack"], seed["name"])
         cur = con.execute(
             "INSERT INTO agents (name, sequence, voice, system_prompt, avatar_id,"
-            " when_to_call_description) VALUES (?, ?, ?, ?, ?, ?)",
+            " when_to_call_description, wake_phrase) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (seed["name"], seed["sequence"], seed["voice"], seed["prompt"],
-             avatar["id"] if avatar else None, seed.get("when_to_call")),
+             avatar["id"] if avatar else None, seed.get("when_to_call"),
+             seed.get("wake")),
         )
         if seed["name"] == "Eve":
             default_agent_id = cur.lastrowid

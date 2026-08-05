@@ -334,11 +334,42 @@ export const JA = {
     "ボイスタブにフォーカスがあるときは H だけでも同じ操作ができます。",
   "Open the transcript window": "トランスクリプトウィンドウを開く",
 
+  // ── Settings: voice activation (wake phrases) ─────────────────────────
+  "Voice activation": "音声起動",
+  "Start a call hands-free: with standby listening on, the microphone stays open while no call is live, and saying a companion's wake phrase (set per companion on the Companions tab — e.g. \"hey Eve\") starts one. Detection runs entirely on this machine with a small offline speech model — nothing is sent to xAI and nothing is billed until a call actually starts. The trade-off is an always-on microphone (your OS will show its mic indicator) and the one-time model download below. A soft chime confirms every wake.":
+    "ハンズフリーで通話を開始できます。スタンバイリスニングを有効にすると、通話していない間もマイクが開いたままになり、コンパニオンのウェイクフレーズ（Companions タブでコンパニオンごとに設定 — 例：「ヘイ、イヴ」）を言うと通話が始まります。検出はこのマシン上の小さなオフライン音声モデルだけで行われます — 通話が実際に始まるまで、xAI には何も送信されず、課金も発生しません。その代わり、マイクが常時オンになり（OS のマイクインジケーターが表示されます）、下記のモデルを一度ダウンロードする必要があります。ウェイクのたびに小さなチャイムが鳴って確認できます。",
+  "Standby listening for wake phrases": "ウェイクフレーズのスタンバイリスニング",
+  "Wake phrase language": "ウェイクフレーズの言語",
+  "Language of the offline model that spots the phrases — pick the language you'll SAY them in. Changing it downloads that language's model (~40-50 MB, one-time).":
+    "フレーズを検出するオフラインモデルの言語です — フレーズを「話す」言語を選んでください。変更するとその言語のモデル（約 40〜50 MB、一度だけ）がダウンロードされます。",
+  "Status": "状態",
+  "Not listening": "リスニングしていません",
+  "Listening in another window": "別のウィンドウでリスニング中",
+  "Starting…": "開始しています…",
+  "Downloading speech model… %s%%": "音声モデルをダウンロード中… %s%%",
+  "Loading speech model…": "音声モデルを読み込み中…",
+  "Listening for wake phrases": "ウェイクフレーズを待機中",
+  "Applies when you save. Companions without a wake phrase are simply not listened for.":
+    "保存すると適用されます。ウェイクフレーズのないコンパニオンは単に検出対象になりません。",
+  "Wake phrase (voice activation)": "ウェイクフレーズ（音声起動）",
+  "With standby listening enabled (Settings → Voice activation), saying this phrase while no call is live starts one with this companion. Keep it 2-4 words and distinctive — e.g. 'hey Eve'. Leave empty to opt this companion out.":
+    "スタンバイリスニングが有効なとき（設定 → 音声起動）、通話していない間にこのフレーズを言うと、このコンパニオンとの通話が始まります。2〜4 語の特徴的なフレーズにしてください — 例：「ヘイ、イヴ」。空にするとこのコンパニオンは対象外になります。",
+  "e.g. 'hey %s'": "例：「ヘイ、%s」",
+  "On wake phrase": "ウェイクフレーズを聞いたとき",
+  "Resume the last conversation": "前回の会話を再開",
+  "Start a new conversation": "新しい会話を開始",
+  "End-call tool (hang up on request)": "通話終了ツール（頼まれたら切る）",
+
   // ── Settings: desktop app ─────────────────────────────────────────────
   "Desktop app": "デスクトップアプリ",
   "Mascot mode is the pop-out avatar: a small transparent always-on-top window with no app chrome around it. Start there and Rexclaw opens as the companion on your desktop rather than as an application window — the full window is still one \"pop back in\" away, from the avatar's controls or the tray icon. Takes effect on the next launch (independent of Save settings).":
     "マスコットモードとは、ポップアウトしたアバターのことです。アプリの枠がない、小さく透明な最前面ウィンドウとして表示されます。これを有効にすると、Rexclaw はアプリウィンドウではなくデスクトップ上のコンパニオンとして起動します。通常のウィンドウには、アバターの操作パネルかトレイアイコンから「戻す」だけでいつでも切り替えられます。次回の起動から反映されます（「設定を保存」とは独立して適用されます）。",
   "Open in mascot mode": "マスコットモードで起動する",
+  "Hide the avatar between calls": "通話していない間はアバターを隠す",
+  "In mascot mode, the avatar disappears from the desktop while no call is live and pops back up (without stealing focus) when one starts. Pairs naturally with voice activation: the companion waits dormant and appears when you call their wake phrase. While hidden, the tray icon is the way back — click it or its \"Show Rexclaw\" entry.":
+    "マスコットモードで、通話していない間はアバターがデスクトップから消え、通話が始まると（フォーカスを奪わずに）再び現れます。音声起動と自然に組み合わせられます：コンパニオンは裏で待機し、ウェイクフレーズを呼ぶと現れます。非表示の間はトレイアイコンが戻る手段です — アイコンをクリックするか「Show Rexclaw」を選んでください。",
+  "Applies immediately. With \"hide between calls\" on, standby listening keeps running while the avatar is hidden — say the wake phrase and they appear.":
+    "即時に適用されます。「通話していない間は隠す」が有効でも、アバターが非表示の間もスタンバイリスニングは動き続けます — ウェイクフレーズを言えば現れます。",
   "Could not save that.": "保存できませんでした。",
   "Call ended after %s minutes with nothing happening.":
     "%s 分間なにも操作がなかったため通話を終了しました。",

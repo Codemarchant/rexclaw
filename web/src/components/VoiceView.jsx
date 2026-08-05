@@ -6,6 +6,7 @@ import { useReactive } from "../lib/reactive";
 import { voice, avatarRenderer, notification } from "../services";
 import { uiState, toggleImmersive, exitImmersive } from "../lib/ui_state";
 import { registerHotkeyHandlers } from "../lib/hotkeys";
+import { wakeState } from "../lib/wake_word";
 import { EMOTIONS, EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
 import { VRManager } from "../vr/vr_manager";
 import AvatarCanvas from "./AvatarCanvas.jsx";
@@ -58,6 +59,7 @@ export default function VoiceView({ active = true }) {
     const sv = useReactive(voice.state);
     const ui = useReactive(uiState);
     const scap = useReactive(screenCapture.state);
+    const wk = useReactive(wakeState);
 
     /** Arm/stop screen sharing for the screen-capture tools. Arming must
      *  happen in this click handler — getDisplayMedia needs the gesture. */
@@ -182,6 +184,16 @@ export default function VoiceView({ active = true }) {
         loadHistory();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
+
+    // A wake phrase started a call (lib/wake_word.js owns the start itself) —
+    // sync the agent selector so the UI reflects who answered.
+    useEffect(() => {
+        const t = wk.lastTrigger;
+        if (!t || !agents.some((a) => Number(a.id) === Number(t.agentId))) return;
+        setSelectedAgentId(Number(t.agentId));
+        voice.preferredAgentId = Number(t.agentId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [wk.lastTrigger]);
 
     // Resume handoff from the Sessions tab: pick up the pending request once
     // this view is active. voice.start refuses politely (toast) if a session

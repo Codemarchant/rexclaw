@@ -208,6 +208,8 @@ export class ToolDispatcher {
                 return this._addAgentToCall(args);
             case "remove_agent_from_call":
                 return this._removeAgentFromCall(args);
+            case "end_call":
+                return this._endCall(args);
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }
@@ -525,6 +527,26 @@ export class ToolDispatcher {
             note: "The companion is connecting now and will greet the call in a few "
                 + "seconds. Acknowledge briefly and continue naturally — do not "
                 + "speak on their behalf or wait silently for them.",
+        };
+    }
+
+    /** End the whole call at the user's spoken request. Fire-and-forget
+     *  after the check: the manager waits for the post-tool goodbye (which
+     *  this result explicitly asks for) to finish playing before the call
+     *  actually disconnects — same farewell choreography as a self-removal
+     *  from a group call. */
+    _endCall() {
+        if (!this.callManager?.endCallWhenIdle) {
+            return { ok: false, error: "Ending the call is not available on this surface." };
+        }
+        this.callManager.endCallWhenIdle()
+            .catch((e) => console.error("[voice] end_call failed", e));
+        return {
+            ok: true,
+            status: "ending",
+            note: "The call will disconnect once you finish speaking. Say a "
+                + "brief goodbye in character now — that reply is your last. "
+                + "The conversation is saved and can be resumed later.",
         };
     }
 

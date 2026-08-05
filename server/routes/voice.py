@@ -386,6 +386,10 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
             "id": a["id"],
             "name": a["name"],
             "voice": a["voice"],
+            # Voice activation: the browser's standby listener builds its
+            # grammar from these (lib/wake_word.js).
+            "wake_phrase": a["wake_phrase"] or "",
+            "wake_action": a["wake_action"] or "resume_last",
             "avatar": store.avatar_payload(con, a["avatar_id"]),
             "last_resumable_session": (
                 {

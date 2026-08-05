@@ -230,6 +230,17 @@ body {
         input { width: auto; }
     }
 
+    // Voice-activation status readout — shaped like an input so the row
+    // aligns, but read-only text.
+    .rx_wake_status {
+        padding: 0.45rem 0.6rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.45rem;
+        font-size: 0.875rem;
+        background: #f8fafc;
+        color: #475569;
+    }
+
     // ── Hotkey editor ─────────────────────────────────────────────────────
     .rx_hotkey_group {
         margin-top: 1rem;

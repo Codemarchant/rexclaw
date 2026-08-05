@@ -6,6 +6,7 @@ import { voice, avatarRenderer } from "../services";
 import { screenCapture } from "../lib/screen_capture";
 import { storedOutfit } from "../lib/outfit_pref";
 import { registerHotkeyHandlers } from "../lib/hotkeys";
+import { wakeState } from "../lib/wake_word";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 
 // Window sizes the ⤢ button cycles through (bottom-right corner anchored by
@@ -47,6 +48,7 @@ function saveMascotPref(patch) {
 export default function MascotView() {
     const sv = useReactive(voice.state);
     const scap = useReactive(screenCapture.state);
+    const wk = useReactive(wakeState);
 
     /** Arm/stop screen sharing for the screen-capture tools. Arming must
      *  happen in this click handler — getDisplayMedia needs the gesture. */
@@ -80,6 +82,12 @@ export default function MascotView() {
     // Tray "Hide avatar controls": the island doesn't render at all — not
     // even on hover. Escape hatches stay in the tray (uncheck it, pop back).
     const [controlsHidden, setControlsHidden] = useState(false);
+    // "Hide avatar between calls": the whole overlay window hides while no
+    // call is live and pops back up (without stealing focus) when one
+    // starts — the companion stays dormant behind the scenes, which is the
+    // natural pairing with voice activation. The page keeps running while
+    // hidden, so standby wake-listening keeps working.
+    const [hideIdle, setHideIdle] = useState(false);
     const loadedAvatarId = useRef(null);
     const rootRef = useRef(null);
     const islandRef = useRef(null);
@@ -179,6 +187,8 @@ export default function MascotView() {
         const bridge = window.rexclawDesktop;
         bridge?.mascotControlsHidden?.().then((v) => setControlsHidden(!!v)).catch(() => {});
         bridge?.onMascotControlsHidden?.((v) => setControlsHidden(!!v));
+        bridge?.mascotHideIdle?.().then((v) => setHideIdle(!!v)).catch(() => {});
+        bridge?.onMascotHideIdle?.((v) => setHideIdle(!!v));
     }, []);
 
     // Avatar hydration, minus everything mascot mode suppresses (backgrounds
@@ -479,11 +489,13 @@ export default function MascotView() {
         const prev = prevStatus.current;
         prevStatus.current = sv.status;
         if (sv.status === prev) return;
-        // Armed by a hotkey press — or by the idle watchdog's hangup, which
-        // deserves the signal even more: it ends the call precisely when the
-        // user is NOT looking at the mascot. (start() clears endReason, so a
-        // watchdog end can't ghost-flash a later transition.)
-        if (!flashArmed.current && sv.endReason !== "inactivity") return;
+        // Armed by a hotkey press — or by an automatic hangup (the idle
+        // watchdog, or the companion's own end_call tool), which deserves
+        // the signal even more: those end the call precisely when the user
+        // is NOT looking at the mascot. (start() clears endReason, so an
+        // automatic end can't ghost-flash a later transition.)
+        if (!flashArmed.current
+            && sv.endReason !== "inactivity" && sv.endReason !== "agent") return;
         const show = (kind) => {
             flashArmed.current = false;
             setFlash(kind);
@@ -496,6 +508,40 @@ export default function MascotView() {
         else if (sv.status === "error") flashArmed.current = false;
     }, [sv.status]);
     useEffect(() => () => clearTimeout(flashTimer.current), []);
+
+    // ---- hide between calls -------------------------------------------------
+    // Window visibility follows call state. Show is immediate (a call is
+    // starting — the avatar should be there for it); hide is delayed so the
+    // Ended flash gets its full run first, and re-evaluated whenever the
+    // flash state changes (the flash usually mounts a render after the
+    // status flips, which cancels the short timer and schedules the long
+    // one). The shell shows without focus, so a wake-phrase pop-up never
+    // steals the keyboard from whatever the user is doing.
+    useEffect(() => {
+        const bridge = window.rexclawDesktop;
+        if (!bridge?.setMascotVisible) return;
+        if (!hideIdle || busy) {
+            bridge.setMascotVisible(true);
+            return;
+        }
+        const delay = flash ? 4000 : 800;
+        const t = setTimeout(() => bridge.setMascotVisible(false), delay);
+        return () => clearTimeout(t);
+    }, [busy, hideIdle, flash]);
+
+    // A wake phrase started a call: sync the companion picker and arm the
+    // flash — a voice-started call is exactly as blind as a hotkey-started
+    // one, so the green "Live" badge is its confirmation.
+    useEffect(() => {
+        const t = wk.lastTrigger;
+        if (!t) return;
+        flashArmed.current = true;
+        if (agents.some((a) => Number(a.id) === Number(t.agentId))) {
+            setSelectedAgentId(Number(t.agentId));
+            voice.preferredAgentId = Number(t.agentId);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [wk.lastTrigger]);
 
     // ---- hotkeys -------------------------------------------------------------
     // While the overlay is out, it is the window that owns the call — the

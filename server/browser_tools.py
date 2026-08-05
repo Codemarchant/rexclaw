@@ -154,6 +154,31 @@ RECORD_SCREEN_CLIP_TOOL = {
     },
 }
 
+# Hang up on request. Disconnection is deliberately delayed browser-side
+# until the post-tool spoken reply has fully played out — the goodbye IS the
+# point; cutting it off would feel like the companion hung up on the user.
+END_CALL_TOOL = {
+    "name": "end_call",
+    "description": (
+        "End this voice call. Use ONLY when the user clearly asks to end "
+        "the conversation — \"end the call\", \"hang up\", \"goodnight, "
+        "let's stop here\", \"talk to you later\" — or confirms they are "
+        "done when you ask. Do NOT call it for a mere lull in conversation "
+        "or an ambiguous farewell inside an ongoing topic; when unsure, ask "
+        "first. After the tool returns, say a brief goodbye in character — "
+        "that reply is your last, and the call disconnects once you finish "
+        "speaking. In a group call this ends the WHOLE call for every "
+        "participant; to remove just one companion, use "
+        "remove_agent_from_call instead. The conversation is not lost — "
+        "the user can resume it later and you will remember it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+}
+
 # Built-in gesture ids shipped in web/src/models/avatar_catalog.js. Kept here
 # verbatim so build_play_gesture_tool can produce the right enum without
 # reading the JS.

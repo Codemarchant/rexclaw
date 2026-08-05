@@ -628,6 +628,46 @@ function moveMascotToNextDisplay() {
     );
 }
 
+/** "Hide avatar between calls": persist + push to the overlay page, which
+ *  owns the actual show/hide timing (it knows the call state and lets the
+ *  Ended flash play out before hiding). */
+function setMascotHideIdle(flag) {
+    saveSettings({ mascotHideIdle: !!flag });
+    if (mascotWindow && !mascotWindow.isDestroyed()) {
+        mascotWindow.webContents.send("mascot-hide-idle", !!flag);
+    }
+    rebuildTrayMenu();
+    return !!flag;
+}
+
+/** Show/hide the overlay window without closing it — the page keeps running
+ *  (standby wake-listening included). showInactive: popping up on a wake
+ *  phrase or an incoming call must not steal keyboard focus from whatever
+ *  the user is doing. */
+function setMascotVisible(on) {
+    if (!mascotWindow || mascotWindow.isDestroyed()) return false;
+    if (on) {
+        if (!mascotWindow.isVisible()) {
+            mascotWindow.showInactive();
+            // Windows: the hide()/showInactive() round-trip can drop the
+            // window out of its always-on-top z-order — it "shows", but
+            // buried behind the app the user is working in, which for a
+            // transparent overlay reads as not appearing at all (until a
+            // taskbar click raises it). Re-assert the level and raise
+            // explicitly; moveTop() raises without stealing focus, so this
+            // also covers unpinned mascots for the initial pop-up.
+            if (mascotWindow.isAlwaysOnTop()) {
+                mascotWindow.setAlwaysOnTop(true, "screen-saver");
+            }
+            mascotWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+            mascotWindow.moveTop();
+        }
+    } else if (mascotWindow.isVisible()) {
+        mascotWindow.hide();
+    }
+    return !!on;
+}
+
 /** Flip the "Hide avatar controls" pin from anywhere (tray, hotkey, the
  *  mascot page itself) — persist it, push it to the overlay, and keep the
  *  tray checkbox honest. */
@@ -922,7 +962,14 @@ function rebuildTrayMenu() {
         {
             label: "Show Rexclaw",
             click: () => {
-                if (mascotOpen) { mascotWindow.focus(); return; }
+                if (mascotOpen) {
+                    // A hide-idle mascot may be invisible right now — an
+                    // explicit "Show" brings it back until the next call
+                    // ends (the page re-hides on that transition).
+                    if (!mascotWindow.isVisible()) mascotWindow.show();
+                    mascotWindow.focus();
+                    return;
+                }
                 if (mainWindow && !mainWindow.isDestroyed()) {
                     if (mainWindow.isMinimized()) mainWindow.restore();
                     mainWindow.show();
@@ -963,6 +1010,12 @@ function rebuildTrayMenu() {
             click: (item) => setMascotControlsHidden(item.checked),
         },
         {
+            label: "Hide avatar between calls",
+            type: "checkbox",
+            checked: !!loadSettings().mascotHideIdle,
+            click: (item) => setMascotHideIdle(item.checked),
+        },
+        {
             label: "Open in mascot mode on start",
             type: "checkbox",
             checked: !!loadSettings().startInMascot,
@@ -984,7 +1037,11 @@ function createTray() {
     }
     tray.setToolTip("Rexclaw Companions");
     tray.on("click", () => {
-        if (mascotWindow && !mascotWindow.isDestroyed()) { mascotWindow.focus(); return; }
+        if (mascotWindow && !mascotWindow.isDestroyed()) {
+            if (!mascotWindow.isVisible()) mascotWindow.show();
+            mascotWindow.focus();
+            return;
+        }
         if (mainWindow && !mainWindow.isDestroyed()) {
             if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.show();
@@ -1102,6 +1159,11 @@ ipcMain.handle("mascot-next-display", () => {
 });
 
 ipcMain.handle("mascot-controls-hidden-set", (event, flag) => setMascotControlsHidden(flag));
+
+// "Hide avatar between calls": setting get/set + the page-driven visibility.
+ipcMain.handle("mascot-hide-idle-get", () => !!loadSettings().mascotHideIdle);
+ipcMain.handle("mascot-hide-idle-set", (event, flag) => setMascotHideIdle(flag));
+ipcMain.handle("mascot-visible", (event, on) => setMascotVisible(!!on));
 
 // Screen-share handoff across the mascot pop-out/in: the leaving window
 // (which is about to lose its MediaStream — streams are per-document) sets

@@ -53,6 +53,7 @@ const AGENT_FLAGS = [
     ["enable_code_execution", "Code execution (text)"],
     ["enable_delegate_tool", "Task delegation (delegate_task)"],
     ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)"],
+    ["enable_end_call_tool", "End-call tool (hang up on request)"],
 ];
 
 export default function CompanionsView({ active }) {
@@ -101,6 +102,9 @@ export default function CompanionsView({ active }) {
             enable_multi_agent_delegation: 0,
             enable_call_agents_tool: 1,
             when_to_call_description: "",
+            enable_end_call_tool: 1,
+            wake_phrase: "",
+            wake_action: "resume_last",
             core_memory_cap: 100,
         });
     };
@@ -266,6 +270,24 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
             <textarea rows={2} value={editingAgent.when_to_call_description || ""}
                       placeholder={_t("e.g. 'Sales specialist — call for pricing, quotes, or negotiation roleplay.'")}
                       onChange={(ev) => setEditingAgent({ ...editingAgent, when_to_call_description: ev.target.value })} />
+            <div className="rx_row">
+                <div>
+                    <label title={_t("With standby listening enabled (Settings → Voice activation), saying this phrase while no call is live starts one with this companion. Keep it 2-4 words and distinctive — e.g. 'hey Eve'. Leave empty to opt this companion out.")}>
+                        {_t("Wake phrase (voice activation)")}
+                    </label>
+                    <input type="text" value={editingAgent.wake_phrase || ""}
+                           placeholder={_t("e.g. 'hey %s'", (editingAgent.name || "Eve").toLowerCase())}
+                           onChange={(ev) => setEditingAgent({ ...editingAgent, wake_phrase: ev.target.value })} />
+                </div>
+                <div>
+                    <label>{_t("On wake phrase")}</label>
+                    <select value={editingAgent.wake_action || "resume_last"}
+                            onChange={(ev) => setEditingAgent({ ...editingAgent, wake_action: ev.target.value })}>
+                        <option value="resume_last">{_t("Resume the last conversation")}</option>
+                        <option value="start_new">{_t("Start a new conversation")}</option>
+                    </select>
+                </div>
+            </div>
             <div className="rx_flags">
                 {AGENT_FLAGS.map(([key, label]) => (
                     <span key={key} className="rx_check">

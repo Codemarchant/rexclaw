@@ -3,11 +3,17 @@
 import json
 import logging
 import re
+import shutil
+import tarfile
+import tempfile
+import threading
+import zipfile
+from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends
 
 from .. import memory_tools
-from ..db import utcnow
+from ..db import FILES_DIR, utcnow
 from ..errors import UserError
 from .common import db_con
 
@@ -27,6 +33,7 @@ _CONFIG_FIELDS = (
     "summary_keep_recent_messages", "enable_memory_extraction",
     "replay_rollup_enabled", "replay_rollup_keep_recent",
     "call_inactivity_minutes", "hotkeys_json", "hotkeys_global_enabled",
+    "wake_word_enabled", "wake_word_language",
     "transcript_display_limit",
     "transcript_retention_days", "file_default_expiry_seconds",
 )
@@ -39,6 +46,7 @@ _AGENT_FIELDS = (
     "enable_memory_tools", "core_memory_cap",
     "enable_call_agents_tool", "when_to_call_description",
     "enable_delegate_tool", "enable_multi_agent_delegation",
+    "enable_end_call_tool", "wake_phrase", "wake_action",
 )
 
 
@@ -184,9 +192,10 @@ def agents_restore_presets(payload: dict = Body(default={}), con=Depends(db_con)
         ).fetchone()
         con.execute(
             "INSERT INTO agents (name, sequence, voice, system_prompt, avatar_id,"
-            " when_to_call_description) VALUES (?, ?, ?, ?, ?, ?)",
+            " when_to_call_description, wake_phrase) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (seed["name"], seed["sequence"], seed["voice"], seed["prompt"],
-             avatar["id"] if avatar else None, seed.get("when_to_call")),
+             avatar["id"] if avatar else None, seed.get("when_to_call"),
+             seed.get("wake")),
         )
         restored.append(seed["name"])
     con.commit()
@@ -468,3 +477,121 @@ def imagine_list(payload: dict = Body(default={}), con=Depends(db_con)):
         }
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Wake-word model management (voice activation)
+# ---------------------------------------------------------------------------
+# The browser spots wake phrases locally with a Vosk model (vosk-browser
+# WASM) — keeping standby listening offline and unbilled. Models are ~40-50MB
+# per language, so they are fetched once server-side from alphacephei.com and
+# converted zip → tar.gz (the format vosk-browser loads), then served
+# same-origin under /files/wake_models/. Download runs in a background thread;
+# the UI polls /wake/model/status.
+
+WAKE_MODELS = {
+    "en": "vosk-model-small-en-us-0.15",
+    "ja": "vosk-model-small-ja-0.22",
+    "de": "vosk-model-small-de-0.15",
+    "fr": "vosk-model-small-fr-0.22",
+    "es": "vosk-model-small-es-0.42",
+    "zh": "vosk-model-small-cn-0.22",
+    "ru": "vosk-model-small-ru-0.22",
+    "pt": "vosk-model-small-pt-0.3",
+}
+_WAKE_MODELS_DIR = FILES_DIR / "wake_models"
+# lang → {"state": "downloading"|"error", "progress": float, "error": str}
+_wake_jobs = {}
+_wake_lock = threading.Lock()
+
+
+def _wake_model_path(lang):
+    return _WAKE_MODELS_DIR / f"{lang}.tar.gz"
+
+
+def _wake_download(lang, model_name):
+    """Background worker: fetch the model zip and repack it as tar.gz."""
+    import requests
+
+    url = f"https://alphacephei.com/vosk/models/{model_name}.zip"
+    try:
+        _WAKE_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=str(_WAKE_MODELS_DIR)) as tmp:
+            tmp = Path(tmp)
+            zip_path = tmp / "model.zip"
+            with requests.get(url, stream=True, timeout=60) as resp:
+                resp.raise_for_status()
+                total = int(resp.headers.get("content-length") or 0)
+                done = 0
+                with open(zip_path, "wb") as fh:
+                    for chunk in resp.iter_content(chunk_size=1 << 18):
+                        fh.write(chunk)
+                        done += len(chunk)
+                        if total:
+                            with _wake_lock:
+                                job = _wake_jobs.get(lang)
+                                if job:
+                                    # Cap at 0.9 — the repack below is the rest.
+                                    job["progress"] = 0.9 * done / total
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(tmp / "unpacked")
+            # The zip contains one top-level model directory — keep that
+            # directory name in the tar so vosk-browser finds the model root.
+            roots = [p for p in (tmp / "unpacked").iterdir() if p.is_dir()]
+            if not roots:
+                raise RuntimeError("model archive had no directory inside")
+            out_tmp = tmp / "model.tar.gz"
+            with tarfile.open(out_tmp, "w:gz") as tf:
+                tf.add(roots[0], arcname=roots[0].name)
+            # Atomic-ish move into place; replace() so a re-download updates.
+            shutil.move(str(out_tmp), str(_wake_model_path(lang)))
+        with _wake_lock:
+            _wake_jobs.pop(lang, None)
+        _logger.info("wake model %s ready (%s)", lang, model_name)
+    except Exception as exc:  # noqa: BLE001 — surfaced to the UI verbatim
+        _logger.exception("wake model download failed (%s)", lang)
+        with _wake_lock:
+            _wake_jobs[lang] = {"state": "error", "progress": 0, "error": str(exc)}
+
+
+def _wake_status(lang):
+    path = _wake_model_path(lang)
+    with _wake_lock:
+        job = dict(_wake_jobs.get(lang) or {})
+    if job.get("state") == "downloading":
+        return {"lang": lang, "ready": False, "downloading": True,
+                "progress": round(job.get("progress") or 0, 3), "error": None}
+    out = {"lang": lang, "ready": path.is_file(), "downloading": False,
+           "progress": 1.0 if path.is_file() else 0, "error": job.get("error") or None}
+    if out["ready"]:
+        out["url"] = f"/files/wake_models/{lang}.tar.gz"
+        out["size_bytes"] = path.stat().st_size
+    return out
+
+
+@router.post("/wake/model/status")
+def wake_model_status(payload: dict = Body(default={})):
+    lang = str(payload.get("lang") or "en")
+    if lang not in WAKE_MODELS:
+        raise UserError(f"Unknown wake-word language '{lang}'.")
+    return _wake_status(lang)
+
+
+@router.post("/wake/model/prepare")
+def wake_model_prepare(payload: dict = Body(default={})):
+    """Kick off (or report) the model download for a language. Idempotent —
+    an already-present model or in-flight download just returns status."""
+    lang = str(payload.get("lang") or "en")
+    model_name = WAKE_MODELS.get(lang)
+    if not model_name:
+        raise UserError(f"Unknown wake-word language '{lang}'.")
+    if _wake_model_path(lang).is_file():
+        return _wake_status(lang)
+    with _wake_lock:
+        job = _wake_jobs.get(lang)
+        if not job or job.get("state") == "error":
+            _wake_jobs[lang] = {"state": "downloading", "progress": 0, "error": None}
+            threading.Thread(
+                target=_wake_download, args=(lang, model_name), daemon=True,
+            ).start()
+    return _wake_status(lang)

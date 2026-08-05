@@ -358,6 +358,8 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
             tools.append(change_outfit)
     else:
         tools = [t for t in tools if t['name'] != 'set_emotion']
+    if agent['enable_end_call_tool']:
+        tools.append(browser_tools.END_CALL_TOOL)
     if agent['enable_call_agents_tool']:
         # Roster of everyone this agent could bring into the call: the other
         # voice-enabled agents.

@@ -44,6 +44,15 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     // next monitor (keeping the corner it sits in).
     alignMascot: (corner) => ipcRenderer.invoke("mascot-align", corner),
     mascotNextDisplay: () => ipcRenderer.invoke("mascot-next-display"),
+    // "Hide avatar between calls": setting get/set + push, and the raw
+    // window visibility call the mascot page drives from its call state.
+    mascotHideIdle: () => ipcRenderer.invoke("mascot-hide-idle-get"),
+    setMascotHideIdle: (flag) => ipcRenderer.invoke("mascot-hide-idle-set", !!flag),
+    onMascotHideIdle: (cb) => {
+        ipcRenderer.removeAllListeners("mascot-hide-idle");
+        ipcRenderer.on("mascot-hide-idle", (event, flag) => cb(flag));
+    },
+    setMascotVisible: (on) => ipcRenderer.invoke("mascot-visible", !!on),
     // Tray "Hide avatar controls" pin — initial value, setter, change pushes.
     mascotControlsHidden: () => ipcRenderer.invoke("mascot-controls-hidden"),
     setMascotControlsHidden: (flag) => ipcRenderer.invoke("mascot-controls-hidden-set", !!flag),

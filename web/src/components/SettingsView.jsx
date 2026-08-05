@@ -3,18 +3,29 @@ import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t, i18nState, setLocale, LOCALES } from "../lib/i18n";
 import { applyHotkeys } from "../lib/hotkeys";
+import { wakeWord, wakeState } from "../lib/wake_word";
+import { useReactive } from "../lib/reactive";
 import HotkeysSettings from "./HotkeysSettings.jsx";
+
+// Languages the server can fetch a Vosk wake-word model for (keep in sync
+// with WAKE_MODELS in server/routes/misc.py).
+const WAKE_LANGUAGES = [
+    ["en", "English"], ["ja", "日本語"], ["de", "Deutsch"], ["fr", "Français"],
+    ["es", "Español"], ["zh", "中文"], ["ru", "Русский"], ["pt", "Português"],
+];
 
 /** Settings: global app configuration — BYOK key + models, user identity and
  *  context-management thresholds. Companions and avatar packs have their own
  *  tabs (CompanionsView / AvatarsView); stored memories live on Memories. */
 export default function SettingsView({ active }) {
+    const wk = useReactive(wakeState);
     const [config, setConfig] = useState(null);
     const [apiKeyDraft, setApiKeyDraft] = useState("");
     const [agents, setAgents] = useState([]);
     const [saving, setSaving] = useState(false);
     const [headset, setHeadset] = useState(null);   // desktop shell only: HTTPS-on-WiFi state
     const [startInMascot, setStartInMascot] = useState(null);  // desktop shell only
+    const [hideMascotIdle, setHideMascotIdle] = useState(false);  // desktop shell only
     // Hotkey overrides, parsed out of config.hotkeys_json for editing and
     // serialised back on save.
     const [hotkeys, setHotkeys] = useState({});
@@ -45,6 +56,7 @@ export default function SettingsView({ active }) {
         if (active) {
             window.rexclawDesktop?.headsetInfo?.().then(setHeadset).catch(() => {});
             window.rexclawDesktop?.startupMascot?.().then((v) => setStartInMascot(!!v)).catch(() => {});
+            window.rexclawDesktop?.mascotHideIdle?.().then((v) => setHideMascotIdle(!!v)).catch(() => {});
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
@@ -58,6 +70,18 @@ export default function SettingsView({ active }) {
             await window.rexclawDesktop.setStartupMascot(flag);
         } catch (e) {
             setStartInMascot(!flag);
+            notification.add(e?.message || _t("Could not save that."), { type: "danger" });
+        }
+    };
+
+    /** Same shell-settings home (and immediate effect) as the startup mode —
+     *  the shell pushes the change to a live mascot window. */
+    const toggleHideMascotIdle = async (flag) => {
+        setHideMascotIdle(flag);
+        try {
+            await window.rexclawDesktop.setMascotHideIdle(flag);
+        } catch (e) {
+            setHideMascotIdle(!flag);
             notification.add(e?.message || _t("Could not save that."), { type: "danger" });
         }
     };
@@ -95,6 +119,9 @@ export default function SettingsView({ active }) {
                 bindings: hotkeys,
                 globalEnabled: !!config.hotkeys_global_enabled,
             });
+            // Standby listening reconciles against the saved config (arms,
+            // disarms, or starts the model download as needed).
+            wakeWord.refresh();
             notification.add(_t("Settings saved."), { type: "info" });
             load();
         } catch (e) {
@@ -337,6 +364,62 @@ export default function SettingsView({ active }) {
                 </section>
 
                 <section>
+                    <h3><i className="fa fa-assistive-listening-systems" /> {_t("Voice activation")}</h3>
+                    <p className="text-muted">
+                        {_t("Start a call hands-free: with standby listening on, the "
+                            + "microphone stays open while no call is live, and saying a "
+                            + "companion's wake phrase (set per companion on the "
+                            + "Companions tab — e.g. \"hey Eve\") starts one. Detection "
+                            + "runs entirely on this machine with a small offline speech "
+                            + "model — nothing is sent to xAI and nothing is billed "
+                            + "until a call actually starts. The trade-off is an "
+                            + "always-on microphone (your OS will show its mic "
+                            + "indicator) and the one-time model download below. A soft "
+                            + "chime confirms every wake.")}
+                    </p>
+                    <div className="rx_check">
+                        <input id="rx_wake_enabled" type="checkbox"
+                               checked={!!config.wake_word_enabled}
+                               onChange={(ev) => setField("wake_word_enabled", ev.target.checked ? 1 : 0)} />
+                        <label htmlFor="rx_wake_enabled">
+                            {_t("Standby listening for wake phrases")}
+                        </label>
+                    </div>
+                    <div className="rx_row">
+                        <div>
+                            <label title={_t("Language of the offline model that spots the phrases — pick the language you'll SAY them in. Changing it downloads that language's model (~40-50 MB, one-time).")}>
+                                {_t("Wake phrase language")}
+                            </label>
+                            <select value={config.wake_word_language || "en"}
+                                    onChange={(ev) => setField("wake_word_language", ev.target.value)}>
+                                {WAKE_LANGUAGES.map(([id, label]) => (
+                                    <option key={id} value={id}>{label}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label>{_t("Status")}</label>
+                            <div className="rx_wake_status">
+                                {{
+                                    "off": _t("Not listening"),
+                                    "standby-other-window": _t("Listening in another window"),
+                                    "acquiring": _t("Starting…"),
+                                    "downloading-model": _t("Downloading speech model… %s%%",
+                                        Math.round((wk.modelProgress || 0) * 100)),
+                                    "loading-model": _t("Loading speech model…"),
+                                    "listening": _t("Listening for wake phrases"),
+                                    "error": wk.error || _t("Error"),
+                                }[wk.status] || wk.status}
+                            </div>
+                        </div>
+                    </div>
+                    <p className="text-muted">
+                        {_t("Applies when you save. Companions without a wake phrase "
+                            + "are simply not listened for.")}
+                    </p>
+                </section>
+
+                <section>
                     <h3><i className="fa fa-keyboard-o" /> {_t("Hotkeys")}</h3>
                     <HotkeysSettings
                         value={hotkeys}
@@ -365,6 +448,20 @@ export default function SettingsView({ active }) {
                                 {_t("Open in mascot mode")}
                             </label>
                         </div>
+                        <div className="rx_check">
+                            <input id="rx_hide_mascot_idle" type="checkbox"
+                                   checked={!!hideMascotIdle}
+                                   onChange={(ev) => toggleHideMascotIdle(ev.target.checked)} />
+                            <label htmlFor="rx_hide_mascot_idle"
+                                   title={_t("In mascot mode, the avatar disappears from the desktop while no call is live and pops back up (without stealing focus) when one starts. Pairs naturally with voice activation: the companion waits dormant and appears when you call their wake phrase. While hidden, the tray icon is the way back — click it or its \"Show Rexclaw\" entry.")}>
+                                {_t("Hide the avatar between calls")}
+                            </label>
+                        </div>
+                        <p className="text-muted">
+                            {_t("Applies immediately. With \"hide between calls\" on, "
+                                + "standby listening keeps running while the avatar is "
+                                + "hidden — say the wake phrase and they appear.")}
+                        </p>
                     </section>
                 )}
 

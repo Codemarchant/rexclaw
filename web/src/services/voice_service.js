@@ -816,6 +816,31 @@ class VoiceCallService {
         return { ok: true, connId: peer.connId };
     }
 
+    /** Agent-initiated whole-call hangup (the end_call tool): same farewell
+     *  choreography as removeAgentFromCallWhenIdle, but every leg drains and
+     *  then the WHOLE call ends. The grace beat lets the tool caller's
+     *  post-tool goodbye start; the playout wait lets it finish. Reason
+     *  'agent' keeps it distinguishable from a user click (the mascot's
+     *  flash badge cares). Fire-and-forget from the dispatcher. */
+    async endCallWhenIdle() {
+        await new Promise((r) => setTimeout(r, 1500));
+        // Plain drain poll, NOT _waitForPlayoutEnd: its generation-bump abort
+        // would fire on ordinary group-call chatter and cut the goodbye off
+        // mid-word. A user barge-in cancels the active response anyway, so
+        // the loop still exits promptly if the user talks over the farewell.
+        const deadline = Date.now() + 30000;
+        const anyBusy = () => [...this.connections.values()].some(
+            (c) => !c.isTerminal
+                && (c._responseInFlight || c._pendingToolReply
+                    || c._toolReplyStarting || c._assistantAudioActive()));
+        while (anyBusy() && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 150));
+        }
+        if (this.primary._sessionEnded) return false;   // user beat us to it
+        await this.end("agent");
+        return true;
+    }
+
     /** Graceful, agent-initiated disconnect: wait out the farewell before
      *  pulling the plug. A short grace period lets the tool caller's
      *  post-tool reply START (function_call_output → response.create takes

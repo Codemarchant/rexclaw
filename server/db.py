@@ -90,6 +90,12 @@ CREATE TABLE IF NOT EXISTS config (
     -- hence opt-in, and hence a verbatim tail that keeps recent turns intact.
     replay_rollup_enabled INTEGER NOT NULL DEFAULT 0,
     replay_rollup_keep_recent INTEGER NOT NULL DEFAULT 20,
+    -- Voice activation ("hey Eve"): with this on, the browser keeps the mic
+    -- open while NO call is live and spots the agents' wake phrases with a
+    -- local (offline, unbilled) Vosk model — a match starts the call. The
+    -- language picks which Vosk model the server downloads and serves.
+    wake_word_enabled INTEGER NOT NULL DEFAULT 0,
+    wake_word_language TEXT NOT NULL DEFAULT 'en',
     -- Auto-end a voice call after this many minutes with nothing happening
     -- (nobody spoke or typed, no companion turn, no tool run). xAI bills a
     -- realtime call by connection time, so a forgotten call is a bill that
@@ -220,7 +226,17 @@ CREATE TABLE IF NOT EXISTS agents (
     -- agents inside their add_agent_to_call tool so they know when to bring
     -- this companion into a live call.
     enable_call_agents_tool INTEGER NOT NULL DEFAULT 1,
-    when_to_call_description TEXT
+    when_to_call_description TEXT,
+    -- end_call: lets the companion hang up when the user asks it to
+    -- ("end the call", "goodnight") — the browser drains the goodbye
+    -- before disconnecting.
+    enable_end_call_tool INTEGER NOT NULL DEFAULT 1,
+    -- Voice activation: with standby listening on (config.wake_word_enabled),
+    -- hearing this phrase while no call is live starts one with this
+    -- companion. wake_action picks what "starts" means: 'resume_last'
+    -- continues the latest conversation, 'start_new' begins fresh.
+    wake_phrase TEXT,
+    wake_action TEXT NOT NULL DEFAULT 'resume_last'
 );
 
 CREATE TABLE IF NOT EXISTS mcp_connections (
@@ -450,6 +466,18 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN call_inactivity_minutes INTEGER NOT NULL DEFAULT 5",
     "ALTER TABLE config ADD COLUMN hotkeys_json TEXT",
     "ALTER TABLE config ADD COLUMN hotkeys_global_enabled INTEGER NOT NULL DEFAULT 1",
+    # Agent-initiated hangup + voice-activated call start (wake phrases).
+    "ALTER TABLE agents ADD COLUMN enable_end_call_tool INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE agents ADD COLUMN wake_phrase TEXT",
+    "ALTER TABLE agents ADD COLUMN wake_action TEXT NOT NULL DEFAULT 'resume_last'",
+    "ALTER TABLE config ADD COLUMN wake_word_enabled INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN wake_word_language TEXT NOT NULL DEFAULT 'en'",
+    # Backfill default wake phrases on the preset companions of existing
+    # installs. Effectively one-shot despite running every boot: the UI
+    # stores a cleared phrase as '' (not NULL), so IS NULL only matches
+    # rows the user has never touched.
+    "UPDATE agents SET wake_phrase = 'hey ' || lower(name) "
+    "WHERE wake_phrase IS NULL AND name IN ('Eve', 'Ara', 'Rex', 'Sal', 'Leo')",
 )
 
 
