@@ -44,6 +44,7 @@ let headsetAccess = false;       // persisted toggle: HTTPS + LAN bind for heads
 let restartInFlight = false;     // toggle restart underway — child exits are ours to handle
 let mainWindow = null;
 let mascotWindow = null;         // pop-out avatar overlay (frameless, transparent)
+let mascotPinned = true;         // page's always-on-top toggle, mirrored shell-side
 let transcriptWindow = null;     // pop-out transcript mirror (normal window)
 let tray = null;
 let ghostTimer = null;           // mascot ghost mode: cursor feed interval
@@ -537,6 +538,9 @@ function createMascotWindow(resume) {
         },
     });
     // 'screen-saver' level keeps the mascot above fullscreen apps too.
+    // The window is born pinned; the page re-applies a persisted unpin via
+    // the mascot-pin IPC right after mount, which updates the mirror.
+    mascotPinned = true;
     mascotWindow.setAlwaysOnTop(true, "screen-saver");
     mascotWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     // Same policy as the main window: same-origin navigation stays in-app,
@@ -653,10 +657,11 @@ function setMascotVisible(on) {
             // window out of its always-on-top z-order — it "shows", but
             // buried behind the app the user is working in, which for a
             // transparent overlay reads as not appearing at all (until a
-            // taskbar click raises it). Re-assert the level and raise
-            // explicitly; moveTop() raises without stealing focus, so this
-            // also covers unpinned mascots for the initial pop-up.
-            if (mascotWindow.isAlwaysOnTop()) {
+            // taskbar click raises it). Re-assert from the shell-side pin
+            // mirror (NOT isAlwaysOnTop(), which is unreliable right after
+            // the round-trip); moveTop() raises without stealing focus, so
+            // unpinned mascots still get the initial pop-up.
+            if (mascotPinned) {
                 mascotWindow.setAlwaysOnTop(true, "screen-saver");
             }
             mascotWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -1198,6 +1203,10 @@ ipcMain.handle("mascot-close", (event, opts) => {
 });
 
 ipcMain.handle("mascot-pin", (event, flag) => {
+    // Mirror the page's toggle shell-side: the topmost guard and the
+    // hide/show path both need to know it, and querying isAlwaysOnTop()
+    // after a hide() round-trip is exactly what Windows is unreliable about.
+    mascotPinned = !!flag;
     if (mascotWindow && !mascotWindow.isDestroyed()) {
         mascotWindow.setAlwaysOnTop(!!flag, "screen-saver");
     }
