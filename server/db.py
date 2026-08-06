@@ -113,6 +113,9 @@ CREATE TABLE IF NOT EXISTS config (
     transcript_display_limit INTEGER NOT NULL DEFAULT 200,
     transcript_retention_days INTEGER NOT NULL DEFAULT 0,
     file_default_expiry_seconds INTEGER NOT NULL DEFAULT 2592000,
+    -- local_task working directory — the Grok Build CLI's blast-radius
+    -- boundary. Empty = <data>/workspace (created on demand).
+    local_task_workdir TEXT NOT NULL DEFAULT '',
     -- Lifetime/today spend (USD) accrued from xAI's usage.cost_in_usd_ticks.
     -- Informational only in the standalone (it's the user's own key).
     spend_lifetime_usd REAL NOT NULL DEFAULT 0,
@@ -220,6 +223,9 @@ CREATE TABLE IF NOT EXISTS agents (
     -- model — off by default.
     enable_delegate_tool INTEGER NOT NULL DEFAULT 1,
     enable_multi_agent_delegation INTEGER NOT NULL DEFAULT 0,
+    -- local_task: drive the Grok Build CLI headlessly on the user's machine
+    -- (real files + shell in the workspace folder). Powerful → opt-in.
+    enable_local_tasks INTEGER NOT NULL DEFAULT 0,
     -- Group voice calls: enable_call_agents_tool exposes the
     -- add_agent_to_call / remove_agent_from_call browser tools so this agent
     -- can manage the group call; when_to_call_description is shown to OTHER
@@ -478,6 +484,10 @@ MIGRATIONS = (
     # rows the user has never touched.
     "UPDATE agents SET wake_phrase = 'hey ' || lower(name) "
     "WHERE wake_phrase IS NULL AND name IN ('Eve', 'Ara', 'Rex', 'Sal', 'Leo')",
+    # local_task: headless Grok Build CLI runs on the user's machine.
+    # Opt-in per agent; configurable working directory (empty = default).
+    "ALTER TABLE agents ADD COLUMN enable_local_tasks INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN local_task_workdir TEXT NOT NULL DEFAULT ''",
 )
 
 

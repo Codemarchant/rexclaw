@@ -53,6 +53,7 @@ const AGENT_FLAGS = [
     ["enable_code_execution", "Code execution (text)"],
     ["enable_delegate_tool", "Task delegation (delegate_task)"],
     ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)"],
+    ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)"],
     ["enable_end_call_tool", "End-call tool (hang up on request)"],
 ];
 
@@ -100,6 +101,7 @@ export default function CompanionsView({ active }) {
             enable_memory_tools: 1,
             enable_delegate_tool: 1,
             enable_multi_agent_delegation: 0,
+            enable_local_tasks: 0,
             enable_call_agents_tool: 1,
             when_to_call_description: "",
             enable_end_call_tool: 1,

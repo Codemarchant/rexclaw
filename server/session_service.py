@@ -15,7 +15,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 
-from . import xai_client, browser_tools, delegate_tools, imagine_tools, memory_tools, store
+from . import xai_client, browser_tools, delegate_tools, imagine_tools, local_tools, memory_tools, store
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -387,10 +387,16 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         native_function_tools.extend(imagine_tools.build_voice_tools(con, agent))
     if agent['enable_memory_tools']:
         native_function_tools.extend(memory_tools.MEMORY_TOOLS)
+    # Only offered when the Grok Build CLI is actually on PATH — in
+    # Docker (or an uninstalled machine) the tool silently disappears.
+    local_tasks = bool(agent['enable_local_tasks']) and local_tools.grok_available()
     if agent['enable_delegate_tool']:
         # Voice sessions are never origin='delegated', so no recursion
         # carve-out is needed here (the text-mode builder handles that).
-        native_function_tools.append(delegate_tools.DELEGATE_TOOL)
+        native_function_tools.append(
+            delegate_tools.delegate_tool(with_local_task_note=local_tasks))
+    if local_tasks:
+        native_function_tools.append(local_tools.LOCAL_TASK_TOOL)
 
     session_update = xai_client.build_session_update(
         voice=effective_voice,
@@ -1205,6 +1211,7 @@ NATIVE_TOOL_NAMES_TEXT = (
     imagine_tools.IMAGINE_TOOL_NAMES
     | memory_tools.MEMORY_TOOL_NAMES
     | {delegate_tools.DELEGATE_TOOL_NAME}
+    | {local_tools.LOCAL_TASK_TOOL_NAME}
 )
 # Browser tools that round-trip through the text client (dispatch in the
 # page's ToolDispatcher, results fed back via /tool_results). The screen
@@ -1217,6 +1224,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                       enable_grok_imagine_tools=False,
                       enable_memory_tools=False,
                       enable_delegate_tool=False,
+                      enable_local_tasks=False,
                       enable_browser_tools=False):
     """Assemble the tools list for /v1/responses calls in text mode.
     enable_browser_tools is False for headless turns (delegated task
@@ -1246,8 +1254,11 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
     if enable_memory_tools:
         for entry in memory_tools.MEMORY_TOOLS:
             tools.append(entry)
+    local_tasks = enable_local_tasks and local_tools.grok_available()
     if enable_delegate_tool:
-        tools.append(delegate_tools.DELEGATE_TOOL)
+        tools.append(delegate_tools.delegate_tool(with_local_task_note=local_tasks))
+    if local_tasks:
+        tools.append(local_tools.LOCAL_TASK_TOOL)
     if enable_web_search:
         tools.append({'type': 'web_search'})
     if enable_x_search:
@@ -1509,6 +1520,7 @@ def start_text_session(con, *, agent, resume_session=None):
             enable_memory_tools=bool(agent['enable_memory_tools']),
             enable_delegate_tool=(bool(agent['enable_delegate_tool'])
                                   and session['origin'] != 'delegated'),
+            enable_local_tasks=bool(agent['enable_local_tasks']),
         ),
         'model': config['text_model'],
         'previous_response_id': session['previous_response_id'] or None,
@@ -1649,6 +1661,10 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         # further — one level of background work, no self-spawning chains.
         enable_delegate_tool=(bool(agent['enable_delegate_tool'])
                               and session['origin'] != 'delegated'),
+        # Deliberately NOT origin-guarded: the Grok Build CLI cannot call
+        # back into rexclaw, so voice → delegate_task → local_task chains
+        # are safe and let the deep-focus brain drive on-machine work.
+        enable_local_tasks=bool(agent['enable_local_tasks']),
         # Headless turns (delegate task sessions) have no browser to answer
         # a browser_tools round-trip — don't offer the screen tools there.
         enable_browser_tools=not headless,
@@ -2004,6 +2020,8 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 # Flag + recursion checks live in the executor; it returns
                 # {'error': ...} so the model gets a structured failure.
                 result = delegate_tools.execute_delegate_tool(con, session, args)
+            elif name == local_tools.LOCAL_TASK_TOOL_NAME:
+                result = local_tools.execute_local_task(con, session, args)
             else:
                 result = {'error': f'Unknown tool: {name}'}
             output_str = json.dumps(result, default=str)

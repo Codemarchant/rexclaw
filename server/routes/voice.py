@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
-from .. import delegate_tools, imagine_tools, memory_tools, session_service, store
+from .. import delegate_tools, imagine_tools, local_tools, memory_tools, session_service, store
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -126,6 +126,11 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         # Flag + recursion checks live in the executor; it returns
         # {'error': ...} so the realtime model gets a structured failure.
         result = delegate_tools.execute_delegate_tool(con, session, arguments)
+        con.commit()
+        return result
+    if tool_name == local_tools.LOCAL_TASK_TOOL_NAME:
+        # Flag check lives in the executor (same {'error': ...} contract).
+        result = local_tools.execute_local_task(con, session, arguments)
         con.commit()
         return result
     raise ValidationError(f"Unknown native tool: {tool_name}")

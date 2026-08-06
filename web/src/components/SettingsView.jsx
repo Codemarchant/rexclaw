@@ -420,6 +420,44 @@ export default function SettingsView({ active }) {
                 </section>
 
                 <section>
+                    <h3><i className="fa fa-terminal" /> {_t("Local computer tasks")}</h3>
+                    <p className="text-muted">
+                        {_t("Companions with \"Local computer tasks\" enabled (per "
+                            + "companion, on the Companions tab) can hand real work to "
+                            + "the Grok Build CLI running on this machine: it creates "
+                            + "and edits files, writes code and runs shell commands — "
+                            + "for real, with no confirmation prompts — inside the "
+                            + "working folder below. Leave the folder empty for a "
+                            + "dedicated workspace inside Rexclaw's data folder; point "
+                            + "it at a project only if you want companions working in "
+                            + "it directly. Requires the Grok Build CLI ("
+                            + "docs.x.ai/build) installed on this machine — without "
+                            + "it the tool simply isn't offered. Billing: if you "
+                            + "signed into the Grok CLI, tasks bill that login; "
+                            + "otherwise your Rexclaw API key is used.")}
+                    </p>
+                    <div className="rx_row">
+                        <div>
+                            <label>{_t("Working folder (empty = data/workspace)")}</label>
+                            <input type="text"
+                                   placeholder={_t("e.g. C:\\Users\\me\\rexclaw-workspace")}
+                                   value={config.local_task_workdir || ""}
+                                   onChange={(ev) => setField("local_task_workdir", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label>{_t("Grok Build CLI")}</label>
+                            <div className="rx_wake_status">
+                                {config.local_task_cli_path
+                                    ? "✅ " + _t("Detected: %s", config.local_task_cli_path)
+                                    : "❌ " + _t("Not found on this machine — install it, "
+                                        + "then reopen Settings to re-check")}
+                            </div>
+                        </div>
+                        <div />
+                    </div>
+                </section>
+
+                <section>
                     <h3><i className="fa fa-keyboard-o" /> {_t("Hotkeys")}</h3>
                     <HotkeysSettings
                         value={hotkeys}

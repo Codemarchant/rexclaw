@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends
 
-from .. import memory_tools
+from .. import local_tools, memory_tools
 from ..db import FILES_DIR, utcnow
 from ..errors import UserError
 from .common import db_con
@@ -34,6 +34,7 @@ _CONFIG_FIELDS = (
     "replay_rollup_enabled", "replay_rollup_keep_recent",
     "call_inactivity_minutes", "hotkeys_json", "hotkeys_global_enabled",
     "wake_word_enabled", "wake_word_language",
+    "local_task_workdir",
     "transcript_display_limit",
     "transcript_retention_days", "file_default_expiry_seconds",
 )
@@ -46,6 +47,7 @@ _AGENT_FIELDS = (
     "enable_memory_tools", "core_memory_cap",
     "enable_call_agents_tool", "when_to_call_description",
     "enable_delegate_tool", "enable_multi_agent_delegation",
+    "enable_local_tasks",
     "enable_end_call_tool", "wake_phrase", "wake_action",
 )
 
@@ -60,6 +62,9 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     )
     out["spend_today_usd"] = row["spend_today_usd"]
     out["spend_lifetime_usd"] = row["spend_lifetime_usd"]
+    # Live PATH lookup (not persisted): lets the settings UI show whether
+    # local_task can actually be offered on this machine.
+    out["local_task_cli_path"] = local_tools.grok_binary()
     return out
 
 

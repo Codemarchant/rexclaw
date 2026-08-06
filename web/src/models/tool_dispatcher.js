@@ -53,6 +53,9 @@ const NATIVE_TOOL_NAMES = new Set([
     // text-mode task session). Slow — seconds to minutes — but dispatch()
     // already runs server tools without blocking the UI.
     "delegate_task",
+    // Local computer tasks: the server drives the Grok Build CLI headlessly
+    // on the machine it runs on. Same slow server-side shape as delegate_task.
+    "local_task",
 ]);
 
 export class ToolDispatcher {
@@ -312,7 +315,8 @@ export class ToolDispatcher {
             note: "Screenshot captured — the user can see it in the "
                 + "transcript. You cannot see it yourself: pass the "
                 + "imagine_image_id to delegate_task in files to "
-                + "read/analyze what is on the screen.",
+                + "read/analyze what is on the screen, or to local_task's "
+                + "files to use it in on-machine work.",
         };
     }
 

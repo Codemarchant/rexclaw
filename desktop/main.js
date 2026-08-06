@@ -987,6 +987,14 @@ function rebuildTrayMenu() {
             : { label: "Pop out avatar", click: requestMascotPopOut },
         { label: "Transcript window", click: createTranscriptWindow },
         {
+            // Same path as the Ctrl+Alt+S hotkey: the page owns the share
+            // (picking a screen needs its picker), so this just routes the
+            // action to whichever window holds the call. Dropped silently
+            // when no call is live, exactly as the hotkey behaves.
+            label: "Start / stop screen sharing",
+            click: () => dispatchHotkeyAction("call.screenShare"),
+        },
+        {
             label: "Align avatar",
             enabled: mascotOpen,
             submenu: [

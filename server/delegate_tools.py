@@ -133,6 +133,25 @@ DELEGATE_TOOL = {
     },
 }
 
+# Appended to the delegate description when local_task is offered alongside:
+# both tools "write code", and without the contrast the model routes
+# on-machine requests to the cloud sandbox — whose files the user can never
+# see or open.
+_LOCAL_TASK_CONTRAST = (
+    " Runs in a cloud workspace — for work that should land directly on "
+    "the user's machine (local files, apps, shell), prefer local_task."
+)
+
+
+def delegate_tool(*, with_local_task_note=False):
+    """The delegate tool entry, with the cloud-vs-local contrast appended
+    when local_task is in the same toolset."""
+    if not with_local_task_note:
+        return DELEGATE_TOOL
+    tool = dict(DELEGATE_TOOL)
+    tool['description'] = DELEGATE_TOOL['description'] + _LOCAL_TASK_CONTRAST
+    return tool
+
 
 def _resolve_file_blocks(con, refs):
     """Model-supplied file refs → Responses-API content blocks.
