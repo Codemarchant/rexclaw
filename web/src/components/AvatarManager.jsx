@@ -267,10 +267,14 @@ function useUploader(packKey) {
     return { upload, uploading };
 }
 
-/** A labelled file input that uploads on selection and shows the current file. */
-function FileField({ label, kind, packKey, value, accept, onUploaded }) {
+/** A labelled file input that uploads on selection and shows the current file.
+ *  `library` (optional): shared-asset records — matching-kind entries render
+ *  as a "Library…" picker so one file in data/assets/ serves every avatar
+ *  without a duplicate upload (the manifest stores its absolute web path). */
+function FileField({ label, kind, packKey, value, accept, onUploaded, library }) {
     const ref = useRef(null);
     const { upload, uploading } = useUploader(packKey);
+    const libraryOptions = (library || []).filter((f) => f.kind === kind);
     const pick = async (ev) => {
         const file = ev.target.files?.[0];
         ev.target.value = "";
@@ -289,7 +293,20 @@ function FileField({ label, kind, packKey, value, accept, onUploaded }) {
                 <button className="btn btn-sm" disabled={uploading} onClick={() => ref.current?.click()}>
                     <i className={uploading ? "fa fa-spinner fa-spin" : "fa fa-upload"} /> {value ? _t("Replace") : _t("Upload")}
                 </button>
-                <span className="text-muted small" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {libraryOptions.length > 0 && (
+                    <select className="rx_lib_select" value=""
+                            title={_t("Pick from the shared asset library — files in data/assets/ plus bundled assets, usable by every avatar")}
+                            onChange={(ev) => { if (ev.target.value) onUploaded(ev.target.value); }}>
+                        <option value="">{_t("Library…")}</option>
+                        {libraryOptions.map((f) => (
+                            <option key={f.url} value={f.url}>
+                                {f.name}{f.source === "bundled" ? " " + _t("(bundled)") : ""}
+                            </option>
+                        ))}
+                    </select>
+                )}
+                <span className="text-muted small" title={value || undefined}
+                      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {value || _t("(none)")}
                 </span>
                 <input ref={ref} type="file" accept={accept} style={{ display: "none" }} onChange={pick} />
@@ -301,6 +318,13 @@ function FileField({ label, kind, packKey, value, accept, onUploaded }) {
 function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
     const { pack_key, manifest } = editing;
     const setM = (patch) => setEditing({ ...editing, manifest: { ...manifest, ...patch } });
+
+    // Shared asset library (data/assets + bundled glb/vrma) — one fetch per
+    // editor open; FileFields filter it by their kind.
+    const [library, setLibrary] = useState([]);
+    useEffect(() => {
+        rpc("/api/avatars/shared_assets", {}).then(setLibrary).catch(() => setLibrary([]));
+    }, []);
 
     const setList = (key, idx, patch) => {
         const arr = [...(manifest[key] || [])];
@@ -333,10 +357,10 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                     <input type="text" value={manifest.name || ""}
                            onChange={(ev) => setM({ name: ev.target.value })} />
                 </div>
-                <FileField label={_t("Main VRM (required)")} kind="vrm" packKey={pack_key}
+                <FileField library={library} label={_t("Main VRM (required)")} kind="vrm" packKey={pack_key}
                            value={manifest.vrm} accept=".vrm"
                            onUploaded={(fn) => setM({ vrm: fn })} />
-                <FileField label={_t("Idle animation VRMA (optional)")} kind="vrma" packKey={pack_key}
+                <FileField library={library} label={_t("Idle animation VRMA (optional)")} kind="vrma" packKey={pack_key}
                            value={manifest.vrma_idle} accept=".vrma"
                            onUploaded={(fn) => setM({ vrma_idle: fn })} />
                 <label className="rx_check" style={{ alignSelf: "end" }}
@@ -352,16 +376,19 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                 {editing.isNew
                     ? " — " + _t("named after this avatar when you save.")
                     : " — " + _t("fixed folder id; renaming the avatar above doesn't move it.")}
+                {" "}
+                <i className="fa fa-book" /> {_t("Shared files: drop them into")}{" "}
+                <code>data/assets/</code> — {_t("every upload field's Library picker can then reference the same file from any avatar, no duplicate uploads.")}
             </p>
 
             {/* Outfits */}
             <Section title={_t("Outfits")}
                      onAdd={() => addItem("outfits", { name: "", vrm: "", description: "" })}>
                 {(manifest.outfits || []).map((o, i) => (
-                    <div key={i} className="rx_subrow">
+                    <div key={i} className="rx_subrow rx_subrow--outfit">
                         <input type="text" placeholder={_t("Name")} value={o.name || ""}
                                onChange={(ev) => setList("outfits", i, { name: ev.target.value })} />
-                        <FileField kind="vrm" packKey={pack_key} value={o.vrm} accept=".vrm"
+                        <FileField library={library} kind="vrm" packKey={pack_key} value={o.vrm} accept=".vrm"
                                    onUploaded={(fn) => setList("outfits", i, { vrm: fn })} />
                         <input type="text" placeholder={_t("Description (fed to the LLM — when to wear it)")}
                                value={o.description || ""}
@@ -379,11 +406,11 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                 {(manifest.gestures || []).map((g, i) => ({ g, i }))
                     .filter(({ g }) => g.type !== "combo")
                     .map(({ g, i }) => (
-                    <div key={i} className="rx_subrow">
+                    <div key={i} className="rx_subrow rx_subrow--gesture">
                         <input type="text" placeholder={_t("enum (e.g. wave_hello)")} value={g.enum || ""}
                                title={_t("Gesture name the model calls — lowercase letters, digits and underscores, starting with a letter (e.g. wave_hello, test_1).")}
                                onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
-                        <FileField kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
+                        <FileField library={library} kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
                                    onUploaded={(fn) => setList("gestures", i, { vrma: fn })} />
                         <input type="text" placeholder={_t("Description (when to use it)")} value={g.description || ""}
                                onChange={(ev) => setList("gestures", i, { description: ev.target.value })} />
@@ -408,27 +435,45 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                          partner_offset: [0.6, 0, 0], partner_rotation: [0, 0, 0],
                          partner_scale: 1.0,
                      })}>
+                <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
+                    {_t("Combo gestures animate two characters at once: this avatar plays the Base VRMA while a second VRM — an existing avatar or a dedicated upload — plays the Partner VRMA in sync (dancing together, hugging, …). The partner unloads when the gesture ends or is replaced.")}
+                </p>
                 {(manifest.gestures || []).map((g, i) => ({ g, i }))
                     .filter(({ g }) => g.type === "combo")
                     .map(({ g, i }) => (
-                    <div key={i} className="rx_subrow rx_subrow--combo" style={{ flexWrap: "wrap" }}>
-                        <input type="text" placeholder={_t("enum (e.g. dance_together)")} value={g.enum || ""}
-                               title={_t("Gesture name the model calls — lowercase letters, digits and underscores, starting with a letter (e.g. dance_together).")}
-                               onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
-                        <FileField label={_t("Base VRMA")} kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
-                                   onUploaded={(fn) => setList("gestures", i, { vrma: fn })} />
-                        <input type="text" placeholder={_t("Description (when to use it)")} value={g.description || ""}
-                               onChange={(ev) => setList("gestures", i, { description: ev.target.value })} />
-                        <input type="text" value={g.partner_avatar || ""}
-                               placeholder={_t("Partner avatar name (optional — else upload a VRM)")}
-                               title={_t("Existing avatar to load as the second character (name or pack folder). Leave empty to upload a dedicated Partner VRM instead.")}
-                               onChange={(ev) => setList("gestures", i, { partner_avatar: ev.target.value })} />
-                        {!(g.partner_avatar || "").trim() && (
-                            <FileField label={_t("Partner VRM")} kind="vrm" packKey={pack_key} value={g.partner_vrm} accept=".vrm"
-                                       onUploaded={(fn) => setList("gestures", i, { partner_vrm: fn })} />
-                        )}
-                        <FileField label={_t("Partner VRMA")} kind="vrma" packKey={pack_key} value={g.partner_vrma} accept=".vrma"
-                                   onUploaded={(fn) => setList("gestures", i, { partner_vrma: fn })} />
+                    <div key={i} className="rx_subrow rx_subrow--combo">
+                        <div className="rx_combo_line">
+                            <input type="text" className="rx_field_enum"
+                                   placeholder={_t("enum (e.g. dance_together)")} value={g.enum || ""}
+                                   title={_t("Gesture name the model calls — lowercase letters, digits and underscores, starting with a letter (e.g. dance_together).")}
+                                   onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
+                            <FileField library={library} label={_t("Base VRMA")} kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
+                                       onUploaded={(fn) => setList("gestures", i, { vrma: fn })} />
+                            <input type="text" placeholder={_t("Description (when to use it)")} value={g.description || ""}
+                                   onChange={(ev) => setList("gestures", i, { description: ev.target.value })} />
+                            <label className="rx_check" style={{ margin: 0 }}
+                                   title={_t("Looping combos: both clips should have the same duration or they drift out of phase with each repeat.")}>
+                                <input type="checkbox" checked={!!g.loop}
+                                       onChange={(ev) => setList("gestures", i, { loop: ev.target.checked })} />
+                                <span>{_t("loop")}</span>
+                            </label>
+                            <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("gestures", i)}>
+                                <i className="fa fa-trash-o" />
+                            </button>
+                        </div>
+                        <div className="rx_combo_line">
+                            <input type="text" className="rx_field_enum" value={g.partner_avatar || ""}
+                                   placeholder={_t("Partner avatar name (optional — else upload a VRM)")}
+                                   title={_t("Existing avatar to load as the second character (name or pack folder). Leave empty to upload a dedicated Partner VRM instead.")}
+                                   onChange={(ev) => setList("gestures", i, { partner_avatar: ev.target.value })} />
+                            {!(g.partner_avatar || "").trim() && (
+                                <FileField library={library} label={_t("Partner VRM")} kind="vrm" packKey={pack_key} value={g.partner_vrm} accept=".vrm"
+                                           onUploaded={(fn) => setList("gestures", i, { partner_vrm: fn })} />
+                            )}
+                            <FileField library={library} label={_t("Partner VRMA")} kind="vrma" packKey={pack_key} value={g.partner_vrma} accept=".vrma"
+                                       onUploaded={(fn) => setList("gestures", i, { partner_vrma: fn })} />
+                        </div>
+                        <div className="rx_combo_line">
                         <span className="rx_scene_xform"
                               title={_t("Base avatar placement during the combo. Offsets in metres; rotations in degrees applied yaw → pitch → roll (yaw 0 = facing the camera; pitch 90 = lying on the back — pair with a positive Y offset since models pivot at their feet).")}>
                             base
@@ -460,20 +505,9 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                                 value={g.partner_scale ?? 1}
                                 onCommit={(n) => setList("gestures", i, { partner_scale: n })} /></label>
                         </span>
-                        <label className="rx_check" style={{ margin: 0 }}
-                               title={_t("Looping combos: both clips should have the same duration or they drift out of phase with each repeat.")}>
-                            <input type="checkbox" checked={!!g.loop}
-                                   onChange={(ev) => setList("gestures", i, { loop: ev.target.checked })} />
-                            <span>{_t("loop")}</span>
-                        </label>
-                        <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("gestures", i)}>
-                            <i className="fa fa-trash-o" />
-                        </button>
+                        </div>
                     </div>
                 ))}
-                <p className="text-muted small" style={{ margin: "0.25rem 0 0" }}>
-                    {_t("Combo gestures animate two characters at once: this avatar plays the Base VRMA while a second VRM — an existing avatar or a dedicated upload — plays the Partner VRMA in sync (dancing together, hugging, …). The partner unloads when the gesture ends or is replaced.")}
-                </p>
             </Section>
 
             {/* Backgrounds */}
@@ -489,34 +523,22 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                             <option value="image">{_t("Image")}</option>
                             <option value="scene">{_t("3D scene (GLB)")}</option>
                         </select>
-                        {b.type === "static" && (
-                            <select value={b.preset || ""}
-                                    onChange={(ev) => setList("backgrounds", i, { preset: ev.target.value })}>
-                                {PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
-                            </select>
-                        )}
-                        {b.type === "image" && (
-                            <FileField kind="image" packKey={pack_key} value={b.image} accept=".png,.jpg,.jpeg,.webp"
-                                       onUploaded={(fn) => setList("backgrounds", i, { image: fn })} />
-                        )}
-                        {b.type === "scene" && (
-                            <>
-                                <FileField kind="scene" packKey={pack_key} value={b.glb} accept=".glb,.gltf"
+                        <div className="rx_bg_controls">
+                            {b.type === "static" && (
+                                <select value={b.preset || ""}
+                                        onChange={(ev) => setList("backgrounds", i, { preset: ev.target.value })}>
+                                    {PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
+                                </select>
+                            )}
+                            {b.type === "image" && (
+                                <FileField library={library} kind="image" packKey={pack_key} value={b.image} accept=".png,.jpg,.jpeg,.webp"
+                                           onUploaded={(fn) => setList("backgrounds", i, { image: fn })} />
+                            )}
+                            {b.type === "scene" && (
+                                <FileField library={library} kind="scene" packKey={pack_key} value={b.glb} accept=".glb,.gltf"
                                            onUploaded={(fn) => setList("backgrounds", i, { glb: fn })} />
-                                <span className="rx_scene_xform" title={_t("Placement of the GLB scene, in metres (avatar ≈ 1.5 m tall). Scale, X/Y/Z offset, and Y-axis rotation in degrees.")}>
-                                    <label>scale<NumField step="0.1" value={b.scale ?? 1}
-                                           onCommit={(n) => setList("backgrounds", i, { scale: n })} /></label>
-                                    <label>x<NumField step="0.1" value={(b.offset || [0, 0, 0])[0]}
-                                           onCommit={(n) => setOffset(i, 0, n)} /></label>
-                                    <label>y<NumField step="0.1" value={(b.offset || [0, 0, 0])[1]}
-                                           onCommit={(n) => setOffset(i, 1, n)} /></label>
-                                    <label>z<NumField step="0.1" value={(b.offset || [0, 0, 0])[2]}
-                                           onCommit={(n) => setOffset(i, 2, n)} /></label>
-                                    <label>y°<NumField step="1" value={b.rotation_y ?? 0}
-                                           onCommit={(n) => setList("backgrounds", i, { rotation_y: n })} /></label>
-                                </span>
-                            </>
-                        )}
+                            )}
+                        </div>
                         <label className="rx_check" style={{ margin: 0 }}>
                             <input type="checkbox" checked={!!b.is_default}
                                    onChange={(ev) => setList("backgrounds", i, { is_default: ev.target.checked })} />
@@ -525,6 +547,22 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                         <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("backgrounds", i)}>
                             <i className="fa fa-trash-o" />
                         </button>
+                        {/* Direct grid child pinned to the controls column — gets its
+                            own grid line under the file controls (see rx_subrow--bg). */}
+                        {b.type === "scene" && (
+                            <span className="rx_scene_xform" title={_t("Placement of the GLB scene, in metres (avatar ≈ 1.5 m tall). Scale, X/Y/Z offset, and Y-axis rotation in degrees.")}>
+                                <label>scale<NumField step="0.1" value={b.scale ?? 1}
+                                       onCommit={(n) => setList("backgrounds", i, { scale: n })} /></label>
+                                <label>x<NumField step="0.1" value={(b.offset || [0, 0, 0])[0]}
+                                       onCommit={(n) => setOffset(i, 0, n)} /></label>
+                                <label>y<NumField step="0.1" value={(b.offset || [0, 0, 0])[1]}
+                                       onCommit={(n) => setOffset(i, 1, n)} /></label>
+                                <label>z<NumField step="0.1" value={(b.offset || [0, 0, 0])[2]}
+                                       onCommit={(n) => setOffset(i, 2, n)} /></label>
+                                <label>y°<NumField step="1" value={b.rotation_y ?? 0}
+                                       onCommit={(n) => setList("backgrounds", i, { rotation_y: n })} /></label>
+                            </span>
+                        )}
                     </div>
                 ))}
             </Section>
@@ -538,12 +576,14 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
 }
 
 function Section({ title, onAdd, children }) {
+    // NOT a <label> — a label wrapping the button makes a click anywhere in
+    // the header row (including blank space) activate Add.
     return (
         <div className="rx_editor_section">
-            <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="rx_section_head">
                 <span>{title}</span>
                 <button className="btn btn-sm" onClick={onAdd}><i className="fa fa-plus" /> {_t("Add")}</button>
-            </label>
+            </div>
             {children}
         </div>
     );

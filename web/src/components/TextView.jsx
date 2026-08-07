@@ -258,27 +258,33 @@ export default function TextView({ active = true }) {
 
             <div className="o_text_full_main">
                 <div className="o_text_full_header">
-                    <div className="o_text_full_header_inner o_text_full_agent_picker">
-                        {text.agentThumbnailUrl ? (
-                            <img className="o_text_agent_thumb" src={text.agentThumbnailUrl} alt="agent" />
-                        ) : (
-                            <div className="o_text_agent_thumb o_text_agent_thumb--placeholder">{agentInitial}</div>
-                        )}
-                        <select value={selectedAgentId ?? ""} onChange={onAgentChange}
-                                disabled={isLive || isConnecting}>
-                            {agents.map((agent) => (
-                                <option key={agent.id} value={agent.id}>{agent.name}</option>
-                            ))}
-                        </select>
-                        <span className="o_text_full_status">{statusLabel}</span>
-                        {tokenBudgetLabel && (
-                            <span className="o_text_token_budget"
-                                  title={_t("Tokens used since the last summary rollup.")}>
-                                {tokenBudgetLabel}
-                            </span>
-                        )}
-                    </div>
                     <div className="o_text_full_header_inner">
+                        <div className="o_text_full_agent_picker">
+                            {text.agentThumbnailUrl ? (
+                                <img className="o_text_agent_thumb" src={text.agentThumbnailUrl} alt="agent" />
+                            ) : (
+                                <div className="o_text_agent_thumb o_text_agent_thumb--placeholder">{agentInitial}</div>
+                            )}
+                            <div className="o_text_full_agent_meta">
+                                <select value={selectedAgentId ?? ""} onChange={onAgentChange}
+                                        disabled={isLive || isConnecting}
+                                        title={_t("Companion to chat with")}>
+                                    {agents.map((agent) => (
+                                        <option key={agent.id} value={agent.id}>{agent.name}</option>
+                                    ))}
+                                </select>
+                                <div className="o_text_full_agent_sub">
+                                    <span className="o_text_full_status">{statusLabel}</span>
+                                    {tokenBudgetLabel && (
+                                        <span className="o_text_token_budget"
+                                              title={_t("Tokens used since the last summary rollup.")}>
+                                            {tokenBudgetLabel}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="o_text_full_header_spacer" />
                         <button className="btn btn-light" onClick={toggleDark}
                                 title={dark ? _t("Light theme") : _t("Dark theme")}>
                             <i className={dark ? "fa fa-sun-o" : "fa fa-moon-o"} />

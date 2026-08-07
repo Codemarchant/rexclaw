@@ -474,11 +474,136 @@ body {
         align-items: center;
         gap: 0.5rem;
         margin: 0.4rem 0;
-        flex-wrap: wrap;   // background rows carry many fields — wrap instead of overflowing
+        flex-wrap: wrap;   // fallback layout — the modifiers below use grid
 
-        input[type="text"] { flex: 1 1 auto; min-width: 6rem; }
-        select { flex: 0 0 auto; }
+        // The global input rule sets width:100%, which in a flex row makes
+        // every field's flex-basis the full container — each one then wraps
+        // onto its own line. width:auto restores real side-by-side flow.
+        input[type="text"] { flex: 1 1 auto; width: auto; min-width: 6rem; }
+        select { flex: 0 0 auto; width: auto; }
         .rx_check span { white-space: nowrap; }
+    }
+
+    // One-line list rows: compact name column, upload beside it, description
+    // (or the type-specific controls) absorbing the rest. Grid, not flex —
+    // the columns line up across rows so the section reads as a table.
+    .rx_subrow--outfit,
+    .rx_subrow--gesture,
+    .rx_subrow--bg {
+        display: grid;
+        align-items: center;
+        > * { min-width: 0; }
+        // Direct-child fields fill their grid column (the width:auto above
+        // was for the flex fallback; in a grid the column is the sizer).
+        > input[type="text"], > select { width: 100%; }
+    }
+    .rx_subrow--outfit  { grid-template-columns: minmax(8rem, 13rem) minmax(16rem, 2fr) minmax(0, 3fr) max-content; }
+    .rx_subrow--gesture { grid-template-columns: minmax(8rem, 12rem) minmax(16rem, 2fr) minmax(0, 3fr) max-content max-content; }
+    .rx_subrow--bg      {
+        grid-template-columns: minmax(7rem, 11rem) max-content minmax(0, 1fr) max-content max-content;
+        row-gap: 0.35rem;
+        // Scene placement chips get their own grid line under the file
+        // controls (they never fit beside a full path anyway). The trailing
+        // default/delete cells pin to line 1 with EXPLICIT columns — a bare
+        // grid-row would make auto-placement seat these row-locked items
+        // first, shoving them into columns 1-2 ahead of the name field.
+        > .rx_check { grid-row: 1; grid-column: 4; }
+        > button { grid-row: 1; grid-column: 5; }
+        > .rx_scene_xform { grid-column: 3; }
+    }
+
+    // Type-specific background controls (preset select / image upload / GLB
+    // upload + placement numbers) share the row's flexible middle cell.
+    .rx_bg_controls {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        min-width: 0;
+        select { flex: 0 1 auto; width: auto; max-width: 18rem; }
+        > div { flex: 0 1 auto; min-width: 0; }   // FileField — let the filename ellipsize
+        // Cap the filename readout so a long path can't blow the cell open
+        // (full path in the title/hover).
+        > div span.text-muted { max-width: 16rem; }
+    }
+
+    // Shared-library picker inside FileFields. Fixed compact width — the
+    // element selector out-specifies `.rx_bg_controls select`, whose
+    // content-based auto width let long filenames stretch the closed select.
+    // The chosen path shows in the filename readout, not the select itself,
+    // and the open dropdown list still sizes to its options.
+    select.rx_lib_select {
+        flex: 0 0 auto;
+        width: 6.5rem;
+        font-size: 0.8rem;
+        color: #475569;
+    }
+
+    // The compact transform chips (scale / x / y / z / y°). The top-level
+    // .rx_scene_xform rule loses to `.rx_settings input { width: 100% }` on
+    // specificity, so the small width never applied — re-assert it here.
+    // Spinners are hidden so 4rem fits negative decimals ("-100.5");
+    // arrow keys / typing still adjust the value.
+    .rx_scene_xform input {
+        width: 4rem;
+        flex: 0 0 auto;
+        appearance: textfield;
+        -moz-appearance: textfield;
+        &::-webkit-inner-spin-button, &::-webkit-outer-spin-button { appearance: none; margin: 0; }
+    }
+
+    // Combo gestures carry too many fields for one line — group them into
+    // labelled lines (clips / partner / placement) instead of a wrap soup.
+    .rx_subrow--combo {
+        display: block;
+        padding: 0.35rem 0 0.5rem;
+        border-bottom: 1px solid #f1f5f9;
+        &:last-of-type { border-bottom: 0; }
+    }
+    .rx_combo_line {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin: 0.3rem 0;
+        input[type="text"] { flex: 1 1 auto; width: auto; min-width: 8rem; }
+        // Identifier-ish fields (gesture enum, partner avatar name) don't
+        // need to grow — hold them at roughly the same compact width.
+        input[type="text"].rx_field_enum { flex: 0 1 16rem; }
+
+        // FileFields: render the label ("Base VRMA") inline before the
+        // button instead of stacked above it, so the Replace control sits on
+        // the same baseline as the line's text inputs.
+        > div {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 0;
+            > label { margin: 0; white-space: nowrap; }
+        }
+    }
+
+    // Section headers (Outfits / Gestures / Backgrounds / …): title left,
+    // Add right. Styled like the labels they replaced.
+    .rx_section_head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #475569;
+        margin: 0.6rem 0 0.2rem;
+    }
+
+    // Narrow windows: fall back to stacked fields rather than crushing the grid.
+    @media (max-width: 900px) {
+        .rx_subrow--outfit,
+        .rx_subrow--gesture,
+        .rx_subrow--bg { grid-template-columns: minmax(0, 1fr); }
+        .rx_subrow--bg {
+            > .rx_check, > button { grid-row: auto; grid-column: auto; }
+            > .rx_scene_xform { grid-column: 1; }
+        }
     }
 }
 

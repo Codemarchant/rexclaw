@@ -472,6 +472,13 @@ export const JA = {
   "Main VRM (required)": "メイン VRM（必須）",
   "Idle animation VRMA (optional)": "待機アニメーション VRMA（任意）",
   "Fade emotions back to neutral": "表情を自然に戻す",
+  "Library…": "ライブラリ…",
+  "(bundled)": "（同梱）",
+  "Pick from the shared asset library — files in data/assets/ plus bundled assets, usable by every avatar":
+    "共有アセットライブラリから選択 — data/assets/ 内のファイルと同梱アセットは、どのアバターからも利用できます",
+  "Shared files: drop them into": "共有ファイル：次の場所に置くと",
+  "every upload field's Library picker can then reference the same file from any avatar, no duplicate uploads.":
+    "各アップロード欄の「ライブラリ」から、どのアバターでも同じファイルを参照できます。重複アップロードは不要です。",
   "Emotions the companion sets fade back toward neutral after a few seconds. Turn off to hold each expression until the next one.":
     "コンパニオンが設定した表情は数秒後に自然な表情へ戻ります。オフにすると次の表情まで保持されます。",
   "Pack folder:": "パックフォルダ：",

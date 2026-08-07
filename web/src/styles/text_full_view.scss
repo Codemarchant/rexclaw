@@ -112,18 +112,56 @@
         }
     }
 
+    // Left group: avatar thumb + a compact identity column (agent picker on
+    // top, status/token sub-line beneath) — reads like a chat-app contact
+    // header instead of a bare form control.
+    .o_text_full_agent_picker {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        min-width: 0;
+    }
+
     .o_text_full_agent_meta {
         display: flex;
         flex-direction: column;
+        gap: 0.15rem;
         line-height: 1.15;
         min-width: 0;
 
-        strong {
-            font-size: 1rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+        select {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #111827;
+            padding: 0.25rem 0.5rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 0.5rem;
+            background: #ffffff;
+            min-width: 11rem;
+            max-width: 16rem;
+            cursor: pointer;
+
+            &:hover:not(:disabled) { border-color: #94a3b8; }
+
+            // Mid-chat the companion can't be switched — render as a plain
+            // name label rather than a greyed-out control.
+            &:disabled {
+                appearance: none;
+                border-color: transparent;
+                background: transparent;
+                padding-left: 0;
+                cursor: default;
+                opacity: 1;
+                color: inherit;
+            }
         }
+    }
+
+    .o_text_full_agent_sub {
+        display: flex;
+        align-items: baseline;
+        gap: 0.6rem;
+        padding-left: 0.1rem;
     }
 
     .o_text_full_status {
@@ -151,16 +189,9 @@
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
-    .o_text_full_agent_picker {
-        max-width: 13rem;
-        font-size: 0.9rem;
-    }
-
-    // Mobile: header has too many items (minimize, thumb, name+status,
-    // token budget, history toggle, dark toggle, agent picker, start/end)
-    // to share one row on a phone. Allow wrapping, drop the flex:1 spacer
-    // (it would gobble row 1 and force everything else to row 2), and let
-    // the agent picker take a full row so its label isn't truncated.
+    // Mobile: too many items for one row — wrap, drop the spacer (it would
+    // gobble row 1 and force everything else to row 2), and let the agent
+    // group take its own row.
     @media (max-width: 600px) {
         padding: 0.6rem 0.75rem;
 
@@ -174,18 +205,29 @@
             display: none;
         }
 
-        .o_text_full_agent_meta {
-            flex: 1 1 auto;
-        }
-
         .o_text_full_agent_picker {
             flex: 1 1 100%;
-            max-width: 100%;
+        }
+
+        .o_text_full_agent_meta {
+            flex: 1 1 auto;
+            select { max-width: 100%; width: 100%; }
         }
     }
 
     .btn {
         font-size: 0.9rem;
+    }
+
+    // Icon buttons: the default .btn-light is white-on-white here — give
+    // them a visible resting surface.
+    .btn-light {
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        color: #475569;
+
+        &:hover { background: #e2e8f0; filter: none; }
+        &.active { background: #dbeafe; border-color: #93c5fd; color: #1d4ed8; }
     }
 }
 
@@ -310,10 +352,17 @@
         }
 
         .form-select,
-        .o_text_full_agent_picker {
+        .o_text_full_agent_meta select {
             background-color: #334155;
             border-color: #475569;
             color: #e2e8f0;
+
+            &:hover:not(:disabled) { border-color: #64748b; }
+            &:disabled {
+                background: transparent;
+                border-color: transparent;
+                color: #e2e8f0;
+            }
         }
     }
 
