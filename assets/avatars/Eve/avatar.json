@@ -82,6 +82,31 @@
       "name": "Grid Playground",
       "type": "scene",
       "glb": "/assets/glb/grid_playground.glb"
+    },
+    {
+      "name": "Old Bar",
+      "type": "scene",
+      "glb": "/assets/glb/old_bar.glb",
+      "scale": 1.0,
+      "offset": [
+        1,
+        -4.4,
+        0
+      ],
+      "rotation_y": 0,
+      "is_default": true
+    },
+    {
+      "name": "Park Sketch",
+      "type": "scene",
+      "glb": "/assets/glb/parksketch.glb",
+      "scale": 2.0,
+      "offset": [
+        -100,
+        -0.05,
+        0
+      ],
+      "rotation_y": 0
     }
   ]
 }
