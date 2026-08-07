@@ -133,7 +133,10 @@ CREATE TABLE IF NOT EXISTS avatars (
     sequence INTEGER NOT NULL DEFAULT 10,
     description TEXT,
     vrm_path TEXT NOT NULL,            -- web path, e.g. /assets/vrm/eve.vrm or /files/...
-    vrma_idle_path TEXT
+    vrma_idle_path TEXT,
+    -- Fade explicit emotions back toward neutral a few seconds after the
+    -- model sets them (otherwise the blendshape holds until the next call).
+    emotion_decay INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS avatar_outfits (
@@ -488,6 +491,9 @@ MIGRATIONS = (
     # Opt-in per agent; configurable working directory (empty = default).
     "ALTER TABLE agents ADD COLUMN enable_local_tasks INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE config ADD COLUMN local_task_workdir TEXT NOT NULL DEFAULT ''",
+    # Per-avatar emotion decay (settle back toward neutral after the beat).
+    # On by default — replaces the old hardcoded Eve/Leo/Ara-only softening.
+    "ALTER TABLE avatars ADD COLUMN emotion_decay INTEGER NOT NULL DEFAULT 1",
 )
 
 

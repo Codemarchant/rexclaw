@@ -18,6 +18,8 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
       "sequence": 10,
       "vrm": "kira_default.vrm",
       "vrma_idle": "idle.vrma",
+      "emotion_decay": true,             // optional; default true — emotions
+                                         // settle back toward neutral after a beat
       "outfits": [
         {"name": "Winter", "vrm": "kira_winter.vrm", "description": "…"}
       ],
@@ -135,16 +137,16 @@ def _upsert_avatar(con, pack_key, vals):
     if row:
         con.execute(
             "UPDATE avatars SET pack_key = ?, name = ?, description = ?, sequence = ?,"
-            " vrm_path = ?, vrma_idle_path = ?, active = 1 WHERE id = ?",
+            " vrm_path = ?, vrma_idle_path = ?, emotion_decay = ?, active = 1 WHERE id = ?",
             (pack_key, vals["name"], vals["description"], vals["sequence"],
-             vals["vrm_path"], vals["vrma_idle_path"], row["id"]),
+             vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"], row["id"]),
         )
         return row["id"]
     cur = con.execute(
-        "INSERT INTO avatars (pack_key, name, description, sequence, vrm_path, vrma_idle_path)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO avatars (pack_key, name, description, sequence, vrm_path, vrma_idle_path,"
+        " emotion_decay) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (pack_key, vals["name"], vals["description"], vals["sequence"],
-         vals["vrm_path"], vals["vrma_idle_path"]),
+         vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"]),
     )
     return cur.lastrowid
 
@@ -174,6 +176,9 @@ def _scan_pack(con, pack_dir, url_root):
         "vrm_path": vrm_path,
         "vrma_idle_path": _resolve(manifest.get("vrma_idle"), pack_dir, url_base,
                                    pack=pack_key, field="vrma_idle"),
+        # Only an explicit false opts out — absent (all pre-existing packs)
+        # means on.
+        "emotion_decay": 0 if manifest.get("emotion_decay") is False else 1,
     })
 
     # Children are replaced wholesale — manifest is the source of truth.

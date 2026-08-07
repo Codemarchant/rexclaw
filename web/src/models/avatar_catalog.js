@@ -28,6 +28,31 @@ export const EMOTION_GESTURE_MAP = {
     relaxed: `${VRMA_BASE}/Relax.vrma`,
 };
 
+// Emotion decay: nothing in the render loop fades an emotion on its own — a
+// setEmotion blendshape holds until the next call, which reads as a frozen
+// pose once the reaction beat has passed. Unless the avatar opts out
+// (`emotion_decay: false` in its pack manifest), the renderer settles every
+// emotion after this delay back to `neutral` — except the baked-in squinty
+// companions (Eve/Leo/Ara, whose `happy` blendshape shuts both eyes): for
+// them `happy` settles into `relaxed` and HOLDS there, the original warm-hold
+// behaviour. Word-match on the avatar name so user copies ("Eve Copy")
+// inherit it. Lives here (not in the renderer) because the VR touch
+// reactions consult the same policy.
+export const EMOTION_DECAY_MS = 4000;
+export function emotionDecayEnabled(avatarPayload) {
+    return avatarPayload?.emotion_decay !== false;
+}
+const SQUINTY_HAPPY_RE = /\b(Eve|Leo|Ara)\b/;
+export function emotionSettleTarget(emotion, avatarName) {
+    if (emotion === "neutral") return null;
+    if (SQUINTY_HAPPY_RE.test(avatarName || "")) {
+        // Legacy warm hold: happy parks at relaxed, and relaxed stays put.
+        if (emotion === "relaxed") return null;
+        if (emotion === "happy") return "relaxed";
+    }
+    return "neutral";
+}
+
 // Standalone gestures (not bound to an emotion). The enum here MUST match the
 // `play_gesture` tool's parameters.gesture.enum in services/browser_tools.py.
 //

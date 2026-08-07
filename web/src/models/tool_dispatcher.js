@@ -28,16 +28,6 @@ import { storeOutfitPref } from "../lib/outfit_pref";
  * triggers a response when the queue empties.
  */
 
-// Default avatars whose `happy` blendshape squints both eyes shut and holds
-// the mouth open — a frozen cartoon pose if it lingers. Matched as a whole
-// word so user copies ("Eve Copy") count but "Evelyn"/"Sara" don't. Shared
-// with the VR touch reactions (vr_manager), which trigger `happy` outside
-// this dispatcher.
-const SQUINTY_HAPPY_RE = /\b(Eve|Leo|Ara)\b/;
-export function isSquintyHappyAvatar(name) {
-    return SQUINTY_HAPPY_RE.test(name || "");
-}
-
 const NATIVE_TOOL_NAMES = new Set([
     // Grok Imagine tools execute server-side (xAI API key required) and come
     // back with an image/video URL. Side effects (swap background) are
@@ -400,26 +390,9 @@ export class ToolDispatcher {
         if (this.conversationState) {
             this.conversationState.emotion = emotion;
         }
-        // Cancel any in-flight decay from a previous emotion call so a
-        // happy → angry transition doesn't get clobbered back to relaxed
-        // 4 seconds later.
-        if (this._emotionDecayTimer) {
-            clearTimeout(this._emotionDecayTimer);
-            this._emotionDecayTimer = null;
-        }
-        // Eve/Leo/Ara-specific decay: settle into `relaxed` so the warmth
-        // remains but the squinty pose softens after the reaction beat.
-        // Keyed off the avatar's name (not the agent's).
-        const avatarName = this.conversationState?.avatar?.name;
-        if (emotion === "happy" && isSquintyHappyAvatar(avatarName)) {
-            this._emotionDecayTimer = setTimeout(() => {
-                this.avatarApi?.setEmotion?.("relaxed");
-                if (this.conversationState) {
-                    this.conversationState.emotion = "relaxed";
-                }
-                this._emotionDecayTimer = null;
-            }, 4000);
-        }
+        // Decay back toward neutral is the renderer's job (setEmotion /
+        // setPeerEmotion arm it per the avatar's `emotion_decay` config), so
+        // manual UI triggers and VR reactions settle the same way this does.
         return { ok: true, emotion, gesture: url ? emotion : null };
     }
 

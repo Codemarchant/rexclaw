@@ -339,6 +339,12 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                 <FileField label={_t("Idle animation VRMA (optional)")} kind="vrma" packKey={pack_key}
                            value={manifest.vrma_idle} accept=".vrma"
                            onUploaded={(fn) => setM({ vrma_idle: fn })} />
+                <label className="rx_check" style={{ alignSelf: "end" }}
+                       title={_t("Emotions the companion sets fade back toward neutral after a few seconds. Turn off to hold each expression until the next one.")}>
+                    <input type="checkbox" checked={manifest.emotion_decay !== false}
+                           onChange={(ev) => setM({ emotion_decay: ev.target.checked })} />
+                    <span>{_t("Fade emotions back to neutral")}</span>
+                </label>
             </div>
             <p className="text-muted small rx_pack_path">
                 <i className="fa fa-folder-o" /> {_t("Pack folder:")}{" "}

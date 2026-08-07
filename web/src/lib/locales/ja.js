@@ -471,6 +471,9 @@ export const JA = {
   "Avatar name": "アバター名",
   "Main VRM (required)": "メイン VRM（必須）",
   "Idle animation VRMA (optional)": "待機アニメーション VRMA（任意）",
+  "Fade emotions back to neutral": "表情を自然に戻す",
+  "Emotions the companion sets fade back toward neutral after a few seconds. Turn off to hold each expression until the next one.":
+    "コンパニオンが設定した表情は数秒後に自然な表情へ戻ります。オフにすると次の表情まで保持されます。",
   "Pack folder:": "パックフォルダ：",
   "named after this avatar when you save.": "保存時にこのアバター名が付きます。",
   "fixed folder id; renaming the avatar above doesn't move it.":

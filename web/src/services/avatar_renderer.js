@@ -27,6 +27,11 @@ import {
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from "@pixiv/three-vrm-animation";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import {
+    EMOTION_DECAY_MS,
+    emotionDecayEnabled,
+    emotionSettleTarget,
+} from "../models/avatar_catalog";
 
 // Kept async + memoized so the renderer code below stays identical to the
 // CDN-loading version it was ported from.
@@ -64,7 +69,7 @@ const FULL_FRAME_PADDING = 1.10;
 // Sal's silhouette especially — so their face shot clips at the sides of
 // narrow hosts (the mascot window above all). Zoom their face preset out a
 // touch. Word-match on the avatar name so user copies ("Sal Copy") inherit
-// it; same convention as the squinty-happy avatar list in tool_dispatcher.
+// it.
 const WIDE_FACE_AVATAR_RE = /\bSal\b/;
 const WIDE_FACE_EXTRA_PADDING = 1.25;
 // Lower bound for the face shot region — extends frame this far below the
@@ -289,6 +294,7 @@ class AvatarRenderer {
         this._currentEmotion = "neutral";
         this._emotionTransitionProgress = 1; // 0..1; 1 = settled
         this._emotionTransitionStart = null; // {exprName: weight} captured on transition start
+        this._emotionDecayTimer = null;      // pending settle-toward-neutral (see setEmotion)
         this._rawSpeakingIntensity = 0;   // set by setSpeakingIntensity()
         this._speakingIntensity = 0;      // smoothed for animation
         this._fullBody = false;           // false = face shot, true = full-body + orbit
@@ -1227,6 +1233,7 @@ class AvatarRenderer {
             _currentEmotion: "neutral",
             _emotionTransitionProgress: 1,
             _emotionTransitionStart: null,
+            _emotionDecayTimer: null,
             _rawSpeakingIntensity: 0,
             _speakingIntensity: 0,
             _headBaseY: 0,
@@ -1382,6 +1389,7 @@ class AvatarRenderer {
         const peer = this._peers.get(peerId);
         if (!peer) return;
         peer._loadGeneration++;   // cancel any in-flight load
+        if (peer._emotionDecayTimer) clearTimeout(peer._emotionDecayTimer);
         this._disposePeerModel(peer);
         this._peers.delete(peerId);
         this._layoutCallAvatars();
@@ -1407,6 +1415,19 @@ class AvatarRenderer {
         peer._currentEmotion = name;
         peer._emotionTransitionProgress = 0;
         peer._emotionTransitionStart = null;
+        // Same decay policy as the base avatar's setEmotion, scoped to the
+        // peer and keyed off the peer's own avatar config.
+        if (peer._emotionDecayTimer) {
+            clearTimeout(peer._emotionDecayTimer);
+            peer._emotionDecayTimer = null;
+        }
+        const settleTo = emotionSettleTarget(name, peer.avatarPayload?.name);
+        if (settleTo && emotionDecayEnabled(peer.avatarPayload)) {
+            peer._emotionDecayTimer = setTimeout(() => {
+                peer._emotionDecayTimer = null;
+                this.setPeerEmotion(peerId, settleTo);
+            }, EMOTION_DECAY_MS);
+        }
     }
 
     /** Play a VRMA gesture on a peer. Mirrors playGesture's crossfade
@@ -2560,6 +2581,10 @@ class AvatarRenderer {
      *  its own expression catalog on the first explicit emotion call. */
     resetExpression() {
         this._currentEmotion = "neutral";
+        if (this._emotionDecayTimer) {
+            clearTimeout(this._emotionDecayTimer);
+            this._emotionDecayTimer = null;
+        }
         // progress=1 with a null start snaps the next _applyEmotion tick
         // straight to the neutral (all-zero) targets — a clean face for the
         // incoming character rather than inheriting the previous emotion.
@@ -2755,6 +2780,22 @@ class AvatarRenderer {
     setEmotion(name, { explicit = true } = {}) {
         if (!EMOTION_STATES[name]) return;
         this._currentEmotion = name;
+        // Decay: settle back toward neutral after the reaction beat unless
+        // the avatar's config opts out. Every call cancels the previous
+        // pending settle, so a happy → angry transition isn't clobbered back
+        // to neutral seconds later; the settle emotions themselves map to a
+        // null target, so the chain always terminates.
+        if (this._emotionDecayTimer) {
+            clearTimeout(this._emotionDecayTimer);
+            this._emotionDecayTimer = null;
+        }
+        const settleTo = emotionSettleTarget(name, this._currentAvatarPayload?.name);
+        if (settleTo && emotionDecayEnabled(this._currentAvatarPayload)) {
+            this._emotionDecayTimer = setTimeout(() => {
+                this._emotionDecayTimer = null;
+                this.setEmotion(settleTo, { explicit: false });
+            }, EMOTION_DECAY_MS);
+        }
         // Track when an explicit (LLM-driven) emotion was last set. The voice
         // service's transcript-based fallback heuristic checks this — recent
         // explicit calls suppress heuristic overrides so the LLM stays in charge.

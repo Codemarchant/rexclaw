@@ -170,6 +170,7 @@ def avatar_payload(con, avatar_id):
         'name': av['name'],
         'vrm_url': av['vrm_path'],
         'vrma_idle_url': av['vrma_idle_path'] or False,
+        'emotion_decay': bool(av['emotion_decay']),
         'backgrounds': backgrounds,
         'default_background_id': default_bg['id'] if default_bg else False,
         'outfits': outfits,

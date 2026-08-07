@@ -3,7 +3,7 @@ import { AvatarProximity } from "./proximity";
 import { VRPanel } from "./vr_panel";
 import { VRRagdoll } from "./vr_ragdoll";
 import { EMOTIONS, EMOTION_GESTURE_MAP } from "../models/avatar_catalog";
-import { isSquintyHappyAvatar } from "../models/tool_dispatcher";
+import { emotionDecayEnabled } from "../models/avatar_catalog";
 
 // Grip mechanics (research-grounded: variable-grip / graduated escalation).
 const GRAB_RADIUS = 0.18;      // metres — squeeze this close to a region = a "grab"
@@ -43,20 +43,19 @@ const REACTION_DEBOUNCE_MS = 800;
  * The emotion doubles as the gesture: setEmotion drives the blendshape and
  * EMOTION_GESTURE_MAP plays the matching VRMA clip (surprised → Surprised).
  *
- * `settle` softens the pose after the reaction beat. Nothing decays emotions
- * on its own — setEmotion holds until something overwrites it — so any
- * expression meant to be momentary has to say so here or it freezes on the
- * face until the agent happens to set another one.
- *   `onlyIfSquinty` restricts the settle to the avatars whose blendshape is
- *   the problem (Eve/Leo/Ara `happy` shuts both eyes); everything else settles
- *   unconditionally.
+ * `settle` softens the pose after the reaction beat, with a per-reaction
+ * timing/target instead of the renderer's default decay (setEmotion settles
+ * every emotion after EMOTION_DECAY_MS on its own — a settle here just gets
+ * there sooner or lands on a warmer pose). Both respect the avatar's
+ * `emotion_decay` config (on by default) — an avatar that opts out holds its
+ * touch reactions too.
  */
 const TOUCH_REACTIONS = {
     head: {
         light: {
             emotion: "happy",
             text: "[The user gently pats your head.]",
-            settle: { to: "relaxed", afterMs: 4000, onlyIfSquinty: true },
+            settle: { to: "relaxed", afterMs: 4000 },
         },
     },
     belly: {
@@ -296,8 +295,8 @@ export class VRManager {
             this._touchDecayTimer = setTimeout(() => {
                 this._touchDecayTimer = null;
                 // The agent may have set a different emotion in the meantime
-                // (its own decay timer lives in the dispatcher) — only soften
-                // the expression THIS reaction left behind.
+                // (the renderer arms its own decay timer per setEmotion) —
+                // only soften the expression THIS reaction left behind.
                 if (this.avatar._currentEmotion === t.emotion) {
                     this.avatar.setEmotion?.(t.settle.to, { explicit: false });
                 }
@@ -308,17 +307,15 @@ export class VRManager {
         this.voice?.sendContextEvent?.(t.text);
     }
 
-    /** Whether a reaction's expression should soften after its beat. Entries
-     *  flagged `onlyIfSquinty` settle just for the avatars whose blendshape
-     *  makes the held pose look wrong; everything else settles always. */
+    /** Whether a reaction's expression should soften after its beat — gated
+     *  on the avatar's `emotion_decay` config (default on). */
     _shouldSettle(t) {
         if (!t.settle) return false;
-        if (!t.settle.onlyIfSquinty) return true;
         // Session state only carries the avatar once a call starts — fall
         // back to the renderer's hydrated payload so pats settle pre-call too.
-        const avatarName = this.voice?.state?.avatar?.name
-            ?? this.avatar._currentAvatarPayload?.name;
-        return isSquintyHappyAvatar(avatarName);
+        const avatar = this.voice?.state?.avatar
+            ?? this.avatar._currentAvatarPayload;
+        return emotionDecayEnabled(avatar);
     }
 
     /** Grip button: with ragdoll active, squeezing near the avatar physically
