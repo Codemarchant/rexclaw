@@ -134,6 +134,10 @@ read-only (to tweak one, create a new avatar instead). Files upload straight
 into the pack as you add them, and the folder is named after the avatar on
 save (shown in the editor as `data/avatars/<name>/`).
 
+**Shared asset library:** drop a file into `data/assets/` once and pick it
+from the **Library…** dropdown on any upload field — every avatar references
+that single copy (bundled scenes and gesture clips are in the picker too).
+
 ### Pack format (sharing / hand-authoring)
 
 Under the hood each avatar is just a folder with an `avatar.json` manifest plus
@@ -174,14 +178,15 @@ data/avatars/Kira/
     {"name": "Charcoal", "type": "static", "preset": "vignette_charcoal"},
     {"name": "Beach", "type": "scene", "glb": "beach.glb",
      "scale": 1.0, "offset": [0, 0, 0], "rotation_y": 0, "is_default": true},
+    {"name": "Loft", "type": "scene", "glb": "/user-assets/loft.glb"},
     {"name": "Poster", "type": "image", "image": "poster.jpg"}
   ]
 }
 ```
 
-Notes: file references are pack-relative filenames (or absolute web paths
-like `/assets/glb/grid_playground.glb` for shared bundled assets); Packs are
-re-scanned on every server start.
+Notes: file references are pack-relative filenames, or absolute web paths —
+`/user-assets/…` for your shared `data/assets/` library (like `Loft` above),
+`/assets/…` for bundled assets. Packs are re-scanned on every server start.
 
 ### Where to get VRM models
 

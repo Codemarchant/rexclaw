@@ -65,6 +65,14 @@ async def upload(
     return {"ok": True, "filename": filename}
 
 
+@router.post("/shared_assets")
+def shared_assets(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Files in the shared library (data/assets + bundled glb/vrma dirs),
+    optionally filtered by upload kind — drives the editor's library picker
+    so one dropped file serves every avatar without re-uploading."""
+    return avatar_packs.list_shared_assets(payload.get("kind"))
+
+
 @router.post("/get")
 def get(payload: dict = Body(default={}), con=Depends(db_con)):
     """Load a user pack's manifest (+ the files present) for editing."""

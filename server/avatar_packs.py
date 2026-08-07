@@ -65,6 +65,12 @@ from .db import ASSETS_DIR, DATA_DIR
 _logger = logging.getLogger(__name__)
 
 USER_PACKS_DIR = DATA_DIR / "avatars"
+# Shared user asset library: files dropped in data/assets/ are served at
+# /user-assets/… and can be referenced from ANY pack's manifest by that
+# absolute path — one copy of a background GLB / gesture VRMA instead of a
+# duplicate upload per avatar. The editor surfaces them via a library picker
+# (list_shared_assets → /api/avatars/shared_assets).
+USER_ASSETS_DIR = DATA_DIR / "assets"
 
 # Mirror the validation the Odoo gesture model enforced: lowercase identifier,
 # and no shadowing of the built-in pack (the static catalog wins in the JS
@@ -91,9 +97,9 @@ def _resolve(ref, pack_dir, url_base, *, pack, field):
     if not ref or not isinstance(ref, str):
         return None
     if ref.startswith("/"):
-        if ref.startswith("/assets/"):
-            on_disk = ASSETS_DIR / ref[len("/assets/"):]
-            if not on_disk.is_file():
+        checked = {"/assets/": ASSETS_DIR, "/user-assets/": USER_ASSETS_DIR}
+        for prefix, root in checked.items():
+            if ref.startswith(prefix) and not (root / ref[len(prefix):]).is_file():
                 _logger.warning("pack %s: %s points at missing %s — skipped", pack, field, ref)
                 return None
         return ref
@@ -360,6 +366,31 @@ _ALLOWED_UPLOAD_EXT = {
     "image": {".png", ".jpg", ".jpeg", ".webp"},
 }
 MAX_UPLOAD_BYTES = 120 * 1024 * 1024  # generous — VRMs run 10-30 MB
+
+
+def list_shared_assets(kind=None):
+    """Files usable from any pack by absolute web path, grouped by upload
+    kind: the user's shared library (data/assets, recursive) plus the bundled
+    shared GLB/VRMA dirs. Drives the editor's library picker."""
+    ext_kind = {e: k for k, exts in _ALLOWED_UPLOAD_EXT.items() for e in exts}
+    roots = [
+        (USER_ASSETS_DIR, "/user-assets", "user"),
+        (ASSETS_DIR / "glb", "/assets/glb", "bundled"),
+        (ASSETS_DIR / "vrma", "/assets/vrma", "bundled"),
+    ]
+    out = []
+    for root, base, source in roots:
+        if not root.is_dir():
+            continue
+        for f in sorted(root.rglob("*")):
+            if not f.is_file():
+                continue
+            k = ext_kind.get(f.suffix.lower())
+            if not k or (kind and k != kind):
+                continue
+            rel = f.relative_to(root).as_posix()
+            out.append({"kind": k, "name": rel, "url": f"{base}/{rel}", "source": source})
+    return out
 
 
 def pack_is_editable(pack_key):

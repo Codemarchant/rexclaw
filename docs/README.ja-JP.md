@@ -136,6 +136,11 @@ https://github.com/user-attachments/assets/ff569423-325c-4fb2-ac4f-f538e9c03895
 その場でパックにアップロードされ、保存時にフォルダ名がアバター名になります
 （エディタには `data/avatars/<名前>/` と表示されます）。
 
+**共有アセットライブラリ：** ファイルを `data/assets/` に一度置けば、各
+アップロード欄の **ライブラリ…** ドロップダウンから選択でき、どのアバター
+も同じ 1 ファイルを参照します（同梱のシーンやジェスチャークリップも選択
+できます）。
+
 ### パック形式（共有・手書き作成）
 
 内部的には、各アバターは `avatar.json` マニフェストとファイル群が入った
@@ -177,14 +182,16 @@ data/avatars/Kira/
     {"name": "Charcoal", "type": "static", "preset": "vignette_charcoal"},
     {"name": "Beach", "type": "scene", "glb": "beach.glb",
      "scale": 1.0, "offset": [0, 0, 0], "rotation_y": 0, "is_default": true},
+    {"name": "Loft", "type": "scene", "glb": "/user-assets/loft.glb"},
     {"name": "Poster", "type": "image", "image": "poster.jpg"}
   ]
 }
 ```
 
-補足：ファイル参照はパック相対のファイル名です（共有の同梱アセットには
-`/assets/glb/grid_playground.glb` のような絶対 Web パスも可）。パックは
-サーバー起動のたびに再スキャンされます。
+補足：ファイル参照はパック相対のファイル名、または絶対 Web パスです —
+`/user-assets/…` は共有ライブラリ `data/assets/` のファイル（上の `Loft`
+の例）、`/assets/…` は同梱アセット。パックはサーバー起動のたびに
+再スキャンされます。
 
 ### VRM モデルの入手先
 

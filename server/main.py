@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .avatar_packs import USER_PACKS_DIR, scan_packs
+from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, init_db
 from .errors import UserError
 from .routes import avatars, misc, text, voice
@@ -61,6 +61,10 @@ FILES_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/files", StaticFiles(directory=str(FILES_DIR)), name="files")
 USER_PACKS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/avatars", StaticFiles(directory=str(USER_PACKS_DIR)), name="avatars")
+# Shared user asset library (data/assets) — drop a GLB/VRMA/image/VRM here
+# once and reference it from every avatar pack as /user-assets/<name>.
+USER_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/user-assets", StaticFiles(directory=str(USER_ASSETS_DIR)), name="user-assets")
 
 # Built SPA (production). In dev the Vite server owns the page instead.
 if WEB_DIST.is_dir():
