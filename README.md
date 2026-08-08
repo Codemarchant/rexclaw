@@ -10,11 +10,12 @@
 
 **Living anime voice companions on your own machine — powered by xAI Grok Voice Realtime, bring-your-own-key.**
 
-Talk to a 3D VRM avatar that lip-syncs, emotes, gestures and walks around the
-scene while she answers you — with persistent memory that grows across
-sessions, Grok Imagine image generation, file-aware text chat, and your own
-MCP tools. Everything runs locally except the model itself: your data lives
-in a SQLite file on your disk, and your API key never leaves your machine.
+Talk to a 3D VRM avatar that lip-syncs, emotes and gestures as they answer
+you, in 3D scenes you can walk them through. Persistent memory grows across
+sessions, Grok Imagine generates images and video, text chat is file-aware,
+and your own MCP tools plug in. Everything runs locally except the model
+itself: your data lives in a SQLite file on your disk, and your API key never
+leaves your machine.
 
 ---
 
@@ -25,7 +26,7 @@ in a SQLite file on your disk, and your API key never leaves your machine.
 | 🎙️ **Real-time voice** | Speech-in, speech-out via Grok Voice Realtime — sub-second latency, natural turn-taking with server VAD, barge-in that actually works. No STT/TTS pipeline to wire up. |
 | 🌍 **Speaks any language** | Grok Voice is multilingual out of the box. Switch language mid-sentence — your companion follows. |
 | 💬 **One conversation, voice or text** | A session is never locked to the mode it started in: begin a voice call, continue it as a written chat, pick the same thread back up by voice later — history, tool activity and memory carry across both surfaces. |
-| 🧠 **Memory that grows with you** | Two layers: rolling in-session compaction keeps a conversation alive indefinitely (resume days later, she picks up where you left off), and durable cross-session memories — name, projects, preferences — reviewable and deletable in Settings. |
+| 🧠 **Memory that grows with you** | Two layers: rolling in-session compaction keeps a conversation alive indefinitely (resume days later, they pick up where you left off), and durable cross-session memories — name, projects, preferences — reviewable and deletable in Settings. |
 | 🧍 **Living 3D avatars** | three.js + @pixiv/three-vrm: viseme lip-sync from the live audio, idle breath/blink/eye-saccades, camera eye contact, emotions and body-language gestures the model triggers itself mid-conversation. Full-body view comes with the standard three.js orbit camera — drag to orbit, Shift+drag to move the character around the frame, scroll wheel to zoom. |
 | 🚶 **Walkable 3D scenes** | GLB environments as backgrounds with WASD/arrow walk mode and a trailing camera. A grid playground ships in the box. In a group call, number keys pick which character you're steering. |
 | 📞 **Multi-agent group calls** | Add companions to a live call — or let them invite each other ("call Rex for this one"). Each joins with its own voice, avatar and memory; a fast LLM turn director decides who speaks next, with no audio cross-feeding between agents. |
@@ -91,7 +92,7 @@ details in [Using VR](#-using-vr).
 
 https://github.com/user-attachments/assets/ff569423-325c-4fb2-ac4f-f538e9c03895
 
-- **Eve** — caffeinated junior researcher. Reacts before she replies, narrates her lookups, gets genuinely excited about a good find.
+- **Eve** — caffeinated junior researcher. Reacts before replying, narrates their lookups, gets genuinely excited about a good find.
 - **Ara** — warm, patient, older-sister energy. The calm voice at the end of a busy day.
 - **Rex** — half lobster, half man, all quartermaster. Mission-control brevity, calls you Captain, occasionally sings a bar of shanty when the books balance.
 - **Sal** — philosophical frog who knows he's software and finds retirement interesting. Precise, comfortable with silence.
