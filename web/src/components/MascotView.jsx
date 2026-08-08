@@ -4,7 +4,7 @@ import { _t } from "../lib/i18n";
 import { useReactive } from "../lib/reactive";
 import { voice, avatarRenderer } from "../services";
 import { screenCapture } from "../lib/screen_capture";
-import { storedOutfit } from "../lib/outfit_pref";
+import { storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
 import { registerHotkeyHandlers } from "../lib/hotkeys";
 import { wakeState } from "../lib/wake_word";
 import AvatarCanvas from "./AvatarCanvas.jsx";
@@ -66,9 +66,9 @@ export default function MascotView() {
     const [agents, setAgents] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState(null);
     // Toggles hydrate from the persisted prefs so they survive pop-out
-    // cycles. Their side effects are applied by the effects below: ghost has
-    // a [ghost] effect that arms on mount, pin and full-body get a one-shot
-    // mount effect, and sizeIdx needs no apply at all — the shell already
+    // cycles. Their side effects are applied by the effects below: ghost and
+    // cursor follow share an effect that arms on mount, pin and full-body get
+    // a one-shot mount effect, and sizeIdx needs no apply at all — the shell already
     // restores the actual window bounds; the index only seeds the next cycle
     // step and the group-call widening base.
     const [pinned, setPinned] = useState(() => loadMascotPrefs().pinned !== false);
@@ -79,6 +79,9 @@ export default function MascotView() {
         return Number.isInteger(idx) && idx >= 0 && idx < SIZES.length ? idx : 0;
     });
     const [ghost, setGhost] = useState(() => !!loadMascotPrefs().ghost);
+    // Gaze cursor-follow: eyes (and a little head) track the desktop cursor.
+    // Ships off — eye contact is the default persona.
+    const [cursorFollow, setCursorFollowPref] = useState(() => !!loadMascotPrefs().cursorFollow);
     // Tray "Hide avatar controls": the island doesn't render at all — not
     // even on hover. Escape hatches stay in the tray (uncheck it, pop back).
     const [controlsHidden, setControlsHidden] = useState(false);
@@ -218,6 +221,45 @@ export default function MascotView() {
         }
     }, [currentAgent]);
 
+    // ---- tray outfit picker -------------------------------------------------
+    // The tray menu is the shell's, but outfits are page/server data — so
+    // this page publishes the catalog (re-publishing after every pick keeps
+    // the tray's radio selection honest) and the shell routes picks back,
+    // same ownership split as ghost mode.
+    const publishTrayMenu = () => {
+        const bridge = window.rexclawDesktop;
+        if (!bridge?.setMascotTrayMenu) return;
+        const avatar = currentAgent?.avatar;
+        bridge.setMascotTrayMenu({
+            outfits: avatar?.vrm_url
+                ? [{ id: 0, name: _t("Default") },
+                   ...(avatar.outfits || []).map((o) => ({ id: Number(o.id), name: o.name }))]
+                : [],
+            outfitId: Number(voice.state.selectedOutfitId || 0),
+        });
+    };
+    const applyTrayOutfit = (id) => {
+        const avatar = currentAgent?.avatar;
+        if (!avatar?.vrm_url) return;
+        const outfit = (avatar.outfits || []).find((o) => Number(o.id) === Number(id)) || null;
+        if (!outfit && Number(id) !== 0) return;   // stale menu entry
+        voice.state.selectedOutfitId = outfit ? Number(outfit.id) : 0;
+        // Persist like the main window's outfit dropdown does, so the pick
+        // survives pop-back and reloads.
+        storeOutfitPref(avatar.id, outfit ? Number(outfit.id) : 0);
+        avatarRenderer.setOutfit(outfit?.vrm_url || avatar.vrm_url, avatar.vrma_idle_url || null)
+            .catch((e) => console.error("[mascot] outfit load failed", e));
+        publishTrayMenu();
+    };
+    // Ref indirection: subscribed once, must see current avatar + selection.
+    const trayPicks = useRef({});
+    trayPicks.current = { publishTrayMenu, applyTrayOutfit };
+    useEffect(() => { trayPicks.current.publishTrayMenu(); }, [currentAgent]);
+    useEffect(() => {
+        const bridge = window.rexclawDesktop;
+        bridge?.onMascotOutfitRequest?.((id) => trayPicks.current.applyTrayOutfit(id));
+    }, []);
+
     const startOrResume = async () => {
         const sess = currentAgent?.last_resumable_session;
         try {
@@ -267,15 +309,22 @@ export default function MascotView() {
         window.rexclawDesktop?.onMascotPopbackRequest?.(() => popBackInRef.current());
     }, []);
 
-    // ---- ghost mode ---------------------------------------------------------
-    // Clicks pass through the whole window — desktop icons, the app behind,
-    // everything — except the controls island, and the avatar fades out of
-    // the cursor's way (alpha hit-test with a fuzzy radius).
-    // The shell streams global cursor positions because a click-through
-    // window receives no native mouse events of its own.
+    // ---- ghost mode + cursor follow -----------------------------------------
+    // Ghost: clicks pass through the whole window — desktop icons, the app
+    // behind, everything — except the controls island, and the avatar fades
+    // out of the cursor's way (alpha hit-test with a fuzzy radius).
+    // Cursor follow: every sample also goes to the renderer, which eases the
+    // gaze (and a clamped share of head) onto the cursor.
+    // Both ride the shell's global cursor stream — a click-through window
+    // receives no native mouse events of its own, and cursor follow needs
+    // the cursor even while it's outside the window. onMascotCursor is
+    // single-subscriber, so one combined effect owns the stream and fans
+    // out to whichever features are on.
     useEffect(() => {
         const bridge = window.rexclawDesktop;
-        if (!ghost || !bridge?.setMascotGhost) return;
+        const wantGhost = ghost && !!bridge?.setMascotGhost;
+        const wantFollow = cursorFollow && !!bridge?.setMascotCursorFollow;
+        if (!wantGhost && !wantFollow) return;
         let disposed = false;
         const host = () => rootRef.current?.querySelector(".o_voice_avatar_canvas--mascot");
         const setIgnore = (on) => {
@@ -290,6 +339,8 @@ export default function MascotView() {
         };
         bridge.onMascotCursor((c) => {
             if (disposed || !c) return;
+            if (wantFollow) avatarRenderer.setCursorFollow?.(c);
+            if (!wantGhost) return;
             // Mirror :hover for the island reveal — a click-through window
             // gets no native hover on platforms without event forwarding.
             rootRef.current?.classList.toggle("is-cursor-inside", !!c.inside);
@@ -316,17 +367,41 @@ export default function MascotView() {
             const { fuzzy } = avatarRenderer.sampleAlphaRegion?.(c.x, c.y, 24) || {};
             setFade(!!fuzzy);
         });
-        bridge.setMascotGhost(true);
-        setIgnore(true);
+        if (wantFollow) bridge.setMascotCursorFollow(true);
+        if (wantGhost) {
+            bridge.setMascotGhost(true);
+            setIgnore(true);
+        }
         return () => {
             disposed = true;
-            bridge.setMascotGhost(false);   // also restores mouse events shell-side
-            ghostState.current.ignoring = false;
-            host()?.classList.remove("is-ghost-faded");
-            ghostState.current.faded = false;
-            rootRef.current?.classList.remove("is-cursor-inside");
+            if (wantGhost) {
+                bridge.setMascotGhost(false);   // also restores mouse events shell-side
+                ghostState.current.ignoring = false;
+                host()?.classList.remove("is-ghost-faded");
+                ghostState.current.faded = false;
+                rootRef.current?.classList.remove("is-cursor-inside");
+            }
+            if (wantFollow) {
+                bridge.setMascotCursorFollow(false);
+                avatarRenderer.setCursorFollow?.(null);   // ease back to eye contact
+            }
         };
-    }, [ghost]);
+    }, [ghost, cursorFollow]);
+
+    const toggleCursorFollow = () => {
+        const next = !cursorFollow;
+        setCursorFollowPref(next);
+        saveMascotPref({ cursorFollow: next });
+    };
+
+    // Tray → "Follow cursor" routes through this page like ghost mode does
+    // (the pref and the renderer feed live here). Ref indirection: registered
+    // once, must see the current value.
+    const toggleCursorFollowRef = useRef(toggleCursorFollow);
+    toggleCursorFollowRef.current = toggleCursorFollow;
+    useEffect(() => {
+        window.rexclawDesktop?.onMascotCursorFollowRequest?.(() => toggleCursorFollowRef.current());
+    }, []);
 
     const toggleGhost = () => {
         const next = !ghost;
@@ -661,6 +736,12 @@ export default function MascotView() {
                     <button className={ghost ? "is-active" : ""} onClick={toggleGhost}
                             title={_t("Ghost mode — clicks pass through the window; the avatar steps out of the cursor's way")}>
                         <i className="fa fa-low-vision" />
+                    </button>
+                )}
+                {!!window.rexclawDesktop?.setMascotCursorFollow && (
+                    <button className={cursorFollow ? "is-active" : ""} onClick={toggleCursorFollow}
+                            title={_t("Follow the cursor — eyes and head track your mouse across the desktop; when it rests, back to eye contact")}>
+                        <i className="fa fa-mouse-pointer" />
                     </button>
                 )}
                 <button onClick={cycleSize}

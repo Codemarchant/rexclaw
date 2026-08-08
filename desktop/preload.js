@@ -35,6 +35,10 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     // the window should ignore mouse events.
     setMascotGhost: (on) => ipcRenderer.invoke("mascot-ghost", !!on),
     setMascotIgnoreMouse: (on) => ipcRenderer.invoke("mascot-ignore-mouse", !!on),
+    // Gaze cursor-follow: asks the shell for the same cursor stream ghost
+    // mode uses (with or without ghost being on); the page feeds it to the
+    // avatar renderer so the eyes/head track the desktop cursor.
+    setMascotCursorFollow: (on) => ipcRenderer.invoke("mascot-cursor-follow", !!on),
     // Grab-the-character dragging: origin fetch + absolute position stream +
     // end (restores the non-resizable lock the drag temporarily lifts).
     mascotDragStart: () => ipcRenderer.invoke("mascot-drag-start"),
@@ -98,5 +102,17 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     onMascotGhostRequest: (cb) => {
         ipcRenderer.removeAllListeners("mascot-ghost-request");
         ipcRenderer.on("mascot-ghost-request", () => cb());
+    },
+    // Tray "Follow cursor" → same page-owned toggle pattern as ghost mode.
+    onMascotCursorFollowRequest: (cb) => {
+        ipcRenderer.removeAllListeners("mascot-cursor-follow-request");
+        ipcRenderer.on("mascot-cursor-follow-request", () => cb());
+    },
+    // Tray outfit picker: the page publishes the catalog (it owns the
+    // avatar data), the shell routes menu picks back here.
+    setMascotTrayMenu: (data) => ipcRenderer.invoke("mascot-tray-menu", data || {}),
+    onMascotOutfitRequest: (cb) => {
+        ipcRenderer.removeAllListeners("mascot-outfit-request");
+        ipcRenderer.on("mascot-outfit-request", (event, id) => cb(id));
     },
 });

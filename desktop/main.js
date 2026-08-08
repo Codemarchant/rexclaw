@@ -47,7 +47,10 @@ let mascotWindow = null;         // pop-out avatar overlay (frameless, transpare
 let mascotPinned = true;         // page's always-on-top toggle, mirrored shell-side
 let transcriptWindow = null;     // pop-out transcript mirror (normal window)
 let tray = null;
-let ghostTimer = null;           // mascot ghost mode: cursor feed interval
+let mascotTrayMenu = null;       // {outfits, outfitId, emotions} published by the mascot page
+let cursorTimer = null;          // mascot cursor feed interval (ghost / cursor-follow)
+let cursorFeedGhost = false;     // ghost mode on — tray checkbox mirrors this
+let cursorFeedFollow = false;    // page wants the feed for gaze cursor-follow
 let quitting = false;
 let hotkeyAccelerators = [];     // accelerators currently held OS-wide
 
@@ -565,7 +568,8 @@ function createMascotWindow(resume) {
     mascotWindow.on("resize", rememberBounds);
     mascotWindow.on("closed", () => {
         clearTimeout(saveTimer);
-        stopGhostFeed();
+        stopCursorFeed();
+        mascotTrayMenu = null;   // catalog belonged to the departed page
         mascotWindow = null;
         rebuildTrayMenu();
         // However the mascot went away (pop-back IPC, Alt+F4, crash), never
@@ -685,8 +689,10 @@ function setMascotControlsHidden(hidden) {
     return !!hidden;
 }
 
-function stopGhostFeed() {
-    if (ghostTimer) { clearInterval(ghostTimer); ghostTimer = null; }
+function stopCursorFeed() {
+    if (cursorTimer) { clearInterval(cursorTimer); cursorTimer = null; }
+    cursorFeedGhost = false;
+    cursorFeedFollow = false;
 }
 
 /** Tray "Ghost mode" routes through the page (like pop-back): the ghost
@@ -698,24 +704,27 @@ function requestMascotGhostToggle() {
     }
 }
 
-// Ghost mode: the renderer needs a cursor position feed while the window
-// ignores mouse events (a click-through window receives no native mouse
-// events at all) — global polling from the main process is the only source.
-// ~30 Hz, running only while ghost mode is on.
-// ghostTimer doubles as the shell's knowledge of ghost state — the page
-// calls this on every arm/disarm (including the restored-pref arm on
-// mount), so rebuilding the tray here keeps its checkbox honest.
-ipcMain.handle("mascot-ghost", (event, on) => {
-    stopGhostFeed();
-    if (!mascotWindow || mascotWindow.isDestroyed()) return false;
-    if (!on) {
-        mascotWindow.setIgnoreMouseEvents(false);
-        rebuildTrayMenu();
-        return false;
+// Tray "Follow cursor" — same page-owned toggle pattern as ghost mode.
+function requestMascotCursorFollowToggle() {
+    if (mascotWindow && !mascotWindow.isDestroyed()) {
+        mascotWindow.webContents.send("mascot-cursor-follow-request");
     }
+}
+
+// Cursor feed: ghost mode and gaze cursor-follow both need global cursor
+// positions from the shell — a click-through window receives no native mouse
+// events at all, and cursor-follow wants the cursor even while it's outside
+// the window, which no DOM event covers. ~30 Hz, window-relative DIP (== the
+// page's CSS px), running only while at least one consumer is on.
+function syncCursorFeed() {
+    if (!cursorFeedGhost && !cursorFeedFollow) {
+        if (cursorTimer) { clearInterval(cursorTimer); cursorTimer = null; }
+        return;
+    }
+    if (cursorTimer) return;
     const { screen } = require("electron");
-    ghostTimer = setInterval(() => {
-        if (!mascotWindow || mascotWindow.isDestroyed()) { stopGhostFeed(); return; }
+    cursorTimer = setInterval(() => {
+        if (!mascotWindow || mascotWindow.isDestroyed()) { stopCursorFeed(); return; }
         const p = screen.getCursorScreenPoint();
         const b = mascotWindow.getBounds();
         mascotWindow.webContents.send("mascot-cursor", {
@@ -724,6 +733,38 @@ ipcMain.handle("mascot-ghost", (event, on) => {
             inside: p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height,
         });
     }, 33);
+}
+
+// cursorFeedGhost doubles as the shell's knowledge of ghost state — the page
+// calls this on every arm/disarm (including the restored-pref arm on
+// mount), so rebuilding the tray here keeps its checkbox honest.
+ipcMain.handle("mascot-ghost", (event, on) => {
+    if (!mascotWindow || mascotWindow.isDestroyed()) { stopCursorFeed(); return false; }
+    cursorFeedGhost = !!on;
+    if (!on) mascotWindow.setIgnoreMouseEvents(false);
+    syncCursorFeed();
+    rebuildTrayMenu();
+    return cursorFeedGhost;
+});
+
+// Gaze cursor-follow: same feed, independent of ghost mode. The page calls
+// this on every arm/disarm, so rebuilding the tray here keeps its "Follow
+// cursor" checkbox honest (mirror of the ghost handler above).
+ipcMain.handle("mascot-cursor-follow", (event, on) => {
+    if (!mascotWindow || mascotWindow.isDestroyed()) { stopCursorFeed(); return false; }
+    cursorFeedFollow = !!on;
+    syncCursorFeed();
+    rebuildTrayMenu();
+    return cursorFeedFollow;
+});
+
+// Tray outfit picker: the shell owns the tray but the catalog is
+// page/server data (avatar outfits), so the page publishes
+// {outfits:[{id,name}], outfitId} — on avatar hydration and again after
+// every pick, which keeps the radio selection honest the same way the
+// ghost checkbox works.
+ipcMain.handle("mascot-tray-menu", (event, data) => {
+    mascotTrayMenu = data && typeof data === "object" ? data : null;
     rebuildTrayMenu();
     return true;
 });
@@ -1013,9 +1054,32 @@ function rebuildTrayMenu() {
             label: "Ghost mode",
             type: "checkbox",
             enabled: mascotOpen,
-            checked: !!ghostTimer,
+            checked: cursorFeedGhost,
             click: requestMascotGhostToggle,
         },
+        {
+            label: "Follow cursor",
+            type: "checkbox",
+            enabled: mascotOpen,
+            checked: cursorFeedFollow,
+            click: requestMascotCursorFollowToggle,
+        },
+        // Outfit picker — present only while the mascot page has published a
+        // catalog with outfits beyond the default. Picks route to the page,
+        // which owns applying + persisting them.
+        ...(mascotOpen && mascotTrayMenu?.outfits?.length > 1 ? [{
+            label: "Outfit",
+            submenu: mascotTrayMenu.outfits.map((o) => ({
+                label: String(o.name || o.id),
+                type: "radio",
+                checked: Number(o.id) === Number(mascotTrayMenu.outfitId || 0),
+                click: () => {
+                    if (mascotWindow && !mascotWindow.isDestroyed()) {
+                        mascotWindow.webContents.send("mascot-outfit-request", Number(o.id));
+                    }
+                },
+            })),
+        }] : []),
         {
             label: "Hide avatar controls",
             type: "checkbox",

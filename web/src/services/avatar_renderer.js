@@ -107,7 +107,9 @@ const BACKGROUND_PRESETS = {
 // - Blink: humans blink every 2-10s (avg ~4); biphasic 80ms close + 100ms open feels natural.
 //   Range [3, 6] hides the variability without feeling robotic.
 // - Breath: subtle, 0.012 of head-bone Y position; ~0.27 Hz (= 16 breaths/min, restful).
-// - Look-at: always at camera. "Cursor follow" is gimmicky and breaks eye contact.
+// - Look-at: at the camera. "Cursor follow" breaks eye contact, so it stays off
+//   everywhere except the mascot overlay (opt-in, via setCursorFollow) — there
+//   the cursor IS the user's attention, and tracking it reads as attentiveness.
 // - Procedural idle: tiny sinusoidal bone rotations on hips/spine/shoulders/arms.
 //   Runs whenever no VRMA clip is loaded so the avatar isn't stuck in T-pose.
 //   Amplitudes are deliberately small so it looks like a relaxed standing person,
@@ -197,6 +199,22 @@ function randomSaccadeInterval() {
     }
     return EYE_SACCADE_INT_P[EYE_SACCADE_INT_P.length - 1][1] + Math.random() * EYE_SACCADE_INT_STEP;
 }
+
+// Mascot cursor follow (opt-in, mascot overlay only — see the look-at note).
+// The gaze leaves the camera and rides the desktop cursor: the shell's cursor
+// feed (window-relative px) maps to NDC over the active canvas, a ray through
+// that point gives a world target just in front of the camera, and the
+// look-at eases toward it. Eyes are clamped by the VRM's own lookAt range
+// maps; the head adds a clamped share of the deflection in _applyIdle so a
+// far-off cursor reads as attention instead of side-eye. A cursor that stops
+// moving releases the gaze back to eye contact.
+const CURSOR_FOLLOW_DEPTH = 0.8;        // target distance in front of the camera
+const CURSOR_FOLLOW_RATE = 7;           // gaze ease, k = 1 - exp(-RATE * dt)
+const CURSOR_FOLLOW_IDLE_S = 4;         // cursor still this long → eye contact
+const CURSOR_FOLLOW_NDC_MAX = 2.5;      // clamp for cursors far outside the window
+const CURSOR_FOLLOW_HEAD_SHARE = 0.5;   // fraction of the deflection the head takes
+const CURSOR_FOLLOW_HEAD_YAW = 0.22;    // head clamp, radians
+const CURSOR_FOLLOW_HEAD_PITCH = 0.12;
 
 // Smooth start/stop easing for emotion cross-fades (ported from airi's
 // expression.ts). Reads more natural than a flat linear ramp.
@@ -3073,6 +3091,39 @@ class AvatarRenderer {
                     Math.sin(now * IDLE_HEAD_TURN_HZ * TAU) * IDLE_HEAD_TURN_AMP,
                     Math.sin(now * SPEAK_HEAD_TILT_HZ * TAU) * SPEAK_HEAD_TILT_AMP * speak,
                 );
+                // Mascot cursor follow: the head carries a clamped share of
+                // the gaze deflection. Measured as yaw/pitch DELTAS between
+                // the cursor gaze point and the camera as seen from the head,
+                // in head-parent space — deltas around local Y/X compose the
+                // same way whatever the rig's rest facing, so no faceFront
+                // cases. Primary actor only; peers keep plain eye contact.
+                const cf = actor === this ? this._cursorFollow : null;
+                if (cf && cf.blend > 0.005 && this._cursorGazePoint && head.parent && this.camera) {
+                    const THREE = this.libs.THREE;
+                    this._headTgtScratch ||= new THREE.Vector3();
+                    this._headCamScratch ||= new THREE.Vector3();
+                    const t = head.parent.worldToLocal(this._headTgtScratch.copy(this._cursorGazePoint));
+                    const c = head.parent.worldToLocal(this._headCamScratch.copy(this.camera.position));
+                    const p = head.position;
+                    const yawTo = (v) => Math.atan2(v.x - p.x, v.z - p.z);
+                    const pitchTo = (v) => Math.atan2(v.y - p.y, Math.hypot(v.x - p.x, v.z - p.z));
+                    const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+                    const clamp = (v, m) => Math.max(-m, Math.min(m, v));
+                    head.rotation.y += clamp(
+                        wrap(yawTo(t) - yawTo(c)) * CURSOR_FOLLOW_HEAD_SHARE,
+                        CURSOR_FOLLOW_HEAD_YAW,
+                    ) * cf.blend;
+                    // Pitch sign depends on the rig's local facing (yaw
+                    // around Y doesn't): with forward +Z, positive rotation.x
+                    // pitches the face DOWN, with forward -Z it pitches UP.
+                    // Which way the rig faces here = which side of the head
+                    // the camera sits on in this same space.
+                    const pitchSign = c.z > p.z ? -1 : 1;
+                    head.rotation.x += clamp(
+                        pitchSign * wrap(pitchTo(t) - pitchTo(c)) * CURSOR_FOLLOW_HEAD_SHARE,
+                        CURSOR_FOLLOW_HEAD_PITCH,
+                    ) * cf.blend;
+                }
             }
         } catch (e) { /* non-fatal */ }
     }
@@ -3180,6 +3231,43 @@ class AvatarRenderer {
         }
     }
 
+    /** Mascot cursor follow: feed one window-relative cursor sample (CSS px),
+     *  or null to disengage. State only — the easing/blending happens in
+     *  _applyEyeSaccade, and _applyIdle reads the resulting gaze point for
+     *  the head share. Null eases the blend out before dropping the state,
+     *  so toggling off glides back to eye contact instead of snapping. */
+    setCursorFollow(point) {
+        if (!point) {
+            if (this._cursorFollow) this._cursorFollow.off = true;
+            return;
+        }
+        const canvas = this.activeCanvas;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const clampN = (v) =>
+            Math.max(-CURSOR_FOLLOW_NDC_MAX, Math.min(CURSOR_FOLLOW_NDC_MAX, v));
+        const ndcX = clampN(((point.x - rect.left) / rect.width) * 2 - 1);
+        const ndcY = clampN(-(((point.y - rect.top) / rect.height) * 2 - 1));
+        let cf = this._cursorFollow;
+        if (!cf) {
+            cf = this._cursorFollow = {
+                ndcX, ndcY, sx: ndcX, sy: ndcY, blend: 0, off: false,
+                lastX: point.x, lastY: point.y, movedAt: performance.now(),
+            };
+        }
+        cf.off = false;
+        cf.ndcX = ndcX;
+        cf.ndcY = ndcY;
+        // The ~30 Hz feed repeats identical positions — only real movement
+        // counts as "recently moved" (a still cursor releases the gaze).
+        if (Math.abs(point.x - cf.lastX) >= 1 || Math.abs(point.y - cf.lastY) >= 1) {
+            cf.movedAt = performance.now();
+            cf.lastX = point.x;
+            cf.lastY = point.y;
+        }
+    }
+
     _scheduleNextSaccade(now) {
         this._nextSaccadeAt = now + randomSaccadeInterval() / 1000;
     }
@@ -3187,11 +3275,13 @@ class AvatarRenderer {
     /** Idle eye saccades. Nudges the look-at target by a small random offset
      *  around the eye-contact point (the camera) on a biologically-weighted
      *  interval, so the gaze re-fixates with quick darts instead of staring
-     *  glassily. Offset stays small to preserve eye contact (not cursor
-     *  follow); darts shrink while speaking for more focused engagement. The
-     *  eyes are driven by vrm.update(delta) in the loop, which reads this
-     *  target. Runs every frame regardless of idle/gesture state. */
-    _applyEyeSaccade(now) {
+     *  glassily. Offset stays small to preserve eye contact; darts shrink
+     *  while speaking for more focused engagement. Also home of the mascot
+     *  cursor-follow blend, which moves the fixation point itself (the
+     *  saccade jitter rides on top wherever the gaze is). The eyes are
+     *  driven by vrm.update(delta) in the loop, which reads this target.
+     *  Runs every frame regardless of idle/gesture state. */
+    _applyEyeSaccade(now, delta) {
         if (!this.vrm?.lookAt || !this._lookAtTarget || !this.camera || !this._saccadeOffset) return;
         if (this._nextSaccadeAt === undefined) this._scheduleNextSaccade(now);
         if (now >= this._nextSaccadeAt) {
@@ -3215,10 +3305,42 @@ class AvatarRenderer {
                 cam = xrCam.getWorldPosition(this._eyeScratch);
             }
         }
+        // Mascot cursor follow: blend the eye-contact point toward a point
+        // CURSOR_FOLLOW_DEPTH in front of the camera along the cursor's ray.
+        // Both the blend (engage / idle-release / toggle-off) and the NDC
+        // ease exponentially so the 30 Hz feed reads as a glide, not steps.
+        // _cursorGazePoint doubles as _applyIdle's head-share input.
+        let gx = cam.x, gy = cam.y, gz = cam.z;
+        const cf = this._cursorFollow;
+        if (cf && !this._xrActive) {
+            const THREE = this.libs.THREE;
+            const k = 1 - Math.exp(-CURSOR_FOLLOW_RATE * (delta || 0.016));
+            const engaged = !cf.off
+                && (performance.now() - cf.movedAt) / 1000 < CURSOR_FOLLOW_IDLE_S;
+            cf.blend += ((engaged ? 1 : 0) - cf.blend) * k;
+            cf.sx += (cf.ndcX - cf.sx) * k;
+            cf.sy += (cf.ndcY - cf.sy) * k;
+            if (cf.blend < 0.005) {
+                // Fully back on eye contact; a toggle-off can now drop state.
+                if (cf.off) { this._cursorFollow = null; this._cursorGazePoint = null; }
+            } else {
+                this._cursorRaycaster ||= new THREE.Raycaster();
+                this._cursorNdcScratch ||= new THREE.Vector2();
+                this._cursorGazePoint ||= new THREE.Vector3();
+                this._cursorNdcScratch.set(cf.sx, cf.sy);
+                this._cursorRaycaster.setFromCamera(this._cursorNdcScratch, this.camera);
+                const ray = this._cursorRaycaster.ray;
+                this._cursorGazePoint.copy(ray.direction)
+                    .multiplyScalar(CURSOR_FOLLOW_DEPTH).add(ray.origin);
+                gx += (this._cursorGazePoint.x - gx) * cf.blend;
+                gy += (this._cursorGazePoint.y - gy) * cf.blend;
+                gz += (this._cursorGazePoint.z - gz) * cf.blend;
+            }
+        }
         this._lookAtTarget.position.set(
-            cam.x + this._saccadeOffset.x,
-            cam.y + this._saccadeOffset.y,
-            cam.z,
+            gx + this._saccadeOffset.x,
+            gy + this._saccadeOffset.y,
+            gz,
         );
     }
 
@@ -3281,7 +3403,7 @@ class AvatarRenderer {
             this._applyIdle(this, now);
             this._applyBlink(this, now);
             this._applyBreath(this, now);
-            this._applyEyeSaccade(now);
+            this._applyEyeSaccade(now, delta);
             this._applyVowels(this);
             this._applyEmotion(this, delta);
             // Physics/ragdoll write-back: after animation has posed the

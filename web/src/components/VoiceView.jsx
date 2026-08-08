@@ -502,6 +502,14 @@ export default function VoiceView({ active = true }) {
         loadHistory();
     };
 
+    // Outfit re-sync on pop-back: the mascot page may have switched outfits
+    // (tray picker, change_outfit tool). This window kept running hidden, so
+    // its in-state selection and loaded VRM predate that — the persisted
+    // pref is the cross-page-instance truth, re-hydrate from it. Ref
+    // indirection: the handler below registers once, this must see the
+    // current avatar.
+    const resyncOutfitRef = useRef(() => {});
+
     useEffect(() => {
         window.rexclawDesktop?.onMascotReturned?.((data) => {
             if (data?.resume) startCallIfIdleRef.current();
@@ -511,6 +519,7 @@ export default function VoiceView({ active = true }) {
                 if (src) screenCapture.armSilent(src);
             });
             loadHistory();
+            resyncOutfitRef.current();
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -729,6 +738,17 @@ export default function VoiceView({ active = true }) {
 
     const currentAgent = findAgent(selectedAgentId);
     const currentOutfits = currentAgent?.avatar?.outfits || [];
+
+    resyncOutfitRef.current = () => {
+        const avatar = currentAgent?.avatar;
+        if (!avatar?.vrm_url) return;
+        const outfit = storedOutfit(avatar);   // null = default → base VRM
+        const wantId = outfit ? Number(outfit.id) : 0;
+        if (wantId === Number(voice.state.selectedOutfitId || 0)) return;
+        voice.state.selectedOutfitId = wantId;
+        avatarRenderer.setOutfit(outfit?.vrm_url || avatar.vrm_url, avatar.vrma_idle_url || null)
+            .catch((e) => console.error("[voice] outfit re-sync failed", e));
+    };
     const customGestures = (currentAgent?.avatar?.custom_gestures || []).filter((g) => g.vrma_url);
     const currentBackgrounds = currentAgent?.avatar?.backgrounds || [];
 
