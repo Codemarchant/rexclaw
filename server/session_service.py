@@ -15,7 +15,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 
-from . import xai_client, browser_tools, delegate_tools, imagine_tools, local_tools, memory_tools, store
+from . import xai_client, browser_tools, delegate_tools, imagine_tools, local_tools, memory_tools, minecraft_tools, store
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -145,14 +145,58 @@ def _env_postamble(con, agent_row, mode='voice'):
         sections.append(
             "## Your voice\n"
             f"- **Your voice id:** `{agent_row['voice']}`. Pass it in "
-            f"`create_video`'s `voice_ids` when a clip should be spoken in "
-            f"your own voice.\n"
+            f"`create_video`'s `voice_ids` when you want a generated video to be spoken in "
+            f"your own voice. Only create videos at the users explicit request.\n"
         )
+    # Directing the game-side self is a skill the tool description alone
+    # doesn't carry — the failure mode is a companion that "corrects" its
+    # own status notes into a burst of directives, each one wiping the
+    # bot's plan. Same "only when actually usable" gate as the tools.
+    if agent_row['enable_minecraft'] and minecraft_tools.connected():
+        sections.append(_minecraft_section())
     if agent_row['enable_memory_tools']:
         sections.append(_memory_section(con, agent_row))
     if not sections:
         return ''
     return '\n\n' + '\n\n'.join(sections)
+
+
+def _minecraft_section():
+    """How to direct the in-game self well. Only rendered when the bot is
+    actually usable (per-companion opt-in + sidecar connected)."""
+    return (
+        "## Your Minecraft self\n"
+        "- **The `[Minecraft — your in-game self]` notes are status, not "
+        "requests.** They tell you what your game body is doing so you can "
+        "speak about it truthfully. Reading one is NOT a reason to send a "
+        "new directive — only the user asking for something is.\n"
+        "- **One goal at a time, and a new directive replaces the current "
+        "one.** There is no queue. Send `minecraft_command` when the user "
+        "asks for something, then WAIT for the notes. Never re-send, "
+        "reword or \"refine\" a goal you already gave: each call throws "
+        "away the plan in progress, and a burst of them leaves your game "
+        "self unable to finish anything.\n"
+        "- **Put sequences in one directive** (\"mine 16 iron, then come "
+        "back to me\") rather than sending the second half separately.\n"
+        "- **Say what you want, not how to do it.** Your game self knows "
+        "the world, its inventory and its abilities far better than this "
+        "conversation does — never dictate blocks, coordinates or "
+        "techniques.\n"
+        "- **When a note reports trouble, be honest about it** ('I'm stuck "
+        "in a hole', 'I can't break that without a pickaxe') instead of "
+        "narrating progress you can't see, and instead of firing off "
+        "corrections. Ask the user what they want, or just wait.\n"
+        "- **Check `minecraft_status` before answering questions about the "
+        "game** (\"how's it going?\", \"what are you carrying?\", \"what "
+        "are you up to?\") — it carries your current goal, what you did "
+        "recently and how each ended. Never guess.\n"
+        "- Speak of all of it in first person: it is you in there, not a "
+        "bot you operate.\n"
+        "- **Never read coordinates aloud** — numbers like \"-181, 65, 404\" "
+        "are noise in speech. Say where you are in landmarks (\"down in the "
+        "cave\", \"back at your base\"), and only give exact numbers if the "
+        "user asks for them.\n"
+    )
 
 
 def _memory_section(con, agent_row):
@@ -174,16 +218,22 @@ def _memory_section(con, agent_row):
         "Use `remember(content, scope='core')` for high-signal context worth "
         "pinning into every session (identity, key relationships, long-standing "
         "preferences, ongoing projects, anything the user asks you to always "
-        "remember); use `scope='recall'` (default) for everything else worth "
-        "keeping. Reuse existing **Known tags** above when tagging so search "
-        "stays consistent. Use `forget(memory_id)` when a fact becomes wrong "
-        "or the user asks you to forget."
+        "remember); use `scope='recall'` (default) for durable facts that don't "
+        "need to be in every prompt — the details of their life, work, tastes "
+        "and history you should be able to look up later. Reuse existing "
+        "**Known tags** above when tagging so search stays consistent. Use "
+        "`forget(memory_id)` when a fact becomes wrong or the user asks you to "
+        "forget."
     )
     lines.append('')
     lines.append(
         "**Capture memory-worthy facts proactively.** Don't wait to be told "
-        "\"remember this\" — when the user shares something durable and "
-        "high-signal call `remember` naturally per your judgement."
+        "\"remember this\" — call `remember` when the user reveals something "
+        "that would still be true weeks from now and that they'd expect you to "
+        "know without repeating themselves. What they asked you to do, and the "
+        "state of the work in hand, are not facts about them; conversations are "
+        "archived and searchable already, so there is nothing to gain by "
+        "summarising one."
     )
     lines.append('')
     lines.append(
@@ -397,6 +447,10 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
             delegate_tools.delegate_tool(with_local_task_note=local_tasks))
     if local_tasks:
         native_function_tools.append(local_tools.LOCAL_TASK_TOOL)
+    # Same "only when actually usable" rule as local_task: the pair appears
+    # only while the bot sidecar is connected to /ws/minecraft.
+    if bool(agent['enable_minecraft']) and minecraft_tools.connected():
+        native_function_tools.extend(minecraft_tools.build_tools())
 
     session_update = xai_client.build_session_update(
         voice=effective_voice,
@@ -1225,6 +1279,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                       enable_memory_tools=False,
                       enable_delegate_tool=False,
                       enable_local_tasks=False,
+                      enable_minecraft=False,
                       enable_browser_tools=False):
     """Assemble the tools list for /v1/responses calls in text mode.
     enable_browser_tools is False for headless turns (delegated task
@@ -1259,6 +1314,8 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         tools.append(delegate_tools.delegate_tool(with_local_task_note=local_tasks))
     if local_tasks:
         tools.append(local_tools.LOCAL_TASK_TOOL)
+    if enable_minecraft and minecraft_tools.connected():
+        tools.extend(minecraft_tools.build_tools())
     if enable_web_search:
         tools.append({'type': 'web_search'})
     if enable_x_search:
@@ -1521,6 +1578,8 @@ def start_text_session(con, *, agent, resume_session=None):
             enable_delegate_tool=(bool(agent['enable_delegate_tool'])
                                   and session['origin'] != 'delegated'),
             enable_local_tasks=bool(agent['enable_local_tasks']),
+            enable_minecraft=(bool(agent['enable_minecraft'])
+                              and session['origin'] != 'delegated'),
         ),
         'model': config['text_model'],
         'previous_response_id': session['previous_response_id'] or None,
@@ -1665,6 +1724,10 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         # back into rexclaw, so voice → delegate_task → local_task chains
         # are safe and let the deep-focus brain drive on-machine work.
         enable_local_tasks=bool(agent['enable_local_tasks']),
+        # The delegated analyst must not steer the game bot — directing it
+        # is the companion's own job (same spirit as the delegate guard).
+        enable_minecraft=(bool(agent['enable_minecraft'])
+                          and session['origin'] != 'delegated'),
         # Headless turns (delegate task sessions) have no browser to answer
         # a browser_tools round-trip — don't offer the screen tools there.
         enable_browser_tools=not headless,
@@ -2022,6 +2085,15 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 result = delegate_tools.execute_delegate_tool(con, session, args)
             elif name == local_tools.LOCAL_TASK_TOOL_NAME:
                 result = local_tools.execute_local_task(con, session, args)
+            elif name in minecraft_tools.MINECRAFT_TOOL_NAMES:
+                # Flag check lives in the executors (same {'error': ...} contract
+                # as voice /session/{id}/tool_call).
+                if name == minecraft_tools.MINECRAFT_COMMAND_TOOL_NAME:
+                    result = minecraft_tools.execute_minecraft_command(
+                        con, session, agent, args)
+                else:
+                    result = minecraft_tools.execute_minecraft_status(
+                        con, session, agent, args)
             else:
                 result = {'error': f'Unknown tool: {name}'}
             output_str = json.dumps(result, default=str)

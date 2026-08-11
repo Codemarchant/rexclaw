@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
-from .. import delegate_tools, imagine_tools, local_tools, memory_tools, session_service, store
+from .. import delegate_tools, imagine_tools, local_tools, memory_tools, minecraft_tools, session_service, store
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -133,6 +133,11 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         result = local_tools.execute_local_task(con, session, arguments)
         con.commit()
         return result
+    if tool_name in minecraft_tools.MINECRAFT_TOOL_NAMES:
+        # Flag check lives in the executors (same {'error': ...} contract).
+        if tool_name == minecraft_tools.MINECRAFT_COMMAND_TOOL_NAME:
+            return minecraft_tools.execute_minecraft_command(con, session, agent, arguments)
+        return minecraft_tools.execute_minecraft_status(con, session, agent, arguments)
     raise ValidationError(f"Unknown native tool: {tool_name}")
 
 

@@ -15,6 +15,9 @@ web/dist/
 desktop/node_modules/
 desktop/dist/
 desktop/runtime/
+minecraft/node_modules/
+minecraft/brain_state.json
+minecraft/test/*_state_test.json*
 CLAUDE.md
 *.pyc
 .claude

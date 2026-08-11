@@ -150,8 +150,11 @@ _CREATE_VIDEO_TOOL = {
 
         The finished clip appears automatically in the transcript as a playable
         thumbnail — NEVER say or write the URL, file name or link; just react
-        to the result naturally in your own words. Good for little gifts,
-        jokes and "show me" moments.
+        to the result naturally in your own words.
+
+        Rendering takes a while, so never call this silently: say what you
+        are creating as you start, keep chatting while it renders, and react
+        when it lands. Only create videos at the users explicit request.
 
         MODES — the optional inputs select exactly one mode, and each mode
         accepts only its own extra parameters:

@@ -456,6 +456,66 @@ export default function SettingsView({ active }) {
                         <div />
                     </div>
                 </section>
+                <section>
+                    <h3><i className="fa fa-cube" /> {_t("Minecraft bot")}</h3>
+                    <p className="text-muted">
+                        {_t("Companions with \"Minecraft bot\" enabled (per companion, "
+                            + "on the Companions tab) can direct a bot that joins your "
+                            + "Minecraft world as its own player and plays for real — "
+                            + "mining, crafting, building, following you. Run the "
+                            + "sidecar from the minecraft folder of the Rexclaw "
+                            + "install (npm install, then node index.js) — the tool "
+                            + "only appears while it's connected. The bot plans with "
+                            + "its own (cheaper) text model on your API key; your "
+                            + "companion directs it by voice and reacts to what "
+                            + "happens in the world. The bot executes "
+                            + "model-generated scripts against your world — use on "
+                            + "your own or trusted servers only.")}
+                    </p>
+                    <p className="text-muted">
+                        {_t("Run it on the same machine as the game (first time: "
+                            + "npm install). For a LAN world use the port Minecraft "
+                            + "prints when you open to LAN — it changes every time "
+                            + "the world is opened. Set --username to your "
+                            + "companion's name so the character in the world is "
+                            + "them, not a stranger:")}
+                        <br />
+                        <code>cd rexclaw\minecraft</code><br />
+                        <code>node index.js --port 65000 --username Ara</code>
+                    </p>
+                    <div className="rx_row">
+                        <div>
+                            <label>{_t("Bot brain model (empty = grok-4.20-non-reasoning)")}</label>
+                            <input type="text"
+                                   placeholder="grok-4.20-non-reasoning"
+                                   value={config.minecraft_brain_model || ""}
+                                   onChange={(ev) => setField("minecraft_brain_model", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label>{_t("Hard-task model — rare, slow fallback (empty = disabled)")}</label>
+                            <input type="text"
+                                   placeholder="grok-4.5"
+                                   value={config.minecraft_brain_model_hard || ""}
+                                   onChange={(ev) => setField("minecraft_brain_model_hard", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label>{_t("Your in-game username (the bot prioritizes you)")}</label>
+                            <input type="text"
+                                   placeholder={_t("e.g. Jonny")}
+                                   value={config.minecraft_master || ""}
+                                   onChange={(ev) => setField("minecraft_master", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label>{_t("Sidecar")}</label>
+                            <div className="rx_wake_status">
+                                {config.minecraft_connected
+                                    ? "✅ " + _t("Connected — the tool is live in new calls")
+                                    : "❌ " + _t("Not connected — start it with node index.js "
+                                        + "in the minecraft folder, then reopen Settings")}
+                            </div>
+                        </div>
+                    </div>
+                </section>
 
                 <section>
                     <h3><i className="fa fa-keyboard-o" /> {_t("Hotkeys")}</h3>

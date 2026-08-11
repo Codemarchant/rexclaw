@@ -46,6 +46,11 @@ const NATIVE_TOOL_NAMES = new Set([
     // Local computer tasks: the server drives the Grok Build CLI headlessly
     // on the machine it runs on. Same slow server-side shape as delegate_task.
     "local_task",
+    // Minecraft bot: the server relays directives to the game sidecar over
+    // its WebSocket. Fast — the bot acks immediately and works async;
+    // progress comes back through the voice service's event pump.
+    "minecraft_command",
+    "minecraft_status",
 ]);
 
 export class ToolDispatcher {

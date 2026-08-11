@@ -60,6 +60,7 @@ const DIRECTOR_TIMEOUT_MS = 4000;
 // that the hangup lands within a few seconds of the configured minute, cheap
 // enough to ignore.
 const INACTIVITY_TICK_MS = 15000;
+const MINECRAFT_POLL_MS = 4000;
 
 class VoiceCallService {
     // xAI's accepted PCM sample rates (from the server validator). Browsers
@@ -111,6 +112,12 @@ class VoiceCallService {
         this._inactivityMinutes = 0;
         this._lastActivityAt = 0;
         this._inactivityTimer = null;
+
+        // Minecraft sidecar events → the live call. Server-buffered; polled
+        // only while live (guarded in the pump), injected as context notes
+        // so the companion reacts aloud unprompted ("found diamonds!").
+        this._minecraftCursor = null;
+        this._minecraftTimer = setInterval(() => this._pumpMinecraftEvents(), MINECRAFT_POLL_MS);
 
         // Debug handle, mirroring the renderer's window.__voiceRenderer.
         if (typeof window !== "undefined") {
@@ -359,6 +366,59 @@ class VoiceCallService {
     /** Reset the idle countdown. */
     noteActivity() {
         this._lastActivityAt = Date.now();
+    }
+
+    /** Poll the server's Minecraft event buffer during a live call and
+     *  inject fresh events as [Minecraft bot] context notes, split by
+     *  urgency: low = context only (the companion knows, and mentions it
+     *  when it next matters), anything higher = react now. The cursor
+     *  resets on every call start ("first live tick subscribes only"), so
+     *  backlog from before the call is never spoken; the server drops the
+     *  events for sessions whose companion has the bot disabled. Not live →
+     *  no network at all. */
+    async _pumpMinecraftEvents() {
+        if (this.state.status !== "live") {
+            this._minecraftCursor = null;
+            return;
+        }
+        const sessionId = this.primary?.state?.sessionId;
+        if (!sessionId) return;
+        try {
+            const res = await rpc("/api/minecraft/state", {
+                cursor: this._minecraftCursor,
+                session_id: sessionId,
+            });
+            const hadCursor = this._minecraftCursor != null;
+            this._minecraftCursor = res.cursor ?? this._minecraftCursor;
+            if (!hadCursor) return;
+            const fresh = (res.events || [])
+                .filter((e) => e.kind !== "ack");   // tool result already covered the ack
+            if (!fresh.length) return;
+            // Urgency decides whether the companion SPEAKS now or merely
+            // KNOWS. Prompting a reaction to every tick is what made them
+            // narrate constantly and fire "corrective" directives off their
+            // own status notes; low-urgency lines (their own game chat,
+            // snags mid-retry, other players' chatter, connectivity) inform
+            // the next turn instead. Milestones, danger, deaths and
+            // completions still interrupt.
+            const speakNow = fresh.filter((e) => e.urgency !== "low");
+            const quiet = fresh.filter((e) => e.urgency === "low");
+            // Prefix declares the speaker: events are written first-person
+            // by the game-side brain ("I found diamonds"), and the label
+            // keeps that "I" bound to the companion's in-game self instead
+            // of reading as the user or some third-party bot.
+            const render = (events) => events
+                .map((e) => `[Minecraft — your in-game self] ${e.text}`)
+                .join("\n");
+            // Self-batched by the poll cadence — bypass the 4s drop-gate so
+            // a batch never silently vanishes.
+            if (quiet.length) {
+                this.sendContextEvent(render(quiet), { minIntervalMs: 0, promptResponse: false });
+            }
+            if (speakNow.length) {
+                this.sendContextEvent(render(speakNow), { minIntervalMs: 0 });
+            }
+        } catch (e) { /* endpoint gated or server restarting — quiet */ }
     }
 
     /** Adopt the configured idle budget (minutes; 0/absent disables) and arm

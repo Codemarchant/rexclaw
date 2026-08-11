@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, init_db
 from .errors import UserError
-from .routes import avatars, misc, text, voice
+from .routes import avatars, minecraft, misc, text, voice
 from .seeds import seed_if_empty
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -54,6 +54,7 @@ app.include_router(voice.router)
 app.include_router(text.router)
 app.include_router(misc.router)
 app.include_router(avatars.router)
+app.include_router(minecraft.router)
 
 # Bundled VRM/VRMA/GLB assets + generated/uploaded files + user avatar packs.
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")

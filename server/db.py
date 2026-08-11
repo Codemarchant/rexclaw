@@ -116,6 +116,14 @@ CREATE TABLE IF NOT EXISTS config (
     -- local_task working directory — the Grok Build CLI's blast-radius
     -- boundary. Empty = <data>/workspace (created on demand).
     local_task_workdir TEXT NOT NULL DEFAULT '',
+    -- Minecraft bot sidecar: the text model that plans the bot's actions
+    -- (empty = grok-4.20-non-reasoning), the stronger model used for hard
+    -- directives like building (empty = grok-latest), and the in-game
+    -- username of the user, so the bot knows whose orders outrank
+    -- everyone else's.
+    minecraft_brain_model TEXT NOT NULL DEFAULT '',
+    minecraft_brain_model_hard TEXT NOT NULL DEFAULT '',
+    minecraft_master TEXT NOT NULL DEFAULT '',
     -- Lifetime/today spend (USD) accrued from xAI's usage.cost_in_usd_ticks.
     -- Informational only in the standalone (it's the user's own key).
     spend_lifetime_usd REAL NOT NULL DEFAULT 0,
@@ -229,6 +237,9 @@ CREATE TABLE IF NOT EXISTS agents (
     -- local_task: drive the Grok Build CLI headlessly on the user's machine
     -- (real files + shell in the workspace folder). Powerful → opt-in.
     enable_local_tasks INTEGER NOT NULL DEFAULT 0,
+    -- Minecraft bot: direct the mineflayer sidecar (minecraft/ folder).
+    -- Runs LLM-generated scripts against the user's world → opt-in.
+    enable_minecraft INTEGER NOT NULL DEFAULT 0,
     -- Group voice calls: enable_call_agents_tool exposes the
     -- add_agent_to_call / remove_agent_from_call browser tools so this agent
     -- can manage the group call; when_to_call_description is shown to OTHER
@@ -494,6 +505,13 @@ MIGRATIONS = (
     # Per-avatar emotion decay (settle back toward neutral after the beat).
     # On by default — replaces the old hardcoded Eve/Leo/Ara-only softening.
     "ALTER TABLE avatars ADD COLUMN emotion_decay INTEGER NOT NULL DEFAULT 1",
+    # Minecraft bot sidecar: per-agent opt-in + brain model + master player.
+    "ALTER TABLE agents ADD COLUMN enable_minecraft INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN minecraft_brain_model TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN minecraft_master TEXT NOT NULL DEFAULT ''",
+    # Minecraft bot: stronger planning model for hard directives (building,
+    # long crafting chains) — the brain also escalates to it on retries.
+    "ALTER TABLE config ADD COLUMN minecraft_brain_model_hard TEXT NOT NULL DEFAULT ''",
 )
 
 

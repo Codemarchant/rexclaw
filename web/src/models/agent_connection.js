@@ -258,6 +258,10 @@ export class AgentConnection {
         // response.create — see _maybeCreateToolReply.
         this._pendingToolReply = false;
         this._toolReplyStarting = false;
+        // Latched true when a context note that WANTED a spoken reaction
+        // arrived while a response was already streaming — see
+        // injectContextItem. Flushed when that response finishes.
+        this._owedContextResponse = false;
         this.pendingFunctionCalls.clear();
         // Fresh socket = fresh input item state on xAI's side — the
         // cumulative-transcript guard must not strip against stale text.
@@ -725,9 +729,11 @@ export class AgentConnection {
                 // Gate for the post-tool follow-up reply — see
                 // _maybeCreateToolReply.
                 this._maybeCreateToolReply();
+                this._flushOwedContextResponse();
             } else {
                 // Cancelled (barge-in / abort): abandon any owed tool reply.
                 this._pendingToolReply = false;
+                this._owedContextResponse = false;
             }
             // If a /append earlier flagged needs_compaction during this
             // response, restart now that the model is idle.
@@ -831,8 +837,10 @@ export class AgentConnection {
         // In server-VAD mode xAI handles the cancel itself; we stop local
         // playback and mark _bargedIn so straggling chunks are discarded.
         if (msg.type === "input_audio_buffer.speech_started") {
-            // User interrupted: abandon any owed tool reply.
+            // User interrupted: abandon any owed tool reply. The context
+            // note stays in context, so their turn will cover it.
             this._pendingToolReply = false;
+            this._owedContextResponse = false;
             const audioStillPlaying = this._assistantAudioActive();
             if (this._responseInFlight || audioStillPlaying) {
                 console.log(
@@ -1167,9 +1175,35 @@ export class AgentConnection {
         this._currentResponseId = null;
         this._assistantTranscriptInProgress = "";
         this._pendingToolReply = false;
+        this._owedContextResponse = false;
         this.state.thinking = false;
         // Suppress stragglers until the next response.created.
         this._bargedIn = true;
+    }
+
+    /** React to a context note that landed mid-reply. Deferred rather than
+     *  dropped: an event worth speaking about (the game-side self finished
+     *  its task, died, or hit a wall) must not be silently swallowed just
+     *  because the companion happened to be talking when it arrived. */
+    _flushOwedContextResponse() {
+        if (!this._owedContextResponse) return;
+        // A tool reply already owes speech, and the note is in context —
+        // that reply will cover it. Don't stack two responses.
+        if (this._pendingToolReply || this._toolReplyStarting) {
+            this._owedContextResponse = false;
+            return;
+        }
+        // Let any tail audio drain, then speak — unless the user took the
+        // floor in the meantime.
+        setTimeout(() => {
+            if (!this._owedContextResponse) return;
+            this._owedContextResponse = false;
+            if (this._bargedIn || this._sessionEnded || this._responseInFlight) return;
+            if (this.state.status !== "live") return;
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+            console.log(`[voice:${this.connId}] → response.create (deferred context note)`);
+            this._maybeCreateResponse();
+        }, 250);
     }
 
     /** Send the post-tool-call follow-up response — but only once BOTH
@@ -1716,7 +1750,17 @@ export class AgentConnection {
         });
         // Deliberately no _appendMessage — stays out of the transcript.
         if (promptResponse) {
-            this._maybeCreateResponse();
+            // A note that arrives mid-reply would otherwise be absorbed
+            // silently: _maybeCreateResponse no-ops while a response is in
+            // flight and nothing ever retries it. That is how "the bot
+            // finished its task" reached the companion's context but was
+            // never spoken. Remember the debt and settle it on completion.
+            if (this._responseInFlight) {
+                this._owedContextResponse = true;
+                console.log(`[voice:${this.connId}] context note owed a reaction (response in flight) — deferred`);
+            } else {
+                this._maybeCreateResponse();
+            }
         }
         return true;
     }

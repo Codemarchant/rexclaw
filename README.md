@@ -39,6 +39,7 @@ leaves your machine.
 | 🎬 **Imagine video** | Ask for a living scene and `change_background` generates an animated looping backdrop instead of a still — both stay selectable in the background picker. `create_video` drops short clips with native sound into the transcript, and can animate a library image (image-to-video), put the people and things from earlier generations into a new clip (reference-to-video), continue a clip with what happens next (extension), or tweak one in place — "add sunglasses" (editing). Companions can even `take_selfie` — snapshot their current look, pose and outfit straight off the canvas, with or without the scene backdrop — and star in their own clips. And you can share your own photos mid-call (paperclip) for the same treatment: animate them or put their subjects into new clips. Per-second Grok Imagine pricing, so clips stay short and cheap. |
 | 🕵️ **Background analyst (`delegate_task`)** | Companions hand complex work — file/image analysis, coding, deep research — to a hidden text-mode analyst with the vision and document reading the realtime voice model lacks. Each task runs in its own persistent workspace the companion can continue across turns ("now fix the bug you just found"), with automatic server-side compaction. The voice-mode paperclip now accepts **any file type**: images keep feeding the Imagine tools, documents (PDF, CSV, …) upload to xAI and get read via `delegate_task`. Optional per-companion multi-agent mode (off by default) routes the hardest questions to xAI's multi-agent model, where several agents collaborate and a leader synthesizes. |
 | 🛠️ **Local computer tasks (`local_task`)** | Opt-in per companion: hand real on-machine work to the [Grok Build CLI](https://docs.x.ai/build) — ask your companion to write a script, generate files, or analyse a local project, and a coding agent on your own computer does it for real (files, code, shell). Tasks are continuable ("now add a dark mode") and confined to a configurable working folder (Settings → Local computer tasks; defaults to a dedicated workspace in the data folder). Library files (uploads, screenshots) can be attached to a task — working copies land in the workspace for the agent to use or modify. Runs with no confirmation prompts inside that folder, so it's **off by default** — and the tool only appears when the `grok` CLI is installed on the machine (it never works in Docker). Billing: if you signed into the Grok CLI, tasks bill that login; otherwise your Rexclaw API key is used. |
+| ⛏️ **Minecraft bot (`minecraft_command`)** | Opt-in per companion: your companion joins your Minecraft world as a real player and plays alongside you. Tell them by voice — "come mine with me", "get us some food", "build a shelter before dark" — and the bot plans and plays autonomously (pathfinding, mining, crafting, combat, chests), while your companion keeps talking with you and reacts aloud to what happens in the world ("found diamonds!"). Runs as a separate sidecar process (`minecraft/` folder) with its own cheaper text-model brain that writes little JavaScript plans against a skill library; the voice call only carries directives and highlights, so long jobs don't inflate call cost. **Off by default** — it executes model-generated scripts in your world, so use it on your own or trusted servers. |
 | 🖥️ **Screen sharing** | Share your screen with one click and your companion can see what you see — ask them to look at a photo, an article, an error (`take_screenshot`), or show them a moment from a video or game with `record_screen_clip` (up to 90 s, sound included if you share audio). Captures post to the transcript and save to the library for later. Red dot while recording; nothing is captured unless you armed the share. |
 | 👥 **A fully written crew** | Eve, Ara, Rex, Sal and Leo — five companions with backstories, speech quirks and matching voices. Fork them or build your own. |
 | 🔌 **Remote MCP tools** | Attach any number of remote MCP servers per companion, with bearer auth and per-tool whitelists — configured in the UI. |
@@ -270,6 +271,22 @@ an allowed-tools whitelist, and toggles for voice/text sessions.
 
 How it works: the connection is injected into the session's tool list and
 **xAI's servers call the MCP endpoint directly** — The URL must be **publicly reachable over HTTPS**
+
+## ⛏️ Minecraft bot
+
+Your companion can join your Minecraft world as its own player — you direct
+them by voice, they play for real, and they react aloud to what happens in
+the world. The bot runs as a sidecar process:
+
+```bash
+cd minecraft
+npm install
+node index.js --port <lan port> --username <YourCompanionsName>
+```
+
+Then enable **Minecraft bot** for a companion (Companions → Edit) and see
+**Settings → Minecraft bot**. Full setup, configuration, architecture and
+safety notes: **[minecraft/README.md](minecraft/README.md)**.
 
 ## 💰 xAI cost optimisation
 
