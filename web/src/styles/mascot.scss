@@ -160,6 +160,19 @@ html.rx_mascot_mode {
             font-size: 0.78rem;
             color: rgba(255, 255, 255, 0.6);
         }
+
+        // This window's own always-on-top pin (desktop shell only).
+        .rx_transcript_win_pin {
+            background: transparent;
+            border: 0;
+            color: rgba(255, 255, 255, 0.55);
+            border-radius: 0.35rem;
+            padding: 0.2rem 0.4rem;
+            cursor: pointer;
+
+            &:hover { background: rgba(255, 255, 255, 0.12); color: white; }
+            &.is-active { color: #60a5fa; }
+        }
     }
 
     .rx_transcript_win_body {
@@ -234,6 +247,104 @@ html.rx_mascot_mode {
             &:focus { outline: 2px solid #2563eb; }
             &:disabled { opacity: 0.5; }
         }
+    }
+}
+
+// ---- Mascot settings window (/#mascot-settings) ---------------------------
+// Reuses the Settings tab's look (.rx_settings in base.scss) — these are
+// only the extras: per-option description lines, the preset/corner button
+// rows, and the "avatar not popped out" banner.
+
+.rx_mascot_settings {
+    // fieldset is only a native enable/disable wrapper — no chrome.
+    fieldset {
+        border: 0;
+        padding: 0;
+        margin: 0;
+        min-width: 0;
+
+        &:disabled {
+            opacity: 0.55;
+
+            button { cursor: default; }
+        }
+    }
+
+    .rx_mascot_set_item + .rx_mascot_set_item { margin-top: 0.7rem; }
+
+    .rx_mascot_set_desc {
+        margin: 0.15rem 0 0 1.55rem;
+        font-size: 0.78rem;
+        color: #64748b;
+
+        // Under a label'd row (size presets) rather than a checkbox.
+        &--flush { margin-left: 0; }
+    }
+
+    // Header row: title left, this window's own always-on-top pin right.
+    .rx_mascot_set_head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+
+        .btn-light { border: 1px solid #cbd5e1; }
+    }
+
+    .rx_mascot_set_tabs {
+        display: flex;
+        gap: 0.4rem;
+        margin-top: 0.75rem;
+
+        .btn-light { border: 1px solid #cbd5e1; }
+    }
+
+    .rx_mascot_set_sizes,
+    .rx_mascot_set_corners,
+    .rx_mascot_set_grid {
+        display: flex;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+
+        .btn-light { border: 1px solid #cbd5e1; }
+    }
+
+    // Call controls row: status dot + label, then the action buttons.
+    .rx_mascot_set_call {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        margin-top: 0.6rem;
+
+        .btn-light { border: 1px solid #cbd5e1; }
+
+        // The island's status dot again, but its idle white is invisible on
+        // this light page — ground it; live/connecting colors still win.
+        .rx_mascot_status { background: #cbd5e1; }
+        .rx_mascot_status.is-live { background: #22c55e; }
+        .rx_mascot_status.is-connecting { background: #fbbf24; }
+
+        .rx_mascot_set_call_state {
+            font-size: 0.82rem;
+            color: #475569;
+            margin-right: 0.35rem;
+        }
+    }
+
+    .rx_mascot_set_offline {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 0.75rem;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #fde047;
+        border-radius: 0.5rem;
+        background: #fef9c3;
+        color: #854d0e;
+        font-size: 0.85rem;
+
+        button { flex: 0 0 auto; }
     }
 }
 

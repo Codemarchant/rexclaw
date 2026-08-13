@@ -10,8 +10,9 @@ import "./styles/mascot.scss";
 
 // Desktop mascot overlay (#mascot): the Electron window is transparent, so
 // the page must be too. Tag the root before first paint — the CSS override
-// (mascot.scss) keys off this class.
-if (/^#mascot/.test(window.location.hash)) {
+// (mascot.scss) keys off this class. Exact-match: #mascot-settings is a
+// normal framed window and must keep its opaque background.
+if (/^#mascot(-resume)?$/.test(window.location.hash)) {
     document.documentElement.classList.add("rx_mascot_mode");
 }
 

@@ -7,20 +7,9 @@ import { screenCapture } from "../lib/screen_capture";
 import { storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
 import { registerHotkeyHandlers } from "../lib/hotkeys";
 import { wakeState } from "../lib/wake_word";
+import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES as SIZES } from "../lib/mascot_link";
+import { EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
 import AvatarCanvas from "./AvatarCanvas.jsx";
-
-// Window sizes the ⤢ button cycles through (bottom-right corner anchored by
-// the shell). Portrait 2:3-ish — a standing character's natural frame. The
-// old 280×420 step is gone (it clipped the controls island); the two big
-// steps mainly serve full-body view, and the shell clamps them to the
-// screen's work area on smaller displays. Scroll on the avatar still gives
-// fine-grained sizing between the presets.
-const SIZES = [
-    { width: 380, height: 560 },
-    { width: 480, height: 700 },
-    { width: 620, height: 900 },
-    { width: 760, height: 1100 },
-];
 
 // The island toggles (ghost, pin, view, size preset) persist across pop-outs:
 // every pop-out is a FRESH page instance, so without storage each one reset
@@ -221,44 +210,20 @@ export default function MascotView() {
         }
     }, [currentAgent]);
 
-    // ---- tray outfit picker -------------------------------------------------
-    // The tray menu is the shell's, but outfits are page/server data — so
-    // this page publishes the catalog (re-publishing after every pick keeps
-    // the tray's radio selection honest) and the shell routes picks back,
-    // same ownership split as ghost mode.
-    const publishTrayMenu = () => {
-        const bridge = window.rexclawDesktop;
-        if (!bridge?.setMascotTrayMenu) return;
-        const avatar = currentAgent?.avatar;
-        bridge.setMascotTrayMenu({
-            outfits: avatar?.vrm_url
-                ? [{ id: 0, name: _t("Default") },
-                   ...(avatar.outfits || []).map((o) => ({ id: Number(o.id), name: o.name }))]
-                : [],
-            outfitId: Number(voice.state.selectedOutfitId || 0),
-        });
-    };
-    const applyTrayOutfit = (id) => {
+    // Outfit picks arrive from the settings window (which shows the catalog
+    // this page publishes over the settings channel below).
+    const applyOutfit = (id) => {
         const avatar = currentAgent?.avatar;
         if (!avatar?.vrm_url) return;
         const outfit = (avatar.outfits || []).find((o) => Number(o.id) === Number(id)) || null;
-        if (!outfit && Number(id) !== 0) return;   // stale menu entry
+        if (!outfit && Number(id) !== 0) return;   // stale catalog entry
         voice.state.selectedOutfitId = outfit ? Number(outfit.id) : 0;
         // Persist like the main window's outfit dropdown does, so the pick
         // survives pop-back and reloads.
         storeOutfitPref(avatar.id, outfit ? Number(outfit.id) : 0);
         avatarRenderer.setOutfit(outfit?.vrm_url || avatar.vrm_url, avatar.vrma_idle_url || null)
             .catch((e) => console.error("[mascot] outfit load failed", e));
-        publishTrayMenu();
     };
-    // Ref indirection: subscribed once, must see current avatar + selection.
-    const trayPicks = useRef({});
-    trayPicks.current = { publishTrayMenu, applyTrayOutfit };
-    useEffect(() => { trayPicks.current.publishTrayMenu(); }, [currentAgent]);
-    useEffect(() => {
-        const bridge = window.rexclawDesktop;
-        bridge?.onMascotOutfitRequest?.((id) => trayPicks.current.applyTrayOutfit(id));
-    }, []);
 
     const startOrResume = async () => {
         const sess = currentAgent?.last_resumable_session;
@@ -394,29 +359,11 @@ export default function MascotView() {
         saveMascotPref({ cursorFollow: next });
     };
 
-    // Tray → "Follow cursor" routes through this page like ghost mode does
-    // (the pref and the renderer feed live here). Ref indirection: registered
-    // once, must see the current value.
-    const toggleCursorFollowRef = useRef(toggleCursorFollow);
-    toggleCursorFollowRef.current = toggleCursorFollow;
-    useEffect(() => {
-        window.rexclawDesktop?.onMascotCursorFollowRequest?.(() => toggleCursorFollowRef.current());
-    }, []);
-
     const toggleGhost = () => {
         const next = !ghost;
         setGhost(next);
         saveMascotPref({ ghost: next });
     };
-
-    // Tray → "Ghost mode" routes through this page like pop-back does (the
-    // ghost machinery and pref live here). Ref indirection: registered once,
-    // must see the current ghost value.
-    const toggleGhostRef = useRef(toggleGhost);
-    toggleGhostRef.current = toggleGhost;
-    useEffect(() => {
-        window.rexclawDesktop?.onMascotGhostRequest?.(() => toggleGhostRef.current());
-    }, []);
 
     // ---- scroll-to-resize ---------------------------------------------------
     // Face view only: full-body view gives the wheel to OrbitControls
@@ -522,8 +469,7 @@ export default function MascotView() {
         window.rexclawDesktop?.setMascotPin?.(next);
     };
 
-    const cycleSize = () => {
-        const next = (sizeIdx + 1) % SIZES.length;
+    const applySizeIdx = (next) => {
         setSizeIdx(next);
         saveMascotPref({ sizeIdx: next });
         // Apply the group-call widening here too — cycling mid-call used to
@@ -538,6 +484,8 @@ export default function MascotView() {
             : base);
     };
 
+    const cycleSize = () => applySizeIdx((sizeIdx + 1) % SIZES.length);
+
     // Persist only here — the group-call effect above also flips full-body
     // on, but that's an automatic camera aid, not a user choice to remember.
     const toggleFullBody = () => {
@@ -546,6 +494,128 @@ export default function MascotView() {
         avatarRenderer.setFullBodyMode?.(next);
         saveMascotPref({ fullBody: next });
     };
+
+    // ---- mascot settings window sync ----------------------------------------
+    // The settings window (island ⚙ / tray "Full mascot settings") drives
+    // everything this page owns: prefs, the call, even emotions and
+    // gestures. State lives here and is published over a BroadcastChannel —
+    // on every change, and in answer to the window's periodic "request"
+    // pings, which double as its liveness probe — while edits come back as
+    // commands applied through the same functions the island uses, so every
+    // surface stays in agreement. Ref indirection: subscribed once, must see
+    // current state.
+    const settingsChannel = useRef(null);
+    const settingsSync = useRef({});
+    settingsSync.current = {
+        publish: () => {
+            const avatar = currentAgent?.avatar;
+            settingsChannel.current?.postMessage({
+                type: "state",
+                // Call state — the window's Companion & call section.
+                agents: agents.map((a) => ({ id: Number(a.id), name: a.name })),
+                selectedAgentId: selectedAgentId == null ? null : Number(selectedAgentId),
+                status: sv.status,
+                muted: !!sv.muted,
+                hasResumable: !!currentAgent?.last_resumable_session,
+                shareSupported: screenCapture.isSupported,
+                shareArmed: !!scap.armed,
+                shareRecording: !!scap.recording,
+                // Page-owned prefs.
+                ghost,
+                cursorFollow,
+                pinned,
+                fullBody,
+                sizeIdx,
+                outfits: avatar?.vrm_url
+                    ? [{ id: 0, name: _t("Default") },
+                       ...(avatar.outfits || []).map((o) => ({ id: Number(o.id), name: o.name }))]
+                    : [],
+                outfitId: Number(voice.state.selectedOutfitId || 0),
+                // Catalog for the Emotions & gestures tab (built-ins are a
+                // static import on both sides; only the per-avatar customs
+                // need to travel). Full records stay here — the window sends
+                // back an id and this side resolves it.
+                customGestures: (avatar?.custom_gestures || [])
+                    .filter((g) => g.vrma_url)
+                    .map((g) => ({ id: g.id, name: g.name, type: g.type, loop: !!g.loop })),
+            });
+        },
+        command: (msg) => {
+            switch (msg.type) {
+                case "request": settingsSync.current.publish(); return;
+                case "agent": {
+                    const id = Number(msg.id);
+                    if (!busy && agents.some((a) => Number(a.id) === id)) {
+                        setSelectedAgentId(id);
+                        voice.preferredAgentId = id;
+                    }
+                    return;
+                }
+                case "call":
+                    if (msg.action === "end") { if (busy) voice.end("client"); }
+                    else if (msg.action === "start") { if (!busy) voice.start(selectedAgentId); }
+                    else if (msg.action === "resume") { if (!busy) startOrResume(); }
+                    return;
+                case "mute": if (isLive) voice.setMuted(!!msg.value); return;
+                // Same no-gesture context as the screen-share hotkey — the
+                // shell's own picker takes it from here.
+                case "share": toggleScreenShare(); return;
+                case "popback": popBackIn(); return;
+                case "outfit": applyOutfit(msg.id); return;
+                case "size": {
+                    const idx = Number(msg.idx);
+                    if (Number.isInteger(idx) && idx >= 0 && idx < SIZES.length) applySizeIdx(idx);
+                    return;
+                }
+                case "emotion": {
+                    avatarRenderer.setEmotion?.(msg.id, { explicit: false });
+                    const url = EMOTION_GESTURE_MAP[msg.id];
+                    if (url) avatarRenderer.playGesture?.(url);
+                    return;
+                }
+                case "gesture": {
+                    const g = GESTURES.find((x) => x.id === msg.id);
+                    if (g) avatarRenderer.playGesture?.(g.url, { loop: !!g.loop });
+                    return;
+                }
+                case "customGesture": {
+                    const g = (currentAgent?.avatar?.custom_gestures || [])
+                        .find((x) => x.id === msg.id && x.vrma_url);
+                    if (!g) return;
+                    // Routing mirrors VoiceView's triggerCustomGesture.
+                    if (g.type === "combo" && g.partner_vrm_url && g.partner_vrma_url) {
+                        avatarRenderer.playComboGesture?.(g);
+                    } else {
+                        avatarRenderer.playGesture?.(g.vrma_url, { loop: !!g.loop });
+                    }
+                    return;
+                }
+                case "set": {
+                    const want = !!msg.value;
+                    if (msg.key === "ghost" && want !== ghost) toggleGhost();
+                    else if (msg.key === "cursorFollow" && want !== cursorFollow) toggleCursorFollow();
+                    else if (msg.key === "pinned" && want !== pinned) togglePin();
+                    else if (msg.key === "fullBody" && want !== fullBody) toggleFullBody();
+                    return;
+                }
+                default:
+            }
+        },
+    };
+    useEffect(() => {
+        const ch = new BroadcastChannel(MASCOT_SETTINGS_CHANNEL);
+        settingsChannel.current = ch;
+        ch.onmessage = (ev) => { if (ev.data) settingsSync.current.command(ev.data); };
+        return () => {
+            settingsChannel.current = null;
+            ch.close();
+        };
+    }, []);
+    // Push every change (outfit picks re-render via sv.selectedOutfitId).
+    useEffect(() => { settingsSync.current.publish(); },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [ghost, cursorFollow, pinned, fullBody, sizeIdx, currentAgent, sv.selectedOutfitId,
+         agents, selectedAgentId, sv.status, sv.muted, scap.armed, scap.recording]);
 
     // ---- hotkey call feedback -----------------------------------------------
     // A hotkey press has no visual echo here: the island only shows on
@@ -738,12 +808,6 @@ export default function MascotView() {
                         <i className="fa fa-low-vision" />
                     </button>
                 )}
-                {!!window.rexclawDesktop?.setMascotCursorFollow && (
-                    <button className={cursorFollow ? "is-active" : ""} onClick={toggleCursorFollow}
-                            title={_t("Follow the cursor — eyes and head track your mouse across the desktop; when it rests, back to eye contact")}>
-                        <i className="fa fa-mouse-pointer" />
-                    </button>
-                )}
                 <button onClick={cycleSize}
                         title={_t("Cycle window size — or scroll on the avatar for fine control")}>
                     <i className="fa fa-arrows-alt" />
@@ -751,6 +815,14 @@ export default function MascotView() {
                 <button onClick={popBackIn} title={_t("Back to the app window")}>
                     <i className="fa fa-window-restore" />
                 </button>
+                {!!window.rexclawDesktop?.openMascotSettings && (
+                    // Cursor follow (and more) moved off the island into the
+                    // settings window — one cog instead of a button per pref.
+                    <button onClick={() => window.rexclawDesktop.openMascotSettings()}
+                            title={_t("Mascot settings")}>
+                        <i className="fa fa-cog" />
+                    </button>
+                )}
             </div>}
             {flash && (
                 <div className={"rx_mascot_flash rx_mascot_flash--" + flash} key={flash}>

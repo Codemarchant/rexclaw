@@ -63,6 +63,17 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     // "Open in mascot mode": open straight into the desktop overlay at launch.
     startupMascot: () => ipcRenderer.invoke("startup-mascot-get"),
     setStartupMascot: (flag) => ipcRenderer.invoke("startup-mascot-set", !!flag),
+    onStartupMascot: (cb) => {
+        ipcRenderer.removeAllListeners("startup-mascot");
+        ipcRenderer.on("startup-mascot", (event, flag) => cb(flag));
+    },
+    // Mascot settings window (/#mascot-settings): the island's ⚙ and the
+    // tray both open it here — the shell owns window creation.
+    openMascotSettings: () => ipcRenderer.invoke("mascot-settings-open"),
+    // Per-window "always on top" pin (transcript + mascot settings windows).
+    // get resolves null in windows that have no pin — hide the button then.
+    windowPin: () => ipcRenderer.invoke("window-pin-get"),
+    setWindowPin: (flag) => ipcRenderer.invoke("window-pin-set", !!flag),
     // Hotkeys. setGlobalHotkeys replaces the OS-wide registration wholesale
     // ([{action, accelerator}]) and resolves {registered, failed};
     // runHotkeyAction asks the shell to perform the actions it owns (window
@@ -95,24 +106,5 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     onMascotPopbackRequest: (cb) => {
         ipcRenderer.removeAllListeners("mascot-popback-request");
         ipcRenderer.on("mascot-popback-request", () => cb());
-    },
-    // Tray "Ghost mode" → the page toggles (it owns the ghost machinery and
-    // the persisted pref; the shell's checkbox follows via the mascot-ghost
-    // IPC the toggle itself makes).
-    onMascotGhostRequest: (cb) => {
-        ipcRenderer.removeAllListeners("mascot-ghost-request");
-        ipcRenderer.on("mascot-ghost-request", () => cb());
-    },
-    // Tray "Follow cursor" → same page-owned toggle pattern as ghost mode.
-    onMascotCursorFollowRequest: (cb) => {
-        ipcRenderer.removeAllListeners("mascot-cursor-follow-request");
-        ipcRenderer.on("mascot-cursor-follow-request", () => cb());
-    },
-    // Tray outfit picker: the page publishes the catalog (it owns the
-    // avatar data), the shell routes menu picks back here.
-    setMascotTrayMenu: (data) => ipcRenderer.invoke("mascot-tray-menu", data || {}),
-    onMascotOutfitRequest: (cb) => {
-        ipcRenderer.removeAllListeners("mascot-outfit-request");
-        ipcRenderer.on("mascot-outfit-request", (event, id) => cb(id));
     },
 });

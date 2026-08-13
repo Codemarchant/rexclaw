@@ -45,11 +45,11 @@ let restartInFlight = false;     // toggle restart underway — child exits are 
 let mainWindow = null;
 let mascotWindow = null;         // pop-out avatar overlay (frameless, transparent)
 let mascotPinned = true;         // page's always-on-top toggle, mirrored shell-side
+let mascotSettingsWindow = null; // mascot settings (normal window)
 let transcriptWindow = null;     // pop-out transcript mirror (normal window)
 let tray = null;
-let mascotTrayMenu = null;       // {outfits, outfitId, emotions} published by the mascot page
 let cursorTimer = null;          // mascot cursor feed interval (ghost / cursor-follow)
-let cursorFeedGhost = false;     // ghost mode on — tray checkbox mirrors this
+let cursorFeedGhost = false;     // ghost mode on (page-owned; shell mirrors for the feed)
 let cursorFeedFollow = false;    // page wants the feed for gaze cursor-follow
 let quitting = false;
 let hotkeyAccelerators = [];     // accelerators currently held OS-wide
@@ -569,7 +569,6 @@ function createMascotWindow(resume) {
     mascotWindow.on("closed", () => {
         clearTimeout(saveTimer);
         stopCursorFeed();
-        mascotTrayMenu = null;   // catalog belonged to the departed page
         mascotWindow = null;
         rebuildTrayMenu();
         // However the mascot went away (pop-back IPC, Alt+F4, crash), never
@@ -636,15 +635,22 @@ function moveMascotToNextDisplay() {
     );
 }
 
+/** Push a setting change to every window — the overlay applies it, and the
+ *  mascot settings window keeps its checkboxes honest whichever surface
+ *  (tray, hotkey, either window) flipped the value. */
+function broadcastToWindows(channel, payload) {
+    for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed()) w.webContents.send(channel, payload);
+    }
+}
+
 /** "Hide avatar between calls": persist + push to the overlay page, which
  *  owns the actual show/hide timing (it knows the call state and lets the
  *  Ended flash play out before hiding). */
 function setMascotHideIdle(flag) {
     saveSettings({ mascotHideIdle: !!flag });
-    if (mascotWindow && !mascotWindow.isDestroyed()) {
-        mascotWindow.webContents.send("mascot-hide-idle", !!flag);
-    }
-    rebuildTrayMenu();
+    broadcastToWindows("mascot-hide-idle", !!flag);
+    rebuildTrayMenu();   // its tray checkbox mirrors this
     return !!flag;
 }
 
@@ -677,38 +683,28 @@ function setMascotVisible(on) {
     return !!on;
 }
 
-/** Flip the "Hide avatar controls" pin from anywhere (tray, hotkey, the
- *  mascot page itself) — persist it, push it to the overlay, and keep the
- *  tray checkbox honest. */
+/** Flip the "Hide avatar controls" pin from anywhere (tray, settings
+ *  window, hotkey, the mascot page itself) — persist it and push it
+ *  everywhere. */
 function setMascotControlsHidden(hidden) {
     saveSettings({ mascotControlsHidden: !!hidden });
-    if (mascotWindow && !mascotWindow.isDestroyed()) {
-        mascotWindow.webContents.send("mascot-controls-hidden", !!hidden);
-    }
-    rebuildTrayMenu();
+    broadcastToWindows("mascot-controls-hidden", !!hidden);
+    rebuildTrayMenu();   // its tray checkbox mirrors this
     return !!hidden;
+}
+
+/** "Open in mascot mode on start" — same persist + broadcast shape as the
+ *  two settings above. */
+function setStartupMascot(flag) {
+    saveSettings({ startInMascot: !!flag });
+    broadcastToWindows("startup-mascot", !!flag);
+    return !!flag;
 }
 
 function stopCursorFeed() {
     if (cursorTimer) { clearInterval(cursorTimer); cursorTimer = null; }
     cursorFeedGhost = false;
     cursorFeedFollow = false;
-}
-
-/** Tray "Ghost mode" routes through the page (like pop-back): the ghost
- *  machinery — cursor feed consumption, per-pixel fade, the persisted pref —
- *  all lives in MascotView, so the shell only asks it to toggle. */
-function requestMascotGhostToggle() {
-    if (mascotWindow && !mascotWindow.isDestroyed()) {
-        mascotWindow.webContents.send("mascot-ghost-request");
-    }
-}
-
-// Tray "Follow cursor" — same page-owned toggle pattern as ghost mode.
-function requestMascotCursorFollowToggle() {
-    if (mascotWindow && !mascotWindow.isDestroyed()) {
-        mascotWindow.webContents.send("mascot-cursor-follow-request");
-    }
 }
 
 // Cursor feed: ghost mode and gaze cursor-follow both need global cursor
@@ -736,37 +732,22 @@ function syncCursorFeed() {
 }
 
 // cursorFeedGhost doubles as the shell's knowledge of ghost state — the page
-// calls this on every arm/disarm (including the restored-pref arm on
-// mount), so rebuilding the tray here keeps its checkbox honest.
+// calls this on every arm/disarm (including the restored-pref arm on mount).
 ipcMain.handle("mascot-ghost", (event, on) => {
     if (!mascotWindow || mascotWindow.isDestroyed()) { stopCursorFeed(); return false; }
     cursorFeedGhost = !!on;
     if (!on) mascotWindow.setIgnoreMouseEvents(false);
     syncCursorFeed();
-    rebuildTrayMenu();
     return cursorFeedGhost;
 });
 
-// Gaze cursor-follow: same feed, independent of ghost mode. The page calls
-// this on every arm/disarm, so rebuilding the tray here keeps its "Follow
-// cursor" checkbox honest (mirror of the ghost handler above).
+// Gaze cursor-follow: same feed, independent of ghost mode (mirror of the
+// ghost handler above).
 ipcMain.handle("mascot-cursor-follow", (event, on) => {
     if (!mascotWindow || mascotWindow.isDestroyed()) { stopCursorFeed(); return false; }
     cursorFeedFollow = !!on;
     syncCursorFeed();
-    rebuildTrayMenu();
     return cursorFeedFollow;
-});
-
-// Tray outfit picker: the shell owns the tray but the catalog is
-// page/server data (avatar outfits), so the page publishes
-// {outfits:[{id,name}], outfitId} — on avatar hydration and again after
-// every pick, which keeps the radio selection honest the same way the
-// ghost checkbox works.
-ipcMain.handle("mascot-tray-menu", (event, data) => {
-    mascotTrayMenu = data && typeof data === "object" ? data : null;
-    rebuildTrayMenu();
-    return true;
 });
 
 ipcMain.handle("mascot-ignore-mouse", (event, on) => {
@@ -959,6 +940,11 @@ function createTranscriptWindow() {
         transcriptWindow.focus();
         return;
     }
+    // On top by default — at the mascot's own topmost level, because plain
+    // alwaysOnTop sits BELOW a 'screen-saver'-level window and the pinned
+    // mascot covered the transcript it pairs with. The window's own pin
+    // button flips it (persisted, see the window-pin IPC).
+    const onTop = loadSettings().transcriptOnTop !== false;
     transcriptWindow = new BrowserWindow({
         width: 420,
         height: 640,
@@ -967,6 +953,7 @@ function createTranscriptWindow() {
         title: "Rexclaw — Transcript",
         backgroundColor: "#0f172a",
         autoHideMenuBar: true,
+        alwaysOnTop: onTop,
         webPreferences: {
             preload: path.join(__dirname, "preload.js"),
             contextIsolation: true,
@@ -975,6 +962,7 @@ function createTranscriptWindow() {
             backgroundThrottling: false,
         },
     });
+    if (onTop) transcriptWindow.setAlwaysOnTop(true, "screen-saver");
     transcriptWindow.webContents.setWindowOpenHandler(({ url }) => {
         if (/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(url)) return { action: "allow" };
         shell.openExternal(url);
@@ -983,6 +971,80 @@ function createTranscriptWindow() {
     transcriptWindow.on("closed", () => { transcriptWindow = null; });
     transcriptWindow.loadURL(`${serverScheme}://127.0.0.1:${serverPort}/#transcript`);
 }
+
+// ---------------------------------------------------------------------------
+// Mascot settings window
+// ---------------------------------------------------------------------------
+// A normal window on /#mascot-settings — the full range of mascot options in
+// one friendly place, opened from the overlay island's ⚙ or the tray (the
+// only in-app path once "Hide avatar controls" is on). Page-owned prefs sync
+// with the overlay page over a BroadcastChannel in the page layer; the
+// shell-owned ones ride the existing settings IPC.
+
+function createMascotSettingsWindow() {
+    if (mascotSettingsWindow && !mascotSettingsWindow.isDestroyed()) {
+        mascotSettingsWindow.focus();
+        return;
+    }
+    // On top by default so the settings never open buried behind the avatar
+    // they configure (same level note as the transcript window); the
+    // window's own pin button flips it.
+    const onTop = loadSettings().mascotSettingsOnTop !== false;
+    mascotSettingsWindow = new BrowserWindow({
+        width: 500,
+        height: 760,
+        minWidth: 360,
+        minHeight: 480,
+        title: "Rexclaw — Mascot settings",
+        backgroundColor: "#f1f5f9",
+        autoHideMenuBar: true,
+        alwaysOnTop: onTop,
+        webPreferences: {
+            preload: path.join(__dirname, "preload.js"),
+            contextIsolation: true,
+            nodeIntegration: false,
+            spellcheck: false,
+        },
+    });
+    if (onTop) mascotSettingsWindow.setAlwaysOnTop(true, "screen-saver");
+    mascotSettingsWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(url)) return { action: "allow" };
+        shell.openExternal(url);
+        return { action: "deny" };
+    });
+    mascotSettingsWindow.on("closed", () => { mascotSettingsWindow = null; });
+    mascotSettingsWindow.loadURL(`${serverScheme}://127.0.0.1:${serverPort}/#mascot-settings`);
+}
+
+ipcMain.handle("mascot-settings-open", () => {
+    createMascotSettingsWindow();
+    return true;
+});
+
+// Per-window "always on top" pin for the transcript + mascot settings
+// windows (default on — they'd otherwise open buried under the topmost
+// mascot). Keyed by which window is asking, so the pages need no window
+// identity of their own; other windows get null and hide the button.
+function windowPinKey(win) {
+    if (win && win === transcriptWindow) return "transcriptOnTop";
+    if (win && win === mascotSettingsWindow) return "mascotSettingsOnTop";
+    return null;
+}
+
+ipcMain.handle("window-pin-get", (event) => {
+    const key = windowPinKey(BrowserWindow.fromWebContents(event.sender));
+    return key ? loadSettings()[key] !== false : null;
+});
+
+ipcMain.handle("window-pin-set", (event, flag) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const key = windowPinKey(win);
+    if (!key || win.isDestroyed()) return null;
+    saveSettings({ [key]: !!flag });
+    // 'screen-saver' level so pinned windows clear the mascot overlay too.
+    win.setAlwaysOnTop(!!flag, "screen-saver");
+    return !!flag;
+});
 
 // ---------------------------------------------------------------------------
 // Tray
@@ -1001,6 +1063,9 @@ function trayIconPath() {
     return candidates.find((c) => fs.existsSync(c)) || null;
 }
 
+// Deliberately short: every mascot option lives in the settings window now,
+// so the tray keeps only the essentials — surface the app, swap between
+// mascot and app window, open the full settings, quit.
 function rebuildTrayMenu() {
     if (!tray) return;
     const mascotOpen = !!(mascotWindow && !mascotWindow.isDestroyed());
@@ -1023,9 +1088,6 @@ function rebuildTrayMenu() {
                 }
             },
         },
-        mascotOpen
-            ? { label: "Pop back in", click: requestMascotPopBack }
-            : { label: "Pop out avatar", click: requestMascotPopOut },
         { label: "Transcript window", click: createTranscriptWindow },
         {
             // Same path as the Ctrl+Alt+S hotkey: the page owns the share
@@ -1036,51 +1098,9 @@ function rebuildTrayMenu() {
             click: () => dispatchHotkeyAction("call.screenShare"),
         },
         {
-            label: "Align avatar",
-            enabled: mascotOpen,
-            submenu: [
-                ...["top-left", "top-right", "bottom-left", "bottom-right"].map((corner) => ({
-                    label: corner.replace("-", " "),
-                    click: () => alignMascot(corner),
-                })),
-                { type: "separator" },
-                { label: "Next monitor", click: moveMascotToNextDisplay },
-            ],
-        },
-        {
-            // Especially useful together with "Hide avatar controls" below —
-            // with the island hidden, the tray (and the hotkey) are the only
-            // ways in and out of ghost mode.
-            label: "Ghost mode",
-            type: "checkbox",
-            enabled: mascotOpen,
-            checked: cursorFeedGhost,
-            click: requestMascotGhostToggle,
-        },
-        {
-            label: "Follow cursor",
-            type: "checkbox",
-            enabled: mascotOpen,
-            checked: cursorFeedFollow,
-            click: requestMascotCursorFollowToggle,
-        },
-        // Outfit picker — present only while the mascot page has published a
-        // catalog with outfits beyond the default. Picks route to the page,
-        // which owns applying + persisting them.
-        ...(mascotOpen && mascotTrayMenu?.outfits?.length > 1 ? [{
-            label: "Outfit",
-            submenu: mascotTrayMenu.outfits.map((o) => ({
-                label: String(o.name || o.id),
-                type: "radio",
-                checked: Number(o.id) === Number(mascotTrayMenu.outfitId || 0),
-                click: () => {
-                    if (mascotWindow && !mascotWindow.isDestroyed()) {
-                        mascotWindow.webContents.send("mascot-outfit-request", Number(o.id));
-                    }
-                },
-            })),
-        }] : []),
-        {
+            // Kept in the tray (not only the settings window): with the
+            // island hidden this pairs with ghost mode, and the tray is the
+            // zero-navigation way back out.
             label: "Hide avatar controls",
             type: "checkbox",
             checked: !!loadSettings().mascotControlsHidden,
@@ -1092,13 +1112,13 @@ function rebuildTrayMenu() {
             checked: !!loadSettings().mascotHideIdle,
             click: (item) => setMascotHideIdle(item.checked),
         },
-        {
-            label: "Open in mascot mode on start",
-            type: "checkbox",
-            checked: !!loadSettings().startInMascot,
-            click: (item) => saveSettings({ startInMascot: item.checked }),
-        },
         { type: "separator" },
+        mascotOpen
+            ? { label: "Pop back in", click: requestMascotPopBack }
+            : { label: "Pop out avatar", click: requestMascotPopOut },
+        // With "Hide avatar controls" on, this is the only other in-app path
+        // to the mascot settings window (the island's ⚙ never renders).
+        { label: "Full mascot settings", click: createMascotSettingsWindow },
         { label: "Quit Rexclaw", click: () => app.quit() },
     ]));
 }
@@ -1217,11 +1237,7 @@ ipcMain.handle("run-hotkey-action", (event, action) => {
 // app window loaded but hidden behind it.
 ipcMain.handle("startup-mascot-get", () => !!loadSettings().startInMascot);
 
-ipcMain.handle("startup-mascot-set", (event, flag) => {
-    saveSettings({ startInMascot: !!flag });
-    rebuildTrayMenu();
-    return !!flag;
-});
+ipcMain.handle("startup-mascot-set", (event, flag) => setStartupMascot(flag));
 
 ipcMain.handle("mascot-align", (event, corner) => {
     const valid = ["top-left", "top-right", "bottom-left", "bottom-right"];

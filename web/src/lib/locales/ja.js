@@ -368,9 +368,52 @@ export const JA = {
   "Hide the avatar between calls": "通話していない間はアバターを隠す",
   "In mascot mode, the avatar disappears from the desktop while no call is live and pops back up (without stealing focus) when one starts. Pairs naturally with voice activation: the companion waits dormant and appears when you call their wake phrase. While hidden, the tray icon is the way back — click it or its \"Show Rexclaw\" entry.":
     "マスコットモードで、通話していない間はアバターがデスクトップから消え、通話が始まると（フォーカスを奪わずに）再び現れます。音声起動と自然に組み合わせられます：コンパニオンは裏で待機し、ウェイクフレーズを呼ぶと現れます。非表示の間はトレイアイコンが戻る手段です — アイコンをクリックするか「Show Rexclaw」を選んでください。",
-  "Applies immediately. With \"hide between calls\" on, standby listening keeps running while the avatar is hidden — say the wake phrase and they appear.":
-    "即時に適用されます。「通話していない間は隠す」が有効でも、アバターが非表示の間もスタンバイリスニングは動き続けます — ウェイクフレーズを言えば現れます。",
+  "The mascot's own options — call controls, ghost mode, cursor follow, emotions and more — live in its settings window: the ⚙ on the avatar's controls, or \"Full mascot settings\" in the tray menu.":
+    "マスコット自体のオプション — 通話操作、ゴーストモード、カーソル追従、感情など — は専用の設定ウィンドウにあります。アバターの操作パネルの ⚙、またはトレイメニューの「Full mascot settings」から開けます。",
   "Could not save that.": "保存できませんでした。",
+
+  // ── Mascot settings window ────────────────────────────────────────────
+  "Mascot settings": "マスコット設定",
+  "Open mascot settings": "マスコット設定を開く",
+  "Everything about the desktop avatar in one place. Changes apply immediately.":
+    "デスクトップアバターに関する設定をここにまとめました。変更は即時に反映されます。",
+  "The desktop mascot is part of the desktop app — open this window from there.":
+    "デスクトップマスコットはデスクトップアプリの機能です — このウィンドウはそちらから開いてください。",
+  "The avatar isn't popped out right now — everything except Visibility & startup comes alive when it is.":
+    "アバターは今ポップアウトされていません — 「表示と起動」以外の設定はポップアウトすると有効になります。",
+  "Pop out avatar": "アバターをポップアウト",
+  "Emotions & gestures": "感情とジェスチャー",
+  "Companion & call": "コンパニオンと通話",
+  "Share screen": "画面共有",
+  "Pop back in": "アプリウィンドウに戻す",
+  "Transcript window": "トランスクリプトウィンドウ",
+  "Manual triggers, same as the full-screen view — they play on the desktop avatar right away, call or no call.":
+    "フルスクリーンビューと同じ手動トリガーです — 通話の有無にかかわらず、デスクトップのアバターで即座に再生されます。",
+  "Behavior": "動作",
+  "Ghost mode": "ゴーストモード",
+  "Clicks pass through the window to whatever is behind it, and the avatar fades out of the cursor's way. The controls island stays clickable.":
+    "クリックはウィンドウを素通りして背後のアプリに届き、アバターはカーソルを避けてフェードします。操作パネルはクリック可能のままです。",
+  "Follow the cursor": "カーソルを追う",
+  "Eyes and head track your mouse across the desktop; when it rests, they return to eye contact.":
+    "目と頭がデスクトップ上のマウスを追いかけます。マウスが止まるとアイコンタクトに戻ります。",
+  "Keep the avatar above every other window, fullscreen apps included.":
+    "アバターを常に他のすべてのウィンドウ（フルスクリーンアプリ含む）の前面に表示します。",
+  "Full body view": "全身ビュー",
+  "Show the whole character instead of the face view — drag rotates, scroll zooms.":
+    "顔のアップではなく全身を表示します — ドラッグで回転、スクロールでズーム。",
+  "Window size": "ウィンドウサイズ",
+  "Or scroll on the avatar (face view) for fine control.":
+    "アバター上でスクロールしても微調整できます（フェイスビュー時）。",
+  "Outfit": "衣装",
+  "Placement": "配置",
+  "Snap to corner": "コーナーに配置",
+  "Next monitor": "次のモニターへ",
+  "Visibility & startup": "表示と起動",
+  "Hide avatar controls": "アバターの操作パネルを隠す",
+  "The floating controls island never shows, even on hover. The tray menu and hotkeys stay available — including this window.":
+    "フローティング操作パネルをホバーしても一切表示しません。トレイメニューとホットキー（このウィンドウを含む）は引き続き使えます。",
+  "Rexclaw starts as the companion on your desktop instead of an app window. Takes effect on the next launch.":
+    "Rexclaw がアプリウィンドウではなくデスクトップ上のコンパニオンとして起動します。次回の起動から反映されます。",
   "Call ended after %s minutes with nothing happening.":
     "%s 分間なにも操作がなかったため通話を終了しました。",
 

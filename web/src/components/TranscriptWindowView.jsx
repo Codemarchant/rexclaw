@@ -21,9 +21,23 @@ export default function TranscriptWindowView() {
     const [pendingImages, setPendingImages] = useState([]);
     const [pendingDocs, setPendingDocs] = useState([]);
     const [uploading, setUploading] = useState(false);
+    // Desktop shell: this window's "always on top" pin (null = no pin here —
+    // plain browser tab, or a shell without the feature — button hidden).
+    const [onTop, setOnTop] = useState(null);
     const chRef = useRef(null);
     const fileInputRef = useRef(null);
     const rootRef = useRef(null);
+
+    useEffect(() => {
+        window.rexclawDesktop?.windowPin?.().then((v) => setOnTop(v)).catch(() => {});
+    }, []);
+
+    const togglePin = async () => {
+        try {
+            const v = await window.rexclawDesktop.setWindowPin(!onTop);
+            if (v !== null) setOnTop(v);
+        } catch (e) { /* shell gone — leave as is */ }
+    };
 
     useEffect(() => {
         const ch = new BroadcastChannel(TRANSCRIPT_CHANNEL);
@@ -155,6 +169,12 @@ export default function TranscriptWindowView() {
                 />
                 <strong>{snap?.agentName || _t("Transcript")}</strong>
                 <span className="rx_transcript_win_state">{statusLabel}</span>
+                {onTop !== null && (
+                    <button className={"rx_transcript_win_pin" + (onTop ? " is-active" : "")}
+                            onClick={togglePin} title={_t("Always on top")}>
+                        <i className="fa fa-thumb-tack" />
+                    </button>
+                )}
             </div>
             <div className="rx_transcript_win_body">
                 {snap

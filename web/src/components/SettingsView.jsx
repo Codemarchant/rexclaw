@@ -25,7 +25,6 @@ export default function SettingsView({ active }) {
     const [saving, setSaving] = useState(false);
     const [headset, setHeadset] = useState(null);   // desktop shell only: HTTPS-on-WiFi state
     const [startInMascot, setStartInMascot] = useState(null);  // desktop shell only
-    const [hideMascotIdle, setHideMascotIdle] = useState(false);  // desktop shell only
     // Hotkey overrides, parsed out of config.hotkeys_json for editing and
     // serialised back on save.
     const [hotkeys, setHotkeys] = useState({});
@@ -56,7 +55,6 @@ export default function SettingsView({ active }) {
         if (active) {
             window.rexclawDesktop?.headsetInfo?.().then(setHeadset).catch(() => {});
             window.rexclawDesktop?.startupMascot?.().then((v) => setStartInMascot(!!v)).catch(() => {});
-            window.rexclawDesktop?.mascotHideIdle?.().then((v) => setHideMascotIdle(!!v)).catch(() => {});
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
@@ -70,18 +68,6 @@ export default function SettingsView({ active }) {
             await window.rexclawDesktop.setStartupMascot(flag);
         } catch (e) {
             setStartInMascot(!flag);
-            notification.add(e?.message || _t("Could not save that."), { type: "danger" });
-        }
-    };
-
-    /** Same shell-settings home (and immediate effect) as the startup mode —
-     *  the shell pushes the change to a live mascot window. */
-    const toggleHideMascotIdle = async (flag) => {
-        setHideMascotIdle(flag);
-        try {
-            await window.rexclawDesktop.setMascotHideIdle(flag);
-        } catch (e) {
-            setHideMascotIdle(!flag);
             notification.add(e?.message || _t("Could not save that."), { type: "danger" });
         }
     };
@@ -548,20 +534,16 @@ export default function SettingsView({ active }) {
                                 {_t("Open in mascot mode")}
                             </label>
                         </div>
-                        <div className="rx_check">
-                            <input id="rx_hide_mascot_idle" type="checkbox"
-                                   checked={!!hideMascotIdle}
-                                   onChange={(ev) => toggleHideMascotIdle(ev.target.checked)} />
-                            <label htmlFor="rx_hide_mascot_idle"
-                                   title={_t("In mascot mode, the avatar disappears from the desktop while no call is live and pops back up (without stealing focus) when one starts. Pairs naturally with voice activation: the companion waits dormant and appears when you call their wake phrase. While hidden, the tray icon is the way back — click it or its \"Show Rexclaw\" entry.")}>
-                                {_t("Hide the avatar between calls")}
-                            </label>
-                        </div>
                         <p className="text-muted">
-                            {_t("Applies immediately. With \"hide between calls\" on, "
-                                + "standby listening keeps running while the avatar is "
-                                + "hidden — say the wake phrase and they appear.")}
+                            {_t("The mascot's own options — call controls, ghost mode, "
+                                + "cursor follow, emotions and more — live in its settings "
+                                + "window: the ⚙ on the avatar's controls, or \"Full mascot "
+                                + "settings\" in the tray menu.")}
                         </p>
+                        <button className="btn btn-secondary"
+                                onClick={() => window.rexclawDesktop.openMascotSettings?.()}>
+                            <i className="fa fa-cog" /> {_t("Open mascot settings")}
+                        </button>
                     </section>
                 )}
 

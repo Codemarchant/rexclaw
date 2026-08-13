@@ -8,8 +8,13 @@ import { _t } from "./i18n";
 // Mascot mode: this window was opened by the desktop shell as a frameless
 // transparent always-on-top overlay (/#mascot or /#mascot-resume). Fixed for
 // the window's lifetime — a reload keeps the mode (the hash stays put; only
-// the -resume suffix is consumed after it triggers).
-export const MASCOT_MODE = /^#mascot/.test(window.location.hash);
+// the -resume suffix is consumed after it triggers). Exact-match, so the
+// settings window below doesn't get mistaken for the overlay.
+export const MASCOT_MODE = /^#mascot(-resume)?$/.test(window.location.hash);
+
+// Mascot settings window: a normal framed window (/#mascot-settings, opened
+// from the overlay's ⚙ or the tray) holding the full set of mascot options.
+export const MASCOT_SETTINGS_MODE = /^#mascot-settings/.test(window.location.hash);
 
 // Transcript-mirror mode: a standalone window (Electron tray or a second
 // browser tab on /#transcript) that mirrors the live call's transcript via

@@ -2560,8 +2560,12 @@ class AvatarRenderer {
         this._applyBackgroundToActiveHost();
         // OrbitControls is bound to the canvas DOM element for pointer input.
         // When the canvas reparents (e.g. side panel mini ↔ full view), the old
-        // bindings become useless — dispose and rebind to the new host.
-        if (this._fullBody && this._orbitControls && !this._xrActive) {
+        // bindings become useless — dispose and rebind to the new host. Also
+        // the cold-start attach: a setFullBodyMode() that ran before the lazy
+        // renderer init (mascot restoring a persisted full-body pref) recorded
+        // the flag but couldn't attach controls yet — without this, drag/zoom
+        // stayed dead until the user toggled face view and back.
+        if (this._fullBody && !this._xrActive) {
             this._disableOrbit();
             this._enableOrbit();
         }
