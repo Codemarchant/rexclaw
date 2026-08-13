@@ -463,7 +463,8 @@ export default function SettingsView({ active }) {
                             + "on the Companions tab) can direct a bot that joins your "
                             + "Minecraft world as its own player and plays for real — "
                             + "mining, crafting, building, following you. Run the "
-                            + "sidecar from the minecraft folder of the Rexclaw "
+                            + "sidecar from the game_integrations/minecraft folder "
+                            + "of the Rexclaw "
                             + "install (npm install, then node index.js) — the tool "
                             + "only appears while it's connected. The bot plans with "
                             + "its own (cheaper) text model on your API key; your "
@@ -480,7 +481,7 @@ export default function SettingsView({ active }) {
                             + "companion's name so the character in the world is "
                             + "them, not a stranger:")}
                         <br />
-                        <code>cd rexclaw\minecraft</code><br />
+                        <code>cd rexclaw\game_integrations\minecraft</code><br />
                         <code>node index.js --port 65000 --username Ara</code>
                     </p>
                     <div className="rx_row">
@@ -511,7 +512,8 @@ export default function SettingsView({ active }) {
                                 {config.minecraft_connected
                                     ? "✅ " + _t("Connected — the tool is live in new calls")
                                     : "❌ " + _t("Not connected — start it with node index.js "
-                                        + "in the minecraft folder, then reopen Settings")}
+                                        + "in the game_integrations/minecraft folder, "
+                                        + "then reopen Settings")}
                             </div>
                         </div>
                     </div>

@@ -1,7 +1,7 @@
 // Rexclaw Minecraft bot sidecar. Run next to (or anywhere that can reach)
 // your Rexclaw server:
 //
-//   cd minecraft && npm install && node index.js
+//   cd game_integrations/minecraft && npm install && node index.js
 //
 // Configuration — CLI flags (or the matching env vars), all optional:
 //   --port 25565        (MC_PORT)      Minecraft server port. "Open to LAN"

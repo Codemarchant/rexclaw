@@ -8,6 +8,8 @@ dist
 rexclaw.egg-info
 web/node_modules
 web/dist
+# Sidecars run outside the container (own Node process next to the game).
+game_integrations
 **/__pycache__
 docs
 *.spec

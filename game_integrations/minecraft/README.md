@@ -12,7 +12,7 @@ mineflayer supports (currently up to 1.21.11 — protocol support lags new
 Minecraft releases by a few weeks), and a running Rexclaw server.
 
 ```bash
-cd minecraft
+cd game_integrations/minecraft
 npm install
 node index.js --port 65000 --username Ara
 ```

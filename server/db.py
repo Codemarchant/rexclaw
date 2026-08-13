@@ -237,7 +237,8 @@ CREATE TABLE IF NOT EXISTS agents (
     -- local_task: drive the Grok Build CLI headlessly on the user's machine
     -- (real files + shell in the workspace folder). Powerful → opt-in.
     enable_local_tasks INTEGER NOT NULL DEFAULT 0,
-    -- Minecraft bot: direct the mineflayer sidecar (minecraft/ folder).
+    -- Minecraft bot: direct the mineflayer sidecar
+    -- (game_integrations/minecraft/ folder).
     -- Runs LLM-generated scripts against the user's world → opt-in.
     enable_minecraft INTEGER NOT NULL DEFAULT 0,
     -- Group voice calls: enable_call_agents_tool exposes the

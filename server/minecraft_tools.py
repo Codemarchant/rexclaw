@@ -1,7 +1,8 @@
 """Minecraft bot bridge: tool declarations + sidecar link state.
 
-The bot itself is the Node sidecar in minecraft/ (mineflayer + its own
-text-model brain). It connects to this server over WebSocket; the voice
+The bot itself is the Node sidecar in game_integrations/minecraft/
+(mineflayer + its own text-model brain). It connects to this server over
+WebSocket; the voice
 companion directs it through the minecraft_command tool and hears about its
 life through events the web client polls and injects into the live call.
 
@@ -247,7 +248,7 @@ def execute_minecraft_command(con, session, agent, arguments):
     if not directive:
         return {'error': 'directive is required.'}
     if not connected():
-        return {'error': 'The Minecraft bot is not connected right now — the sidecar (minecraft/ folder, `node index.js`) must be running.'}
+        return {'error': 'The Minecraft bot is not connected right now — the sidecar (game_integrations/minecraft/ folder, `node index.js`) must be running.'}
     if not get_config(con)['xai_api_key']:
         return {'error': 'No xAI API key is configured (Settings) — the bot brain cannot plan without one.'}
     # What this directive is about to displace (last reported goal, ≤10s
@@ -294,5 +295,5 @@ def execute_minecraft_status(con, session, agent, arguments):
         return {'error': 'The Minecraft bot is disabled for this companion.'}
     snap = link.snapshot()
     if not snap['connected']:
-        return {'connected': False, 'note': 'Sidecar not connected (start it with `node index.js` in the minecraft/ folder).'}
+        return {'connected': False, 'note': 'Sidecar not connected (start it with `node index.js` in the game_integrations/minecraft/ folder).'}
     return {'connected': True, 'status': snap['status'] or {'online': False}}

@@ -1,7 +1,7 @@
 // Test runner: every test_*.js in this folder, each in its own process so a
 // crash or a stray timer in one can't take the others down.
 //
-//   cd minecraft && npm test
+//   cd game_integrations/minecraft && npm test
 //
 // Each suite is a plain script that throws on failure and prints "<NAME>-OK"
 // when it passes — no framework, nothing to install.
