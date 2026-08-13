@@ -7,6 +7,7 @@ export const JA = {
   // ── App chrome ────────────────────────────────────────────────────────
   "Voice": "ボイス",
   "Chat": "チャット",
+  "Games": "ゲーム",
   "Memories": "メモリ",
   "Settings": "設定",
   "Immersive": "没入モード",

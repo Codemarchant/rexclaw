@@ -251,6 +251,17 @@ export default function MascotSettingsView() {
                     <section>
                         <h3><i className="fa fa-sliders" /> {_t("Behavior")}</h3>
                         <fieldset disabled={!alive}>
+                            {alive && (mascot?.outfits || []).length > 1 && (
+                                <div className="rx_mascot_set_item">
+                                    <label>{_t("Outfit")}</label>
+                                    <select value={Number(mascot.outfitId || 0)}
+                                            onChange={(ev) => send({ type: "outfit", id: Number(ev.target.value) })}>
+                                        {mascot.outfits.map((o) => (
+                                            <option key={o.id} value={Number(o.id)}>{o.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                             {check("rx_ms_ghost", _t("Ghost mode"),
                                 _t("Clicks pass through the window to whatever is behind it, "
                                     + "and the avatar fades out of the cursor's way. The "
@@ -272,6 +283,12 @@ export default function MascotSettingsView() {
                                     + "drag rotates, scroll zooms."),
                                 mascot?.fullBody,
                                 (v) => send({ type: "set", key: "fullBody", value: v }))}
+                        </fieldset>
+                    </section>
+
+                    <section>
+                        <h3><i className="fa fa-arrows" /> {_t("Placement")}</h3>
+                        <fieldset disabled={!alive}>
                             <label>{_t("Window size")}</label>
                             <div className="rx_mascot_set_sizes">
                                 {MASCOT_SIZES.map((s, idx) => (
@@ -287,23 +304,6 @@ export default function MascotSettingsView() {
                             <p className="rx_mascot_set_desc rx_mascot_set_desc--flush">
                                 {_t("Or scroll on the avatar (face view) for fine control.")}
                             </p>
-                            {alive && (mascot?.outfits || []).length > 1 && (
-                                <>
-                                    <label>{_t("Outfit")}</label>
-                                    <select value={Number(mascot.outfitId || 0)}
-                                            onChange={(ev) => send({ type: "outfit", id: Number(ev.target.value) })}>
-                                        {mascot.outfits.map((o) => (
-                                            <option key={o.id} value={Number(o.id)}>{o.name}</option>
-                                        ))}
-                                    </select>
-                                </>
-                            )}
-                        </fieldset>
-                    </section>
-
-                    <section>
-                        <h3><i className="fa fa-arrows" /> {_t("Placement")}</h3>
-                        <fieldset disabled={!alive}>
                             <label>{_t("Snap to corner")}</label>
                             <div className="rx_mascot_set_corners">
                                 {[["top-left", "↖"], ["top-right", "↗"],

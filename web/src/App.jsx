@@ -5,6 +5,7 @@ import MemoriesView from "./components/MemoriesView.jsx";
 import SessionsView from "./components/SessionsView.jsx";
 import CompanionsView from "./components/CompanionsView.jsx";
 import AvatarsView from "./components/AvatarsView.jsx";
+import GameIntegrationsView from "./components/GameIntegrationsView.jsx";
 import SettingsView from "./components/SettingsView.jsx";
 import MascotView from "./components/MascotView.jsx";
 import MascotSettingsView from "./components/MascotSettingsView.jsx";
@@ -24,6 +25,7 @@ const TABS = [
     { id: "sessions", label: "Sessions", icon: "fa-archive" },
     { id: "companions", label: "Companions", icon: "fa-users" },
     { id: "avatars", label: "Avatars", icon: "fa-user-circle-o" },
+    { id: "games", label: "Games", icon: "fa-gamepad" },
     { id: "settings", label: "Settings", icon: "fa-cog" },
 ];
 
@@ -127,6 +129,9 @@ export default function App() {
                 </div>
                 <div className="rx_view" style={{ display: tab === "avatars" ? "" : "none" }}>
                     <AvatarsView active={tab === "avatars"} />
+                </div>
+                <div className="rx_view" style={{ display: tab === "games" ? "" : "none" }}>
+                    <GameIntegrationsView active={tab === "games"} />
                 </div>
                 <div className="rx_view" style={{ display: tab === "settings" ? "" : "none" }}>
                     <SettingsView active={tab === "settings"} />

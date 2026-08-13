@@ -54,7 +54,7 @@ const AGENT_FLAGS = [
     ["enable_delegate_tool", "Task delegation (delegate_task)"],
     ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)"],
     ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)"],
-    ["enable_minecraft", "Minecraft bot (directs the game sidecar — see Settings)"],
+    ["enable_minecraft", "Minecraft bot (directs the game sidecar — see the Games tab)"],
     ["enable_end_call_tool", "End-call tool (hang up on request)"],
 ];
 
