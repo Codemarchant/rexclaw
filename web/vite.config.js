@@ -16,6 +16,8 @@ export default defineConfig({
       "/api": "http://127.0.0.1:8990",
       "/assets": "http://127.0.0.1:8990",
       "/files": "http://127.0.0.1:8990",
+      "/user-assets": "http://127.0.0.1:8990",
+      "/avatars": "http://127.0.0.1:8990",
     },
   },
 });

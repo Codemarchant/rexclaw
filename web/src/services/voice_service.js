@@ -117,6 +117,7 @@ class VoiceCallService {
         // only while live (guarded in the pump), injected as context notes
         // so the companion reacts aloud unprompted ("found diamonds!").
         this._minecraftCursor = null;
+        this._minecraftIneligible = false; // set per-call once the server says the companion can't use the bot
         this._minecraftTimer = setInterval(() => this._pumpMinecraftEvents(), MINECRAFT_POLL_MS);
 
         // Debug handle, mirroring the renderer's window.__voiceRenderer.
@@ -379,8 +380,13 @@ class VoiceCallService {
     async _pumpMinecraftEvents() {
         if (this.state.status !== "live") {
             this._minecraftCursor = null;
+            this._minecraftIneligible = false;
             return;
         }
+        // The first poll of a call learns whether this companion has the bot
+        // enabled at all; if not, stop polling until the next call rather
+        // than hitting the endpoint every 4s for nothing.
+        if (this._minecraftIneligible) return;
         const sessionId = this.primary?.state?.sessionId;
         if (!sessionId) return;
         try {
@@ -388,6 +394,10 @@ class VoiceCallService {
                 cursor: this._minecraftCursor,
                 session_id: sessionId,
             });
+            if (res.eligible === false) {
+                this._minecraftIneligible = true;
+                return;
+            }
             const hadCursor = this._minecraftCursor != null;
             this._minecraftCursor = res.cursor ?? this._minecraftCursor;
             if (!hadCursor) return;

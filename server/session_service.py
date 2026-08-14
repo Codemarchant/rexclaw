@@ -66,7 +66,9 @@ def _env_preamble(config):
         f"- **Tool sequencing:** Fire independent tools in parallel in the same "
         f"turn where they don't depend on each other. In a dependent chain, fire "
         f"the next as soon as the prior result lands instead of pausing to ask "
-        f"\"want me to continue?\".\n\n"
+        f"\"want me to continue?\". Don't fire set_emotion and play_gesture in "
+        f"the same turn — each replaces the other's animation.\n"
+        f"- **Language:** Respond in the language the user speaks.\n\n"
     )
 
 
@@ -146,7 +148,8 @@ def _env_postamble(con, agent_row, mode='voice'):
             "## Your voice\n"
             f"- **Your voice id:** `{agent_row['voice']}`. Pass it in "
             f"`create_video`'s `voice_ids` when you want a generated video to be spoken in "
-            f"your own voice. Only create videos at the users explicit request.\n"
+            f"your own voice. `create_video` ONLY when the user explicitly asks for a "
+            f"video — \"sing me a song\" means sing it yourself, live, right now.\n"
         )
     # Directing the game-side self is a skill the tool description alone
     # doesn't carry — the failure mode is a companion that "corrects" its
@@ -154,11 +157,39 @@ def _env_postamble(con, agent_row, mode='voice'):
     # bot's plan. Same "only when actually usable" gate as the tools.
     if agent_row['enable_minecraft'] and minecraft_tools.connected():
         sections.append(_minecraft_section())
+    # App-level tool habits, gated on the tools actually being available.
+    # Formerly duplicated in every seeded companion's "## Tools" prompt
+    # section — centralized so tuning happens once and user-created
+    # companions inherit the behavior without template text.
+    if mode == 'voice':
+        habits = _tool_habits_section(agent_row)
+        if habits:
+            sections.append(habits)
     if agent_row['enable_memory_tools']:
         sections.append(_memory_section(con, agent_row))
     if not sections:
         return ''
     return '\n\n' + '\n\n'.join(sections)
+
+
+def _tool_habits_section(agent_row):
+    """Behavioral nudges for tools the companion actually has. Returns None
+    when nothing applies."""
+    lines = []
+    if agent_row['enable_grok_imagine_tools']:
+        lines.append(
+            "- When the conversation moves to a described location or scene, "
+            "redecorate with `change_background` to match — no need to say "
+            "you're doing it, just make the scenery follow the roleplay.\n"
+        )
+    if agent_row['enable_gesture_emotion_tools']:
+        lines.append(
+            "- Mentioning changing clothes? Check your outfits and switch "
+            "with `change_outfit` if a matching one exists.\n"
+        )
+    if not lines:
+        return None
+    return "## Tool habits\n" + ''.join(lines)
 
 
 def _minecraft_section():
@@ -213,27 +244,31 @@ def _memory_section(con, agent_row):
         lines.append('')
 
     lines.append(
-        "Use `recall(query)` to search past memories when the user references "
-        "something earlier (\"remember when…\", \"the thing I told you about X\"). "
-        "Use `remember(content, scope='core')` for high-signal context worth "
-        "pinning into every session (identity, key relationships, long-standing "
-        "preferences, ongoing projects, anything the user asks you to always "
-        "remember); use `scope='recall'` (default) for durable facts that don't "
-        "need to be in every prompt — the details of their life, work, tastes "
-        "and history you should be able to look up later. Reuse existing "
-        "**Known tags** above when tagging so search stays consistent. Use "
-        "`forget(memory_id)` when a fact becomes wrong or the user asks you to "
-        "forget."
+        "Use `recall(query)` to search past memories and archived conversations "
+        "when the user references something earlier (\"remember when…\", \"the "
+        "thing I told you about X\"). Use `remember(content)` ONLY for durable, "
+        "long-term facts: identity, key relationships, long-standing "
+        "preferences, ongoing projects, or anything the user asks you to always "
+        "remember. It pins to core scope (every session) by default; "
+        "`scope='recall'` is rarely needed. Reuse existing **Known tags** above "
+        "when tagging. When a stored fact changes, store the update and "
+        "`forget(memory_id)` the outdated entry; also forget whatever the "
+        "user asks you to. Use the tools silently — never announce a store "
+        "or lookup; just do it and keep talking."
     )
     lines.append('')
     lines.append(
-        "**Capture memory-worthy facts proactively.** Don't wait to be told "
-        "\"remember this\" — call `remember` when the user reveals something "
-        "that would still be true weeks from now and that they'd expect you to "
-        "know without repeating themselves. What they asked you to do, and the "
-        "state of the work in hand, are not facts about them; conversations are "
-        "archived and searchable already, so there is nothing to gain by "
-        "summarising one."
+        "**The bar for storing is high, and novelty decides.** Every "
+        "conversation is archived automatically — searchable episodes plus "
+        "extracted facts — so routine happenings never belong in core memory "
+        "(\"the user worked on X today\" must NOT be stored). What IS worth "
+        "storing: durable facts about the user or about the companions in "
+        "their life, and the FIRST of something — a milestone, a turning "
+        "point, a new dynamic between you not already reflected in your core "
+        "memories. The first of a new kind matters even if it happened "
+        "today; another instance of a kind you already hold adds nothing. "
+        "When in doubt about a repeat, don't store; when something genuinely "
+        "new begins, do."
     )
     lines.append('')
     lines.append(
@@ -253,7 +288,11 @@ def _memory_section(con, agent_row):
     lines.append('')
 
     if core:
-        lines.append("**What you remember about this user:**")
+        lines.append(
+            "**What you remember about this user** — oldest first, a story "
+            "over time. People change: when entries conflict, the most "
+            "recent one is the current truth and earlier ones are history."
+        )
         for m in core:
             created = parse_dt(m['created_at'])
             stamped = f"  (remembered {created.strftime('%Y-%m-%d')})" if created else ''
@@ -1179,7 +1218,7 @@ def generate_session_summary(con, session):
         # Best-effort and fully isolated: any failure must never break
         # compaction (mirrors maybe_generate_session_title).
         agent = store.get_agent(con, session['agent_id'])
-        if agent['enable_memory_tools'] and config['enable_memory_extraction']:
+        if agent['enable_memory_tools']:
             try:
                 _extract_and_store_memories(con, session, config, to_summarize, transcript)
             except Exception:

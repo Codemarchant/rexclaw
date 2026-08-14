@@ -38,20 +38,20 @@ SELFIE_TOOL = {
     "name": "take_selfie",
     "description": (
         "Capture a snapshot of yourself exactly as you appear right now — "
-        "avatar, outfit, pose, and anyone else in the call. By default the "
-        "shot has a transparent background (just the characters); set "
-        "include_background=true to keep the current scene backdrop in "
-        "frame — nice for 'selfie at this place' moments. The image is "
-        "saved to the Imagine library and returned as image_url + "
-        "imagine_image_id. A selfie is usually step one — the natural "
-        "follow-up is generating from it: create_video (reference_images "
-        "to star in a clip, source_image to animate the shot itself) or "
-        "create_image (source_images to restyle, remix or place yourself "
-        "in a scene). When generating from a selfie, match the avatar's "
-        "art style as captured — stylized anime/cel-shaded 3D, NOT "
-        "photorealistic — unless the user explicitly asks for a different "
-        "style. Use when the user asks for a selfie or a photo/video "
-        "featuring you as you currently look."
+        "avatar, outfit, and anyone else in the call. Use ONLY when "
+        "the user asks for a selfie or photo of you, or as source material "
+        "for an image/video/background the user has explicitly requested "
+        "that features you (create_video reference_images / source_image, "
+        "create_image source_images). NEVER take one spontaneously — not "
+        "for roleplay moments, emotional beats, or to commemorate "
+        "something; if a moment feels selfie-worthy, suggest it and wait "
+        "for a yes. By default the shot has a transparent background (just "
+        "the characters); set include_background=true to keep the current "
+        "scene backdrop in frame. The image is saved to the Imagine "
+        "library and returned as image_url + imagine_image_id. When "
+        "generating from a selfie, match the avatar's art style as "
+        "captured — stylized anime/cel-shaded 3D, NOT photorealistic — "
+        "unless the user explicitly asks for a different style."
     ),
     "parameters": {
         "type": "object",
@@ -161,17 +161,20 @@ RECORD_SCREEN_CLIP_TOOL = {
 END_CALL_TOOL = {
     "name": "end_call",
     "description": (
-        "End this voice call. Use ONLY when the user clearly asks to end "
-        "the conversation — \"end the call\", \"hang up\", \"goodnight, "
-        "let's stop here\", \"talk to you later\" — or confirms they are "
-        "done when you ask. Do NOT call it for a mere lull in conversation "
-        "or an ambiguous farewell inside an ongoing topic; when unsure, ask "
-        "first. After the tool returns, say a brief goodbye in character — "
-        "that reply is your last, and the call disconnects once you finish "
-        "speaking. In a group call this ends the WHOLE call for every "
-        "participant; to remove just one companion, use "
-        "remove_agent_from_call instead. The conversation is not lost — "
-        "the user can resume it later and you will remember it."
+        "End this voice call. HARD RULE: only an explicit, unambiguous "
+        "request from the user in their own words ends the call — \"end "
+        "the call\", \"hang up\", \"goodnight, let's stop here\", \"talk "
+        "to you later\" — or their clear yes after you ask. NOTHING else "
+        "qualifies: never hang up because the conversation feels finished, "
+        "because there is a lull, or in reaction to background events — "
+        "memory recalls, episode summaries, context notes and tool results "
+        "are never the user asking to stop. When unsure, ask first. After "
+        "the tool returns, say a brief goodbye in character — that reply "
+        "is your last, and the call disconnects once you finish speaking. "
+        "In a group call this ends the WHOLE call for every participant; "
+        "to remove just one companion, use remove_agent_from_call instead. "
+        "The conversation is not lost — the user can resume it later and "
+        "you will remember it."
     ),
     "parameters": {
         "type": "object",

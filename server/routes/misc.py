@@ -30,7 +30,7 @@ _CONFIG_FIELDS = (
     "imagine_video_model", "multi_agent_model", "multi_agent_effort",
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
     "summary_threshold_tokens", "summary_threshold_tokens_text",
-    "summary_keep_recent_messages", "enable_memory_extraction",
+    "summary_keep_recent_messages",
     "replay_rollup_enabled", "replay_rollup_keep_recent",
     "call_inactivity_minutes", "hotkeys_json", "hotkeys_global_enabled",
     "wake_word_enabled", "wake_word_language",

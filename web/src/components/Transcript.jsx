@@ -95,34 +95,59 @@ function toolRow(base) {
     return row;
 }
 
-/** Collapse consecutive tool_call + tool_result messages into display rows. */
+/** Collapse tool_call + tool_result message pairs into display rows.
+ *
+ *  Pairing is by xAI call id when both rows carry one: with parallel tool
+ *  calls the stream interleaves (call A, call B, result B, result A), so
+ *  naive adjacency merges a call with a NEIGHBOUR'S result and strands the
+ *  real one as a duplicate row. Adjacency remains as the fallback for
+ *  id-less rows (text mode builds its pairs adjacent by construction and
+ *  carries no call ids). */
 function buildDisplayRows(messages) {
     const rows = [];
     const msgs = messages || [];
+    // First occurrence of each call id among results, by index.
+    const resultIdxByCallId = new Map();
+    for (let i = 0; i < msgs.length; i++) {
+        const m = msgs[i];
+        if (m.role === "tool_result" && m.xai_call_id && !resultIdxByCallId.has(m.xai_call_id)) {
+            resultIdxByCallId.set(m.xai_call_id, i);
+        }
+    }
+    const claimed = new Set(); // result indices already merged into a call row
     for (let i = 0; i < msgs.length; i++) {
         const m = msgs[i];
         const next = msgs[i + 1];
         // Summary rollups are a backend artifact — the user's visible
         // transcript shows the full conversation.
         if (m.is_summary_rollup) continue;
-        if (m.role === "tool_call" && next?.role === "tool_result") {
-            rows.push(toolRow({
-                key: `tcr-${m.sequence}-${next.sequence}`,
-                tool_name: m.tool_name || next.tool_name || "tool",
-                args: m.tool_arguments_json || "",
-                result: next.content || "",
-                pending: false,
-            }));
-            i++;
-        } else if (m.role === "tool_call") {
-            rows.push(toolRow({
-                key: `tc-${m.sequence}`,
-                tool_name: m.tool_name || "tool",
-                args: m.tool_arguments_json || "",
-                result: "",
-                pending: true,
-            }));
+        if (m.role === "tool_call") {
+            let ri = m.xai_call_id ? resultIdxByCallId.get(m.xai_call_id) : undefined;
+            if (ri === undefined && next?.role === "tool_result"
+                    && !next.xai_call_id && !claimed.has(i + 1)) {
+                ri = i + 1; // id-less fallback: adjacent pair
+            }
+            const result = ri === undefined ? null : msgs[ri];
+            if (result) {
+                claimed.add(ri);
+                rows.push(toolRow({
+                    key: `tcr-${m.sequence}-${result.sequence}`,
+                    tool_name: m.tool_name || result.tool_name || "tool",
+                    args: m.tool_arguments_json || "",
+                    result: result.content || "",
+                    pending: false,
+                }));
+            } else {
+                rows.push(toolRow({
+                    key: `tc-${m.sequence}`,
+                    tool_name: m.tool_name || "tool",
+                    args: m.tool_arguments_json || "",
+                    result: "",
+                    pending: true,
+                }));
+            }
         } else if (m.role === "tool_result") {
+            if (claimed.has(i)) continue;
             rows.push(toolRow({
                 key: `tr-${m.sequence}`,
                 tool_name: m.tool_name || "tool",

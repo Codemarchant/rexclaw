@@ -4,8 +4,15 @@ import { ToolDispatcher } from "./tool_dispatcher";
 
 // Tools xAI runs server-side. They appear as function_call events to the
 // client but must NOT receive a function_call_output reply — see
-// _handleFunctionCall for the rationale.
-const XAI_SERVER_SIDE_TOOLS = new Set(["web_search", "x_search"]);
+// _handleFunctionCall for the rationale. The two search toggles fan out
+// into agentic sub-tools (observed live: x_semantic_search — dispatching
+// one locally throws "Unknown tool"); list the whole documented family.
+const XAI_SERVER_SIDE_TOOLS = new Set([
+    "web_search", "web_search_with_snippets", "browse_page",
+    "x_search", "x_semantic_search", "x_keyword_search",
+    "x_user_search", "x_thread_fetch",
+    "view_image", "view_x_video",
+]);
 
 // Tools whose calls/results are visually noisy in the transcript but carry
 // no information the user cares about (the avatar visibly performs the
@@ -679,14 +686,15 @@ export class AgentConnection {
                     + `"${(msg.transcript || "").slice(0, 80)}"`);
                 return;
             }
+            // Already recovered from response.done (late-arriving final).
+            if (this._assistantFinalAppended) {
+                console.log(`[voice:${this.connId}] transcript.done after recovery — ignored`);
+                this._assistantTranscriptInProgress = "";
+                return;
+            }
             const finalText = msg.transcript || this._assistantTranscriptInProgress;
             if (finalText) {
-                this._appendMessage({ role: "assistant", content: finalText });
-                // Manager hook: relay to other call legs + run the turn
-                // director (agent-to-agent flow). No-op in a solo call.
-                try { this.manager.onAgentFinalTranscript(this, finalText); } catch (e) {
-                    console.error(`[voice:${this.connId}] onAgentFinalTranscript failed`, e);
-                }
+                this._deferOrAppendAssistantFinal(finalText);
             }
             this._assistantTranscriptInProgress = "";
             return;
@@ -724,6 +732,32 @@ export class AgentConnection {
             // _responseInFlight here — the speech_started handler already
             // cleared it and the user may be mid-way through a new turn.
             if (status !== "cancelled") {
+                // Safety net: persist the assistant line even when no
+                // transcript.done event was seen for this response (xAI
+                // protocol drift renames/drops events silently — unhandled
+                // types fall through this handler without a trace). Prefer
+                // the accumulated deltas; fall back to the transcript
+                // embedded in response.done's own output items.
+                if (!this._assistantFinalAppended) {
+                    let text = this._assistantTranscriptInProgress || "";
+                    if (!text) {
+                        for (const item of msg.response?.output || []) {
+                            for (const part of item?.content || []) {
+                                if (typeof part?.transcript === "string" && part.transcript) {
+                                    text += part.transcript;
+                                } else if (part?.type === "text" && typeof part?.text === "string") {
+                                    text += part.text;
+                                }
+                            }
+                        }
+                    }
+                    if (text) {
+                        console.warn(`[voice:${this.connId}] no transcript.done for ${respId} — `
+                            + `recovered assistant line from response.done`);
+                        this._deferOrAppendAssistantFinal(text);
+                    }
+                    this._assistantTranscriptInProgress = "";
+                }
                 this._responseInFlight = false;
                 this.state.thinking = false;
                 // Gate for the post-tool follow-up reply — see
@@ -801,6 +835,9 @@ export class AgentConnection {
         if (msg.type === "response.created") {
             this._responseInFlight = true;
             this._currentResponseId = msg.response?.id || null;
+            // Tracks whether this response's assistant line reached the
+            // transcript — drives the response.done recovery fallback.
+            this._assistantFinalAppended = false;
             console.log(`[voice:${this.connId}] response started:`, this._currentResponseId);
             // call_id is RESPONSE-scoped per the spec — clear the dedupe sets
             // so turn 2's call_id "0" isn't suppressed by turn 1's.
@@ -831,6 +868,10 @@ export class AgentConnection {
                     console.error(`[voice:${this.connId}] onUserTranscript failed`, e);
                 }
             }
+            // The user's row is in — release any assistant final(s) held
+            // back so rows keep conversational order.
+            this._awaitingUserTranscript = null;
+            this._flushDeferredAssistantFinals();
             return;
         }
         // Barge-in: user started speaking while the assistant was talking.
@@ -867,6 +908,13 @@ export class AgentConnection {
         // Deliberately do NOT call _maybeCreateResponse here.
         if (msg.type === "input_audio_buffer.speech_stopped" ||
             msg.type === "input_audio_buffer.committed") {
+            if (msg.type === "input_audio_buffer.committed") {
+                // A user utterance is committed; its transcription arrives
+                // asynchronously — on slow endpoints AFTER the reply is
+                // done. Mark it so assistant finals hold until the user row
+                // lands and stored order stays conversational.
+                this._awaitingUserTranscript = Date.now();
+            }
             return;
         }
         // Function call discovery: the function `name` rides on
@@ -1053,7 +1101,13 @@ export class AgentConnection {
                 : errMsg;
             this.state.status = "error";
             this.state.thinking = false;
+            return;
         }
+        // Unhandled event type. Deliberately logged: xAI renames/adds events
+        // between revisions, and a silently-ignored one already cost us the
+        // assistant transcript persistence once. debug level keeps the
+        // console clean unless verbose logging is enabled.
+        console.debug(`[voice:${this.connId}] unhandled xAI event:`, msg.type);
     }
 
     /** Drain any audio captured during the parallel connect window into
@@ -1419,6 +1473,54 @@ export class AgentConnection {
         return rawWords.slice(newRawIdx[best]).join(" ").trim();
     }
 
+    /** Append an assistant line + run the relay hook. Shared by the normal
+     *  transcript.done path, the response.done recovery net, and the
+     *  deferred-order flush below. */
+    _appendAssistantFinal(text) {
+        this._assistantFinalAppended = true;
+        this._appendMessage({ role: "assistant", content: text });
+        // Manager hook: relay to other call legs + run the turn director
+        // (agent-to-agent flow). No-op in a solo call.
+        try { this.manager.onAgentFinalTranscript(this, text); } catch (e) {
+            console.error(`[voice:${this.connId}] onAgentFinalTranscript failed`, e);
+        }
+    }
+
+    /** Hold an assistant final while a user utterance's transcription is
+     *  still pending, so rows persist in conversational order (the user's
+     *  words, then the reply) even when transcription finishes after the
+     *  reply. A timeout releases the hold — worst case the order is off,
+     *  but nothing is ever lost. */
+    _deferOrAppendAssistantFinal(text) {
+        const AWAIT_USER_TRANSCRIPT_MS = 5000;
+        const since = this._awaitingUserTranscript;
+        if (since && (Date.now() - since) < AWAIT_USER_TRANSCRIPT_MS) {
+            (this._deferredAssistantFinals ??= []).push(text);
+            this._assistantFinalAppended = true; // claimed — the recovery net must not double-append
+            if (!this._deferredFinalsTimer) {
+                this._deferredFinalsTimer = setTimeout(() => {
+                    console.warn(`[voice:${this.connId}] user transcript never arrived — `
+                        + `flushing held assistant line(s)`);
+                    this._awaitingUserTranscript = null;
+                    this._flushDeferredAssistantFinals();
+                }, AWAIT_USER_TRANSCRIPT_MS);
+            }
+            return;
+        }
+        this._appendAssistantFinal(text);
+    }
+
+    _flushDeferredAssistantFinals() {
+        if (this._deferredFinalsTimer) {
+            clearTimeout(this._deferredFinalsTimer);
+            this._deferredFinalsTimer = null;
+        }
+        const held = this._deferredAssistantFinals;
+        if (!held?.length) return;
+        this._deferredAssistantFinals = [];
+        for (const text of held) this._appendAssistantFinal(text);
+    }
+
     _appendMessage(msg) {
         // In a group call, stamp assistant rows with this agent's name so the
         // transcript can label who said what (solo calls skip the label).
@@ -1467,6 +1569,24 @@ export class AgentConnection {
 
     async _flushAppendQueue() {
         this._appendFlushTimer = null;
+        // Serialize flushes: the debounce timer can fire while a previous
+        // /append RPC is still awaiting, and parallel appends race the
+        // server's per-session sequence assignment (stored order gets
+        // scrambled). Chain onto the in-flight flush instead; it drains
+        // whatever accumulated once it's our turn.
+        const prev = this._appendFlushInFlight;
+        const run = (prev || Promise.resolve())
+            .catch(() => { /* prior flush already logged its failure */ })
+            .then(() => this._doFlushAppendQueue());
+        this._appendFlushInFlight = run;
+        try {
+            await run;
+        } finally {
+            if (this._appendFlushInFlight === run) this._appendFlushInFlight = null;
+        }
+    }
+
+    async _doFlushAppendQueue() {
         if (!this.state.sessionId || !this._pendingAppendQueue.length) return;
         const messages = this._pendingAppendQueue.splice(0);
         try {
@@ -1713,6 +1833,9 @@ export class AgentConnection {
                 content: [{ type: "input_text", text }],
             },
         });
+        // A held assistant line came before this typed message — keep order.
+        this._awaitingUserTranscript = null;
+        this._flushDeferredAssistantFinals();
         this._appendMessage({ role: "user", content: text });
         if (promptResponse) {
             this._maybeCreateResponse();
@@ -1904,6 +2027,10 @@ export class AgentConnection {
         this._currentResponseId = null;
         this._assistantTranscriptInProgress = "";
         this._bargedIn = false;
+        // Release any assistant lines still held for user-transcript
+        // ordering — better appended late than lost at teardown.
+        this._awaitingUserTranscript = null;
+        this._flushDeferredAssistantFinals();
         // Flush pending appends before ending. Order matters: append creates
         // the rows, append-meta back-fills ids on them.
         if (this._appendFlushTimer) {

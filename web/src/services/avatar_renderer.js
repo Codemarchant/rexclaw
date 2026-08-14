@@ -713,6 +713,7 @@ class AvatarRenderer {
                 const vrma = gltf.userData.vrmAnimations?.[0];
                 if (!vrma) return;
                 clip = createVRMAnimationClip(vrma, this.vrm);
+                clip.rexclawExpressions = this._vrmaExpressionNames(vrma);
                 this._gestureClips.set(url, clip);
             } catch (e) {
                 console.error("[voice] gesture load failed", url, e);
@@ -1474,6 +1475,7 @@ class AvatarRenderer {
                 const vrma = gltf.userData.vrmAnimations?.[0];
                 if (!vrma || !peer.vrm) return;
                 clip = createVRMAnimationClip(vrma, peer.vrm);
+                clip.rexclawExpressions = this._vrmaExpressionNames(vrma);
                 peer._gestureClips.set(url, clip);
             } catch (e) {
                 console.error("[voice] peer gesture load failed", url, e);
@@ -2859,6 +2861,10 @@ class AvatarRenderer {
 
     _applyBlink(actor, now) {
         if (!actor.vrm?.expressionManager) return;
+        // A gesture clip that choreographs its own blinks owns the eyelids
+        // while it plays; auto-blink resumes when it ends.
+        const ge = this._gestureExpressions(actor);
+        if (ge && (ge.has("blink") || ge.has("blinkLeft") || ge.has("blinkRight"))) return;
         if (now >= actor._nextBlinkAt) {
             const t = now - actor._nextBlinkAt;
             if (t < BLINK_CLOSE_DURATION) {
@@ -3173,12 +3179,42 @@ class AvatarRenderer {
         }
     }
 
+    /** Expression names (VRM preset/custom) animated by a VRMA. Stamped onto
+     *  gesture clips so the facial pipeline can yield those channels to the
+     *  clip while it plays. */
+    _vrmaExpressionNames(vrma) {
+        const names = new Set();
+        try {
+            for (const key of vrma?.expressionTracks?.preset?.keys?.() ?? []) names.add(key);
+            for (const key of vrma?.expressionTracks?.custom?.keys?.() ?? []) names.add(key);
+        } catch (e) { /* older three-vrm-animation — no expression info */ }
+        return names;
+    }
+
+    /** Expression names owned by the actor's running gesture clip, or null
+     *  when no gesture (or an expressionless one) is playing. While a clip
+     *  animates a face channel, the procedural writers below skip it so the
+     *  choreographed face actually shows (they run after the mixer and would
+     *  otherwise overwrite it every frame). */
+    _gestureExpressions(actor) {
+        const action = actor._gestureAction;
+        if (!action || !action.isRunning?.()) return null;
+        const names = action.getClip?.()?.rexclawExpressions;
+        return names?.size ? names : null;
+    }
+
     _applyVowels(actor) {
         const exp = actor.vrm?.expressionManager;
         if (!exp) return;
         const m = this.expressionMap;
         const vm = actor._visemeMap;
+        // Live speech always wins the mouth; in silence, a gesture clip that
+        // animates a viseme keeps it (otherwise we'd zero it every frame).
+        const ge = this._gestureExpressions(actor);
+        const speaking = ["aa", "ih", "ou", "ee", "oh"]
+            .some((v) => (actor._currentVowels[v] || 0) > 0.01);
         for (const canonical of ["aa", "ih", "ou", "ee", "oh"]) {
+            if (ge && !speaking && ge.has(canonical)) continue;
             // Use the discovered alias if available, fall back to canonical name.
             const exprName = vm?.[canonical] ?? canonical;
             exp.setValue(exprName, (actor._currentVowels[canonical] || 0) * (m[canonical] ?? 1));
@@ -3216,7 +3252,11 @@ class AvatarRenderer {
         );
         const t = easeInOutCubic(actor._emotionTransitionProgress);
 
+        // Emotion channels a running gesture clip animates belong to the
+        // clip (the mixer wrote them this frame, before us).
+        const ge = this._gestureExpressions(actor);
         for (const exprName of Object.keys(targets)) {
+            if (ge?.has(exprName)) continue;
             const start = actor._emotionTransitionStart[exprName] ?? 0;
             exp.setValue(exprName, start + (targets[exprName] - start) * t);
         }
@@ -3228,6 +3268,7 @@ class AvatarRenderer {
         // the lipsync path uses on this VRM.
         if (state.secondary) {
             for (const [vis, weight] of Object.entries(state.secondary)) {
+                if (ge?.has(vis)) continue; // gesture clip owns this mouth channel
                 const visName = actor._visemeMap?.[vis] ?? vis;
                 const cur = exp.getValue?.(visName) || 0;
                 exp.setValue(visName, Math.max(cur, weight * t));

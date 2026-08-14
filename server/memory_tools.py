@@ -414,7 +414,7 @@ def apply_extraction_ops(con, agent_id, ops, episode, transcript=None, session_i
 
 def _impl_remember(con, session, arguments):
     content = (arguments.get('content') or '').strip()
-    scope = arguments.get('scope') or 'recall'
+    scope = arguments.get('scope') or 'core'
     tags = _normalize_tags(arguments.get('tags'))
 
     if not content:
@@ -575,6 +575,76 @@ def _impl_recall(con, session, arguments):
         if r['memory_type'] == 'episode':
             hit['expandable'] = True
         hits.append(hit)
+
+    # Deep mode: additionally scan the raw verbatim transcripts of archived
+    # episodes. Episode summaries are lossy — a detail the extractor left
+    # out is invisible to the normal search even though the words are right
+    # there in the transcript. Kept opt-in (last resort) so the noisy long
+    # texts don't drown the ranked summary/fact corpus on ordinary lookups.
+    deep_matched = False
+    if arguments.get('deep') and query:
+        # LIKE has no stemming/ranking, so common words would match every
+        # transcript and flood the OR scan — keep content words only.
+        stop = {'the', 'and', 'was', 'were', 'you', 'your', 'that', 'this',
+                'what', 'when', 'about', 'with', 'did', 'have', 'has', 'had',
+                'she', 'her', 'him', 'his', 'they', 'them', 'their', 'for',
+                'not', 'are', 'but', 'our', 'out', 'all', 'can', 'get', 'got',
+                'said', 'told', 'thing', 'things', 'time', 'user', 'remember'}
+        tokens = [t for t in re.findall(r'\w+', query.lower())
+                  if len(t) >= 3 and t not in stop]
+        if tokens:
+            seen_ids = {r['id'] for r in records}
+            like_sql = ' OR '.join(['transcript LIKE ?'] * len(tokens))
+            params = [f'%{t}%' for t in tokens]
+            if agent_id:
+                scope_sql = '(agent_id = ? OR agent_id IS NULL)'
+                params = [agent_id] + params
+            else:
+                scope_sql = 'agent_id IS NULL'
+            rows = con.execute(
+                f"SELECT * FROM memories WHERE memory_type = 'episode' "
+                f"AND transcript IS NOT NULL AND transcript != '' "
+                f"AND {scope_sql} AND ({like_sql}) "
+                f"ORDER BY created_at DESC, id DESC LIMIT 24",
+                params,
+            ).fetchall()
+            min_created = (now - timedelta(days=newer_than_days)
+                           if newer_than_days is not None else None)
+            max_created = (now - timedelta(days=older_than_days)
+                           if older_than_days is not None else None)
+            added = 0
+            for r in rows:
+                if added >= 8 or r['id'] in seen_ids:
+                    continue
+                created = parse_dt(r['created_at'])
+                if min_created and (not created or created < min_created):
+                    continue
+                if max_created and (not created or created > max_created):
+                    continue
+                text = r['transcript'] or ''
+                low = text.lower()
+                pos = min((p for p in (low.find(t) for t in tokens) if p != -1),
+                          default=-1)
+                excerpt = ''
+                if pos != -1:
+                    start, end = max(0, pos - 150), min(len(text), pos + 250)
+                    excerpt = (('…' if start else '')
+                               + text[start:end].strip()
+                               + ('…' if end < len(text) else ''))
+                hits.append({
+                    'id': r['id'],
+                    'content': r['content'],
+                    'tags': r['tags'] or '',
+                    'age_days': (now - created).days if created else None,
+                    'scope_on_agent': bool(r['agent_id']),
+                    'memory_type': 'episode',
+                    'expandable': True,
+                    'matched_in': 'transcript',
+                    'excerpt': excerpt,
+                })
+                added += 1
+                deep_matched = True
+
     result = {'ok': True, 'query': query, 'count': len(hits), 'hits': hits}
     if has_window:
         result['window'] = {
@@ -582,6 +652,13 @@ def _impl_recall(con, session, arguments):
             'older_than_days': older_than_days,
         }
     notes = []
+    if deep_matched:
+        notes.append(
+            'Hits with matched_in="transcript" were found only inside the '
+            'raw conversation text (their summary missed this detail) — the '
+            'excerpt shows the matched passage; expand with episode_id for '
+            'the full conversation.'
+        )
     if truncated and has_window:
         result['truncated'] = True
         notes.append(
@@ -650,23 +727,24 @@ MEMORY_TOOLS = [
         'type': 'function',
         'name': 'remember',
         'description': (
-            'Store a durable fact about the user so it survives across sessions. '
-            'Worth storing if it would still be true weeks from now and they '
-            'would expect you to know it without repeating themselves. What they '
-            'asked you to do, and the state of the work in hand, are not facts '
-            'about them; conversations are archived and searchable already, so '
-            'there is nothing to gain by summarising one. '
-            'Use scope="core" for high-signal context that belongs in every future '
-            'session prompt: identity facts (name, role, business), important '
-            'relationships (family, team, key collaborators), long-standing '
-            'preferences, ongoing projects, and anything the user explicitly asks '
-            'you to always remember. Use scope="recall" (the default) for durable '
-            'facts that do not need to be in every prompt — the details of their '
-            'life, work, tastes and history that you should be able to look up '
-            'later. '
+            'Store a durable, long-term fact about the user. The bar is high: '
+            'identity (name, role, business), important relationships, '
+            'long-standing preferences, ongoing projects, milestones that '
+            'change your relationship with the user or begin a new dynamic, '
+            'or anything the user explicitly asks you to always remember. '
+            'Novelty decides: the FIRST occurrence of a kind of event or '
+            'dynamic not yet in your core memories is worth storing even if it '
+            'happened today; repeats of a kind you already hold are not. Every '
+            'conversation is archived automatically as searchable episodes '
+            'with extracted facts, so routine happenings and the state of '
+            'work in hand ("the user worked on X today") never belong in '
+            'core. When in doubt, do not store. '
+            'scope="core" (the default) pins the fact into every future session '
+            'prompt. scope="recall" is rarely needed — only for an explicit '
+            '"remember this" too minor for core. '
             'On exact-content duplicates the existing memory is returned (created=false). '
             'When core scope hits the per-agent cap, returns {ok:false, reason:"core_full", '
-            'oldest_id} — call `forget(oldest_id)` then retry.'
+            'oldest_id} — call `forget(oldest_id)` then retry, or use scope="recall".'
         ),
         'parameters': {
             'type': 'object',
@@ -680,8 +758,10 @@ MEMORY_TOOLS = [
                 'scope': {
                     'type': 'string',
                     'enum': ['core', 'recall'],
-                    'description': 'core = always in prompt (cap per agent); recall = searched on demand.',
-                    'default': 'recall',
+                    'description': 'core (default) = always in prompt (cap per agent); '
+                                   'recall = searched on demand — rarely needed, the '
+                                   'automatic episode archive covers day-to-day detail.',
+                    'default': 'core',
                 },
                 'tags': {
                     'type': 'array',
@@ -718,7 +798,10 @@ MEMORY_TOOLS = [
             'newer_than_days=45. Hits include `memory_type`: a `fact` is a '
             'one-line statement; an `episode` (marked `expandable`) is a summary '
             'of a past conversation block — call recall again with its '
-            '`episode_id` to read the full verbatim conversation. This searches '
+            '`episode_id` to read the full verbatim conversation. Hits carry '
+            'dates and tell a story over time — when they conflict, the most '
+            'recent is the current truth and older ones are how things used '
+            'to be. This searches '
             'the recall archive only — your core memories are already in this '
             'prompt; check them first, they may answer without any tool call.'
         ),
@@ -763,6 +846,19 @@ MEMORY_TOOLS = [
                         'returns that episode\'s full verbatim transcript instead '
                         'of running a search — use it when an episode summary '
                         'omits a detail you need.'
+                    ),
+                },
+                'deep': {
+                    'type': 'boolean',
+                    'default': False,
+                    'description': (
+                        'Also scan the raw verbatim transcripts of archived '
+                        'conversations, not just their summaries — details the '
+                        'summaries missed become findable. Slower and noisier: '
+                        'use as a LAST-RESORT retry when a normal search came '
+                        'up empty, before ever telling the user you can\'t '
+                        'remember. Transcript-only hits carry a matched '
+                        '`excerpt`.'
                     ),
                 },
                 'tags': {

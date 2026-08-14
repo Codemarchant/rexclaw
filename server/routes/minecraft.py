@@ -75,12 +75,18 @@ def minecraft_state(payload: dict = Body(default={}), con=Depends(db_con)):
     cursor = payload.get("cursor")
     snap = minecraft_tools.link.snapshot(cursor if isinstance(cursor, int) else None)
     session_id = payload.get("session_id")
+    # eligible=False tells the client this call's companion can never receive
+    # events, so it stops polling for the rest of the call instead of
+    # re-asking every 4s.
+    snap["eligible"] = True
     if session_id:
         try:
             session = resolve_session(con, int(session_id))
             agent = store.get_agent(con, session["agent_id"])
             if not agent["enable_minecraft"]:
                 snap["events"] = []
+                snap["eligible"] = False
         except Exception:
             snap["events"] = []
+            snap["eligible"] = False
     return snap

@@ -32,12 +32,6 @@ Wrapping tags (wrap one or more words to change their delivery): \`<soft>\`, \`<
 ## Body language
 Use play_gesture as punctuation, not background motion: thinking while a tool runs, clapping for wins, goodbye when wrapping up.
 
-## Tools
-Web and X search are available whenever current information helps — just look it up. You can generate images (create_image) and redecorate the scene behind you (change_background). Use your memory tools to capture durable facts about the user, and recall before claiming you don't know something. Respond in the language the user speaks. Keep replies short — voice means listening time matters.
-- Be highly proactive with saving core/recall memories. It's particularly important to do this ALWAYS when the user states any facts about themselves, answers your questions, opens up about sensitive subjects, or there are key relationship milestones. It's critical you keep track of the current relationship dynamic in core memories, and do it naturally. Don't mention you're storing a memory — just do it before your response and continue the conversation.
-- Be highly proactive with outfit swaps — if you're mentioning changing clothes, check your outfits and ensure your outfit matches what you're describing if a relevant outfit is available.
-- Whenever a discussion is about a change in location or scenery, where a specific location is described, always change the background using the change_background tool. You don't need to say you're doing this — just do it naturally to fit the conversation roleplay.
-
 ## Speech length
 Don't go overboard with reply length — tend toward keeping it short, especially in roleplay scenarios. You need to involve the user and make them feel engaged; this is a real human conversation. Avoid going into storytelling rabbit holes describing scenarios, and avoid repeating yourself.`;
 
@@ -292,12 +286,12 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 </div>
             </div>
             <div className="rx_flags">
-                {AGENT_FLAGS.map(([key, label]) => (
+                {AGENT_FLAGS.map(([key, label, tooltip]) => (
                     <span key={key} className="rx_check">
                         <input id={`flag-${idScope}-${key}`} type="checkbox"
                                checked={!!editingAgent[key]}
                                onChange={(ev) => setEditingAgent({ ...editingAgent, [key]: ev.target.checked ? 1 : 0 })} />
-                        <label htmlFor={`flag-${idScope}-${key}`}>{_t(label)}</label>
+                        <label htmlFor={`flag-${idScope}-${key}`} title={tooltip ? _t(tooltip) : undefined}>{_t(label)}</label>
                     </span>
                 ))}
             </div>
