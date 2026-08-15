@@ -342,6 +342,10 @@ def sessions_messages(payload: dict = Body(default={}), con=Depends(db_con)):
             "speaker": m["speaker"],
             "tool_name": m["tool_name"],
             "tool_arguments_json": m["tool_arguments_json"],
+            # The Transcript component pairs tool_call/tool_result rows by
+            # call id; without it, adjacency guessing mispairs multi-tool
+            # turns.
+            "xai_call_id": m["xai_call_id"],
         }
         atts = con.execute(
             "SELECT xai_file_id, filename, size_bytes FROM message_attachments"

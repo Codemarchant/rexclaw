@@ -1355,6 +1355,24 @@ app.on("certificate-error", (event, webContents, url, error, certificate, callba
     }
 });
 
+// Right-click "Save as…" on any image/video, in every window — the popped-out
+// viewer windows have no menu of their own, so this is the save path.
+// downloadURL goes through Electron's default will-download flow, which shows
+// the native save dialog.
+app.on("web-contents-created", (event, wc) => {
+    wc.on("context-menu", (e, params) => {
+        if (!params.srcURL) return;
+        const items = [];
+        if (params.mediaType === "image") {
+            items.push({ label: "Save image as…", click: () => wc.downloadURL(params.srcURL) });
+            items.push({ label: "Copy image", click: () => wc.copyImageAt(params.x, params.y) });
+        } else if (params.mediaType === "video") {
+            items.push({ label: "Save video as…", click: () => wc.downloadURL(params.srcURL) });
+        }
+        if (items.length) Menu.buildFromTemplate(items).popup();
+    });
+});
+
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------

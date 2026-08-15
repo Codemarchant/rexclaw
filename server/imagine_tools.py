@@ -470,7 +470,11 @@ def _web_path_to_file(web_path):
 
 def _imagine_row_for_ref(con, ref):
     """Imagine-library row for a model-supplied reference: a numeric
-    imagine_image_id or an exact image_path/video_url string."""
+    imagine_image_id — bare or labelled like "imagine_image_id:139", the way
+    tool results print it — or an exact image_path/video_url string."""
+    ref = ref.strip()
+    if ref.lower().startswith('imagine_image_id'):
+        ref = ref[len('imagine_image_id'):].lstrip(' :=')
     if ref.isdigit():
         return con.execute(
             "SELECT * FROM imagine_images WHERE id = ?", (int(ref),),
