@@ -66,4 +66,4 @@ If this policy changes, the update will be published at this URL with a new
 
 ## Contact
 
-Questions about privacy: **jonathan@codemarchant.com**
+Questions about privacy: **support@codemarchant.com**
