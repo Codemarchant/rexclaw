@@ -744,9 +744,39 @@ export default function MascotView() {
         }
     })();
 
+    // Affection increase: a subtle drift of small hearts over the avatar —
+    // no glow, no number, so it reads as a mood, not a scoreboard. Layout is
+    // randomized once per pulse (memo keyed on the pulse object) so hearts
+    // don't jump between re-renders; the keyed wrapper remounts per pulse so
+    // the keyframes restart. Drops show nothing here — the mascot stays
+    // unobtrusive.
+    const affectionHearts = useMemo(() => {
+        const pulse = sv.affectionPulse;
+        if (!pulse || pulse.delta <= 0) return [];
+        return Array.from({ length: 6 }, (_, i) => ({
+            id: i,
+            glyph: i % 3 === 2 ? "♡" : "♥",
+            style: {
+                left: `${(20 + Math.random() * 60).toFixed(1)}%`,
+                top: `${(45 + Math.random() * 30).toFixed(1)}%`,
+                fontSize: `${(0.55 + Math.random() * 0.5).toFixed(2)}rem`,
+                "--drift": `${(Math.random() * 2.4 - 1.2).toFixed(2)}rem`,
+                animationDelay: `${(Math.random() * 0.9).toFixed(2)}s`,
+                animationDuration: `${(1.6 + Math.random() * 0.8).toFixed(2)}s`,
+            },
+        }));
+    }, [sv.affectionPulse]);
+
     return (
         <div className="rx_mascot" ref={rootRef}>
             <AvatarCanvas size="mascot" />
+            {affectionHearts.length > 0 && (
+                <div className="rx_mascot_hearts" key={sv.affectionPulse.at}>
+                    {affectionHearts.map((h) => (
+                        <span key={h.id} className="rx_mascot_heart" style={h.style}>{h.glyph}</span>
+                    ))}
+                </div>
+            )}
             {!controlsHidden && <div className="rx_mascot_island" ref={islandRef}>
                 <span className="rx_mascot_drag" title={_t("Drag to move")}>
                     <i className="fa fa-arrows" />

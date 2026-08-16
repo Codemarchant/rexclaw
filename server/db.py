@@ -219,6 +219,8 @@ CREATE TABLE IF NOT EXISTS agents (
     avatar_id INTEGER REFERENCES avatars(id) ON DELETE SET NULL,
     chat_thumbnail_path TEXT,
     reasoning_effort TEXT NOT NULL DEFAULT 'low',
+    -- Legacy, ignored since the per-mode toggles were retired (every
+    -- companion serves both surfaces). Kept so existing DBs stay valid.
     enable_voice_mode INTEGER NOT NULL DEFAULT 1,
     enable_text_mode INTEGER NOT NULL DEFAULT 1,
     enable_code_execution INTEGER NOT NULL DEFAULT 1,
@@ -228,6 +230,23 @@ CREATE TABLE IF NOT EXISTS agents (
     enable_grok_imagine_tools INTEGER NOT NULL DEFAULT 1,
     enable_memory_tools INTEGER NOT NULL DEFAULT 1,
     core_memory_cap INTEGER NOT NULL DEFAULT 100,
+    -- Affection meter: a persistent score the companion nudges in small
+    -- steps via the adjust_affection tool as the friendship warms or cools.
+    -- affection_rules describe, per level, how behaviour should change;
+    -- injected into the session prompt with the current standing. The scale
+    -- is per-companion: max_score split into level_count tiers, at most
+    -- max_delta movement per everyday tool call (max_delta_major for rare
+    -- severity='major' relationship-defining events). Opt-in per companion.
+    -- Score starts mid-Guarded (150) so a fresh relationship has a buffer
+    -- above the level-1 Cold zone in both directions.
+    enable_affection_tool INTEGER NOT NULL DEFAULT 0,
+    affection_animations INTEGER NOT NULL DEFAULT 1,
+    affection_score INTEGER NOT NULL DEFAULT 150,
+    affection_rules TEXT,
+    affection_max_score INTEGER NOT NULL DEFAULT 1000,
+    affection_level_count INTEGER NOT NULL DEFAULT 10,
+    affection_max_delta INTEGER NOT NULL DEFAULT 5,
+    affection_max_delta_major INTEGER NOT NULL DEFAULT 200,
     -- delegate_task: hand file/image analysis, coding and deep research to
     -- a background text-mode task session. The multi-agent flag additionally
     -- allows multi_agent=true calls on the (much pricier) xAI multi-agent
@@ -513,6 +532,24 @@ MIGRATIONS = (
     # Minecraft bot: stronger planning model for hard directives (building,
     # long crafting chains) — the brain also escalates to it on retries.
     "ALTER TABLE config ADD COLUMN minecraft_brain_model_hard TEXT NOT NULL DEFAULT ''",
+    # Affection meter (opt-in per companion): persistent score + per-level
+    # behaviour rules injected into the session prompt, with a per-companion
+    # scale (max score / level count / max delta per tool call).
+    "ALTER TABLE agents ADD COLUMN enable_affection_tool INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agents ADD COLUMN affection_score INTEGER NOT NULL DEFAULT 150",
+    "ALTER TABLE agents ADD COLUMN affection_rules TEXT",
+    "ALTER TABLE agents ADD COLUMN affection_max_score INTEGER NOT NULL DEFAULT 1000",
+    "ALTER TABLE agents ADD COLUMN affection_level_count INTEGER NOT NULL DEFAULT 10",
+    "ALTER TABLE agents ADD COLUMN affection_max_delta INTEGER NOT NULL DEFAULT 5",
+    # Severity tier: much wider clamp for rare relationship-defining events.
+    "ALTER TABLE agents ADD COLUMN affection_max_delta_major INTEGER NOT NULL DEFAULT 200",
+    # Sub-setting: play the heart effect on score changes (meter works
+    # invisibly with this off).
+    "ALTER TABLE agents ADD COLUMN affection_animations INTEGER NOT NULL DEFAULT 1",
+    # Start bump 100 -> 150 (mid-Guarded). One-shot in practice: only rows
+    # whose meter was never enabled still sit at the old untouched default.
+    "UPDATE agents SET affection_score = 150 "
+    "WHERE affection_score = 100 AND enable_affection_tool = 0",
 )
 
 

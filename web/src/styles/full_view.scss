@@ -67,6 +67,21 @@
             backdrop-filter: blur(4px);
             font-variant-numeric: tabular-nums;
         }
+
+        .o_voice_affection_readout {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.7);
+            background: rgba(15, 23, 42, 0.5);
+            padding: 0.4rem 0.65rem;
+            border-radius: 0.5rem;
+            backdrop-filter: blur(4px);
+            font-variant-numeric: tabular-nums;
+
+            .fa-heart {
+                color: #f472b6;
+                margin-right: 0.35rem;
+            }
+        }
     }
 
     .o_voice_full_settings {
@@ -179,6 +194,83 @@
     .o_voice_full_avatar {
         flex: 2;
         position: relative;
+
+        // Affection pulse: a rose-red shine that swells around the avatar
+        // plus a floating signed delta and a heart burst. All elements mount
+        // only while a pulse is live (keyed on the pulse timestamp), so each
+        // keyframe run corresponds to one adjust_affection call.
+        .o_voice_affection_effect {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 8;  // above the canvas, below topbar (10) / overlay UI
+        }
+
+        .o_voice_affection_glow {
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 55% 65% at 50% 55%,
+                    rgba(255, 110, 150, 0.6) 0%,
+                    rgba(255, 60, 100, 0.32) 40%,
+                    rgba(255, 60, 100, 0) 72%);
+            mix-blend-mode: screen;
+            opacity: 0;
+            animation: o-voice-affection-shine 3s ease-out forwards;
+
+            &.is-negative {
+                // Cooler, dimmer shimmer for a drop — same shape, blue and
+                // subdued so it reads as a chill, not a reward.
+                background:
+                    radial-gradient(ellipse 55% 65% at 50% 55%,
+                        rgba(140, 180, 255, 0.4) 0%,
+                        rgba(110, 140, 220, 0.2) 40%,
+                        rgba(110, 140, 220, 0) 72%);
+            }
+        }
+
+        .o_voice_affection_delta {
+            position: absolute;
+            left: 50%;
+            top: 34%;
+            transform: translateX(-50%);
+            font-size: 2.6rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: #ff9eb8;
+            text-shadow:
+                0 0 18px rgba(255, 95, 135, 0.9),
+                0 2px 6px rgba(0, 0, 0, 0.45);
+            opacity: 0;
+            animation: o-voice-affection-float 3s ease-out forwards;
+
+            &.is-negative {
+                color: #9db8f0;
+                text-shadow:
+                    0 0 18px rgba(130, 160, 235, 0.9),
+                    0 2px 6px rgba(0, 0, 0, 0.45);
+            }
+        }
+
+        // Heart burst accompanying the glow. Each particle gets its position,
+        // size, drift, delay and duration inline from the affectionParticles
+        // memo; the keyframes below only shape the rise-sway-fade motion, so
+        // one animation serves every particle.
+        .o_voice_affection_particle {
+            position: absolute;
+            opacity: 0;
+            line-height: 1;
+            animation: o-voice-affection-particle 2.2s ease-out forwards;
+
+            &.is-heart {
+                color: #ff6f95;
+                text-shadow: 0 0 10px rgba(255, 100, 140, 0.85);
+            }
+            &.is-sparkle {
+                color: #cdd9f5;
+                text-shadow: 0 0 8px rgba(160, 190, 240, 0.9);
+            }
+        }
 
         .o_voice_full_overlay {
             position: absolute;
@@ -362,6 +454,32 @@
 .o_voice_full_view--immersive {
     .o_voice_full_avatar { width: 100%; }
     .o_voice_avatar_canvas--full { min-height: 100vh; }
+}
+
+// ── Affection pulse keyframes ──────────────────────────────────────────
+@keyframes o-voice-affection-shine {
+    0%   { opacity: 0; transform: scale(0.92); }
+    18%  { opacity: 1; transform: scale(1); }
+    45%  { opacity: 0.85; transform: scale(1.03); }
+    100% { opacity: 0; transform: scale(1.08); }
+}
+
+@keyframes o-voice-affection-float {
+    0%   { opacity: 0; transform: translateX(-50%) translateY(1.2rem) scale(0.8); }
+    15%  { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.08); }
+    25%  { transform: translateX(-50%) translateY(-0.2rem) scale(1); }
+    70%  { opacity: 1; }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-3rem) scale(1); }
+}
+
+// Particle rise: pop in small, swell, then drift up and sideways (per-particle
+// --drift custom property) while fading. The slight end rotation keeps a
+// field of identical glyphs from reading as a synchronized grid.
+@keyframes o-voice-affection-particle {
+    0%   { opacity: 0; transform: translate(0, 0) scale(0.4); }
+    12%  { opacity: 1; transform: translate(calc(var(--drift) * 0.25), -0.8rem) scale(1.15); }
+    60%  { opacity: 0.95; }
+    100% { opacity: 0; transform: translate(var(--drift), -7rem) scale(0.85) rotate(10deg); }
 }
 
 // ── Group call (multi-agent) controls ──────────────────────────────────

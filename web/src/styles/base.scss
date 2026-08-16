@@ -410,6 +410,28 @@ body {
         flex-wrap: wrap;
         gap: 0.25rem 1.25rem;
     }
+
+    // Affection meter block in the companion editor — its own softly tinted
+    // banner section so the toggle + rules read as one feature, apart from
+    // the generic flags grid.
+    .rx_affection_section {
+        border: 1px solid #fbcfe0;
+        border-radius: 0.5rem;
+        padding: 0.7rem 0.9rem 0.85rem;
+        margin-top: 0.85rem;
+        background: #fdf2f7;
+
+        .rx_affection_banner {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            font-weight: 600;
+            color: #be185d;
+            margin-bottom: 0.45rem;
+
+            .fa { margin-right: 0.3rem; }
+        }
+    }
 }
 
 // ---- Bootstrap-equivalent utilities -----------------------------------------

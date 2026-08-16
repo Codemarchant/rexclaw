@@ -314,6 +314,9 @@ export class AgentConnection {
         this.agentName = payload.agent_name || null;
         this.state.avatar = payload.avatar;
         this.state.voice = payload.voice;
+        // Affection readout seed — null when the companion's meter is off.
+        this.state.affection = payload.affection || null;
+        this.state.affectionPulse = null;
         // Last group-call roster (resume only) — the manager silently
         // re-adds these agents once the call is live (_restoreCallRoster).
         this._callPeerAgents = payload.call_peer_agents || [];

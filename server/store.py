@@ -189,14 +189,12 @@ def get_agent(con, agent_id):
     return row
 
 
-def list_agents(con, *, mode=None):
-    q = "SELECT * FROM agents WHERE active = 1"
-    if mode == 'voice':
-        q += " AND enable_voice_mode = 1"
-    elif mode == 'text':
-        q += " AND enable_text_mode = 1"
-    q += " ORDER BY sequence, name"
-    return con.execute(q).fetchall()
+def list_agents(con):
+    """Every active companion serves both surfaces — the old per-mode enable
+    flags are retired."""
+    return con.execute(
+        "SELECT * FROM agents WHERE active = 1 ORDER BY sequence, name"
+    ).fetchall()
 
 
 def agent_outfit_dicts(con, agent_row):

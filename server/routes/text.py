@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/text")
 
 @router.post("/session/start")
 def session_start(payload: dict = Body(default={}), con=Depends(db_con)):
-    agent = resolve_agent(con, payload.get("agent_id"), mode="text")
+    agent = resolve_agent(con, payload.get("agent_id"))
     resume_session = None
     if payload.get("resume_session_id"):
         resume_session = resolve_session(con, payload["resume_session_id"])
@@ -148,7 +148,7 @@ def session_replay(session_id: int, payload: dict = Body(default={}), con=Depend
 
 @router.post("/agents")
 def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
-    agents = store.list_agents(con, mode="text")
+    agents = store.list_agents(con)
     config = get_config(con)
     accessible_ids = {a["id"] for a in agents}
     default_id = (

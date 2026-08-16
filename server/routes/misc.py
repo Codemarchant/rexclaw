@@ -42,10 +42,14 @@ _CONFIG_FIELDS = (
 
 _AGENT_FIELDS = (
     "name", "active", "sequence", "voice", "system_prompt", "avatar_id",
-    "reasoning_effort", "enable_voice_mode", "enable_text_mode",
+    "reasoning_effort",
     "enable_code_execution", "enable_gesture_emotion_tools",
     "enable_web_search", "enable_x_search", "enable_grok_imagine_tools",
     "enable_memory_tools", "core_memory_cap",
+    "enable_affection_tool", "affection_animations",
+    "affection_score", "affection_rules",
+    "affection_max_score", "affection_level_count", "affection_max_delta",
+    "affection_max_delta_major",
     "enable_call_agents_tool", "when_to_call_description",
     "enable_delegate_tool", "enable_multi_agent_delegation",
     "enable_local_tasks", "enable_minecraft",

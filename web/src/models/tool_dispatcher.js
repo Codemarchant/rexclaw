@@ -39,6 +39,9 @@ const NATIVE_TOOL_NAMES = new Set([
     "remember",
     "recall",
     "forget",
+    // Affection meter: score persists server-side; the result payload
+    // drives the heart effect in dispatch()'s post-result hook.
+    "adjust_affection",
     // Task delegation runs entirely server-side (spawns/continues a hidden
     // text-mode task session). Slow — seconds to minutes — but dispatch()
     // already runs server tools without blocking the UI.
@@ -118,6 +121,9 @@ export class ToolDispatcher {
             } else if (name === "change_background" && result.image_url) {
                 this._applyImagineBackground(result);
             }
+            if (name === "adjust_affection" && result.ok) {
+                this._applyAffection(result);
+            }
         }
         this._pending.delete(callId);
         // Send the result back to the model.
@@ -177,6 +183,47 @@ export class ToolDispatcher {
                 this.conversationState.latestImagineVideoBackgroundByAgent[agentId] = bg;
             }
         }
+    }
+
+    /** Reflect an adjust_affection result in the shared state: update the
+     *  persistent readout and stamp a pulse token that the full view and
+     *  mascot key their heart animations off. delta_applied can be 0 when
+     *  the score is pinned at a bound — no pulse then, nothing changed. */
+    _applyAffection(result) {
+        if (!this.conversationState) return;
+        // The animations flag arrives with the session payload's affection
+        // seed (a UI concern — the tool result the model reads back stays
+        // clean of it), so carry it forward through every readout update.
+        const animations = this.conversationState.affection?.animations !== false;
+        this.conversationState.affection = {
+            score: result.score,
+            level: result.level,
+            max_score: result.max_score,
+            max_level: result.max_level,
+            animations,
+        };
+        if (!result.delta_applied || !animations) return;
+        // In a group call each leg has its own conversation state, but the
+        // full view and mascot only watch the primary/shared one — stamp
+        // the pulse there so a PEER companion's adjustment animates too.
+        // The readout update above stays on the leg's own state, so a
+        // peer's score never overwrites the primary companion's pill.
+        const effectsState = this.callManager?.state || this.conversationState;
+        const pulse = { delta: result.delta_applied, score: result.score, at: Date.now() };
+        effectsState.affectionPulse = pulse;
+        // Clear once the slowest particle (max delay + max duration) has
+        // finished. Overlapping pulses don't wait on this: the views key
+        // the effect on `at`, so a replacement pulse remounts and restarts
+        // the animation immediately. Compare by timestamp, NOT object
+        // identity — the reactive store returns a proxy wrapper on read, so
+        // `state.affectionPulse === pulse` is always false and the pulse
+        // would never clear (leaving the animation to replay every time the
+        // view is re-shown, e.g. on a tab switch).
+        setTimeout(() => {
+            if (effectsState.affectionPulse?.at === pulse.at) {
+                effectsState.affectionPulse = null;
+            }
+        }, 4200);
     }
 
     async _invoke(name, args) {

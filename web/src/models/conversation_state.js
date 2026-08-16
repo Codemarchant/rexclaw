@@ -86,6 +86,15 @@ export function makeConversationState() {
         // character boots from its own defaults again.
         backgroundPickedByUser: false,
 
+        // Affection meter. `affection` is the server payload from
+        // session/start ({score, level, max_score, max_level}), or null when
+        // the companion's meter is disabled — it drives the fullscreen
+        // readout. The adjust_affection tool's post-result hook updates it
+        // live and stamps `affectionPulse` ({delta, score, at}) to run the
+        // heart effect; the dispatcher clears the pulse after the animation.
+        affection: null,
+        affectionPulse: null,
+
         // Per-agent map of the most recently generated Imagine background
         // within this session. Keyed by agent id; value is the same payload
         // shape pushed into activeBackground. Used so the background picker

@@ -400,6 +400,34 @@ html.rx_mascot_mode {
     100% { opacity: 0; }
 }
 
+// Affection increase: a handful of small hearts drifting up over the avatar.
+// Deliberately subtle — low opacity, tiny glyphs, no glow or number — the
+// mascot floats over the user's work, so the effect must whisper. Mounted
+// keyed per pulse; each heart's position/size/drift/timing comes inline from
+// the affectionHearts memo, the keyframes only shape the rise-and-fade.
+.rx_mascot_hearts {
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    pointer-events: none;  // never catch a click, least of all in ghost mode
+
+    .rx_mascot_heart {
+        position: absolute;
+        line-height: 1;
+        color: rgba(255, 111, 149, 0.85);
+        text-shadow: 0 0 6px rgba(255, 100, 140, 0.6);
+        opacity: 0;
+        animation: rx-mascot-heart 2s ease-out forwards;
+    }
+}
+
+@keyframes rx-mascot-heart {
+    0%   { opacity: 0; transform: translate(0, 0) scale(0.4); }
+    15%  { opacity: 0.85; transform: translate(calc(var(--drift) * 0.25), -0.5rem) scale(1.05); }
+    60%  { opacity: 0.7; }
+    100% { opacity: 0; transform: translate(var(--drift), -3.5rem) scale(0.8) rotate(8deg); }
+}
+
 .rx_mascot_error {
     position: absolute;
     top: 0.6rem;

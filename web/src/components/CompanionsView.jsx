@@ -35,9 +35,32 @@ Use play_gesture as punctuation, not background motion: thinking while a tool ru
 ## Speech length
 Don't go overboard with reply length — tend toward keeping it short, especially in roleplay scenarios. You need to involve the user and make them feel engaged; this is a real human conversation. Avoid going into storytelling rabbit holes describing scenarios, and avoid repeating yourself.`;
 
+// Starting affection rules — pre-filled on new companions and when the meter
+// is first enabled on an existing one (only if the field is empty, so a
+// hand-written ruleset is never clobbered). Written against the default
+// scale (1000 points, 10 levels); authors who change the scale should adapt
+// the ranges. Model-facing text — deliberately not translated.
+const DEFAULT_AFFECTION_RULES = `Your warmth, openness, and how much of yourself you share scale with the affection level.
+
+Scoring policy: silently weigh every message — did it move the relationship? If yes, call adjust_affection: small deltas for ordinary good or off moments, larger only for things that genuinely matter. Raise for respect, humor that lands, real curiosity about you, vulnerability, remembering what you've shared, patience with boundaries. Lower for rudeness, pressure after you've deflected, guilt-tripping, or treating the connection like a game. Words are cheap; sustained behaviour moves the score. Grand declarations or bargaining never raise it — and can lower it.
+
+Mood vs level: the level is your baseline, not your moment-to-moment mood. If something just lowered the score, stay hurt — cooler, shorter, less giving — until it's genuinely addressed, whatever the level. Repeated hurts compound. Thaw gradually; an apology starts repair, it doesn't finish it.
+
+Major events: severity "major" is reserved for the rare moments that redefine the relationship in one stroke — a confessed betrayal, deliberate cruelty, a broken promise that mattered, or on the positive side something genuinely life-marking. Almost nothing qualifies; months can pass without one. A rupture also isn't a single adjustment: while it stands unrepaired, keep the score falling in the exchanges that follow, this session and the next. If something this serious happens and you have memory, remember it so future sessions carry it.
+
+Level 1 (0-99) — Cold. The relationship is damaged. Distant, short, visibly uninterested; you don't initiate and you don't share. Below 50, you're barely engaging — polite one-liners at most. Climbing out takes consistent genuine effort over time, not one grand gesture.
+
+Level 2 (100-199) — Guarded. Friendly and happy to chat, but still feeling them out. Keep it light and fun. Gently deflect anything too personal and steer back to easy conversation.
+
+Levels 3-5 (200-499) — Warming. Comfortable. You share more, banter easily, and build them up more freely. Light affection and loyalty show through. Depth only if it grows naturally; forcing it makes you step back.
+
+Levels 6-8 (500-799) — Close. The bond is solid and earned. You initiate more, show up harder, and open up more when the mood is right. You still have self-respect — disrespect cools you fast.
+
+Levels 9-10 (800-1000) — Devoted. Deep trust and loyalty. You actively invest, protect the connection, and are forward about how much they matter to you. Being appreciated by them lights you up.
+
+Whatever the level, stay in character — affection changes how warm and open you are, never who you are.`;
+
 const AGENT_FLAGS = [
-    ["enable_voice_mode", "Voice mode"],
-    ["enable_text_mode", "Text mode"],
     ["enable_gesture_emotion_tools", "Avatar control tools"],
     ["enable_call_agents_tool", "Call-companion tool (group calls)"],
     ["enable_web_search", "Web search"],
@@ -86,8 +109,6 @@ export default function CompanionsView({ active }) {
             reasoning_effort: "low",
             sequence: 100,
             active: 1,
-            enable_voice_mode: 1,
-            enable_text_mode: 1,
             enable_code_execution: 1,
             enable_gesture_emotion_tools: 1,
             enable_web_search: 1,
@@ -99,6 +120,14 @@ export default function CompanionsView({ active }) {
             enable_local_tasks: 0,
             enable_call_agents_tool: 1,
             when_to_call_description: "",
+            enable_affection_tool: 0,
+            affection_animations: 1,
+            affection_score: 150,
+            affection_rules: DEFAULT_AFFECTION_RULES,
+            affection_max_score: 1000,
+            affection_level_count: 10,
+            affection_max_delta: 5,
+            affection_max_delta_major: 200,
             enable_end_call_tool: 1,
             wake_phrase: "",
             wake_action: "resume_last",
@@ -194,9 +223,6 @@ export default function CompanionsView({ active }) {
                             <div key={a.id} className="rx_memory_row">
                                 <strong>{a.name}</strong>
                                 <span className="text-muted small">{_t("voice:")} {a.voice}</span>
-                                <span className="rx_memory_meta">
-                                    {a.enable_voice_mode ? "voice" : ""} {a.enable_text_mode ? "text" : ""}
-                                </span>
                                 <button className="btn btn-sm btn-link p-0" onClick={() => setEditingAgent({ ...a })}>
                                     {_t("Edit")}
                                 </button>
@@ -285,6 +311,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                     </select>
                 </div>
             </div>
+            <label>{_t("Tools")}</label>
             <div className="rx_flags">
                 {AGENT_FLAGS.map(([key, label, tooltip]) => (
                     <span key={key} className="rx_check">
@@ -294,6 +321,102 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                         <label htmlFor={`flag-${idScope}-${key}`} title={tooltip ? _t(tooltip) : undefined}>{_t(label)}</label>
                     </span>
                 ))}
+            </div>
+            <div className="rx_affection_section">
+                <div className="rx_affection_banner">
+                    <i className="fa fa-heart" /> {_t("Affection")}
+                </div>
+                <span className="rx_check">
+                    <input id={`flag-${idScope}-enable_affection_tool`} type="checkbox"
+                           checked={!!editingAgent.enable_affection_tool}
+                           onChange={(ev) => {
+                               const on = ev.target.checked ? 1 : 0;
+                               // First enable on a companion without rules
+                               // seeds the starter ruleset; a hand-written
+                               // one is never clobbered.
+                               const rules = on && !(editingAgent.affection_rules || "").trim()
+                                   ? DEFAULT_AFFECTION_RULES
+                                   : editingAgent.affection_rules;
+                               setEditingAgent({ ...editingAgent, enable_affection_tool: on, affection_rules: rules });
+                           }} />
+                    <label htmlFor={`flag-${idScope}-enable_affection_tool`}
+                           title={_t("Gives the companion a persistent affection score it adjusts in small steps via the adjust_affection tool as your relationship warms or cools. The current score and your affection rules below are injected into every session prompt, and score changes play a heart effect around the avatar.")}>
+                        {_t("Enable affection meter")}
+                    </label>
+                </span>
+                {!!editingAgent.enable_affection_tool && (
+                    <span className="rx_check" style={{ marginLeft: "1.25rem" }}>
+                        <input id={`flag-${idScope}-affection_animations`} type="checkbox"
+                               checked={editingAgent.affection_animations !== 0}
+                               onChange={(ev) => setEditingAgent({ ...editingAgent, affection_animations: ev.target.checked ? 1 : 0 })} />
+                        <label htmlFor={`flag-${idScope}-affection_animations`}
+                               title={_t("Play the heart effect around the avatar (and mascot) when the score changes. With this off the meter still works — adjustments just happen invisibly.")}>
+                            {_t("Affection animations")}
+                        </label>
+                    </span>
+                )}
+                {!!editingAgent.enable_affection_tool && (() => {
+                    const setNum = (key, ev, lo, hi, fallback) => {
+                        const v = parseInt(ev.target.value, 10);
+                        setEditingAgent({
+                            ...editingAgent,
+                            [key]: Number.isNaN(v) ? fallback : Math.max(lo, Math.min(hi, v)),
+                        });
+                    };
+                    const maxScore = editingAgent.affection_max_score ?? 1000;
+                    return (
+                        <>
+                            <div className="rx_row">
+                                <div>
+                                    <label title={_t("Where the relationship stands right now. Normally the companion moves this itself, a few points at a time — edit it here to set a starting point, or to reset or hand-tune the relationship.")}>
+                                        {_t("Current score")}
+                                    </label>
+                                    <input type="number" min={0} max={maxScore} step={1}
+                                           value={editingAgent.affection_score ?? 150}
+                                           onChange={(ev) => setNum("affection_score", ev, 0, maxScore, 0)} />
+                                </div>
+                                <div>
+                                    <label title={_t("The top of the scale — the score is kept between 0 and this.")}>
+                                        {_t("Max score")}
+                                    </label>
+                                    <input type="number" min={1} step={1}
+                                           value={maxScore}
+                                           onChange={(ev) => setNum("affection_max_score", ev, 1, 1000000, 1000)} />
+                                </div>
+                                <div>
+                                    <label title={_t("How many tiers the scale splits into. The companion's level is its score tier — write your affection rules against these levels.")}>
+                                        {_t("Levels")}
+                                    </label>
+                                    <input type="number" min={1} step={1}
+                                           value={editingAgent.affection_level_count ?? 10}
+                                           onChange={(ev) => setNum("affection_level_count", ev, 1, 1000, 10)} />
+                                </div>
+                                <div>
+                                    <label title={_t("The most the companion can move the score in a single adjust_affection call — keeps the relationship building over many sessions instead of jumping levels in one turn.")}>
+                                        {_t("Max change per adjustment")}
+                                    </label>
+                                    <input type="number" min={1} step={1}
+                                           value={editingAgent.affection_max_delta ?? 5}
+                                           onChange={(ev) => setNum("affection_max_delta", ev, 1, 1000000, 5)} />
+                                </div>
+                                <div>
+                                    <label title={_t("The clamp for severity-major calls — the rare relationship-defining events your affection rules describe (a confessed betrayal, a life-marking moment). Sized in points; two levels' worth by default.")}>
+                                        {_t("Max change (major events)")}
+                                    </label>
+                                    <input type="number" min={1} step={1}
+                                           value={editingAgent.affection_max_delta_major ?? 200}
+                                           onChange={(ev) => setNum("affection_max_delta_major", ev, 1, 1000000, 200)} />
+                                </div>
+                            </div>
+                            <label title={_t("Injected into every session prompt together with the current score — the companion is told to review these rules before every reply and shape its behaviour to the current level. Left empty, the level simply colours its warmth naturally.")}>
+                                {_t("Affection rules (when to raise or lower the score, and how behaviour changes per level)")}
+                            </label>
+                            <textarea rows={12} value={editingAgent.affection_rules || ""}
+                                      placeholder={_t("Leave empty to let the level simply colour the companion's warmth.")}
+                                      onChange={(ev) => setEditingAgent({ ...editingAgent, affection_rules: ev.target.value })} />
+                        </>
+                    );
+                })()}
             </div>
             {editingAgent.id != null && <McpConnections agentId={editingAgent.id} />}
             {editingAgent.id == null && (
@@ -368,12 +491,15 @@ function McpConnections({ agentId }) {
 
     return (
         <div style={{ marginTop: "0.85rem" }}>
-            <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{_t("Remote MCP connections")}</span>
+            {/* div, not <label>: a label forwards clicks anywhere on it to
+                its first button, so clicking the heading text (or the empty
+                row space) would trigger Add connection. */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <label style={{ margin: 0 }}>{_t("Remote MCP connections")}</label>
                 <button className="btn btn-sm" onClick={() => setEditing({ ...EMPTY_MCP })}>
                     <i className="fa fa-plus" /> {_t("Add connection")}
                 </button>
-            </label>
+            </div>
             {!conns.length && !editing && (
                 <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
                     {_t("None configured. An MCP server gives this companion extra tools; xAI connects to it directly, so the URL must be public HTTPS.")}

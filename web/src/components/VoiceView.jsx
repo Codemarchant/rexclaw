@@ -924,6 +924,37 @@ export default function VoiceView({ active = true }) {
         ? `${(sv.tokenUsage || 0).toLocaleString()} / ${sv.tokenLimit.toLocaleString()}`
         : null;
 
+    // Affection readout for the meta row, e.g. "Lv 4 · 340/1000". Null when
+    // the companion has the affection meter disabled (server sends
+    // affection: null), which hides the pill entirely.
+    const affectionLabel = sv.affection
+        ? `Lv ${sv.affection.level} · ${sv.affection.score}/${sv.affection.max_score}`
+        : null;
+
+    // Heart burst for a live adjust_affection pulse. Positions, sizes and
+    // timing are randomized once per pulse (memo keyed on the pulse object,
+    // fresh per adjust_affection) so the particles don't jump between
+    // re-renders mid-animation. Positive pulses rain hearts — solid ♥ with
+    // the odd outline ♡ — while drops get a handful of subdued sparkles.
+    const affectionParticles = useMemo(() => {
+        const pulse = sv.affectionPulse;
+        if (!pulse) return [];
+        const positive = pulse.delta > 0;
+        return Array.from({ length: positive ? 18 : 6 }, (_, i) => ({
+            id: i,
+            cls: positive ? "is-heart" : "is-sparkle",
+            glyph: positive ? (i % 4 === 3 ? "♡" : "♥") : "✦",
+            style: {
+                left: `${(12 + Math.random() * 76).toFixed(1)}%`,
+                top: `${(32 + Math.random() * 40).toFixed(1)}%`,
+                fontSize: `${(0.9 + Math.random() * 1.6).toFixed(2)}rem`,
+                "--drift": `${(Math.random() * 5 - 2.5).toFixed(2)}rem`,
+                animationDelay: `${(Math.random() * 1.1).toFixed(2)}s`,
+                animationDuration: `${(1.8 + Math.random()).toFixed(2)}s`,
+            },
+        }));
+    }, [sv.affectionPulse]);
+
     const statusLabel = (() => {
         if (sv.compacting) return _t("Compacting context…");
         switch (sv.status) {
@@ -1016,6 +1047,25 @@ export default function VoiceView({ active = true }) {
 
             <div className="o_voice_full_avatar">
                 <AvatarCanvas size="full" />
+                {/* Affection pulse: rose shine around the avatar + floating
+                    signed delta + heart burst. Keyed on the pulse timestamp
+                    so a new adjust_affection remounts the nodes and restarts
+                    the CSS keyframes even while the previous effect is still
+                    on screen (a plain conditional would patch the existing
+                    nodes and never replay). */}
+                {sv.affectionPulse && (
+                    <div key={sv.affectionPulse.at} className="o_voice_affection_effect">
+                        <div className={"o_voice_affection_glow" + (sv.affectionPulse.delta > 0 ? "" : " is-negative")} />
+                        <div className={"o_voice_affection_delta" + (sv.affectionPulse.delta > 0 ? "" : " is-negative")}>
+                            {(sv.affectionPulse.delta > 0 ? "+" : "") + sv.affectionPulse.delta}
+                        </div>
+                        {affectionParticles.map((p) => (
+                            <span key={p.id} className={"o_voice_affection_particle " + p.cls} style={p.style}>
+                                {p.glyph}
+                            </span>
+                        ))}
+                    </div>
+                )}
                 {!ui.immersive && <div className="o_voice_full_topbar">
                     <div className="o_voice_full_topbar_row">
                         <button className="btn btn-light" onClick={() => setShowHistory(!showHistory)}
@@ -1102,6 +1152,14 @@ export default function VoiceView({ active = true }) {
                             <span className="o_voice_token_budget"
                                   title={_t("Tokens used since the last summary rollup, over the configured auto-compact threshold.")}>
                                 {tokenBudgetLabel}
+                            </span>
+                        )}
+                        {affectionLabel && (
+                            <span className="o_voice_affection_readout"
+                                  title={_t("Affection — level %s of %s. The companion adjusts this as your relationship evolves.",
+                                            sv.affection.level, sv.affection.max_level)}>
+                                <i className="fa fa-heart" />
+                                {affectionLabel}
                             </span>
                         )}
                     </div>

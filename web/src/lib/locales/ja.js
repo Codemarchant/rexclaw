@@ -445,9 +445,40 @@ export const JA = {
   "e.g. 'Sales specialist — call for pricing, quotes, or negotiation roleplay.'":
     "例：「営業スペシャリスト — 価格・見積もり・交渉ロールプレイのときに呼んでください。」",
 
+  // Affection meter
+  "Affection": "好感度",
+  "Enable affection meter": "好感度メーターを有効化",
+  "Gives the companion a persistent affection score it adjusts in small steps via the adjust_affection tool as your relationship warms or cools. The current score and your affection rules below are injected into every session prompt, and score changes play a heart effect around the avatar.":
+    "コンパニオンに永続的な好感度スコアを持たせます。関係が温まったり冷めたりすると adjust_affection ツールで少しずつ調整されます。現在のスコアと下の好感度ルールは毎セッションのプロンプトに注入され、スコアが変化するとアバターの周りにハートのエフェクトが再生されます。",
+  "Affection animations": "好感度アニメーション",
+  "Play the heart effect around the avatar (and mascot) when the score changes. With this off the meter still works — adjustments just happen invisibly.":
+    "スコアが変化したときにアバター（とマスコット）の周りでハートのエフェクトを再生します。オフにしてもメーター自体は機能します — 調整が目に見えなくなるだけです。",
+  "Current score": "現在のスコア",
+  "Where the relationship stands right now. Normally the companion moves this itself, a few points at a time — edit it here to set a starting point, or to reset or hand-tune the relationship.":
+    "現在の関係の状態です。通常はコンパニオン自身が数ポイントずつ動かします。開始値の設定、リセット、手動調整をしたいときにここで編集してください。",
+  "Max score": "最大スコア",
+  "The top of the scale — the score is kept between 0 and this.":
+    "スケールの上限です。スコアは 0 からこの値の間に保たれます。",
+  "Levels": "レベル数",
+  "How many tiers the scale splits into. The companion's level is its score tier — write your affection rules against these levels.":
+    "スケールを何段階に分けるかです。コンパニオンのレベルはスコアの段階に対応します。好感度ルールはこのレベルを基準に書いてください。",
+  "Max change per adjustment": "1 回の調整での最大変化",
+  "The most the companion can move the score in a single adjust_affection call — keeps the relationship building over many sessions instead of jumping levels in one turn.":
+    "adjust_affection の 1 回の呼び出しでスコアを動かせる上限です。関係が 1 ターンで一気にレベルを跳び越えず、多くのセッションを通じて育つようにします。",
+  "Max change (major events)": "最大変化（重大イベント）",
+  "The clamp for severity-major calls — the rare relationship-defining events your affection rules describe (a confessed betrayal, a life-marking moment). Sized in points; two levels' worth by default.":
+    "severity が major の呼び出しに適用される上限です。好感度ルールに記述された、関係を決定づけるまれなイベント（裏切りの告白、人生の節目となる出来事など）に使われます。ポイント単位で、デフォルトは 2 レベル分です。",
+  "Affection rules (when to raise or lower the score, and how behaviour changes per level)":
+    "好感度ルール（スコアを上げ下げするタイミングと、レベルごとの振る舞いの変化）",
+  "Injected into every session prompt together with the current score — the companion is told to review these rules before every reply and shape its behaviour to the current level. Left empty, the level simply colours its warmth naturally.":
+    "現在のスコアと一緒に毎セッションのプロンプトへ注入されます。コンパニオンは返答のたびにこのルールを確認し、現在のレベルに合わせて振る舞いを変えるよう指示されます。空欄の場合は、レベルに応じて自然に温かさが変わります。",
+  "Leave empty to let the level simply colour the companion's warmth.":
+    "空欄にすると、レベルに応じてコンパニオンの温かさが自然に変わります。",
+  "Affection — level %s of %s. The companion adjusts this as your relationship evolves.":
+    "好感度 — レベル %s / %s。関係の変化に合わせてコンパニオンが調整します。",
+
   // Agent flags
-  "Voice mode": "音声モード",
-  "Text mode": "テキストモード",
+  "Tools": "ツール",
   "Avatar control tools": "アバター操作ツール",
   "Call-companion tool (group calls)": "コンパニオン呼び出しツール（グループ通話）",
   "Web search": "Web 検索",

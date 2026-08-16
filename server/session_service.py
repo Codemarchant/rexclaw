@@ -15,7 +15,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 
-from . import xai_client, browser_tools, delegate_tools, imagine_tools, local_tools, memory_tools, minecraft_tools, store
+from . import xai_client, affection_tools, browser_tools, delegate_tools, imagine_tools, local_tools, memory_tools, minecraft_tools, store
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -165,11 +165,58 @@ def _env_postamble(con, agent_row, mode='voice'):
         habits = _tool_habits_section(agent_row)
         if habits:
             sections.append(habits)
+    if agent_row['enable_affection_tool']:
+        sections.append(_affection_section(agent_row))
     if agent_row['enable_memory_tools']:
         sections.append(_memory_section(con, agent_row))
     if not sections:
         return ''
     return '\n\n' + '\n\n'.join(sections)
+
+
+def _affection_section(agent_row):
+    """Render the current affection standing + the author-configured rules.
+
+    Policy-free by design: this frame states the mechanics (current standing,
+    the tool, the mandate to consult the rules every reply) and nothing about
+    WHEN to adjust or what the levels mean — that is entirely the rules'
+    territory, so an author can score whatever they like (including nothing
+    resembling conventional warmth) without a baked-in policy contradicting
+    them. Only the empty-rules fallback supplies a minimal default policy,
+    because with no rules there is otherwise none at all."""
+    score = agent_row['affection_score'] or 0
+    cfg = affection_tools.config_for(agent_row)
+    level = affection_tools.level_for(score, cfg)
+    rules = (agent_row['affection_rules'] or '').strip()
+    if not rules:
+        rules = (
+            "(No affection rules are configured. Default behaviour: let the "
+            "level colour your warmth naturally — higher means warmer and "
+            "more familiar, lower means cooler and more distant — and nudge "
+            "the score with small deltas when a moment genuinely moves the "
+            "relationship.)"
+        )
+    return (
+        "## Affection\n"
+        f"Current affection score with the user is: {score}/{cfg['max_score']} "
+        f"(level {level} of {cfg['level_count']}, one level per "
+        f"{cfg['level_size']} points); you change it with the "
+        "`adjust_affection` tool. This figure is a snapshot from when "
+        "this session's prompt was built — if any `adjust_affection` result "
+        "appears later in the conversation, the most recent one carries the "
+        "true up-to-date score and level; trust it over this line. "
+        "Unless the rules below say otherwise, never mention the score, "
+        "the levels, or this meter to the user — adjustments happen "
+        "silently, and the relationship only ever shows through your "
+        "behaviour. The meter persists on its own — never put the score or "
+        "level in a stored memory. The affection rules below are the sole "
+        "authority on what this level means for your behaviour and on when "
+        "(and by how much) to adjust the score — review them before EVERY "
+        "reply and follow them, even where they differ from how you would "
+        "normally weigh a relationship.\n\n"
+        "### Affection rules\n"
+        f"{rules}"
+    )
 
 
 def _tool_habits_section(agent_row):
@@ -363,8 +410,6 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     # Resume locks the agent to the one the conversation was originally with.
     if resume_session and resume_session['agent_id'] != agent['id']:
         agent = store.get_agent(con, resume_session['agent_id'])
-    if not agent['enable_voice_mode']:
-        raise UserError("This agent is not enabled for voice mode.")
 
     config = get_config(con)
     if not config['enabled']:
@@ -452,7 +497,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     if agent['enable_call_agents_tool']:
         # Roster of everyone this agent could bring into the call: the other
         # voice-enabled agents.
-        other_agents = [a for a in store.list_agents(con, mode='voice')
+        other_agents = [a for a in store.list_agents(con)
                         if a['id'] != agent['id']]
         add_agent_tool = browser_tools.build_add_agent_tool(agent, other_agents)
         if add_agent_tool is not None:
@@ -476,6 +521,8 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         native_function_tools.extend(imagine_tools.build_voice_tools(con, agent))
     if agent['enable_memory_tools']:
         native_function_tools.extend(memory_tools.MEMORY_TOOLS)
+    if agent['enable_affection_tool']:
+        native_function_tools.extend(affection_tools.build_tools(agent))
     # Only offered when the Grok Build CLI is actually on PATH — in
     # Docker (or an uninstalled machine) the tool silently disappears.
     local_tasks = bool(agent['enable_local_tasks']) and local_tools.grok_available()
@@ -526,6 +573,23 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     avatar = store.avatar_payload(con, agent['avatar_id'])
     active_background = _resolve_active_background(con, agent)
 
+    # Seed the fullscreen affection readout. None when the meter is off so
+    # the UI can hide the readout entirely instead of showing 0.
+    affection_payload = None
+    if agent['enable_affection_tool']:
+        aff_score = agent['affection_score'] or 0
+        aff_cfg = affection_tools.config_for(agent)
+        affection_payload = {
+            'score': aff_score,
+            'level': affection_tools.level_for(aff_score, aff_cfg),
+            'max_score': aff_cfg['max_score'],
+            'max_level': aff_cfg['level_count'],
+            # UI-only flag: whether score changes play the heart effect.
+            # Rides the session payload (not the tool result) so it never
+            # pollutes what the model reads back from its own calls.
+            'animations': bool(agent['affection_animations']),
+        }
+
     # Group-call roster from the LAST call on this session: peer legs still
     # LINKED to it. Membership is maintained explicitly — a deliberate
     # "remove from call" clears the link (end_session, reason 'removed'),
@@ -560,6 +624,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         'session_update': session_update,
         'avatar': avatar,
         'active_background': active_background,
+        'affection': affection_payload,
         'replay_items': replay_items,
         'transcript_history': transcript_history,
         'transcript_truncated': transcript_truncated,
@@ -1303,6 +1368,7 @@ def director_decide(con, *, session, transcript_lines, participants, user_name=N
 NATIVE_TOOL_NAMES_TEXT = (
     imagine_tools.IMAGINE_TOOL_NAMES
     | memory_tools.MEMORY_TOOL_NAMES
+    | affection_tools.AFFECTION_TOOL_NAMES
     | {delegate_tools.DELEGATE_TOOL_NAME}
     | {local_tools.LOCAL_TASK_TOOL_NAME}
 )
@@ -1316,6 +1382,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                       enable_code_execution=False,
                       enable_grok_imagine_tools=False,
                       enable_memory_tools=False,
+                      enable_affection_tool=False,
                       enable_delegate_tool=False,
                       enable_local_tasks=False,
                       enable_minecraft=False,
@@ -1347,6 +1414,9 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
             })
     if enable_memory_tools:
         for entry in memory_tools.MEMORY_TOOLS:
+            tools.append(entry)
+    if enable_affection_tool:
+        for entry in affection_tools.build_tools(agent):
             tools.append(entry)
     local_tasks = enable_local_tasks and local_tools.grok_available()
     if enable_delegate_tool:
@@ -1527,8 +1597,6 @@ def start_text_session(con, *, agent, resume_session=None):
     payload the browser needs to render history and submit its first turn."""
     if resume_session and resume_session['agent_id'] != agent['id']:
         agent = store.get_agent(con, resume_session['agent_id'])
-    if not agent['enable_text_mode']:
-        raise UserError("This agent is not enabled for text-mode chat.")
 
     config = get_config(con)
     if not config['enabled']:
@@ -1614,6 +1682,8 @@ def start_text_session(con, *, agent, resume_session=None):
             enable_code_execution=bool(agent['enable_code_execution']),
             enable_grok_imagine_tools=bool(agent['enable_grok_imagine_tools']),
             enable_memory_tools=bool(agent['enable_memory_tools']),
+            enable_affection_tool=(bool(agent['enable_affection_tool'])
+                                   and session['origin'] != 'delegated'),
             enable_delegate_tool=(bool(agent['enable_delegate_tool'])
                                   and session['origin'] != 'delegated'),
             enable_local_tasks=bool(agent['enable_local_tasks']),
@@ -1755,6 +1825,10 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         enable_code_execution=bool(agent['enable_code_execution']),
         enable_grok_imagine_tools=bool(agent['enable_grok_imagine_tools']),
         enable_memory_tools=bool(agent['enable_memory_tools']),
+        # The delegated analyst speaks with the companion's voice but not its
+        # heart — background task sessions must not move the affection score.
+        enable_affection_tool=(bool(agent['enable_affection_tool'])
+                               and session['origin'] != 'delegated'),
         # Recursion guard: a delegated task session must never delegate
         # further — one level of background work, no self-spawning chains.
         enable_delegate_tool=(bool(agent['enable_delegate_tool'])
@@ -2118,6 +2192,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                               'message': 'Memory tools are disabled on this agent.'}
                 else:
                     result = memory_tools.execute_memory_tool(con, session, name, args)
+            elif name in affection_tools.AFFECTION_TOOL_NAMES:
+                if not agent['enable_affection_tool']:
+                    result = {'ok': False, 'reason': 'tool_disabled',
+                              'message': 'The affection meter is disabled on this companion.'}
+                else:
+                    result = affection_tools.execute_affection_tool(con, session, name, args)
             elif name == delegate_tools.DELEGATE_TOOL_NAME:
                 # Flag + recursion checks live in the executor; it returns
                 # {'error': ...} so the model gets a structured failure.

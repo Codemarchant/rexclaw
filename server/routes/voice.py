@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
-from .. import delegate_tools, imagine_tools, local_tools, memory_tools, minecraft_tools, session_service, store
+from .. import affection_tools, delegate_tools, imagine_tools, local_tools, memory_tools, minecraft_tools, session_service, store
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -23,7 +23,7 @@ XAI_PCM_RATES = (8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000)
 
 @router.post("/session/start")
 def session_start(payload: dict = Body(default={}), con=Depends(db_con)):
-    agent = resolve_agent(con, payload.get("agent_id"), mode="voice")
+    agent = resolve_agent(con, payload.get("agent_id"))
     resume_session = None
     if payload.get("resume_session_id"):
         resume_session = resolve_session(con, payload["resume_session_id"])
@@ -120,6 +120,12 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         if not agent["enable_memory_tools"]:
             raise AccessError("Memory tools are disabled on this agent.")
         result = memory_tools.execute_memory_tool(con, session, tool_name, arguments)
+        con.commit()
+        return result
+    if tool_name in affection_tools.AFFECTION_TOOL_NAMES:
+        if not agent["enable_affection_tool"]:
+            raise AccessError("The affection meter is disabled on this companion.")
+        result = affection_tools.execute_affection_tool(con, session, tool_name, arguments)
         con.commit()
         return result
     if tool_name == delegate_tools.DELEGATE_TOOL_NAME:
@@ -370,7 +376,7 @@ def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
 
 @router.post("/agents")
 def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
-    agents = store.list_agents(con, mode="voice")
+    agents = store.list_agents(con)
     config = get_config(con)
     accessible_ids = {a["id"] for a in agents}
     default_id = (
