@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
@@ -60,26 +60,41 @@ Levels 9-10 (800-1000) — Devoted. Deep trust and loyalty. You actively invest,
 
 Whatever the level, stay in character — affection changes how warm and open you are, never who you are.`;
 
-const AGENT_FLAGS = [
+// Tools that work regardless of which LLM backend drives the companion.
+const GENERAL_FLAGS = [
     ["enable_gesture_emotion_tools", "Avatar control tools"],
     ["enable_call_agents_tool", "Call-companion tool (group calls)"],
-    ["enable_web_search", "Web search"],
-    ["enable_x_search", "X search"],
-    ["enable_grok_imagine_tools", "Grok Imagine"],
     ["enable_memory_tools", "Memory"],
-    ["enable_code_execution", "Code execution (text)"],
-    ["enable_delegate_tool", "Task delegation (delegate_task)"],
-    ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)"],
-    ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)"],
     ["enable_minecraft", "Minecraft bot (directs the game sidecar — see the Games tab)"],
     ["enable_end_call_tool", "End-call tool (hang up on request)"],
 ];
+
+// Provider-specific settings/tools, keyed by agents.provider. Only Grok
+// exists today — the split is groundwork for a future OpenAI provider.
+const PROVIDERS = [["grok", "Grok (xAI)"]];
+const PROVIDER_FLAGS = {
+    grok: [
+        ["enable_web_search", "Web search"],
+        ["enable_x_search", "X search"],
+        ["enable_grok_imagine_tools", "Grok Imagine"],
+        ["enable_code_execution", "Code execution (text)"],
+        ["enable_delegate_tool", "Task delegation (delegate_task)"],
+        ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)"],
+        ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)"],
+    ],
+};
 
 export default function CompanionsView({ active }) {
     const [agents, setAgents] = useState([]);
     const [avatars, setAvatars] = useState([]);
     const [editingAgent, setEditingAgent] = useState(null); // agent object being edited
     const [saving, setSaving] = useState(false);
+    const [exportFor, setExportFor] = useState(null);       // agent id with the export toggles open
+    const [exportOpts, setExportOpts] = useState({ memories: true, sessions: true, avatar: true });
+    const [importing, setImporting] = useState(false);
+    const [deletingId, setDeletingId] = useState(null);     // agent id mid-delete (big histories take seconds)
+    const [query, setQuery] = useState("");
+    const importInputRef = useRef(null);
 
     const load = async () => {
         try {
@@ -103,6 +118,7 @@ export default function CompanionsView({ active }) {
         setEditingAgent({
             id: null,
             name: "",
+            provider: "grok",
             voice: "ara",
             system_prompt: STARTER_PROMPT,
             avatar_id: avatars[0]?.id ?? null,
@@ -164,13 +180,92 @@ export default function CompanionsView({ active }) {
         if (!window.confirm(
             _t("Delete %s? This permanently removes the companion plus all its sessions, transcripts and memories.", a.name),
         )) return;
+        // Deleting cascades through every session/message/memory row — a
+        // companion with a long history takes seconds. Lock the list rows
+        // until the server confirms so it can't be clicked mid-flight.
+        setDeletingId(a.id);
         try {
             await rpc("/api/agents/delete", { id: a.id });
             notification.add(_t("%s deleted.", a.name), { type: "info" });
             if (editingAgent?.id === a.id) setEditingAgent(null);
-            load();
+            await load();
         } catch (e) {
             notification.add(e?.message || _t("Delete failed"), { type: "danger" });
+        } finally {
+            setDeletingId(null);
+        }
+    };
+
+    // Companion package: zip of settings + optional memories, sessions and
+    // avatar pack. Download goes through a plain GET so the browser/Electron
+    // streams it to disk — packs with VRMs run to hundreds of MB.
+    const downloadExport = (a) => {
+        const params = new URLSearchParams({
+            agent_id: String(a.id),
+            memories: exportOpts.memories ? "1" : "0",
+            sessions: exportOpts.sessions ? "1" : "0",
+            avatar: exportOpts.avatar ? "1" : "0",
+        });
+        const link = document.createElement("a");
+        link.href = `/api/agents/export?${params}`;
+        link.click();
+        setExportFor(null);
+    };
+
+    const exportControls = (a) => (
+        exportFor === a.id ? (
+            <span style={{ display: "inline-flex", gap: "0.5rem", alignItems: "center" }}>
+                {[
+                    ["memories", _t("Memories")],
+                    ["sessions", _t("Sessions")],
+                    ["avatar", _t("Avatar")],
+                ].map(([k, label]) => (
+                    <label key={k} className="small"
+                           style={{ display: "inline-flex", gap: "0.25rem", alignItems: "center", margin: 0 }}>
+                        <input type="checkbox" checked={exportOpts[k]}
+                               onChange={(e) => setExportOpts({ ...exportOpts, [k]: e.target.checked })} />
+                        {label}
+                    </label>
+                ))}
+                <button className="btn btn-sm btn-link p-0" title={_t("Download package")}
+                        onClick={() => downloadExport(a)}>
+                    <i className="fa fa-check" />
+                </button>
+                <button className="btn btn-sm btn-link p-0" title={_t("Cancel")}
+                        onClick={() => setExportFor(null)}>
+                    <i className="fa fa-times" />
+                </button>
+            </span>
+        ) : (
+            <button className="btn btn-sm btn-link p-0"
+                    title={_t("Export companion package (.zip) — settings plus optional memories, sessions and avatar, shareable with any rexclaw install")}
+                    onClick={() => setExportFor(a.id)}>
+                <i className="fa fa-download" />
+            </button>
+        )
+    );
+
+    const importCompanion = async (file) => {
+        setImporting(true);
+        try {
+            const fd = new FormData();
+            fd.append("file", file, file.name);
+            const resp = await fetch("/api/agents/import", { method: "POST", body: fd, credentials: "same-origin" });
+            const body = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error(body?.error?.message || `Import failed (${resp.status})`);
+            notification.add(
+                body.avatar
+                    ? _t("Imported %s with avatar %s — %s memories, %s sessions.",
+                        body.name, body.avatar.name, body.memories_imported, body.sessions_imported)
+                    : _t("Imported %s — %s memories, %s sessions.",
+                        body.name, body.memories_imported, body.sessions_imported),
+                { type: "success" },
+            );
+            load();
+        } catch (e) {
+            notification.add(e?.message || _t("Import failed"), { type: "danger" });
+        } finally {
+            setImporting(false);
         }
     };
 
@@ -189,6 +284,24 @@ export default function CompanionsView({ active }) {
         }
     };
 
+    const q = query.trim().toLowerCase();
+    const visibleAgents = q ? agents.filter((a) => (a.name || "").toLowerCase().includes(q)) : agents;
+
+    // Editing opens as its own view replacing the list — same navigation
+    // pattern as the avatar editor. The editor renders Settings-style white
+    // section boxes directly into the inner column.
+    if (editingAgent) {
+        return (
+            <div className="rx_settings">
+                <div className="rx_settings_inner rx_settings_inner--wide">
+                    <AgentEditorFields editingAgent={editingAgent} setEditingAgent={setEditingAgent}
+                                       avatars={avatars} saving={saving} saveAgent={saveAgent}
+                                       cancel={() => setEditingAgent(null)} />
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="rx_settings">
             <div className="rx_settings_inner rx_settings_inner--wide">
@@ -196,47 +309,70 @@ export default function CompanionsView({ active }) {
                     <h3 style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <span><i className="fa fa-users" /> {_t("Companions")}</span>
                         <span style={{ display: "flex", gap: "0.5rem" }}>
+                            <input
+                                type="text"
+                                placeholder={_t("Search companions…")}
+                                value={query}
+                                onChange={(e) => setQuery(e.target.value)}
+                                style={{ width: "12rem" }}
+                            />
                             <button className="btn btn-sm" onClick={restorePresets}
                                     title={_t("Re-create any deleted preset companions (Eve, Ara, Rex, Sal, Leo) with their original prompts. Existing companions are untouched.")}>
                                 <i className="fa fa-undo" /> {_t("Restore presets")}
                             </button>
+                            <button className="btn btn-sm" disabled={importing}
+                                    title={_t("Import a companion package (.zip) exported from another rexclaw install")}
+                                    onClick={() => importInputRef.current?.click()}>
+                                <i className="fa fa-upload" /> {importing ? _t("Importing…") : _t("Import")}
+                            </button>
                             <button className="btn btn-sm btn-primary" onClick={newCompanion}>
                                 <i className="fa fa-plus" /> {_t("New companion")}
                             </button>
+                            <input
+                                ref={importInputRef}
+                                type="file"
+                                accept=".zip,application/zip"
+                                style={{ display: "none" }}
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    e.target.value = "";
+                                    if (file) importCompanion(file);
+                                }}
+                            />
                         </span>
                     </h3>
-                    {editingAgent && editingAgent.id == null && (
-                        <div className="rx_agent_editor">
-                            <AgentEditorFields editingAgent={editingAgent} setEditingAgent={setEditingAgent}
-                                               avatars={avatars} saving={saving} saveAgent={saveAgent}
-                                               cancel={() => setEditingAgent(null)} />
-                        </div>
+                    {!!query.trim() && !visibleAgents.length && (
+                        <p className="text-muted small">{_t("No matches.")}</p>
                     )}
-                    {agents.map((a) => (
-                        editingAgent?.id === a.id ? (
-                            <div key={a.id} className="rx_agent_editor">
-                                <AgentEditorFields editingAgent={editingAgent} setEditingAgent={setEditingAgent}
-                                                   avatars={avatars} saving={saving} saveAgent={saveAgent}
-                                                   cancel={() => setEditingAgent(null)} />
-                            </div>
-                        ) : (
-                            <div key={a.id} className="rx_memory_row">
-                                <strong>{a.name}</strong>
-                                <span className="text-muted small">{_t("voice:")} {a.voice}</span>
-                                <button className="btn btn-sm btn-link p-0" onClick={() => setEditingAgent({ ...a })}>
-                                    {_t("Edit")}
-                                </button>
-                                <button className="btn btn-sm btn-link p-0"
-                                        title={_t("Duplicate companion (settings and prompt only — history and memories stay with the original)")}
-                                        onClick={() => duplicateAgent(a)}>
-                                    <i className="fa fa-clone" />
-                                </button>
-                                <button className="btn btn-sm btn-link p-0" title={_t("Delete companion")}
-                                        onClick={() => deleteAgent(a)}>
-                                    <i className="fa fa-trash-o" />
-                                </button>
-                            </div>
-                        )
+                    {visibleAgents.map((a) => (
+                        <div key={a.id} className="rx_memory_row"
+                             style={deletingId != null && deletingId !== a.id ? { opacity: 0.6 } : undefined}>
+                            <strong>{a.name}</strong>
+                            <span className="text-muted small">
+                                {deletingId === a.id ? _t("Deleting…") : [
+                                    `${_t("voice:")} ${a.voice}`,
+                                    (() => {
+                                        const av = avatars.find((x) => x.id === a.avatar_id);
+                                        return av ? `${_t("avatar:")} ${av.name}` : null;
+                                    })(),
+                                ].filter(Boolean).join(" · ")}
+                            </span>
+                            <button className="btn btn-sm btn-link p-0" disabled={deletingId != null}
+                                    onClick={() => setEditingAgent({ ...a })}>
+                                {_t("Edit")}
+                            </button>
+                            <button className="btn btn-sm btn-link p-0" disabled={deletingId != null}
+                                    title={_t("Duplicate companion (settings and prompt only — history and memories stay with the original)")}
+                                    onClick={() => duplicateAgent(a)}>
+                                <i className="fa fa-clone" />
+                            </button>
+                            {exportControls(a)}
+                            <button className="btn btn-sm btn-link p-0" disabled={deletingId != null}
+                                    title={_t("Delete companion")}
+                                    onClick={() => deleteAgent(a)}>
+                                <i className={deletingId === a.id ? "fa fa-spinner fa-spin" : "fa fa-trash-o"} />
+                            </button>
+                        </div>
                     ))}
                 </section>
             </div>
@@ -250,16 +386,17 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
     const idScope = editingAgent.id ?? "new";
     return (
         <>
+            <section>
+            <h3>
+                <i className="fa fa-users" />{" "}
+                {editingAgent.id == null ? _t("New companion") : _t("Edit companion")}
+                {editingAgent.name ? ` — ${editingAgent.name}` : ""}
+            </h3>
             <div className="rx_row">
                 <div>
                     <label>{_t("Name")}</label>
                     <input type="text" value={editingAgent.name || ""}
                            onChange={(ev) => setEditingAgent({ ...editingAgent, name: ev.target.value })} />
-                </div>
-                <div>
-                    <label>{_t("Voice (built-in name or custom xAI voice id)")}</label>
-                    <input type="text" value={editingAgent.voice || ""}
-                           onChange={(ev) => setEditingAgent({ ...editingAgent, voice: ev.target.value })} />
                 </div>
                 <div>
                     <label>{_t("Avatar")}</label>
@@ -271,16 +408,6 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                                 {av.name}{av.outfit_count ? ` (${av.outfit_count} ${_t("outfits")})` : ""}
                             </option>
                         ))}
-                    </select>
-                </div>
-                <div>
-                    <label>{_t("Reasoning effort (text mode)")}</label>
-                    <select value={editingAgent.reasoning_effort || "low"}
-                            onChange={(ev) => setEditingAgent({ ...editingAgent, reasoning_effort: ev.target.value })}>
-                        <option value="none">{_t("None")}</option>
-                        <option value="low">{_t("Low")}</option>
-                        <option value="medium">{_t("Medium")}</option>
-                        <option value="high">{_t("High")}</option>
                     </select>
                 </div>
             </div>
@@ -313,7 +440,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
             </div>
             <label>{_t("Tools")}</label>
             <div className="rx_flags">
-                {AGENT_FLAGS.map(([key, label, tooltip]) => (
+                {GENERAL_FLAGS.map(([key, label, tooltip]) => (
                     <span key={key} className="rx_check">
                         <input id={`flag-${idScope}-${key}`} type="checkbox"
                                checked={!!editingAgent[key]}
@@ -322,10 +449,51 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                     </span>
                 ))}
             </div>
-            <div className="rx_affection_section">
-                <div className="rx_affection_banner">
-                    <i className="fa fa-heart" /> {_t("Affection")}
+            </section>
+            <section>
+                <h3><i className="fa fa-plug" /> {_t("Provider")}</h3>
+                <div className="rx_row">
+                    <div>
+                        <label title={_t("The LLM backend this companion runs on. Only Grok (xAI) is available today.")}>
+                            {_t("Provider")}
+                        </label>
+                        <select value={editingAgent.provider || "grok"}
+                                onChange={(ev) => setEditingAgent({ ...editingAgent, provider: ev.target.value })}>
+                            {PROVIDERS.map(([id, label]) => (
+                                <option key={id} value={id}>{_t(label)}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label>{_t("Voice (built-in name or custom xAI voice id)")}</label>
+                        <input type="text" value={editingAgent.voice || ""}
+                               onChange={(ev) => setEditingAgent({ ...editingAgent, voice: ev.target.value })} />
+                    </div>
+                    <div>
+                        <label>{_t("Reasoning effort (text mode)")}</label>
+                        <select value={editingAgent.reasoning_effort || "low"}
+                                onChange={(ev) => setEditingAgent({ ...editingAgent, reasoning_effort: ev.target.value })}>
+                            <option value="none">{_t("None")}</option>
+                            <option value="low">{_t("Low")}</option>
+                            <option value="medium">{_t("Medium")}</option>
+                            <option value="high">{_t("High")}</option>
+                        </select>
+                    </div>
                 </div>
+                <label>{_t("Tools")}</label>
+                <div className="rx_flags">
+                    {(PROVIDER_FLAGS[editingAgent.provider] || PROVIDER_FLAGS.grok).map(([key, label, tooltip]) => (
+                        <span key={key} className="rx_check">
+                            <input id={`flag-${idScope}-${key}`} type="checkbox"
+                                   checked={!!editingAgent[key]}
+                                   onChange={(ev) => setEditingAgent({ ...editingAgent, [key]: ev.target.checked ? 1 : 0 })} />
+                            <label htmlFor={`flag-${idScope}-${key}`} title={tooltip ? _t(tooltip) : undefined}>{_t(label)}</label>
+                        </span>
+                    ))}
+                </div>
+            </section>
+            <section>
+                <h3><i className="fa fa-heart" /> {_t("Affection")}</h3>
                 <span className="rx_check">
                     <input id={`flag-${idScope}-enable_affection_tool`} type="checkbox"
                            checked={!!editingAgent.enable_affection_tool}
@@ -417,14 +585,20 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                         </>
                     );
                 })()}
-            </div>
-            {editingAgent.id != null && <McpConnections agentId={editingAgent.id} />}
-            {editingAgent.id == null && (
-                <p className="text-muted small" style={{ marginTop: "0.6rem" }}>
-                    {_t("Remote MCP connections can be added after the companion is saved.")}
-                </p>
-            )}
-            <div style={{ marginTop: "0.75rem", display: "flex", gap: "0.5rem" }}>
+            </section>
+            <section>
+                {editingAgent.id != null ? (
+                    <McpConnections agentId={editingAgent.id} />
+                ) : (
+                    <>
+                        <h3><i className="fa fa-server" /> {_t("Remote MCP connections")}</h3>
+                        <p className="text-muted small" style={{ margin: 0 }}>
+                            {_t("Remote MCP connections can be added after the companion is saved.")}
+                        </p>
+                    </>
+                )}
+            </section>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button className="btn btn-primary btn-sm" disabled={saving} onClick={saveAgent}>
                     {_t("Save")}
                 </button>
@@ -490,12 +664,12 @@ function McpConnections({ agentId }) {
     const set = (key, value) => setEditing((c) => ({ ...c, [key]: value }));
 
     return (
-        <div style={{ marginTop: "0.85rem" }}>
+        <div>
             {/* div, not <label>: a label forwards clicks anywhere on it to
                 its first button, so clicking the heading text (or the empty
                 row space) would trigger Add connection. */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <label style={{ margin: 0 }}>{_t("Remote MCP connections")}</label>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                <h3 style={{ margin: 0 }}><i className="fa fa-server" /> {_t("Remote MCP connections")}</h3>
                 <button className="btn btn-sm" onClick={() => setEditing({ ...EMPTY_MCP })}>
                     <i className="fa fa-plus" /> {_t("Add connection")}
                 </button>

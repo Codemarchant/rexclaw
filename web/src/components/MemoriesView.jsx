@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
@@ -14,9 +14,11 @@ export default function MemoriesView({ active }) {
     const [query, setQuery] = useState("");
     const [typeFilter, setTypeFilter] = useState("all");    // all | fact | episode
     const [scopeFilter, setScopeFilter] = useState("all");  // all | core | recall
+    const [agentFilter, setAgentFilter] = useState("all");  // all | shared | String(agent id)
     const [expanded, setExpanded] = useState(() => new Set());
     const [editing, setEditing] = useState(null);           // null | {id?, content, scope, agent_id, tags, keywords?, memory_type}
     const [saving, setSaving] = useState(false);
+    const importInputRef = useRef(null);
 
     const load = async () => {
         setLoading(true);
@@ -84,6 +86,62 @@ export default function MemoriesView({ active }) {
         }
     };
 
+    // Portable memories file (versioned JSON, shared with the Odoo module) —
+    // the server owns the format; here we just move it in and out of a file.
+    // Export follows the companion filter: an explicit agent_id null means
+    // shared-only, omitting the key means everything.
+    const exportMemories = async () => {
+        try {
+            const payload = {};
+            let suffix = "";
+            if (agentFilter === "shared") {
+                payload.agent_id = null;
+                suffix = "-shared";
+            } else if (agentFilter !== "all") {
+                payload.agent_id = Number(agentFilter);
+                const name = agents.find((a) => a.id === payload.agent_id)?.name || "companion";
+                suffix = "-" + (name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "") || "companion");
+            }
+            const data = await rpc("/api/memories/export", payload);
+            const url = URL.createObjectURL(
+                new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+            );
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `rexclaw-memories${suffix}-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            notification.add(e?.message || _t("Export failed"), { type: "danger" });
+        }
+    };
+
+    const importMemories = async (file) => {
+        try {
+            let data;
+            try {
+                data = JSON.parse(await file.text());
+            } catch {
+                throw new Error(_t("Not a valid JSON file."));
+            }
+            const res = await rpc("/api/memories/import", data);
+            notification.add(
+                _t("Imported %s memories (%s duplicates skipped).", res.imported, res.duplicates),
+                { type: "success" }
+            );
+            if (res.unknown_agents?.length) {
+                notification.add(
+                    _t("Skipped memories of unknown companions: %s. Create them, then import again.",
+                        res.unknown_agents.join(", ")),
+                    { type: "warning", sticky: true }
+                );
+            }
+            await load();
+        } catch (e) {
+            notification.add(e?.message || _t("Import failed"), { type: "danger" });
+        }
+    };
+
     const toggleExpand = (id) => {
         setExpanded((prev) => {
             const next = new Set(prev);
@@ -97,6 +155,8 @@ export default function MemoriesView({ active }) {
         const type = m.memory_type === "episode" ? "episode" : "fact";
         if (typeFilter !== "all" && type !== typeFilter) return false;
         if (scopeFilter !== "all" && m.scope !== scopeFilter) return false;
+        if (agentFilter === "shared" && m.agent_id != null) return false;
+        if (agentFilter !== "all" && agentFilter !== "shared" && m.agent_id !== Number(agentFilter)) return false;
         if (!q) return true;
         return [m.content, m.keywords, m.tags, m.agent_name]
             .some((f) => (f || "").toLowerCase().includes(q));
@@ -138,6 +198,18 @@ export default function MemoriesView({ active }) {
                             ))}
                         </div>
                         <select
+                            value={agentFilter}
+                            onChange={(e) => setAgentFilter(e.target.value)}
+                            style={{ width: "auto" }}
+                            title={_t("Filter by companion")}
+                        >
+                            <option value="all">{_t("All companions")}</option>
+                            <option value="shared">{_t("Shared only")}</option>
+                            {agents.map((a) => (
+                                <option key={a.id} value={String(a.id)}>{a.name}</option>
+                            ))}
+                        </select>
+                        <select
                             value={scopeFilter}
                             onChange={(e) => setScopeFilter(e.target.value)}
                             style={{ width: "auto" }}
@@ -150,6 +222,31 @@ export default function MemoriesView({ active }) {
                         <button className="btn btn-primary btn-sm" onClick={startCreate}>
                             <i className="fa fa-plus" /> {_t("New memory")}
                         </button>
+                        <button
+                            className="btn btn-secondary btn-sm"
+                            title={_t("Download memories as a JSON file (follows the companion filter)")}
+                            onClick={exportMemories}
+                        >
+                            <i className="fa fa-download" /> {_t("Export")}
+                        </button>
+                        <button
+                            className="btn btn-secondary btn-sm"
+                            title={_t("Import memories from an exported JSON file")}
+                            onClick={() => importInputRef.current?.click()}
+                        >
+                            <i className="fa fa-upload" /> {_t("Import")}
+                        </button>
+                        <input
+                            ref={importInputRef}
+                            type="file"
+                            accept=".json,application/json"
+                            style={{ display: "none" }}
+                            onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                e.target.value = "";
+                                if (file) importMemories(file);
+                            }}
+                        />
                     </div>
 
                     {editing && (

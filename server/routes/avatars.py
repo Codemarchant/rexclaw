@@ -7,10 +7,16 @@ the DB is always derived from the on-disk pack. Only data/avatars packs are
 editable; bundled assets/avatars packs are read-only.
 """
 import logging
+import os
+import shutil
+import tempfile
+import zipfile
 
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
-from .. import avatar_packs, store
+from .. import avatar_packs, store, transfer
 from ..errors import UserError
 from .common import db_con
 
@@ -116,3 +122,41 @@ def delete(payload: dict = Body(default={}), con=Depends(db_con)):
     pack_key = payload.get("pack_key")
     avatar_packs.delete_pack(con, pack_key)
     return {"ok": True}
+
+
+@router.get("/export")
+def export(pack_key: str):
+    """Download a pack (bundled or user) as a self-contained zip — the
+    "drop a folder into data/avatars/" convention, in a file. GET so the
+    browser/Electron streams it to disk; VRM packs run to hundreds of MB."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp.close()
+    try:
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
+            transfer.add_pack_to_zip(zf, pack_key)
+    except Exception:
+        os.unlink(tmp.name)
+        raise
+    return FileResponse(
+        tmp.name, media_type="application/zip",
+        filename=f"{pack_key}-avatar-pack.zip",
+        background=BackgroundTask(os.unlink, tmp.name),
+    )
+
+
+@router.post("/import")
+def import_pack(file: UploadFile = File(...), con=Depends(db_con)):
+    """Import an avatar pack zip (avatar.json at the root or inside a single
+    wrapping folder) as a new editable user pack."""
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        path = tmp.name
+    try:
+        with zipfile.ZipFile(path) as zf:
+            result = transfer.import_pack_from_zip(con, zf, transfer.pack_prefix_in_zip(zf))
+        con.commit()
+        return {"ok": True, **result}
+    except zipfile.BadZipFile:
+        raise UserError("Not a zip file.")
+    finally:
+        os.unlink(path)

@@ -214,6 +214,10 @@ CREATE TABLE IF NOT EXISTS agents (
     name TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 1,
     sequence INTEGER NOT NULL DEFAULT 10,
+    -- LLM backend for this companion. Only 'grok' exists today; the column
+    -- (and the provider-vs-general tool split in the editor) is groundwork
+    -- for a future OpenAI provider.
+    provider TEXT NOT NULL DEFAULT 'grok',
     voice TEXT NOT NULL DEFAULT 'ara',   -- built-in voice name OR custom xAI voice id
     system_prompt TEXT NOT NULL,
     avatar_id INTEGER REFERENCES avatars(id) ON DELETE SET NULL,
@@ -550,6 +554,8 @@ MIGRATIONS = (
     # whose meter was never enabled still sit at the old untouched default.
     "UPDATE agents SET affection_score = 150 "
     "WHERE affection_score = 100 AND enable_affection_tool = 0",
+    # Per-companion LLM backend — groundwork for a future OpenAI provider.
+    "ALTER TABLE agents ADD COLUMN provider TEXT NOT NULL DEFAULT 'grok'",
 )
 
 

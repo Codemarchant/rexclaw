@@ -2,6 +2,7 @@
 """Settings + memories + agent management routes for the standalone UI."""
 import json
 import logging
+import os
 import re
 import shutil
 import tarfile
@@ -10,9 +11,11 @@ import threading
 import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, File, UploadFile
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
-from .. import local_tools, memory_tools, minecraft_tools
+from .. import local_tools, memory_tools, minecraft_tools, transfer
 from ..db import FILES_DIR, utcnow
 from ..errors import UserError
 from .common import db_con
@@ -41,7 +44,7 @@ _CONFIG_FIELDS = (
 )
 
 _AGENT_FIELDS = (
-    "name", "active", "sequence", "voice", "system_prompt", "avatar_id",
+    "name", "active", "sequence", "provider", "voice", "system_prompt", "avatar_id",
     "reasoning_effort",
     "enable_code_execution", "enable_gesture_emotion_tools",
     "enable_web_search", "enable_x_search", "enable_grok_imagine_tools",
@@ -146,6 +149,47 @@ def agents_duplicate(payload: dict = Body(default={}), con=Depends(db_con)):
     cur = con.execute(f"INSERT INTO agents ({cols}) VALUES ({marks})", tuple(vals.values()))
     con.commit()
     return {"ok": True, "id": cur.lastrowid, "name": name}
+
+
+@router.get("/agents/export")
+def agents_export(agent_id: int, memories: int = 1, sessions: int = 1,
+                  avatar: int = 1, con=Depends(db_con)):
+    """Download a companion package zip (see server/transfer.py for the
+    format). GET so the browser/Electron streams it straight to a file —
+    packs with VRMs run to hundreds of MB. The zip is built in a temp file
+    and deleted after the response is sent."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp.close()
+    try:
+        name = transfer.export_companion_zip(
+            con, agent_id, tmp.name,
+            include_memories=bool(memories),
+            include_sessions=bool(sessions),
+            include_avatar=bool(avatar),
+        )
+    except Exception:
+        os.unlink(tmp.name)
+        raise
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", name).strip("-").lower() or "companion"
+    return FileResponse(
+        tmp.name, media_type="application/zip",
+        filename=f"rexclaw-companion-{slug}.zip",
+        background=BackgroundTask(os.unlink, tmp.name),
+    )
+
+
+@router.post("/agents/import")
+def agents_import(file: UploadFile = File(...), con=Depends(db_con)):
+    """Import a companion package zip: creates a new companion (renamed when
+    the name is taken) with its avatar pack, memories and sessions. All-or-
+    nothing — see transfer.import_companion_zip."""
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        path = tmp.name
+    try:
+        return transfer.import_companion_zip(con, path)
+    finally:
+        os.unlink(path)
 
 
 @router.post("/avatars/list")
@@ -469,6 +513,77 @@ def memories_delete(payload: dict = Body(default={}), con=Depends(db_con)):
     con.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
     con.commit()
     return {"ok": True}
+
+
+# Portable memories file: versioned JSON shared with the Odoo module, whose
+# memory model mirrors this schema field-for-field. Companions travel by name
+# (integer ids are database-local), and derived/provenance columns (id,
+# session_id) are dropped — they can't survive a transfer anyway. The format
+# itself (and the entry-import loop, shared with companion packages) lives in
+# server/transfer.py.
+
+
+@router.post("/memories/export")
+def memories_export(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Optional filter: an 'agent_id' key in the payload narrows the export —
+    an int exports that companion's memories only, an explicit null exports
+    only the shared (global) ones. Omit the key to export everything."""
+    where, params = "", ()
+    if "agent_id" in payload:
+        agent_id = payload["agent_id"]
+        if agent_id is None:
+            where = " WHERE m.agent_id IS NULL"
+        else:
+            if not isinstance(agent_id, int) or not con.execute(
+                "SELECT 1 FROM agents WHERE id = ?", (agent_id,)
+            ).fetchone():
+                raise UserError("Companion not found.")
+            where = " WHERE m.agent_id = ?"
+            params = (agent_id,)
+    rows = con.execute(
+        "SELECT m.*, a.name AS agent_name FROM memories m"
+        " LEFT JOIN agents a ON a.id = m.agent_id"
+        + where +
+        " ORDER BY m.created_at, m.id",
+        params,
+    ).fetchall()
+    return {
+        "format": transfer.MEMORIES_FILE_FORMAT,
+        "version": transfer.MEMORIES_FILE_VERSION,
+        "exported_at": utcnow(),
+        "memories": [transfer.memory_entry(r, r["agent_name"]) for r in rows],
+    }
+
+
+@router.post("/memories/import")
+def memories_import(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Import a memories JSON file (see memories_export). Companions are
+    matched by name (case-insensitive); entries for companions that don't
+    exist here are skipped and reported, not silently made global — create or
+    rename the companion and re-import, which is safe because entries that
+    already exist (same companion, type and content) are skipped as
+    duplicates. Any invalid entry aborts the whole import (the per-request
+    connection rolls back on error), so a file never half-imports."""
+    entries = transfer.check_memories_file(payload)
+    agents_by_name = {
+        r["name"].strip().lower(): r["id"]
+        for r in con.execute("SELECT id, name FROM agents").fetchall()
+    }
+
+    def resolve(agent_name):
+        if not agent_name:
+            return None
+        return agents_by_name.get(agent_name.lower(), transfer.UNKNOWN_AGENT)
+
+    imported, duplicates, unknown_agents = transfer.import_memory_entries(
+        con, entries, resolve)
+    con.commit()
+    return {
+        "ok": True,
+        "imported": imported,
+        "duplicates": duplicates,
+        "unknown_agents": sorted(unknown_agents),
+    }
 
 
 @router.post("/imagine/list")

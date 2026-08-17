@@ -43,6 +43,7 @@ leaves your machine.
 | ⛏️ **Minecraft bot (`minecraft_command`)** | Opt-in per companion: your companion joins your Minecraft world as a real player and plays alongside you. Tell them by voice — "come mine with me", "get us some food", "build a shelter before dark" — and the bot plans and plays autonomously (pathfinding, mining, crafting, combat, chests), while your companion keeps talking with you and reacts aloud to what happens in the world ("found diamonds!"). Runs as a separate sidecar process (`game_integrations/minecraft/` folder) with its own cheaper text-model brain that writes little JavaScript plans against a skill library; the voice call only carries directives and highlights, so long jobs don't inflate call cost. **Off by default** — it executes model-generated scripts in your world, so use it on your own or trusted servers. |
 | 🖥️ **Screen sharing** | Share your screen with one click and your companion can see what you see — ask them to look at a photo, an article, an error (`take_screenshot`), or show them a moment from a video or game with `record_screen_clip` (up to 90 s, sound included if you share audio). Captures post to the transcript and save to the library for later. Red dot while recording; nothing is captured unless you armed the share. |
 | 👥 **A fully written crew** | Eve, Ara, Rex, Sal and Leo — five companions with backstories, speech quirks and matching voices. Fork them or build your own. |
+| 📦 **Portable companions** | Export a whole companion as one shareable zip — settings and prompt, plus memories, conversation history and the avatar pack, each on its own toggle — and import someone else's in one click. Avatar packs also export/import on their own, and memories travel as a versioned JSON file. Back up, move machines, or share a finished companion with the community. |
 | 🔌 **Remote MCP tools** | Attach any number of remote MCP servers per companion, with bearer auth and per-tool whitelists — configured in the UI. |
 | 🔒 **Self-hosted & BYOK** | One SQLite file, local image storage, a localhost-only server. The browser opens its realtime socket straight to xAI with a short-lived token — the long-lived key stays server-side on your machine. |
 
@@ -144,10 +145,11 @@ that single copy (bundled scenes and gesture clips are in the picker too).
 ### Pack format (sharing / hand-authoring)
 
 Under the hood each avatar is just a folder with an `avatar.json` manifest plus
-its files — exactly what the editor reads and writes. So a UI-built avatar is
-also a **shareable pack**: zip the folder, hand it to someone, they drop it in
-`data/avatars/` and restart (no rebuild — packs are data). You can author one
-by hand the same way. The five bundled packs in `assets/avatars/` double as
+its files — exactly what the editor reads and writes, and exactly what the
+**Export**/**Import pack** buttons on the Avatars tab zip up and unpack (see
+[Export & import](#-export--import)). The folder convention still works both
+ways without the buttons: drop a pack folder into `data/avatars/` and restart,
+or author one by hand. The five bundled packs in `assets/avatars/` double as
 worked examples.
 
 > **Windows desktop app:** the packaged app keeps its data under
@@ -207,6 +209,18 @@ Notes: file references are pack-relative filenames, or absolute web paths —
 
 Animation clips are `.vrma` — the bundled gesture pack (pixiv's VRoid Project
 Motion Pack) covers the built-ins, and packs can add custom clips per avatar.
+
+## 📦 Export & import
+
+Everything is portable, each from its own tab. **Companions**: the download
+icon exports a companion as one zip — settings plus memories, conversation
+history and the avatar pack, each on its own toggle — and **Import** recreates
+it as a new companion. Nothing is ever overwritten (deleting an import can't
+touch an original), and MCP connections never leave — they can carry auth
+secrets. **Avatars**: any avatar exports as a self-contained pack zip;
+**Import pack** accepts one (or any hand-zipped pack folder). **Memories**:
+a versioned JSON file, following the companion filter; re-importing skips
+duplicates.
 
 ## 🥽 Using VR
 

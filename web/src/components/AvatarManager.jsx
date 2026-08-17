@@ -54,6 +54,9 @@ export default function AvatarManager({ onChange, active = true }) {
     const [busy, setBusy] = useState(false);
     const [dupFor, setDupFor] = useState(null);  // avatar id with the inline duplicate-name input open
     const [dupName, setDupName] = useState("");
+    const [importingPack, setImportingPack] = useState(false);
+    const [query, setQuery] = useState("");
+    const packImportRef = useRef(null);
 
     const load = async () => {
         try {
@@ -188,6 +191,32 @@ export default function AvatarManager({ onChange, active = true }) {
         )
     );
 
+    // Pack zip export: plain GET download so the browser/Electron streams it
+    // to disk — VRM packs run to hundreds of MB.
+    const exportPack = (a) => {
+        const link = document.createElement("a");
+        link.href = `/api/avatars/export?pack_key=${encodeURIComponent(a.pack_key)}`;
+        link.click();
+    };
+
+    const importPack = async (file) => {
+        setImportingPack(true);
+        try {
+            const fd = new FormData();
+            fd.append("file", file, file.name);
+            const resp = await fetch("/api/avatars/import", { method: "POST", body: fd, credentials: "same-origin" });
+            const body = await resp.json().catch(() => ({}));
+            if (!resp.ok) throw new Error(body?.error?.message || `Import failed (${resp.status})`);
+            notification.add(_t("%s imported.", body.name), { type: "success" });
+            load();
+            onChange?.();
+        } catch (e) {
+            notification.add(e?.message || _t("Import failed"), { type: "danger" });
+        } finally {
+            setImportingPack(false);
+        }
+    };
+
     const remove = async (a) => {
         if (!window.confirm(_t("Delete avatar %s? Companions using it lose their avatar. This removes the pack folder and its files.", a.name))) return;
         try {
@@ -207,14 +236,44 @@ export default function AvatarManager({ onChange, active = true }) {
         );
     }
 
+    const q = query.trim().toLowerCase();
+    const visibleList = q ? list.filter((a) => (a.name || "").toLowerCase().includes(q)) : list;
+
     return (
-        <div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.5rem" }}>
+        <section>
+            <h3><i className="fa fa-user-circle-o" /> {_t("Avatars")}</h3>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                <input
+                    type="text"
+                    placeholder={_t("Search avatars…")}
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    style={{ width: "12rem" }}
+                />
+                <button className="btn btn-sm" disabled={importingPack}
+                        title={_t("Import an avatar pack (.zip) — a zipped pack folder from any rexclaw install")}
+                        onClick={() => packImportRef.current?.click()}>
+                    <i className="fa fa-upload" /> {importingPack ? _t("Importing…") : _t("Import pack")}
+                </button>
                 <button className="btn btn-sm btn-primary" onClick={startNew}>
                     <i className="fa fa-plus" /> {_t("New avatar")}
                 </button>
+                <input
+                    ref={packImportRef}
+                    type="file"
+                    accept=".zip,application/zip"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (file) importPack(file);
+                    }}
+                />
             </div>
-            {list.map((a) => (
+            {!!q && !visibleList.length && (
+                <p className="text-muted small">{_t("No matches.")}</p>
+            )}
+            {visibleList.map((a) => (
                 <div key={a.id} className="rx_memory_row">
                     <strong>{a.name}</strong>
                     <span className="rx_memory_content text-muted small">
@@ -225,6 +284,12 @@ export default function AvatarManager({ onChange, active = true }) {
                         <>
                             <button className="btn btn-sm btn-link p-0" onClick={() => startEdit(a)}>{_t("Edit")}</button>
                             {a.pack_key && duplicateControls(a)}
+                            {a.pack_key && (
+                                <button className="btn btn-sm btn-link p-0" title={_t("Export as avatar pack (.zip)")}
+                                        onClick={() => exportPack(a)}>
+                                    <i className="fa fa-download" />
+                                </button>
+                            )}
                             <button className="btn btn-sm btn-link p-0" title={_t("Delete avatar")} onClick={() => remove(a)}>
                                 <i className="fa fa-trash-o" />
                             </button>
@@ -232,6 +297,12 @@ export default function AvatarManager({ onChange, active = true }) {
                     ) : (
                         <>
                             {a.pack_key && duplicateControls(a)}
+                            {a.pack_key && (
+                                <button className="btn btn-sm btn-link p-0" title={_t("Export as avatar pack (.zip)")}
+                                        onClick={() => exportPack(a)}>
+                                    <i className="fa fa-download" />
+                                </button>
+                            )}
                             <span className="rx_memory_meta" title={_t("Bundled avatars ship with the app and are read-only. Duplicate one to customize it.")}>
                                 <i className="fa fa-lock" /> {_t("bundled")}
                             </span>
@@ -242,7 +313,7 @@ export default function AvatarManager({ onChange, active = true }) {
             <p className="text-muted small" style={{ marginTop: "0.6rem" }}>
                 {_t("New and edited avatars are saved as packs under")} <code>data/avatars/</code> — {_t("shareable folders anyone can drop into another install. Bundled avatars are read-only.")}
             </p>
-        </div>
+        </section>
     );
 }
 
@@ -350,7 +421,13 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
     };
 
     return (
-        <div>
+        <>
+            <section>
+            <h3>
+                <i className="fa fa-user-circle-o" />{" "}
+                {editing.isNew ? _t("New avatar") : _t("Edit avatar")}
+                {manifest.name ? ` — ${manifest.name}` : ""}
+            </h3>
             <div className="rx_row">
                 <div>
                     <label>{_t("Avatar name")}</label>
@@ -380,6 +457,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                 <i className="fa fa-book" /> {_t("Shared files: drop them into")}{" "}
                 <code>data/assets/</code> — {_t("every upload field's Library picker can then reference the same file from any avatar, no duplicate uploads.")}
             </p>
+            </section>
 
             {/* Outfits */}
             <Section title={_t("Outfits")}
@@ -567,11 +645,11 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                 ))}
             </Section>
 
-            <div style={{ marginTop: "0.85rem", display: "flex", gap: "0.5rem" }}>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{_t("Save avatar")}</button>
                 <button className="btn btn-sm" onClick={cancel}>{_t("Cancel")}</button>
             </div>
-        </div>
+        </>
     );
 }
 
@@ -579,12 +657,12 @@ function Section({ title, onAdd, children }) {
     // NOT a <label> — a label wrapping the button makes a click anywhere in
     // the header row (including blank space) activate Add.
     return (
-        <div className="rx_editor_section">
-            <div className="rx_section_head">
-                <span>{title}</span>
+        <section>
+            <div className="rx_section_head" style={{ margin: 0 }}>
+                <h3 style={{ margin: 0 }}>{title}</h3>
                 <button className="btn btn-sm" onClick={onAdd}><i className="fa fa-plus" /> {_t("Add")}</button>
             </div>
             {children}
-        </div>
+        </section>
     );
 }

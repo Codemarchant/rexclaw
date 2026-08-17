@@ -219,6 +219,18 @@ export const JA = {
   "all companions": "全コンパニオン",
   "Forget": "忘れる",
   "Could not load memories": "メモリを読み込めませんでした",
+  "Export": "エクスポート",
+  "Import": "インポート",
+  "Shared only": "共有のみ",
+  "Download memories as a JSON file (follows the companion filter)":
+    "メモリを JSON ファイルとしてダウンロード（コンパニオンの絞り込みに従います）",
+  "Import memories from an exported JSON file": "エクスポートした JSON ファイルからメモリをインポート",
+  "Export failed": "エクスポートに失敗しました",
+  "Import failed": "インポートに失敗しました",
+  "Not a valid JSON file.": "有効な JSON ファイルではありません。",
+  "Imported %s memories (%s duplicates skipped).": "%s 件のメモリをインポートしました（重複 %s 件をスキップ）。",
+  "Skipped memories of unknown companions: %s. Create them, then import again.":
+    "存在しないコンパニオンのメモリをスキップしました: %s。コンパニオンを作成してから、もう一度インポートしてください。",
 
   // ── Settings: connection / models ─────────────────────────────────────
   "Could not load settings": "設定を読み込めませんでした",
@@ -249,8 +261,7 @@ export const JA = {
   "Language": "言語",
   "UI language — stored in this browser. Companions follow the language you speak regardless.":
     "UI の言語 — このブラウザに保存されます。コンパニオンは設定に関わらず、あなたが話す言語に合わせます。",
-  "Include my name in the system prompt (sent to xAI — off by default)":
-    "システムプロンプトに自分の名前を含める（xAI に送信されます — デフォルトはオフ）",
+  "Include my name in the system prompt": "システムプロンプトに自分の名前を含める",
 
   // ── Settings: context management ──────────────────────────────────────
   "Context management": "コンテキスト管理",
@@ -424,6 +435,10 @@ export const JA = {
   "Re-create any deleted preset companions (Eve, Ara, Rex, Sal, Leo) with their original prompts. Existing companions are untouched.":
     "削除したプリセットコンパニオン（Eve・Ara・Rex・Sal・Leo）を元のプロンプトで再作成します。既存のコンパニオンには影響しません。",
   "New companion": "新しいコンパニオン",
+  "Search companions…": "コンパニオンを検索…",
+  "Search avatars…": "アバターを検索…",
+  "No matches.": "一致するものはありません。",
+  "Edit companion": "コンパニオンを編集",
   "voice:": "ボイス：",
   "Delete companion": "コンパニオンを削除",
   "Delete %s? This permanently removes the companion plus all its sessions, transcripts and memories.":
@@ -479,6 +494,14 @@ export const JA = {
 
   // Agent flags
   "Tools": "ツール",
+  "General": "一般",
+  "wake:": "ウェイク：",
+  "Provider": "プロバイダー",
+  "Provider tools": "プロバイダーツール",
+  "Grok (xAI)": "Grok（xAI）",
+  "The LLM backend this companion runs on. Only Grok (xAI) is available today.":
+    "このコンパニオンを動かす LLM バックエンド。現在は Grok（xAI）のみ利用できます。",
+  "avatar:": "アバター：",
   "Avatar control tools": "アバター操作ツール",
   "Call-companion tool (group calls)": "コンパニオン呼び出しツール（グループ通話）",
   "Web search": "Web 検索",
@@ -513,7 +536,24 @@ export const JA = {
 
   // ── Avatars / packs ───────────────────────────────────────────────────
   "Avatars": "アバター",
+  "Import pack": "パックをインポート",
+  "Importing…": "インポート中…",
+  "Deleting…": "削除中…",
+  "Import an avatar pack (.zip) — a zipped pack folder from any rexclaw install":
+    "アバターパック（.zip）をインポート — 他の rexclaw からの zip 化されたパックフォルダ",
+  "Export as avatar pack (.zip)": "アバターパック（.zip）としてエクスポート",
+  "%s imported.": "%s をインポートしました。",
+  "Export companion package (.zip) — settings plus optional memories, sessions and avatar, shareable with any rexclaw install":
+    "コンパニオンパッケージ（.zip）をエクスポート — 設定に加えて、メモリ・セッション・アバターを選んで同梱。どの rexclaw にも取り込めます",
+  "Download package": "パッケージをダウンロード",
+  "Import a companion package (.zip) exported from another rexclaw install":
+    "他の rexclaw からエクスポートしたコンパニオンパッケージ（.zip）をインポート",
+  "Imported %s with avatar %s — %s memories, %s sessions.":
+    "%s をアバター %s と一緒にインポートしました — メモリ %s 件・セッション %s 件。",
+  "Imported %s — %s memories, %s sessions.":
+    "%s をインポートしました — メモリ %s 件・セッション %s 件。",
   "New avatar": "新しいアバター",
+  "Edit avatar": "アバターを編集",
   "Could not load avatars": "アバターを読み込めませんでした",
   "Create failed": "作成に失敗しました",
   "Could not open avatar": "アバターを開けませんでした",
@@ -639,11 +679,110 @@ export const JA = {
   "Shoot": "指鉄砲",
   "Spin": "スピン",
   "Model Pose": "モデルポーズ",
-  "Squat": "スクワット",
+  "Squats": "スクワット",
+  "Backflip": "バク転",
+  "Blow Kiss": "投げキッス",
+  "Belly Dance": "ベリーダンス",
+  "Push-Ups": "腕立て伏せ",
+  "Pike Walk": "パイクウォーク",
   // Screen share / capture tools
   "Share your screen — lets the companion take screenshots or record clips of it on request":
     "画面を共有 — コンパニオンがリクエストに応じてスクリーンショットやクリップ録画を撮れるようになります",
   "Stop screen sharing": "画面共有を停止",
   "Recording your screen…": "画面を録画中…",
   "Screen sharing failed: %s": "画面共有に失敗しました: %s",
+
+  // ── Companion tool flags ────────────────────────────────────────────────
+  "Task delegation (delegate_task)": "タスク委任（delegate_task）",
+  "Multi-agent delegation (pricier)": "マルチエージェント委任（高コスト）",
+  "Local computer tasks (Grok Build CLI — real files & shell)":
+    "ローカルコンピュータタスク（Grok Build CLI — 実際のファイルとシェル操作）",
+  "Minecraft bot (directs the game sidecar — see the Games tab)":
+    "Minecraft ボット（ゲームサイドカーに指示 — ゲームタブ参照）",
+
+  // ── Memories editor ─────────────────────────────────────────────────────
+  "New memory": "新しいメモリ",
+  "Edit memory": "メモリを編集",
+  "Add memory": "メモリを追加",
+  "A durable fact worth remembering, e.g. \"My favourite colour is teal.\"":
+    "記憶しておきたい事実。例：「好きな色はティール。」",
+  "Keywords (what recall searches against)": "キーワード（リコール検索の対象）",
+  "Scope": "スコープ",
+  "Recall — searched when relevant": "リコール — 関連するときに検索されます",
+  "Core — always in the prompt": "コア — 常にプロンプトに含まれます",
+  "Tags (comma-separated)": "タグ（カンマ区切り）",
+  "preferences, colors": "好み, 色",
+
+  // ── Avatar manager extras ───────────────────────────────────────────────
+  "Create copy": "コピーを作成",
+  "Name for the copy (also names the pack folder)":
+    "コピーの名前（パックフォルダ名にもなります）",
+  "Gesture name the model calls — lowercase letters, digits and underscores, starting with a letter (e.g. wave_hello, test_1).":
+    "モデルが呼び出すジェスチャー名 — 小文字の英字・数字・アンダースコアのみ、先頭は英字（例: wave_hello, test_1）。",
+  "Gesture name the model calls — lowercase letters, digits and underscores, starting with a letter (e.g. dance_together).":
+    "モデルが呼び出すジェスチャー名 — 小文字の英字・数字・アンダースコアのみ、先頭は英字（例: dance_together）。",
+
+  // ── Settings: multi-agent delegation ────────────────────────────────────
+  "Multi-agent model": "マルチエージェントモデル",
+  "xAI multi-agent model used when delegate_task is called with multi_agent=true. Several agents collaborate on the query and a leader synthesizes — every sub-agent bills tokens, so this is markedly more expensive than a standard call. Beta on xAI's side; custom function tools are NOT supported there.":
+    "delegate_task が multi_agent=true で呼ばれたときに使う xAI マルチエージェントモデル。複数のエージェントが協力して取り組み、リーダーが結果をまとめます — サブエージェントごとにトークンが課金されるため、通常の呼び出しよりかなり高価です。xAI 側でベータ版のため、カスタム関数ツールは利用できません。",
+  "Multi-agent effort": "マルチエージェント推論エフォート",
+  "reasoning.effort sent on multi-agent delegations — xAI maps low/medium to 4 collaborating agents, high/xhigh to 16.":
+    "マルチエージェント委任で送られる reasoning.effort — xAI は low/medium を 4 エージェント、high/xhigh を 16 エージェントに割り当てます。",
+  "Low (4 agents)": "低（4 エージェント）",
+  "Medium (4 agents)": "中（4 エージェント）",
+  "High (16 agents)": "高（16 エージェント）",
+  "X-High (16 agents)": "最高（16 エージェント）",
+
+  // ── Settings: local computer tasks ──────────────────────────────────────
+  "Local computer tasks": "ローカルコンピュータタスク",
+  "Companions with \"Local computer tasks\" enabled (per companion, on the Companions tab) can hand real work to the Grok Build CLI running on this machine: it creates and edits files, writes code and runs shell commands — for real, with no confirmation prompts — inside the working folder below. Leave the folder empty for a dedicated workspace inside Rexclaw's data folder; point it at a project only if you want companions working in it directly. Requires the Grok Build CLI (docs.x.ai/build) installed on this machine — without it the tool simply isn't offered. Billing: if you signed into the Grok CLI, tasks bill that login; otherwise your Rexclaw API key is used.":
+    "「ローカルコンピュータタスク」を有効にしたコンパニオン（Companions タブでコンパニオンごとに設定）は、このマシンで動く Grok Build CLI に実際の作業を任せられます。ファイルの作成・編集、コードの記述、シェルコマンドの実行を、下の作業フォルダの中で確認プロンプトなしに本当に実行します。フォルダを空欄にすると Rexclaw のデータフォルダ内の専用ワークスペースが使われます。プロジェクトを直接触らせたい場合のみ、そのフォルダを指定してください。このマシンに Grok Build CLI（docs.x.ai/build）がインストールされている必要があり、なければツール自体が提供されません。課金：Grok CLI にサインインしていればそのアカウントに、していなければ Rexclaw の API キーに課金されます。",
+  "Working folder (empty = data/workspace)": "作業フォルダ（空欄 = data/workspace）",
+  "e.g. C:\\Users\\me\\rexclaw-workspace": "例: C:\\Users\\me\\rexclaw-workspace",
+  "Grok Build CLI": "Grok Build CLI",
+  "Detected: %s": "検出: %s",
+  "Not found on this machine — install it, then reopen Settings to re-check":
+    "このマシンには見つかりません — インストール後、設定を開き直すと再チェックされます",
+
+  // ── Games tab (Minecraft) ───────────────────────────────────────────────
+  "Minecraft bot": "Minecraft ボット",
+  "Companions with \"Minecraft bot\" enabled (per companion, on the Companions tab) can direct a bot that joins your Minecraft world as its own player and plays for real: mining, crafting, building, following you. You give orders by voice, and your companion reacts to what happens in the world. Each command is planned by the cheaper standard model below; for big jobs (long multi-stage tasks, elaborate builds) your companion can forward a command to the hard-task model instead, which thinks much longer before acting. The bot executes model-generated scripts in your world, so use it on your own or trusted servers only.":
+    "「Minecraft ボット」を有効にしたコンパニオン（Companions タブでコンパニオンごとに設定）は、あなたの Minecraft ワールドに独立したプレイヤーとして参加するボットに指示を出せます。採掘・クラフト・建築・追従を実際にプレイし、指示は声で出せて、ワールドで起きたことにはコンパニオンが反応します。各コマンドは下の安価な標準モデルが計画しますが、大きな仕事（長い多段タスクや凝った建築）はコンパニオンがハードタスク用モデルへ転送でき、そちらは行動前にじっくり考えます。ボットはモデルが生成したスクリプトをワールド内で実行するため、自分のワールドか信頼できるサーバーでのみ使用してください。",
+  "Setup: start your world and open it to LAN (Minecraft prints a new port every time), then run the sidecar on the same machine as the game (first time: npm install). Set --username to your companion's name so the character in the world is them, not a stranger:":
+    "セットアップ：ワールドを起動して LAN に公開し（Minecraft は毎回新しいポートを表示します）、ゲームと同じマシンでサイドカーを実行します（初回は npm install）。--username にはコンパニオンの名前を設定してください — ワールド内のキャラクターが見知らぬ誰かではなく、そのコンパニオン本人になります：",
+  "Requirements: Node 18+, and a Minecraft Java Edition world on a version mineflayer supports (currently up to 1.21.11).":
+    "必要環境：Node 18 以上、および mineflayer が対応するバージョンの Minecraft Java Edition ワールド（現在 1.21.11 まで）。",
+  "Bot brain model (empty = grok-4.20-non-reasoning)":
+    "ボットの頭脳モデル（空欄 = grok-4.20-non-reasoning）",
+  "Hard-task model for big jobs (empty = disabled)":
+    "大きな仕事用のハードタスクモデル（空欄 = 無効）",
+  "Your in-game username (the bot prioritizes you)":
+    "あなたのゲーム内ユーザー名（ボットが優先します）",
+  "e.g. Jonny": "例: Jonny",
+  "Sidecar": "サイドカー",
+  "Connected — the tool is live in new calls":
+    "接続済み — 新しい通話でツールが有効になります",
+  "Not connected — start it with node index.js in the game_integrations/minecraft folder, then reopen this tab":
+    "未接続 — game_integrations/minecraft フォルダで node index.js を実行してから、このタブを開き直してください",
+
+  // ── Voice / text / transcript extras ────────────────────────────────────
+  "Enter VR": "VR に入る",
+  "Enter VR — opens this companion in a VR-capable browser window":
+    "VR に入る — このコンパニオンを VR 対応ブラウザのウィンドウで開きます",
+  "Companion to chat with": "チャットするコンパニオン",
+  "Default": "デフォルト",
+  "\"%s\" is too large (max 48 MB).": "「%s」は大きすぎます（最大 48 MB）。",
+  "Upload failed: %s": "アップロードに失敗しました: %s",
+  "Attach files": "ファイルを添付",
+  "Remote MCP server unreachable — continuing without MCP tools.":
+    "リモート MCP サーバーに接続できません — MCP ツールなしで続行します。",
+
+  // ── Locale-aware call injections (model-facing, not shown in the UI) ────
+  "[System]: The call reconnected after a window change on the user's side. Do not greet or announce yourself — simply continue the conversation from where it left off.":
+    "[System]: ユーザー側のウィンドウ切り替え後に通話が再接続されました。挨拶や名乗りはせず、会話を中断したところからそのまま続けてください。",
+  "You are joining a live voice call already in progress. You have not heard what was said before you joined.":
+    "あなたは進行中の音声通話に途中から参加します。参加前に話された内容は聞いていません。",
+  "[System]: You have just joined the call. Briefly greet the participants in character.":
+    "[System]: いま通話に参加しました。キャラクターを保ったまま、参加者に短く挨拶してください。",
 };

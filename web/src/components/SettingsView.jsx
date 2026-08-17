@@ -121,6 +121,77 @@ export default function SettingsView({ active }) {
         <div className="rx_settings">
             <div className="rx_settings_inner">
                 <section>
+                    <h3><i className="fa fa-user" /> {_t("You")}</h3>
+                    <div className="rx_row">
+                        <div>
+                            <label>{_t("Display name (optional)")}</label>
+                            <input type="text" value={config.user_display_name || ""}
+                                   onChange={(ev) => setField("user_display_name", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label>{_t("Default companion")}</label>
+                            <select value={config.default_agent_id ?? ""}
+                                    onChange={(ev) => setField("default_agent_id", parseInt(ev.target.value, 10) || null)}>
+                                {agents.map((a) => (
+                                    <option key={a.id} value={a.id}>{a.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label>{_t("Language")}</label>
+                            <select value={i18nState.locale}
+                                    onChange={(ev) => setLocale(ev.target.value)}
+                                    title={_t("UI language — stored in this browser. Companions follow the language you speak regardless.")}>
+                                {LOCALES.map(([id, label]) => (
+                                    <option key={id} value={id}>{label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    <div className="rx_check">
+                        <input id="rx_include_name" type="checkbox"
+                               checked={!!config.include_user_name_in_prompt}
+                               onChange={(ev) => setField("include_user_name_in_prompt", ev.target.checked ? 1 : 0)} />
+                        <label htmlFor="rx_include_name">
+                            {_t("Include my name in the system prompt")}
+                        </label>
+                    </div>
+                </section>
+
+                {startInMascot !== null && (
+                    <section>
+                        <h3><i className="fa fa-desktop" /> {_t("Desktop app")}</h3>
+                        <p className="text-muted">
+                            {_t("Mascot mode is the pop-out avatar: a small transparent "
+                                + "always-on-top window with no app chrome around it. Start "
+                                + "there and Rexclaw opens as the companion on your desktop "
+                                + "rather than as an application window — the full window is "
+                                + "still one \"pop back in\" away, from the avatar's controls "
+                                + "or the tray icon. Takes effect on the next launch "
+                                + "(independent of Save settings).")}
+                        </p>
+                        <div className="rx_check">
+                            <input id="rx_start_mascot" type="checkbox"
+                                   checked={!!startInMascot}
+                                   onChange={(ev) => toggleStartInMascot(ev.target.checked)} />
+                            <label htmlFor="rx_start_mascot">
+                                {_t("Open in mascot mode")}
+                            </label>
+                        </div>
+                        <p className="text-muted">
+                            {_t("The mascot's own options — call controls, ghost mode, "
+                                + "cursor follow, emotions and more — live in its settings "
+                                + "window: the ⚙ on the avatar's controls, or \"Full mascot "
+                                + "settings\" in the tray menu.")}
+                        </p>
+                        <button className="btn btn-secondary"
+                                onClick={() => window.rexclawDesktop.openMascotSettings?.()}>
+                            <i className="fa fa-cog" /> {_t("Open mascot settings")}
+                        </button>
+                    </section>
+                )}
+
+                <section>
                     <h3><i className="fa fa-key" /> {_t("xAI connection")}</h3>
                     <label>{_t("API key")} {config.has_api_key && <span className="text-muted">({_t("saved")} {config.api_key_hint || ""})</span>}</label>
                     <input
@@ -194,41 +265,12 @@ export default function SettingsView({ active }) {
                 </section>
 
                 <section>
-                    <h3><i className="fa fa-user" /> {_t("You")}</h3>
-                    <div className="rx_row">
-                        <div>
-                            <label>{_t("Display name (optional)")}</label>
-                            <input type="text" value={config.user_display_name || ""}
-                                   onChange={(ev) => setField("user_display_name", ev.target.value)} />
-                        </div>
-                        <div>
-                            <label>{_t("Default companion")}</label>
-                            <select value={config.default_agent_id ?? ""}
-                                    onChange={(ev) => setField("default_agent_id", parseInt(ev.target.value, 10) || null)}>
-                                {agents.map((a) => (
-                                    <option key={a.id} value={a.id}>{a.name}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label>{_t("Language")}</label>
-                            <select value={i18nState.locale}
-                                    onChange={(ev) => setLocale(ev.target.value)}
-                                    title={_t("UI language — stored in this browser. Companions follow the language you speak regardless.")}>
-                                {LOCALES.map(([id, label]) => (
-                                    <option key={id} value={id}>{label}</option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-                    <div className="rx_check">
-                        <input id="rx_include_name" type="checkbox"
-                               checked={!!config.include_user_name_in_prompt}
-                               onChange={(ev) => setField("include_user_name_in_prompt", ev.target.checked ? 1 : 0)} />
-                        <label htmlFor="rx_include_name">
-                            {_t("Include my name in the system prompt (sent to xAI — off by default)")}
-                        </label>
-                    </div>
+                    <h3><i className="fa fa-keyboard-o" /> {_t("Hotkeys")}</h3>
+                    <HotkeysSettings
+                        value={hotkeys}
+                        globalEnabled={config.hotkeys_global_enabled}
+                        onChange={setHotkeys}
+                        onGlobalChange={(v) => setField("hotkeys_global_enabled", v)} />
                 </section>
 
                 <section>
@@ -442,48 +484,6 @@ export default function SettingsView({ active }) {
                         <div />
                     </div>
                 </section>
-                <section>
-                    <h3><i className="fa fa-keyboard-o" /> {_t("Hotkeys")}</h3>
-                    <HotkeysSettings
-                        value={hotkeys}
-                        globalEnabled={config.hotkeys_global_enabled}
-                        onChange={setHotkeys}
-                        onGlobalChange={(v) => setField("hotkeys_global_enabled", v)} />
-                </section>
-
-                {startInMascot !== null && (
-                    <section>
-                        <h3><i className="fa fa-desktop" /> {_t("Desktop app")}</h3>
-                        <p className="text-muted">
-                            {_t("Mascot mode is the pop-out avatar: a small transparent "
-                                + "always-on-top window with no app chrome around it. Start "
-                                + "there and Rexclaw opens as the companion on your desktop "
-                                + "rather than as an application window — the full window is "
-                                + "still one \"pop back in\" away, from the avatar's controls "
-                                + "or the tray icon. Takes effect on the next launch "
-                                + "(independent of Save settings).")}
-                        </p>
-                        <div className="rx_check">
-                            <input id="rx_start_mascot" type="checkbox"
-                                   checked={!!startInMascot}
-                                   onChange={(ev) => toggleStartInMascot(ev.target.checked)} />
-                            <label htmlFor="rx_start_mascot">
-                                {_t("Open in mascot mode")}
-                            </label>
-                        </div>
-                        <p className="text-muted">
-                            {_t("The mascot's own options — call controls, ghost mode, "
-                                + "cursor follow, emotions and more — live in its settings "
-                                + "window: the ⚙ on the avatar's controls, or \"Full mascot "
-                                + "settings\" in the tray menu.")}
-                        </p>
-                        <button className="btn btn-secondary"
-                                onClick={() => window.rexclawDesktop.openMascotSettings?.()}>
-                            <i className="fa fa-cog" /> {_t("Open mascot settings")}
-                        </button>
-                    </section>
-                )}
-
                 {headset && !headset.external && (
                     <section>
                         <h3><i className="fa fa-wifi" /> {_t("VR headset & other devices (HTTPS)")}</h3>
