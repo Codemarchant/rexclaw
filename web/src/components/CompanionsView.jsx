@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
+import { useUnsavedGuard } from "../lib/unsaved_guard";
+import { EditorBar } from "./UnsavedUI.jsx";
 
 /** Companions tab — create, edit and delete companions with room to breathe.
  *  Global app settings live on the Settings tab; avatar packs on Avatars. */
@@ -168,8 +170,7 @@ export default function CompanionsView({ active }) {
 
     const duplicateAgent = async (a) => {
         try {
-            const r = await rpc("/api/agents/duplicate", { id: a.id });
-            notification.add(_t("%s created.", r.name), { type: "info" });
+            await rpc("/api/agents/duplicate", { id: a.id });
             load();
         } catch (e) {
             notification.add(e?.message || _t("Duplicate failed"), { type: "danger" });
@@ -186,7 +187,6 @@ export default function CompanionsView({ active }) {
         setDeletingId(a.id);
         try {
             await rpc("/api/agents/delete", { id: a.id });
-            notification.add(_t("%s deleted.", a.name), { type: "info" });
             if (editingAgent?.id === a.id) setEditingAgent(null);
             await load();
         } catch (e) {
@@ -270,19 +270,32 @@ export default function CompanionsView({ active }) {
     };
 
     const saveAgent = async () => {
-        if (!editingAgent) return;
+        if (!editingAgent) return false;
         setSaving(true);
         try {
             await rpc("/api/agents/save", editingAgent);
-            notification.add(_t("%s saved.", editingAgent.name), { type: "info" });
             setEditingAgent(null);
             load();
+            return true;
         } catch (e) {
             notification.add(e?.message || "Save failed", { type: "danger" });
+            return false;
         } finally {
             setSaving(false);
         }
     };
+
+    // Unsaved-changes guard for the open companion editor: diff the draft
+    // against the snapshot captured when it opened, so switching tabs mid-edit
+    // prompts to Save / Discard rather than silently dropping the edits.
+    const editBaseline = useRef(null);
+    useEffect(() => {
+        if (editingAgent && editBaseline.current === null) editBaseline.current = JSON.stringify(editingAgent);
+        else if (!editingAgent) editBaseline.current = null;
+    }, [editingAgent]);
+    const agentDirty = !!editingAgent && editBaseline.current !== null
+        && JSON.stringify(editingAgent) !== editBaseline.current;
+    useUnsavedGuard(active, agentDirty, saveAgent, () => setEditingAgent(null));
 
     const q = query.trim().toLowerCase();
     const visibleAgents = q ? agents.filter((a) => (a.name || "").toLowerCase().includes(q)) : agents;
@@ -296,6 +309,7 @@ export default function CompanionsView({ active }) {
                 <div className="rx_settings_inner rx_settings_inner--wide">
                     <AgentEditorFields editingAgent={editingAgent} setEditingAgent={setEditingAgent}
                                        avatars={avatars} saving={saving} saveAgent={saveAgent}
+                                       dirty={agentDirty}
                                        cancel={() => setEditingAgent(null)} />
                 </div>
             </div>
@@ -382,7 +396,7 @@ export default function CompanionsView({ active }) {
 
 /** Shared form body for both "edit companion" and "new companion". Controlled
  *  entirely by the parent's editingAgent state. */
-function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, saveAgent, cancel }) {
+function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, saveAgent, dirty, cancel }) {
     const idScope = editingAgent.id ?? "new";
     return (
         <>
@@ -598,12 +612,13 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                     </>
                 )}
             </section>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button className="btn btn-primary btn-sm" disabled={saving} onClick={saveAgent}>
-                    {_t("Save")}
-                </button>
-                <button className="btn btn-sm" onClick={cancel}>{_t("Cancel")}</button>
-            </div>
+            <EditorBar
+                dirty={dirty}
+                saving={saving}
+                onSave={saveAgent}
+                onCancel={cancel}
+                saveDisabled={!editingAgent.name?.trim()}
+                pinned />
         </>
     );
 }

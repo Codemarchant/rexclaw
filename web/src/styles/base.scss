@@ -168,7 +168,10 @@ body {
     overflow: auto;
     background: #f1f5f9;
     color: #111827;
-    padding: 1.5rem;
+    // No bottom padding: a pinned .rx_savebar sits flush against the bottom
+    // edge. Content still gets breathing room above it via the bar's own
+    // margin and section spacing.
+    padding: 1.5rem 1.5rem 0;
 
     .rx_settings_inner {
         max-width: 880px;
@@ -176,6 +179,9 @@ body {
         display: flex;
         flex-direction: column;
         gap: 1.25rem;
+        // Fill the scroll panel so a pinned .rx_savebar can seat itself at the
+        // very bottom (via margin-top:auto) even when the content is short.
+        min-height: 100%;
     }
 
     // Companions / Avatars tabs — full pages of their own, so give the
@@ -376,12 +382,6 @@ body {
         padding: 0.85rem 1rem;
         margin-bottom: 0.75rem;
         background: #f8fafc;
-    }
-
-    .rx_mem_editor_actions {
-        display: flex;
-        gap: 0.6rem;
-        margin-top: 0.7rem;
     }
 
     .rx_mem_transcript {
@@ -652,4 +652,100 @@ body {
     overflow-y: auto;
     margin: 0.35rem 0 0.85rem;
     padding: 0.5rem;
+}
+
+// ---- Unsaved-changes guard: sticky save bar + leave prompt ----
+.rx_dirty_dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: #f59e0b;
+    flex: 0 0 auto;
+}
+
+// One shared save/action bar — used by the settings-panel guard (UnsavedBar)
+// and the record editors (EditorBar) so every editing surface reads the same.
+// Neutral chrome; a restrained amber accent (top border + dot) marks "dirty"
+// rather than a full yellow fill.
+.rx_savebar {
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.75rem;
+    padding: 0.7rem 1rem;
+    background: #ffffff;
+    border-top: 1px solid #e2e8f0;
+    box-shadow: 0 -6px 18px rgba(15, 23, 42, 0.06);
+
+    // Pinned to the bottom of the scrolling panel: margin-top:auto seats it at
+    // the bottom when content is short (paired with .rx_settings_inner
+    // min-height:100%), and sticky keeps it in view while scrolling a long one.
+    &.is-pinned {
+        position: sticky;
+        bottom: 0;
+        margin-top: auto;
+    }
+
+    &.is-dirty {
+        border-top-color: #f59e0b;
+    }
+
+    // Buttons always grouped together on the right (message, if any, sits left).
+    .rx_savebar_actions {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        flex: 0 0 auto;
+        margin-left: auto;
+    }
+    .rx_savebar_msg {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        color: #b45309;
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+}
+
+.rx_tab_dirty {
+    display: inline-block;
+    width: 0.45rem;
+    height: 0.45rem;
+    margin-left: 0.35rem;
+    border-radius: 50%;
+    background: #f59e0b;
+    vertical-align: middle;
+}
+
+.rx_dialog_backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(15, 23, 42, 0.55);
+}
+.rx_dialog {
+    width: 100%;
+    max-width: 26rem;
+    background: #ffffff;
+    color: #111827;
+    border-radius: 0.75rem;
+    padding: 1.25rem 1.35rem;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+
+    h4 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+    p { margin: 0 0 1.1rem; color: #475569; font-size: 0.9rem; line-height: 1.45; }
+
+    .rx_dialog_actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
 }

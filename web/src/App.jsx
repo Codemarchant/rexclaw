@@ -11,6 +11,8 @@ import MascotView from "./components/MascotView.jsx";
 import MascotSettingsView from "./components/MascotSettingsView.jsx";
 import TranscriptWindowView from "./components/TranscriptWindowView.jsx";
 import Toasts from "./components/Toasts.jsx";
+import { UnsavedDialog } from "./components/UnsavedUI.jsx";
+import { unsavedGuard, getUnsavedHandlers, clearUnsaved } from "./lib/unsaved_guard";
 import { uiState, toggleImmersive, MASCOT_MODE, MASCOT_SETTINGS_MODE, TRANSCRIPT_MODE } from "./lib/ui_state";
 import { startHotkeys } from "./lib/hotkeys";
 import { wakeWord } from "./lib/wake_word";
@@ -31,7 +33,48 @@ const TABS = [
 
 export default function App() {
     const [tab, setTab] = useState("voice");
+    // Odoo-style unsaved-changes guard. `pendingTab` holds the tab we're
+    // trying to reach while the leave prompt is open.
+    const [pendingTab, setPendingTab] = useState(null);
+    const [leaveSaving, setLeaveSaving] = useState(false);
+    const guard = useReactive(unsavedGuard);
     const ui = useReactive(uiState);
+
+    // Guarded navigation: switch immediately when clean, otherwise open the
+    // Save / Discard / Cancel prompt and defer the switch to its resolution.
+    const requestTab = (next) => {
+        if (!next || next === tab) return;
+        if (unsavedGuard.dirty) setPendingTab(next);
+        else setTab(next);
+    };
+
+    const resolveLeave = async (action) => {
+        if (action === "cancel") { setPendingTab(null); return; }
+        const handlers = getUnsavedHandlers();
+        if (action === "save") {
+            setLeaveSaving(true);
+            let ok = false;
+            try { ok = await handlers.save?.(); } catch (e) { ok = false; }
+            setLeaveSaving(false);
+            if (ok === false) return;   // save failed — keep the prompt, stay put
+        } else if (action === "discard") {
+            try { await handlers.discard?.(); } catch (e) { /* revert best-effort */ }
+        }
+        clearUnsaved();
+        const next = pendingTab;
+        setPendingTab(null);
+        if (next) setTab(next);
+    };
+
+    // Browser / Electron window close: the native prompt is the only guard
+    // available here (no custom Save/Discard on unload).
+    useEffect(() => {
+        const onBeforeUnload = (e) => {
+            if (unsavedGuard.dirty) { e.preventDefault(); e.returnValue = ""; }
+        };
+        window.addEventListener("beforeunload", onBeforeUnload);
+        return () => window.removeEventListener("beforeunload", onBeforeUnload);
+    }, []);
     // Subscribing App to the locale makes a language switch re-render the
     // whole mounted tree in place — children aren't memoized, and nothing
     // remounts, so a live voice session survives the flip.
@@ -39,9 +82,10 @@ export default function App() {
     // Tab handoff from the Sessions tab (Resume buttons set requestedTab).
     useEffect(() => {
         if (ui.requestedTab) {
-            setTab(ui.requestedTab);
+            requestTab(ui.requestedTab);
             uiState.requestedTab = null;
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ui.requestedTab]);
     // Any call-capable page (main view or mascot) mirrors its transcript to
     // /#transcript windows; mirror windows themselves stay passive — and so
@@ -98,10 +142,13 @@ export default function App() {
                     <button
                         key={t.id}
                         className={"rx_tab" + (tab === t.id ? " is-active" : "")}
-                        onClick={() => setTab(t.id)}
+                        onClick={() => requestTab(t.id)}
                         title={_t(t.label)}
                     >
                         <i className={"fa " + t.icon} /> <span className="rx_label">{_t(t.label)}</span>
+                        {tab === t.id && guard.dirty && (
+                            <span className="rx_tab_dirty" title={_t("Unsaved changes")} />
+                        )}
                     </button>
                 ))}
                 {tab === "voice" && (
@@ -137,6 +184,12 @@ export default function App() {
                     <SettingsView active={tab === "settings"} />
                 </div>
             </main>
+            <UnsavedDialog
+                open={!!pendingTab}
+                saving={leaveSaving}
+                onSave={() => resolveLeave("save")}
+                onDiscard={() => resolveLeave("discard")}
+                onCancel={() => resolveLeave("cancel")} />
             <Toasts />
         </div>
     );

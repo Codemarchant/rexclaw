@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
+import { useUnsavedGuard } from "../lib/unsaved_guard";
+import { EditorBar } from "./UnsavedUI.jsx";
 
 /** Avatar manager — create/edit/delete avatar packs from the desktop UI.
  *  Round-trips through the manifest: uploads land in the pack folder, Save
@@ -110,29 +112,44 @@ export default function AvatarManager({ onChange, active = true }) {
     const save = async () => {
         if (!editing.manifest.name?.trim()) {
             notification.add(_t("Give the avatar a name."), { type: "warning" });
-            return;
+            return false;
         }
         if (!editing.manifest.vrm) {
             notification.add(_t("Upload a main VRM file."), { type: "warning" });
-            return;
+            return false;
         }
         setBusy(true);
         try {
-            const r = await rpc("/api/avatars/save", {
+            await rpc("/api/avatars/save", {
                 pack_key: editing.pack_key,
                 manifest: editing.manifest,
                 is_new: editing.isNew,
             });
-            notification.add(_t("%s saved to data/avatars/%s/", editing.manifest.name, r.pack_key), { type: "info" });
             setEditing(null);
             load();
             onChange?.();
+            return true;
         } catch (e) {
             notification.add(e?.message || _t("Save failed"), { type: "danger" });
+            return false;
         } finally {
             setBusy(false);
         }
     };
+
+    // Unsaved-changes guard for the open avatar editor: dirty when the draft
+    // manifest differs from the snapshot captured on open, or it's a brand-new
+    // (never-saved) pack — so leaving the tab prompts Save / Discard (Discard
+    // runs cancelEdit, which cleans up an orphan folder) instead of silently
+    // stranding the edit.
+    const editBaseline = useRef(null);
+    useEffect(() => {
+        if (editing && editBaseline.current === null) editBaseline.current = JSON.stringify(editing.manifest);
+        else if (!editing) editBaseline.current = null;
+    }, [editing]);
+    const editDirty = !!editing && (editing.isNew
+        || (editBaseline.current !== null && JSON.stringify(editing.manifest) !== editBaseline.current));
+    useUnsavedGuard(active, editDirty, save, cancelEdit);
 
     // The name chosen here also names the pack folder (folders only follow
     // the display name at creation), so ask up front instead of hardcoding
@@ -148,8 +165,7 @@ export default function AvatarManager({ onChange, active = true }) {
         const name = dupName.trim();
         if (!name) return;
         try {
-            const r = await rpc("/api/avatars/duplicate", { pack_key: a.pack_key, name });
-            notification.add(_t("%s saved to data/avatars/%s/", r.name, r.pack_key), { type: "info" });
+            await rpc("/api/avatars/duplicate", { pack_key: a.pack_key, name });
             setDupFor(null);
             load();
             onChange?.();
@@ -221,7 +237,6 @@ export default function AvatarManager({ onChange, active = true }) {
         if (!window.confirm(_t("Delete avatar %s? Companions using it lose their avatar. This removes the pack folder and its files.", a.name))) return;
         try {
             await rpc("/api/avatars/delete", { pack_key: a.pack_key });
-            notification.add(_t("%s deleted.", a.name), { type: "info" });
             load();
             onChange?.();
         } catch (e) {
@@ -232,7 +247,7 @@ export default function AvatarManager({ onChange, active = true }) {
     if (editing) {
         return (
             <AvatarEditor editing={editing} setEditing={setEditing}
-                          busy={busy} save={save} cancel={cancelEdit} />
+                          busy={busy} save={save} cancel={cancelEdit} dirty={editDirty} />
         );
     }
 
@@ -386,7 +401,7 @@ function FileField({ label, kind, packKey, value, accept, onUploaded, library })
     );
 }
 
-function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
+function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     const { pack_key, manifest } = editing;
     const setM = (patch) => setEditing({ ...editing, manifest: { ...manifest, ...patch } });
 
@@ -645,10 +660,14 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel }) {
                 ))}
             </Section>
 
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{_t("Save avatar")}</button>
-                <button className="btn btn-sm" onClick={cancel}>{_t("Cancel")}</button>
-            </div>
+            <EditorBar
+                dirty={dirty}
+                saving={busy}
+                onSave={save}
+                onCancel={cancel}
+                saveLabel={_t("Save avatar")}
+                saveDisabled={!editing.manifest.name?.trim() || !editing.manifest.vrm}
+                pinned />
         </>
     );
 }

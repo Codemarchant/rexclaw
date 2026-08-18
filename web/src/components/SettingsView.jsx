@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t, i18nState, setLocale, LOCALES } from "../lib/i18n";
 import { applyHotkeys } from "../lib/hotkeys";
 import { wakeWord, wakeState } from "../lib/wake_word";
 import { useReactive } from "../lib/reactive";
+import { useUnsavedGuard } from "../lib/unsaved_guard";
+import { UnsavedBar } from "./UnsavedUI.jsx";
 import HotkeysSettings from "./HotkeysSettings.jsx";
 
 // Languages the server can fetch a Vosk wake-word model for (keep in sync
@@ -28,6 +30,11 @@ export default function SettingsView({ active }) {
     // Hotkey overrides, parsed out of config.hotkeys_json for editing and
     // serialised back on save.
     const [hotkeys, setHotkeys] = useState({});
+    // Unsaved-changes tracking for the leave guard. The ref mirrors `dirty`
+    // so the load effect can read it without re-subscribing.
+    const [dirty, setDirty] = useState(false);
+    const dirtyRef = useRef(false);
+    const markDirty = (v) => { dirtyRef.current = v; setDirty(v); };
 
     const load = async () => {
         try {
@@ -43,13 +50,16 @@ export default function SettingsView({ active }) {
                 if (raw && typeof raw === "object") parsed = raw;
             } catch (e) { /* corrupt blob — fall back to the defaults */ }
             setHotkeys(parsed);
+            markDirty(false);   // freshly loaded = pristine
         } catch (e) {
             notification.add(e?.message || _t("Could not load settings"), { type: "danger" });
         }
     };
 
     useEffect(() => {
-        if (active) load();
+        // Never re-fetch over unsaved edits (belt-and-braces — the leave
+        // guard already blocks navigating away while dirty).
+        if (active && !dirtyRef.current) load();
         // Desktop shell only: current headset-access + startup-mode state from
         // the Electron bridge (null in plain browsers → sections stay hidden).
         if (active) {
@@ -81,11 +91,8 @@ export default function SettingsView({ active }) {
         if (res?.error) notification.add(res.error, { type: "warning" });
     };
 
-    if (!config) {
-        return <div className="rx_settings"><div className="rx_settings_inner">{_t("Loading…")}</div></div>;
-    }
-
-    const setField = (key, value) => setConfig((c) => ({ ...c, [key]: value }));
+    const setField = (key, value) => { markDirty(true); setConfig((c) => ({ ...c, [key]: value })); };
+    const changeHotkeys = (next) => { markDirty(true); setHotkeys(next); };
 
     const saveConfig = async () => {
         setSaving(true);
@@ -108,14 +115,27 @@ export default function SettingsView({ active }) {
             // Standby listening reconciles against the saved config (arms,
             // disarms, or starts the model download as needed).
             wakeWord.refresh();
-            notification.add(_t("Settings saved."), { type: "info" });
+            markDirty(false);
             load();
+            return true;
         } catch (e) {
             notification.add(e?.message || _t("Save failed"), { type: "danger" });
+            return false;
         } finally {
             setSaving(false);
         }
     };
+
+    // Discarding the draft = re-fetch the saved config.
+    const discard = () => load();
+
+    // Publish unsaved state to the app-level leave guard while this is the
+    // active tab. Must run before the early return so hook order stays stable.
+    useUnsavedGuard(active, dirty, saveConfig, discard);
+
+    if (!config) {
+        return <div className="rx_settings"><div className="rx_settings_inner">{_t("Loading…")}</div></div>;
+    }
 
     return (
         <div className="rx_settings">
@@ -198,7 +218,7 @@ export default function SettingsView({ active }) {
                         type="password"
                         placeholder={config.has_api_key ? _t("•••••••• (leave blank to keep current key)") : "xai-…"}
                         value={apiKeyDraft}
-                        onChange={(ev) => setApiKeyDraft(ev.target.value)}
+                        onChange={(ev) => { markDirty(true); setApiKeyDraft(ev.target.value); }}
                     />
                     <div className="rx_row">
                         <div>
@@ -269,7 +289,7 @@ export default function SettingsView({ active }) {
                     <HotkeysSettings
                         value={hotkeys}
                         globalEnabled={config.hotkeys_global_enabled}
-                        onChange={setHotkeys}
+                        onChange={changeHotkeys}
                         onGlobalChange={(v) => setField("hotkeys_global_enabled", v)} />
                 </section>
 
@@ -522,11 +542,8 @@ export default function SettingsView({ active }) {
                     </section>
                 )}
 
-                <section>
-                    <button className="btn btn-primary" disabled={saving} onClick={saveConfig}>
-                        <i className="fa fa-save" /> {_t("Save settings")}
-                    </button>
-                </section>
+                <UnsavedBar dirty={dirty} saving={saving}
+                            onSave={saveConfig} onDiscard={discard} />
             </div>
         </div>
     );

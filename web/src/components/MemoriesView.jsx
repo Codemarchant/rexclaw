@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
+import { useUnsavedGuard } from "../lib/unsaved_guard";
+import { EditorBar } from "./UnsavedUI.jsx";
 
 /** Dedicated Memories tab — the durable facts and conversation episodes the
  *  companions have stored across sessions. Lives on its own tab (not buried in
@@ -79,12 +81,25 @@ export default function MemoriesView({ active }) {
             await rpc("/api/memories/save", payload);
             setEditing(null);
             await load();
+            return true;
         } catch (e) {
             notification.add(e?.message || _t("Save failed"), { type: "danger" });
+            return false;
         } finally {
             setSaving(false);
         }
     };
+
+    // Unsaved-changes guard for the open editor: diff the draft against the
+    // snapshot captured when it opened, so switching tabs mid-edit prompts.
+    const editBaseline = useRef(null);
+    useEffect(() => {
+        if (editing && editBaseline.current === null) editBaseline.current = JSON.stringify(editing);
+        else if (!editing) editBaseline.current = null;
+    }, [editing]);
+    const editDirty = !!editing && editBaseline.current !== null
+        && JSON.stringify(editing) !== editBaseline.current;
+    useUnsavedGuard(active, editDirty, saveEditing, () => setEditing(null));
 
     // Portable memories file (versioned JSON, shared with the Odoo module) —
     // the server owns the format; here we just move it in and out of a file.
@@ -304,18 +319,13 @@ export default function MemoriesView({ active }) {
                                     />
                                 </div>
                             </div>
-                            <div className="rx_mem_editor_actions">
-                                <button
-                                    className="btn btn-primary btn-sm"
-                                    disabled={saving || !editing.content.trim()}
-                                    onClick={saveEditing}
-                                >
-                                    {editing.id ? _t("Save") : _t("Add memory")}
-                                </button>
-                                <button className="btn btn-sm btn-link" disabled={saving} onClick={() => setEditing(null)}>
-                                    {_t("Cancel")}
-                                </button>
-                            </div>
+                            <EditorBar
+                                dirty={editDirty}
+                                saving={saving}
+                                onSave={saveEditing}
+                                onCancel={() => setEditing(null)}
+                                saveLabel={editing.id ? _t("Save") : _t("Add memory")}
+                                saveDisabled={!editing.content.trim()} />
                         </div>
                     )}
 

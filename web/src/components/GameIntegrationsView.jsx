@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
+import { useUnsavedGuard } from "../lib/unsaved_guard";
+import { UnsavedBar } from "./UnsavedUI.jsx";
 
 /** Game integrations: game sidecars a companion can inhabit as a real
  *  player. Minecraft is the first; the tab gives each integration its own
@@ -11,20 +13,24 @@ import { _t } from "../lib/i18n";
 export default function GameIntegrationsView({ active }) {
     const [config, setConfig] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [dirty, setDirty] = useState(false);
+    const dirtyRef = useRef(false);
+    const markDirty = (v) => { dirtyRef.current = v; setDirty(v); };
 
     const load = async () => {
         try {
             setConfig(await rpc("/api/config/get", {}));
+            markDirty(false);
         } catch (e) {
             notification.add(e?.message || _t("Could not load settings"), { type: "danger" });
         }
     };
     useEffect(() => {
-        if (active) load();
+        if (active && !dirtyRef.current) load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
 
-    const setField = (key, value) => setConfig((c) => ({ ...c, [key]: value }));
+    const setField = (key, value) => { markDirty(true); setConfig((c) => ({ ...c, [key]: value })); };
 
     const save = async () => {
         setSaving(true);
@@ -34,14 +40,19 @@ export default function GameIntegrationsView({ active }) {
                 minecraft_brain_model_hard: config.minecraft_brain_model_hard || "",
                 minecraft_master: config.minecraft_master || "",
             });
-            notification.add(_t("Settings saved."), { type: "info" });
+            markDirty(false);
             load();
+            return true;
         } catch (e) {
             notification.add(e?.message || _t("Save failed"), { type: "danger" });
+            return false;
         } finally {
             setSaving(false);
         }
     };
+
+    const discard = () => load();
+    useUnsavedGuard(active, dirty, save, discard);
 
     if (!config) {
         return <div className="rx_settings"><div className="rx_settings_inner">{_t("Loading…")}</div></div>;
@@ -116,11 +127,8 @@ export default function GameIntegrationsView({ active }) {
                     </div>
                 </section>
 
-                <section>
-                    <button className="btn btn-primary" disabled={saving} onClick={save}>
-                        <i className="fa fa-save" /> {_t("Save settings")}
-                    </button>
-                </section>
+                <UnsavedBar dirty={dirty} saving={saving}
+                            onSave={save} onDiscard={discard} />
             </div>
         </div>
     );
