@@ -218,7 +218,10 @@ body {
         &:focus { outline: 2px solid #93c5fd; border-color: #60a5fa; }
     }
 
-    textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    // Textareas use the UI font like every other field (browsers default
+    // them to monospace, so 'inherit' must be explicit). Anything that
+    // genuinely wants monospace (code, key caps) opts in on its own class.
+    textarea { font-family: inherit; }
 
     .rx_row {
         display: flex;
