@@ -38,6 +38,12 @@ jobs:
       - name: Build embedded Python runtime
         run: powershell -ExecutionPolicy Bypass -File desktop/build-runtime.ps1
 
+      # Bundle the default wake-word model so voice activation works offline
+      # out of the box (assets/ ships inside the package via electron-builder).
+      # Other languages still download on demand at runtime.
+      - name: Bundle wake-word model (en)
+        run: python scripts/fetch_wake_model.py en
+
       - name: Package desktop app
         run: |
           cd desktop

@@ -39,6 +39,11 @@ RUN pip install --no-cache-dir . && pip uninstall -y -q rexclaw
 COPY assets/ assets/
 COPY --from=web /build/dist web/dist
 
+# Bake the default wake-word model so voice activation works without a
+# post-install download (source checkouts keep the runtime download path).
+COPY scripts/fetch_wake_model.py scripts/
+RUN python scripts/fetch_wake_model.py en && rm -rf scripts
+
 ENV REXCLAW_DATA_DIR=/data \
     REXCLAW_HOST=0.0.0.0 \
     REXCLAW_PORT=8990
