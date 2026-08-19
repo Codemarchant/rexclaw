@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
+import { confirmAsk } from "../lib/confirm";
+import Pager, { usePager } from "./Pager.jsx";
 import { uiState } from "../lib/ui_state";
 import Transcript from "./Transcript.jsx";
 
@@ -57,7 +59,7 @@ export default function SessionsView({ active }) {
         const msg = hasPeers
             ? _t("Delete session \"%s\"? Its messages are removed permanently. The linked group-call sessions of other companions are kept (they become top-level).", s.name)
             : _t("Delete session \"%s\"? Its messages are removed permanently.", s.name);
-        if (!window.confirm(msg)) return;
+        if (!(await confirmAsk(msg))) return;
         try {
             await rpc("/api/sessions/delete", { id: s.id });
             load();
@@ -125,6 +127,8 @@ export default function SessionsView({ active }) {
         }
     }
 
+    const pager = usePager(rows.length);
+
     const voiceCount = sessions.filter((s) => s.mode === "voice").length;
     const textCount = sessions.length - voiceCount;
 
@@ -181,7 +185,8 @@ export default function SessionsView({ active }) {
                         <p className="text-muted small">{_t("No sessions match your filters.")}</p>
                     )}
 
-                    {rows.map(({ session: s, child }) => {
+                    <Pager pager={pager} />
+                    {pager.slice(rows).map(({ session: s, child }) => {
                         const isOpen = expanded.has(s.id);
                         const t = transcripts[s.id];
                         const hasPeers = (childrenOf.get(s.id) || []).length > 0;

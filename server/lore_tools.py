@@ -116,15 +116,24 @@ def save_entry(con, vals):
     characters = json.dumps(normalize_characters(vals.get("characters")))
     tags = json.dumps(normalize_tags(vals.get("tags")))
     sequence = vals.get("sequence")
-    sequence = int(sequence) if isinstance(sequence, (int, float)) else 10
     entry_id = vals.get("id")
     if entry_id:
+        if isinstance(sequence, (int, float)):
+            con.execute("UPDATE lore_entries SET sequence = ? WHERE id = ?",
+                        (int(sequence), entry_id))
         con.execute(
             "UPDATE lore_entries SET title = ?, description = ?,"
-            " characters = ?, tags = ?, story = ?, sequence = ? WHERE id = ?",
+            " characters = ?, tags = ?, story = ? WHERE id = ?",
             (title[:TITLE_MAX_LEN], description[:DESCRIPTION_MAX_LEN],
-             characters, tags, story[:STORY_MAX_LEN], sequence, entry_id))
+             characters, tags, story[:STORY_MAX_LEN], entry_id))
         return entry_id
+    if isinstance(sequence, (int, float)):
+        sequence = int(sequence)
+    else:
+        # New stories land at the top of the archive (Odoo-style newest
+        # first) unless the caller places them explicitly.
+        row = con.execute("SELECT MIN(sequence) AS s FROM lore_entries").fetchone()
+        sequence = (row["s"] - 10) if row and row["s"] is not None else 10
     cur = con.execute(
         "INSERT INTO lore_entries (title, description, characters, tags,"
         " story, sequence) VALUES (?, ?, ?, ?, ?, ?)",

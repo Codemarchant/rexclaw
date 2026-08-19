@@ -16,7 +16,8 @@ from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
 from .. import local_tools, lore_tools, memory_tools, minecraft_tools, transfer
-from ..db import FILES_DIR, utcnow
+from ..db import ASSETS_DIR, FILES_DIR, utcnow
+from ..wake_models import WAKE_MODELS
 from ..errors import UserError
 from .common import db_con
 
@@ -245,6 +246,34 @@ def lore_save(payload: dict = Body(default={}), con=Depends(db_con)):
         raise UserError(str(exc))
     con.commit()
     return {"ok": True, "id": entry_id}
+
+
+@router.post("/lore/export")
+def lore_export(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Lore stories as a shareable JSON file. Optional 'character' narrows
+    the export to stories tagged with that name."""
+    entries = lore_tools.list_entries(con, payload.get("character"))
+    return {
+        "format": transfer.LORE_FILE_FORMAT,
+        "version": transfer.LORE_FILE_VERSION,
+        "exported_at": utcnow(),
+        "stories": [
+            {k: e[k] for k in ("title", "description", "characters", "tags",
+                               "story", "sequence")}
+            for e in entries
+        ],
+    }
+
+
+@router.post("/lore/import")
+def lore_import(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Import a lore JSON file (see lore_export). Stories are deduped by
+    title (case-insensitive); character tags stay plain names, so stories
+    naming companions that don't exist here import fine."""
+    stories = transfer.check_lore_file(payload)
+    imported, duplicates = transfer.import_lore_entries(con, stories)
+    con.commit()
+    return {"ok": True, "imported": imported, "duplicates": duplicates}
 
 
 @router.post("/lore/delete")
@@ -652,16 +681,6 @@ def imagine_list(payload: dict = Body(default={}), con=Depends(db_con)):
 # same-origin under /files/wake_models/. Download runs in a background thread;
 # the UI polls /wake/model/status.
 
-WAKE_MODELS = {
-    "en": "vosk-model-small-en-us-0.15",
-    "ja": "vosk-model-small-ja-0.22",
-    "de": "vosk-model-small-de-0.15",
-    "fr": "vosk-model-small-fr-0.22",
-    "es": "vosk-model-small-es-0.42",
-    "zh": "vosk-model-small-cn-0.22",
-    "ru": "vosk-model-small-ru-0.22",
-    "pt": "vosk-model-small-pt-0.3",
-}
 _WAKE_MODELS_DIR = FILES_DIR / "wake_models"
 # lang → {"state": "downloading"|"error", "progress": float, "error": str}
 _wake_jobs = {}
@@ -670,6 +689,24 @@ _wake_lock = threading.Lock()
 
 def _wake_model_path(lang):
     return _WAKE_MODELS_DIR / f"{lang}.tar.gz"
+
+
+def _wake_model_file(lang):
+    """(path, url) of the ready model, or (None, None).
+
+    Two sources: the runtime-downloaded copy in the user's data dir, and the
+    copy release packages bundle under assets/wake_models (fetched at build
+    time by scripts/fetch_wake_model.py into the desktop zip and Docker
+    image, so those installs work offline out of the box). Source checkouts
+    ship no bundled models - they use the download path as before. The user
+    copy wins so a re-download can supersede a stale bundled model."""
+    user = _wake_model_path(lang)
+    if user.is_file():
+        return user, f"/files/wake_models/{lang}.tar.gz"
+    bundled = ASSETS_DIR / "wake_models" / f"{lang}.tar.gz"
+    if bundled.is_file():
+        return bundled, f"/assets/wake_models/{lang}.tar.gz"
+    return None, None
 
 
 def _wake_download(lang, model_name):
@@ -718,16 +755,16 @@ def _wake_download(lang, model_name):
 
 
 def _wake_status(lang):
-    path = _wake_model_path(lang)
+    path, url = _wake_model_file(lang)
     with _wake_lock:
         job = dict(_wake_jobs.get(lang) or {})
     if job.get("state") == "downloading":
         return {"lang": lang, "ready": False, "downloading": True,
                 "progress": round(job.get("progress") or 0, 3), "error": None}
-    out = {"lang": lang, "ready": path.is_file(), "downloading": False,
-           "progress": 1.0 if path.is_file() else 0, "error": job.get("error") or None}
-    if out["ready"]:
-        out["url"] = f"/files/wake_models/{lang}.tar.gz"
+    out = {"lang": lang, "ready": path is not None, "downloading": False,
+           "progress": 1.0 if path else 0, "error": job.get("error") or None}
+    if path:
+        out["url"] = url
         out["size_bytes"] = path.stat().st_size
     return out
 
@@ -748,7 +785,7 @@ def wake_model_prepare(payload: dict = Body(default={})):
     model_name = WAKE_MODELS.get(lang)
     if not model_name:
         raise UserError(f"Unknown wake-word language '{lang}'.")
-    if _wake_model_path(lang).is_file():
+    if _wake_model_file(lang)[0] is not None:
         return _wake_status(lang)
     with _wake_lock:
         job = _wake_jobs.get(lang)

@@ -1747,6 +1747,10 @@ def start_text_session(con, *, agent, resume_session=None):
                 'tool_name': m['tool_name'],
                 'tool_arguments_json': m['tool_arguments_json'],
                 'tool_result_json': m['tool_result_json'],
+                # The transcript renderer pairs tool_call/tool_result rows
+                # by call id; without it, interleaved (parallel) tool rows
+                # from the row's original surface render as split entries.
+                'xai_call_id': m['xai_call_id'],
                 'is_summary_rollup': bool(m['is_summary_rollup']),
                 'attachments': attachments,
             })

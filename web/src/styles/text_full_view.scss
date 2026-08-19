@@ -305,6 +305,13 @@
             min-height: 2.4rem;
             max-height: 10rem;
             font-size: 0.9rem;
+            // Chat prose, not code: undo the global monospace-textarea rule
+            // (base.scss targets prompt/config editors) — same override the
+            // voice composer carries.
+            font-family: inherit;
+            line-height: 1.4;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
         }
     }
 

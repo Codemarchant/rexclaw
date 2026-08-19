@@ -549,6 +549,19 @@ def export_companion_zip(con, agent_id, out_path, *,
     return agent["name"]
 
 
+def check_lore_file(payload):
+    """Format/version gate for a lore file (standalone or inside a
+    companion package)."""
+    if payload.get("format") != LORE_FILE_FORMAT:
+        raise UserError("Not a rexclaw lore file.")
+    if payload.get("version") != LORE_FILE_VERSION:
+        raise UserError("Unsupported lore file version.")
+    stories = payload.get("stories")
+    if not isinstance(stories, list):
+        raise UserError("Invalid lore file: 'stories' must be a list.")
+    return stories
+
+
 def import_lore_entries(con, stories):
     """Insert lore stories from a companion package. Dedupe by title
     (case-insensitive): an install importing two companions that share a

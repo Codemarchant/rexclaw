@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from "react";
 import VoiceView from "./components/VoiceView.jsx";
 import TextView from "./components/TextView.jsx";
-import MemoriesView from "./components/MemoriesView.jsx";
-import SessionsView from "./components/SessionsView.jsx";
+import HistoryView from "./components/HistoryView.jsx";
 import CompanionsView from "./components/CompanionsView.jsx";
 import AvatarsView from "./components/AvatarsView.jsx";
 import GameIntegrationsView from "./components/GameIntegrationsView.jsx";
@@ -11,6 +10,7 @@ import MascotView from "./components/MascotView.jsx";
 import MascotSettingsView from "./components/MascotSettingsView.jsx";
 import TranscriptWindowView from "./components/TranscriptWindowView.jsx";
 import Toasts from "./components/Toasts.jsx";
+import ConfirmDialog from "./components/ConfirmDialog.jsx";
 import { UnsavedDialog } from "./components/UnsavedUI.jsx";
 import { unsavedGuard, getUnsavedHandlers, clearUnsaved } from "./lib/unsaved_guard";
 import { uiState, toggleImmersive, MASCOT_MODE, MASCOT_SETTINGS_MODE, TRANSCRIPT_MODE } from "./lib/ui_state";
@@ -23,8 +23,7 @@ import { _t, i18nState } from "./lib/i18n";
 const TABS = [
     { id: "voice", label: "Voice", icon: "fa-microphone" },
     { id: "chat", label: "Chat", icon: "fa-comments" },
-    { id: "memories", label: "Memories", icon: "fa-lightbulb-o" },
-    { id: "sessions", label: "Sessions", icon: "fa-archive" },
+    { id: "history", label: "History", icon: "fa-history" },
     { id: "companions", label: "Companions", icon: "fa-users" },
     { id: "avatars", label: "Avatars", icon: "fa-user-circle-o" },
     { id: "games", label: "Games", icon: "fa-gamepad" },
@@ -165,11 +164,8 @@ export default function App() {
                 <div className="rx_view" style={{ display: tab === "chat" ? "" : "none" }}>
                     <TextView active={tab === "chat"} />
                 </div>
-                <div className="rx_view" style={{ display: tab === "memories" ? "" : "none" }}>
-                    <MemoriesView active={tab === "memories"} />
-                </div>
-                <div className="rx_view" style={{ display: tab === "sessions" ? "" : "none" }}>
-                    <SessionsView active={tab === "sessions"} />
+                <div className="rx_view" style={{ display: tab === "history" ? "" : "none" }}>
+                    <HistoryView active={tab === "history"} />
                 </div>
                 <div className="rx_view" style={{ display: tab === "companions" ? "" : "none" }}>
                     <CompanionsView active={tab === "companions"} />
@@ -190,6 +186,7 @@ export default function App() {
                 onSave={() => resolveLeave("save")}
                 onDiscard={() => resolveLeave("discard")}
                 onCancel={() => resolveLeave("cancel")} />
+            <ConfirmDialog />
             <Toasts />
         </div>
     );

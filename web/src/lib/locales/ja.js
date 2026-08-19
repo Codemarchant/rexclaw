@@ -531,8 +531,36 @@ export const JA = {
   "Memory": "メモリ",
   "Code execution (text)": "コード実行（テキスト）",
 
+  // History tab
+  "History": "履歴",
+
+  // Confirm dialog
+  "Are you sure?": "本当によろしいですか？",
+  "Confirm": "確認",
+
+  // Pager
+  "Previous page": "前のページ",
+  "Next page": "次のページ",
+  "Records per page": "1 ページあたりの件数",
+
   // Lore stories
   "Lore stories": "ロアストーリー",
+  "The full shared archive, across all companions. Each companion can recall the stories tagged with their name via the recall_stories tool.":
+    "全コンパニオン共有のアーカイブ全体です。各コンパニオンは recall_stories ツールで、自分の名前がタグ付けされたストーリーを呼び出せます。",
+  "Search title, text, characters, tags…": "タイトル・本文・キャラクター・タグを検索…",
+  "All characters": "すべてのキャラクター",
+  "All tags": "すべてのタグ",
+  "%s of %s stories": "%s / %s 件のストーリー",
+  "Download the stories as a JSON file (respects the character filter)":
+    "ストーリーを JSON ファイルとしてダウンロードします（キャラクターフィルターが適用されます）",
+  "Import a lore JSON file — stories are matched by title, existing ones are kept":
+    "ロア JSON ファイルをインポートします。ストーリーはタイトルで照合され、既存のものは維持されます",
+  "Imported %s stories (%s duplicates skipped).":
+    "%s 件のストーリーをインポートしました（重複 %s 件をスキップ）。",
+  "None of the characters (%s) match an existing companion, so no companion will be able to recall this story. Save anyway?":
+    "キャラクター（%s）はいずれも既存のコンパニオンと一致しないため、どのコンパニオンもこのストーリーを呼び出せません。それでも保存しますか？",
+  "No characters are tagged, so no companion will be able to recall this story. Save anyway?":
+    "キャラクターがタグ付けされていないため、どのコンパニオンもこのストーリーを呼び出せません。それでも保存しますか？",
   "Lore stories can be added after the companion is saved.":
     "ロアストーリーは、コンパニオンの保存後に追加できます。",
   "Add story": "ストーリーを追加",

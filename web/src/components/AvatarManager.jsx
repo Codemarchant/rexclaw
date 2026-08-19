@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
+import { confirmAsk } from "../lib/confirm";
+import Pager, { usePager } from "./Pager.jsx";
 import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { EditorBar } from "./UnsavedUI.jsx";
 
@@ -234,7 +236,7 @@ export default function AvatarManager({ onChange, active = true }) {
     };
 
     const remove = async (a) => {
-        if (!window.confirm(_t("Delete avatar %s? Companions using it lose their avatar. This removes the pack folder and its files.", a.name))) return;
+        if (!(await confirmAsk(_t("Delete avatar %s? Companions using it lose their avatar. This removes the pack folder and its files.", a.name)))) return;
         try {
             await rpc("/api/avatars/delete", { pack_key: a.pack_key });
             load();
@@ -244,6 +246,11 @@ export default function AvatarManager({ onChange, active = true }) {
         }
     };
 
+    const q = query.trim().toLowerCase();
+    const visibleList = q ? list.filter((a) => (a.name || "").toLowerCase().includes(q)) : list;
+    // Hook lives above the editor early-return so it runs every render.
+    const pager = usePager(visibleList.length);
+
     if (editing) {
         return (
             <AvatarEditor editing={editing} setEditing={setEditing}
@@ -251,8 +258,6 @@ export default function AvatarManager({ onChange, active = true }) {
         );
     }
 
-    const q = query.trim().toLowerCase();
-    const visibleList = q ? list.filter((a) => (a.name || "").toLowerCase().includes(q)) : list;
 
     return (
         <section>
@@ -288,7 +293,8 @@ export default function AvatarManager({ onChange, active = true }) {
             {!!q && !visibleList.length && (
                 <p className="text-muted small">{_t("No matches.")}</p>
             )}
-            {visibleList.map((a) => (
+            <Pager pager={pager} />
+            {pager.slice(visibleList).map((a) => (
                 <div key={a.id} className="rx_memory_row">
                     <strong>{a.name}</strong>
                     <span className="rx_memory_content text-muted small">
@@ -417,7 +423,9 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
         arr[idx] = { ...arr[idx], ...patch };
         setM({ [key]: arr });
     };
-    const addItem = (key, item) => setM({ [key]: [...(manifest[key] || []), item] });
+    // Prepend: new rows appear at the top of their list (matches the
+    // memories view and every other list editor in the app).
+    const addItem = (key, item) => setM({ [key]: [item, ...(manifest[key] || [])] });
     const removeItem = (key, idx) => setM({ [key]: (manifest[key] || []).filter((_, i) => i !== idx) });
 
     // Scene backgrounds carry an [x,y,z] offset; patch one axis in place.

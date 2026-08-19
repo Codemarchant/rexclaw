@@ -90,6 +90,7 @@ class TextService {
                 tool_name: m.tool_name,
                 tool_arguments_json: m.tool_arguments_json,
                 tool_result_json: m.tool_result_json,
+                xai_call_id: m.xai_call_id || null,
                 is_summary_rollup: !!m.is_summary_rollup,
                 attachments: m.attachments || [],
             });

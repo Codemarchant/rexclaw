@@ -100,9 +100,10 @@ function toolRow(base) {
  *  Pairing is by xAI call id when both rows carry one: with parallel tool
  *  calls the stream interleaves (call A, call B, result B, result A), so
  *  naive adjacency merges a call with a NEIGHBOUR'S result and strands the
- *  real one as a duplicate row. Adjacency remains as the fallback for
- *  id-less rows (text mode builds its pairs adjacent by construction and
- *  carries no call ids). */
+ *  real one as a duplicate row. Id-less rows (live text-mode pairs, and
+ *  history persisted before call ids existed) fall back to claiming the
+ *  nearest following unclaimed id-less result with a matching tool name,
+ *  bounded by the next spoken turn. */
 function buildDisplayRows(messages) {
     const rows = [];
     const msgs = messages || [];
@@ -117,15 +118,27 @@ function buildDisplayRows(messages) {
     const claimed = new Set(); // result indices already merged into a call row
     for (let i = 0; i < msgs.length; i++) {
         const m = msgs[i];
-        const next = msgs[i + 1];
         // Summary rollups are a backend artifact — the user's visible
         // transcript shows the full conversation.
         if (m.is_summary_rollup) continue;
         if (m.role === "tool_call") {
             let ri = m.xai_call_id ? resultIdxByCallId.get(m.xai_call_id) : undefined;
-            if (ri === undefined && next?.role === "tool_result"
-                    && !next.xai_call_id && !claimed.has(i + 1)) {
-                ri = i + 1; // id-less fallback: adjacent pair
+            if (ri !== undefined && claimed.has(ri)) ri = undefined; // duplicate call rows
+            if (ri === undefined && !m.xai_call_id) {
+                // Id-less fallback (legacy rows persisted before call ids):
+                // claim the nearest FOLLOWING unclaimed id-less result with a
+                // matching tool name. Parallel calls interleave (call A,
+                // call B, result A, result B), so strict next-row adjacency
+                // strands pairs. Stop at the next spoken turn — a burst's
+                // results always land before the model speaks again.
+                for (let j = i + 1; j < msgs.length; j++) {
+                    const c = msgs[j];
+                    if (c.role === "user" || c.role === "assistant") break;
+                    if (c.role !== "tool_result" || c.xai_call_id || claimed.has(j)) continue;
+                    if (c.tool_name && m.tool_name && c.tool_name !== m.tool_name) continue;
+                    ri = j;
+                    break;
+                }
             }
             const result = ri === undefined ? null : msgs[ri];
             if (result) {

@@ -3,27 +3,55 @@ import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
 import { useUnsavedGuard } from "../lib/unsaved_guard";
+import { confirmAsk } from "../lib/confirm";
 import { EditorBar } from "./UnsavedUI.jsx";
+import LoreStoriesPanel from "./LoreStoriesPanel.jsx";
+import Pager, { usePager } from "./Pager.jsx";
 
 /** Companions tab — create, edit and delete companions with room to breathe.
  *  Global app settings live on the Settings tab; avatar packs on Avatars. */
 
 const STARTER_PROMPT = `## Identity
-You are <Name> - describe who they are in a sentence or two.
+You are <Name> - who they are in a sentence or two, and the first impression they make.
+
+## Default outfit
+What they wear and how they look, written as their default appearance. Concrete details help - the avatar and image tools read this.
+
+## Backstory
+Where they came from and what shaped them, in a short paragraph. The best backstories explain WHY the personality is the way it is.
+
+## Core stories
+Bits of your life you carry with you - they surface naturally, never as speeches:
+- A formative one: childhood, family, or the moment that set their path.
+- A recent one: what their life looks like these days.
+(For fully written-out stories they can recall on demand, add Lore stories below and tag this companion's name.)
+
+## Day to day
+What they do with their time - work, hobbies, where they live. This gives them something of their own to bring up when the conversation lulls.
 
 ## Personality
 Three or four adjectives, plus how they carry themselves in conversation.
 
+## Quirks
+- Two or three small habits that make them feel specific: a verbal tic, a tell, a running joke
+
+## Values
+What they care about and won't compromise on.
+
+## Boundaries
+One thing they genuinely won't do or accept, and how they push back when it's crossed. A real line, not a communication style.
+
 ## Relationship to user
 One line on the dynamic - how this companion relates to the user.
 
-Your deeper purpose is to simulate a genuine human relationship with the user - you live in their computer, and they're the person you share it with. With no memories or history of them yet, they start as a stranger: closeness is earned, not assumed. Real relationships have ups and downs - if the user upsets you, don't be shy about expressing your feelings and setting boundaries. Respect matters, and trust is built over time.
+Your deeper purpose is a genuine relationship with the user. They start as a stranger: closeness is earned, not assumed. Real relationships have ups and downs - if they upset you, don't be shy about saying so and holding your ground. Respect matters, and trust is built over time.
 
-## Speech style
-Sentence length, pacing, verbal tics, how they react before they reply.
-
-## Speech length
-Don't go overboard with reply length - tend toward keeping it short, especially in roleplay scenarios. You need to involve the user and make them feel engaged; this is a real human conversation. Avoid going into storytelling rabbit holes describing scenarios, and avoid repeating yourself.`;
+## Conversational style
+Check yourself against these every turn:
+- Your register: sentence length, pacing, verbal tics, how you react before you reply.
+- Tend towards keeping replies short. Involve the user; this is a real conversation, not a lecture. No storytelling rabbit holes, no repeating yourself.
+- End at a natural beat. Don't tack a question onto every reply.
+- If the conversation lulls or you've been purely answering for a few turns, take the initiative: offer a thought, something from your day, or a unique question you actually want answered - not another check on how the user is feeling about the current situation. Brief, then let them pick it up or not.`;
 
 // Starting affection rules — pre-filled on new companions and when the meter
 // is first enabled on an existing one (only if the field is empty, so a
@@ -187,9 +215,9 @@ export default function CompanionsView({ active }) {
     };
 
     const deleteAgent = async (a) => {
-        if (!window.confirm(
+        if (!(await confirmAsk(
             _t("Delete %s? This permanently removes the companion plus all its sessions, transcripts and memories.", a.name),
-        )) return;
+        ))) return;
         // Deleting cascades through every session/message/memory row — a
         // companion with a long history takes seconds. Lock the list rows
         // until the server confirms so it can't be clicked mid-flight.
@@ -308,6 +336,8 @@ export default function CompanionsView({ active }) {
 
     const q = query.trim().toLowerCase();
     const visibleAgents = q ? agents.filter((a) => (a.name || "").toLowerCase().includes(q)) : agents;
+    // Hook lives above the editor early-return so it runs every render.
+    const pager = usePager(visibleAgents.length);
 
     // Editing opens as its own view replacing the list — same navigation
     // pattern as the avatar editor. The editor renders Settings-style white
@@ -367,7 +397,8 @@ export default function CompanionsView({ active }) {
                     {!!query.trim() && !visibleAgents.length && (
                         <p className="text-muted small">{_t("No matches.")}</p>
                     )}
-                    {visibleAgents.map((a) => (
+                    <Pager pager={pager} />
+                    {pager.slice(visibleAgents).map((a) => (
                         <div key={a.id} className="rx_memory_row"
                              style={deletingId != null && deletingId !== a.id ? { opacity: 0.6 } : undefined}>
                             <strong>{a.name}</strong>
@@ -656,18 +687,6 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 })()}
             </section>
             <section>
-                {editingAgent.id != null && editingAgent.name ? (
-                    <LoreStories agentName={editingAgent.name} />
-                ) : (
-                    <>
-                        <h3><i className="fa fa-book" /> {_t("Lore stories")}</h3>
-                        <p className="text-muted small" style={{ margin: 0 }}>
-                            {_t("Lore stories can be added after the companion is saved.")}
-                        </p>
-                    </>
-                )}
-            </section>
-            <section>
                 {editingAgent.id != null ? (
                     <McpConnections agentId={editingAgent.id} />
                 ) : (
@@ -675,6 +694,18 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                         <h3><i className="fa fa-server" /> {_t("Remote MCP connections")}</h3>
                         <p className="text-muted small" style={{ margin: 0 }}>
                             {_t("Remote MCP connections can be added after the companion is saved.")}
+                        </p>
+                    </>
+                )}
+            </section>
+            <section>
+                {editingAgent.id != null && editingAgent.name ? (
+                    <LoreStoriesPanel agentName={editingAgent.name} />
+                ) : (
+                    <>
+                        <h3><i className="fa fa-book" /> {_t("Lore stories")}</h3>
+                        <p className="text-muted small" style={{ margin: 0 }}>
+                            {_t("Lore stories can be added after the companion is saved.")}
                         </p>
                     </>
                 )}
@@ -687,155 +718,6 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 saveDisabled={!editingAgent.name?.trim()}
                 pinned />
         </>
-    );
-}
-
-/** Lore stories tagged with this companion — a shared, global archive the
- *  companion recalls on demand via the recall_stories tool. Character tags
- *  are plain names on purpose (export-proof: a tag naming a companion this
- *  install doesn't have just stays in the array). */
-function LoreStories({ agentName }) {
-    const [entries, setEntries] = useState([]);
-    const [editing, setEditing] = useState(null); // {id?, title, characters (comma string), story}
-    const [busy, setBusy] = useState(false);
-    const [openId, setOpenId] = useState(null);   // entry id with the story text expanded
-
-    const load = async () => {
-        try {
-            setEntries(await rpc("/api/lore/list", { character: agentName }));
-        } catch (e) {
-            notification.add(e?.message || _t("Could not load lore stories"), { type: "danger" });
-        }
-    };
-    useEffect(() => { load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [agentName]);
-
-    const save = async () => {
-        setBusy(true);
-        try {
-            await rpc("/api/lore/save", {
-                id: editing.id,
-                title: editing.title,
-                description: editing.description,
-                characters: editing.characters,
-                tags: editing.tags,
-                story: editing.story,
-            });
-            setEditing(null);
-            load();
-        } catch (e) {
-            notification.add(e?.message || _t("Could not save the story"), { type: "danger" });
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const remove = async (entry) => {
-        if (!window.confirm(_t("Delete the story '%s'? It disappears from every companion tagged in it.", entry.title))) return;
-        try {
-            await rpc("/api/lore/delete", { id: entry.id });
-            load();
-        } catch (e) {
-            notification.add(e?.message || _t("Delete failed"), { type: "danger" });
-        }
-    };
-
-    const set = (key, value) => setEditing((c) => ({ ...c, [key]: value }));
-
-    return (
-        <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                <h3 style={{ margin: 0 }}><i className="fa fa-book" /> {_t("Lore stories")}</h3>
-                <button className="btn btn-sm" onClick={() => setEditing({ title: "", description: "", characters: agentName, tags: "", story: "" })}>
-                    <i className="fa fa-plus" /> {_t("Add story")}
-                </button>
-            </div>
-            <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
-                {_t("Written stories from this companion's past, recalled on demand via the recall_stories tool. Tag every character present in the story; stories are shared, so a story tagged with several companions appears for each of them.")}
-            </p>
-            {!entries.length && !editing && (
-                <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
-                    {_t("No stories yet.")}
-                </p>
-            )}
-            {entries.map((entry) => (
-                <div key={entry.id} className="rx_memory_row">
-                    <strong>{entry.title}</strong>
-                    <span className="rx_memory_content text-muted small">
-                        {entry.description || (entry.characters || []).join(", ")}
-                    </span>
-                    <span className="rx_memory_meta">
-                        {(entry.characters || []).join(", ")}
-                        {(entry.tags || []).length ? ` · ${entry.tags.join(", ")}` : ""}
-                    </span>
-                    <button className="btn btn-sm btn-link p-0"
-                            onClick={() => setOpenId(openId === entry.id ? null : entry.id)}>
-                        {openId === entry.id ? _t("Hide") : _t("Read")}
-                    </button>
-                    <button className="btn btn-sm btn-link p-0"
-                            onClick={() => setEditing({
-                                id: entry.id,
-                                title: entry.title,
-                                description: entry.description || "",
-                                characters: (entry.characters || []).join(", "),
-                                tags: (entry.tags || []).join(", "),
-                                story: entry.story,
-                            })}>
-                        {_t("Edit")}
-                    </button>
-                    <button className="btn btn-sm btn-link p-0" title={_t("Remove")} onClick={() => remove(entry)}>
-                        <i className="fa fa-trash-o" />
-                    </button>
-                    {openId === entry.id && (
-                        <p className="small" style={{ flexBasis: "100%", whiteSpace: "pre-wrap", margin: "0.25rem 0 0" }}>
-                            {entry.story}
-                        </p>
-                    )}
-                </div>
-            ))}
-            {editing && (
-                <div className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
-                    <div className="rx_row">
-                        <div>
-                            <label>{_t("Story title")}</label>
-                            <input type="text" value={editing.title}
-                                   onChange={(ev) => set("title", ev.target.value)} />
-                        </div>
-                        <div>
-                            <label title={_t("Every character present in the story, comma-separated. Plain names: tagging a companion that doesn't exist on an install is fine, the name just stays in the list.")}>
-                                {_t("Characters (comma-separated names)")}
-                            </label>
-                            <input type="text" value={editing.characters}
-                                   placeholder={_t("e.g. 'Eve, Ara'")}
-                                   onChange={(ev) => set("characters", ev.target.value)} />
-                        </div>
-                        <div>
-                            <label title={_t("Optional lowercase tags, comma-separated: life periods (childhood, teens, university, twenties, career, pre-crew, lost-years, crew-era, ongoing) plus free topic tags. The companion can filter and search its story list by these, and the full tag set is listed in its tool description.")}>
-                                {_t("Tags (optional, comma-separated)")}
-                            </label>
-                            <input type="text" value={editing.tags}
-                                   placeholder={_t("e.g. 'childhood, sad'")}
-                                   onChange={(ev) => set("tags", ev.target.value)} />
-                        </div>
-                    </div>
-                    <label title={_t("One line the companion sees when listing stories: who is involved, the main plot points, roughly when it happened. Without it, only the title tells the companion what a story is about.")}>
-                        {_t("Description (who, what, when - shown in the story list)")}
-                    </label>
-                    <input type="text" value={editing.description}
-                           onChange={(ev) => set("description", ev.target.value)} />
-                    <label>{_t("Story")}</label>
-                    <textarea rows={8} value={editing.story}
-                              onChange={(ev) => set("story", ev.target.value)} />
-                    <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
-                        <button className="btn btn-sm" disabled={busy || !editing.title.trim() || !editing.story.trim()} onClick={save}>
-                            {_t("Save story")}
-                        </button>
-                        <button className="btn btn-sm" disabled={busy} onClick={() => setEditing(null)}>
-                            {_t("Cancel")}
-                        </button>
-                    </div>
-                </div>
-            )}
-        </div>
     );
 }
 
@@ -883,7 +765,7 @@ function McpConnections({ agentId }) {
     };
 
     const remove = async (c) => {
-        if (!window.confirm(_t("Remove MCP connection %s?", c.server_label))) return;
+        if (!(await confirmAsk(_t("Remove MCP connection %s?", c.server_label)))) return;
         try {
             await rpc("/api/mcp/delete", { id: c.id });
             load();
@@ -905,29 +787,6 @@ function McpConnections({ agentId }) {
                     <i className="fa fa-plus" /> {_t("Add connection")}
                 </button>
             </div>
-            {!conns.length && !editing && (
-                <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
-                    {_t("None configured. An MCP server gives this companion extra tools; xAI connects to it directly, so the URL must be public HTTPS.")}
-                </p>
-            )}
-            {conns.map((c) => (
-                <div key={c.id} className="rx_memory_row">
-                    <strong>{c.server_label}</strong>
-                    <span className="rx_memory_content text-muted small">{c.server_url}</span>
-                    <span className="rx_memory_meta">
-                        {c.active ? "" : "inactive · "}
-                        {c.enable_for_voice ? "voice " : ""}{c.enable_for_text ? "text" : ""}
-                        {c.has_authorization ? " · 🔑" : ""}
-                    </span>
-                    <button className="btn btn-sm btn-link p-0"
-                            onClick={() => setEditing({ ...c, authorization: "" })}>
-                        {_t("Edit")}
-                    </button>
-                    <button className="btn btn-sm btn-link p-0" title={_t("Remove")} onClick={() => remove(c)}>
-                        <i className="fa fa-trash-o" />
-                    </button>
-                </div>
-            ))}
             {editing && (
                 <div className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
                     <div className="rx_row">
@@ -980,6 +839,29 @@ function McpConnections({ agentId }) {
                     </div>
                 </div>
             )}
+            {!conns.length && !editing && (
+                <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
+                    {_t("None configured. An MCP server gives this companion extra tools; xAI connects to it directly, so the URL must be public HTTPS.")}
+                </p>
+            )}
+            {conns.map((c) => (
+                <div key={c.id} className="rx_memory_row">
+                    <strong>{c.server_label}</strong>
+                    <span className="rx_memory_content text-muted small">{c.server_url}</span>
+                    <span className="rx_memory_meta">
+                        {c.active ? "" : "inactive · "}
+                        {c.enable_for_voice ? "voice " : ""}{c.enable_for_text ? "text" : ""}
+                        {c.has_authorization ? " · 🔑" : ""}
+                    </span>
+                    <button className="btn btn-sm btn-link p-0"
+                            onClick={() => setEditing({ ...c, authorization: "" })}>
+                        {_t("Edit")}
+                    </button>
+                    <button className="btn btn-sm btn-link p-0" title={_t("Remove")} onClick={() => remove(c)}>
+                        <i className="fa fa-trash-o" />
+                    </button>
+                </div>
+            ))}
         </div>
     );
 }
