@@ -151,10 +151,14 @@ export default function TextView({ active = true }) {
     const lastResumableSession = useMemo(() => {
         const agentId = Number(selectedAgentId);
         if (!agentId) return null;
+        // History first (it refreshes after every start/end); the per-agent
+        // field from /text/agents covers conversations too old to make the
+        // recent-history window (e.g. imported companions' sessions, which
+        // keep their original dates).
         return (history || []).find(
             (s) => s.agent_id === agentId && (s.state === "ended" || s.state === "active"),
-        ) || null;
-    }, [selectedAgentId, history]);
+        ) || agents.find((a) => a.id === agentId)?.last_resumable_session || null;
+    }, [selectedAgentId, history, agents]);
 
     const onAgentChange = (ev) => {
         const id = parseInt(ev.target.value, 10) || null;

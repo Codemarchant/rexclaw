@@ -94,7 +94,7 @@ def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
         " (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count"
         " FROM sessions s JOIN agents a ON a.id = s.agent_id"
         " WHERE s.origin != 'delegated'"
-        " ORDER BY s.started_at DESC, s.id DESC LIMIT ?",
+        " ORDER BY s.last_active_at DESC, s.id DESC LIMIT ?",
         (limit,),
     ).fetchall()
     return [
@@ -156,15 +156,36 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
         if config["default_agent_id"] in accessible_ids
         else False
     )
+    out = []
+    for a in agents:
+        # Mode-agnostic per-agent resume candidate, mirroring the voice
+        # /agents route. The history list alone can't provide this: it's
+        # capped at recent sessions, and imported conversations keep their
+        # original (old) start dates, so an imported companion's resumable
+        # history would never surface through it.
+        sess = con.execute(
+            "SELECT * FROM sessions WHERE agent_id = ?"
+            " AND state IN ('ended', 'active') AND origin != 'delegated'"
+            " ORDER BY last_active_at DESC, id DESC LIMIT 1",
+            (a["id"],),
+        ).fetchone()
+        out.append({
+            "id": a["id"],
+            "name": a["name"],
+            "reasoning_effort": a["reasoning_effort"],
+            "chat_thumbnail_url": a["chat_thumbnail_path"] or None,
+            "last_resumable_session": (
+                {
+                    "id": sess["id"],
+                    "name": sess["name"],
+                    "state": sess["state"],
+                    "agent_id": sess["agent_id"],
+                    "last_active_at": sess["last_active_at"],
+                }
+                if sess else None
+            ),
+        })
     return {
         "default_agent_id": default_id,
-        "agents": [
-            {
-                "id": a["id"],
-                "name": a["name"],
-                "reasoning_effort": a["reasoning_effort"],
-                "chat_thumbnail_url": a["chat_thumbnail_path"] or None,
-            }
-            for a in agents
-        ],
+        "agents": out,
     }
