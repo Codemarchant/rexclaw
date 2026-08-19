@@ -15,7 +15,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta
 
-from . import xai_client, affection_tools, browser_tools, delegate_tools, imagine_tools, local_tools, memory_tools, minecraft_tools, store
+from . import xai_client, affection_tools, browser_tools, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, store
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -184,6 +184,11 @@ def _env_postamble(con, agent_row, mode='voice'):
             sections.append(habits)
     if agent_row['enable_affection_tool']:
         sections.append(_affection_section(agent_row))
+    # Flag-gated + self-gating on tagged stories existing; surface-agnostic.
+    if agent_row['enable_lore_tool']:
+        lore = lore_tools.prompt_section(con, agent_row)
+        if lore:
+            sections.append(lore)
     if agent_row['enable_memory_tools']:
         sections.append(_memory_section(con, agent_row))
     if not sections:
@@ -599,6 +604,8 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         native_function_tools.extend(imagine_tools.build_voice_tools(con, agent))
     if agent['enable_memory_tools']:
         native_function_tools.extend(memory_tools.MEMORY_TOOLS)
+    if agent['enable_lore_tool'] and lore_tools.has_stories(con, agent['name']):
+        native_function_tools.append(lore_tools.build_recall_tool(con, agent['name']))
     if agent['enable_affection_tool']:
         native_function_tools.extend(affection_tools.build_tools(agent))
     # Only offered when the Grok Build CLI is actually on PATH — in
@@ -1447,6 +1454,7 @@ NATIVE_TOOL_NAMES_TEXT = (
     imagine_tools.IMAGINE_TOOL_NAMES
     | memory_tools.MEMORY_TOOL_NAMES
     | affection_tools.AFFECTION_TOOL_NAMES
+    | lore_tools.LORE_TOOL_NAMES
     | {delegate_tools.DELEGATE_TOOL_NAME}
     | {local_tools.LOCAL_TASK_TOOL_NAME}
 )
@@ -1493,6 +1501,8 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
     if enable_memory_tools:
         for entry in memory_tools.MEMORY_TOOLS:
             tools.append(entry)
+    if agent['enable_lore_tool'] and lore_tools.has_stories(con, agent['name']):
+        tools.append(lore_tools.build_recall_tool(con, agent['name']))
     if enable_affection_tool:
         for entry in affection_tools.build_tools(agent):
             tools.append(entry)
@@ -2270,6 +2280,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                               'message': 'Memory tools are disabled on this agent.'}
                 else:
                     result = memory_tools.execute_memory_tool(con, session, name, args)
+            elif name in lore_tools.LORE_TOOL_NAMES:
+                if not agent['enable_lore_tool']:
+                    result = {'ok': False, 'reason': 'tool_disabled',
+                              'message': 'Lore stories are disabled on this companion.'}
+                else:
+                    result = lore_tools.execute_lore_tool(con, session, name, args)
             elif name in affection_tools.AFFECTION_TOOL_NAMES:
                 if not agent['enable_affection_tool']:
                     result = {'ok': False, 'reason': 'tool_disabled',

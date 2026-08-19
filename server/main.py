@@ -16,6 +16,7 @@ from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, init_db
 from .errors import UserError
 from .routes import avatars, minecraft, misc, text, voice
+from .lore_seeds import seed_lore_if_empty
 from .seeds import seed_if_empty
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -45,6 +46,7 @@ def startup():
         # manifest edits and freshly dropped packs in data/avatars/.
         scan_packs(con)
         seed_if_empty(con)
+        seed_lore_if_empty(con)
     finally:
         con.close()
     _logger.info("Rexclaw Companions server ready.")

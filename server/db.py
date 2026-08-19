@@ -229,6 +229,9 @@ CREATE TABLE IF NOT EXISTS agents (
     enable_text_mode INTEGER NOT NULL DEFAULT 1,
     enable_code_execution INTEGER NOT NULL DEFAULT 1,
     enable_gesture_emotion_tools INTEGER NOT NULL DEFAULT 1,
+    -- Gates the recall_stories tool + its prompt section (which also
+    -- self-gate on the companion having tagged lore stories at all).
+    enable_lore_tool INTEGER NOT NULL DEFAULT 1,
     -- Optional per-companion style guides appended to the centrally-injected
     -- expression ambles (session_service._expression_section). Empty means
     -- the generic guidance stands alone. expression_style shapes
@@ -406,6 +409,22 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories (scope, agent_id);
 
+-- Lore stories: a shared archive of authored stories about the companions'
+-- pasts, recalled on demand via the recall_stories tool. characters is a
+-- JSON array of plain character NAMES on purpose (not agent FKs): an
+-- imported story may name companions this install doesn't have, and the
+-- tag simply stays in the array. A companion's archive = every entry whose
+-- characters array contains their name.
+CREATE TABLE IF NOT EXISTS lore_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',  -- one line: who, plot, roughly when
+    characters TEXT NOT NULL DEFAULT '[]',
+    tags TEXT NOT NULL DEFAULT '[]',       -- JSON array, lowercase topic tags
+    story TEXT NOT NULL,
+    sequence INTEGER NOT NULL DEFAULT 10
+);
+
 CREATE TABLE IF NOT EXISTS imagine_images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -567,6 +586,11 @@ MIGRATIONS = (
     # Per-companion style guides for the centrally-injected expression ambles.
     "ALTER TABLE agents ADD COLUMN expression_style TEXT",
     "ALTER TABLE agents ADD COLUMN speech_tag_style TEXT",
+    # Lore stories tool toggle + the description/tags columns (for DBs that
+    # created the table before those columns existed).
+    "ALTER TABLE agents ADD COLUMN enable_lore_tool INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE lore_entries ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE lore_entries ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
 )
 
 

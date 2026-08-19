@@ -13,8 +13,10 @@ Two shareable artifacts, one shared codec:
   * Companion package zip — ``manifest.json`` (format marker + what's
     included) + ``companion.json`` (agent settings, avatar referenced by
     pack_key/name) + optional ``memories.json`` (the rexclaw_memories
-    format), ``sessions.json`` (transcripts) and ``avatar/…`` (an embedded
-    avatar pack, same codec as above).
+    format), ``sessions.json`` (transcripts), ``lore.json`` (the lore
+    stories tagged with the companion — deduped by title on import, tags
+    stay plain names) and ``avatar/…`` (an embedded avatar pack, same
+    codec as above).
 
 Everything travels by name — integer ids are database-local. Imports are
 all-or-nothing: any invalid entry raises, the per-request connection rolls
@@ -39,7 +41,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from . import avatar_packs, memory_tools
+from . import avatar_packs, lore_tools, memory_tools
 from .db import ASSETS_DIR, utcnow
 from .errors import UserError
 
@@ -51,6 +53,8 @@ SESSIONS_FILE_FORMAT = "rexclaw_sessions"
 SESSIONS_FILE_VERSION = 1
 MEMORIES_FILE_FORMAT = "rexclaw_memories"
 MEMORIES_FILE_VERSION = 1
+LORE_FILE_FORMAT = "rexclaw_lore"
+LORE_FILE_VERSION = 1
 
 # Already-compressed formats are STORED (zipping a VRM buys ~nothing and
 # costs real time at 100+ MB); everything else (json, text) deflates.
@@ -526,9 +530,53 @@ def export_companion_zip(con, agent_id, out_path, *,
                            memories_payload_for_agent(con, agent_id, agent["name"]))
         if include_sessions:
             _writestr_json(zf, "sessions.json", sessions_payload_for_agent(con, agent_id))
+        # Lore stories tagged with this companion always travel with it - they
+        # are companion-defining content, like the prompt. Character tags stay
+        # plain names; a destination without those companions just keeps them
+        # in the array.
+        lore = lore_tools.list_entries(con, agent["name"])
+        if lore:
+            _writestr_json(zf, "lore.json", {
+                "format": LORE_FILE_FORMAT,
+                "version": LORE_FILE_VERSION,
+                "stories": [{"title": e["title"], "description": e["description"],
+                             "characters": e["characters"], "tags": e["tags"],
+                             "story": e["story"], "sequence": e["sequence"]}
+                            for e in lore],
+            })
         if include_avatar:
             add_pack_to_zip(zf, avatar["pack_key"], prefix="avatar/")
     return agent["name"]
+
+
+def import_lore_entries(con, stories):
+    """Insert lore stories from a companion package. Dedupe by title
+    (case-insensitive): an install importing two companions that share a
+    story gets one copy. Returns (imported, duplicates)."""
+    imported = duplicates = 0
+    for entry in stories or []:
+        if not isinstance(entry, dict):
+            continue
+        title = str(entry.get("title") or "").strip()
+        story = str(entry.get("story") or "").strip()
+        if not title or not story:
+            continue
+        exists = con.execute(
+            "SELECT 1 FROM lore_entries WHERE title = ? COLLATE NOCASE",
+            (title,)).fetchone()
+        if exists:
+            duplicates += 1
+            continue
+        lore_tools.save_entry(con, {
+            "title": title,
+            "description": entry.get("description"),
+            "characters": entry.get("characters"),
+            "tags": entry.get("tags"),
+            "story": story,
+            "sequence": entry.get("sequence"),
+        })
+        imported += 1
+    return imported, duplicates
 
 
 def import_companion_zip(con, zip_path):
@@ -608,11 +656,22 @@ def import_companion_zip(con, zip_path):
                 sessions_imported, messages_imported = import_sessions(
                     con, data.get("sessions"), new_agent_id)
 
+            lore_imported = lore_duplicates = 0
+            if "lore.json" in names:
+                data = _read_json(zf, "lore.json")
+                if data.get("format") != LORE_FILE_FORMAT \
+                        or data.get("version") != LORE_FILE_VERSION:
+                    raise UserError("Unsupported lore file in the companion package.")
+                lore_imported, lore_duplicates = import_lore_entries(
+                    con, data.get("stories"))
+
         con.commit()
         return {
             "ok": True,
             "id": new_agent_id,
             "name": name,
+            "lore_imported": lore_imported,
+            "lore_duplicates": lore_duplicates,
             "avatar": ({"pack_key": avatar_result["pack_key"], "name": avatar_result["name"]}
                        if avatar_result else None),
             "memories_imported": memories_imported,

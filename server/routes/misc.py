@@ -15,7 +15,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import local_tools, memory_tools, minecraft_tools, transfer
+from .. import local_tools, lore_tools, memory_tools, minecraft_tools, transfer
 from ..db import FILES_DIR, utcnow
 from ..errors import UserError
 from .common import db_con
@@ -47,7 +47,7 @@ _AGENT_FIELDS = (
     "name", "active", "sequence", "provider", "voice", "system_prompt", "avatar_id",
     "reasoning_effort",
     "enable_code_execution", "enable_gesture_emotion_tools",
-    "expression_style", "speech_tag_style",
+    "enable_lore_tool", "expression_style", "speech_tag_style",
     "enable_web_search", "enable_x_search", "enable_grok_imagine_tools",
     "enable_memory_tools", "core_memory_cap",
     "enable_affection_tool", "affection_animations",
@@ -227,6 +227,32 @@ def agents_delete(payload: dict = Body(default={}), con=Depends(db_con)):
         " WHERE default_agent_id = ?",
         (agent_id,),
     )
+    con.commit()
+    return {"ok": True}
+
+
+@router.post("/lore/list")
+def lore_list(payload: dict = Body(default={}), con=Depends(db_con)):
+    """All lore stories, or only those tagged with a character name."""
+    return lore_tools.list_entries(con, payload.get("character"))
+
+
+@router.post("/lore/save")
+def lore_save(payload: dict = Body(default={}), con=Depends(db_con)):
+    try:
+        entry_id = lore_tools.save_entry(con, payload)
+    except ValueError as exc:
+        raise UserError(str(exc))
+    con.commit()
+    return {"ok": True, "id": entry_id}
+
+
+@router.post("/lore/delete")
+def lore_delete(payload: dict = Body(default={}), con=Depends(db_con)):
+    entry_id = payload.get("id")
+    if not isinstance(entry_id, int):
+        raise UserError("id must be an integer.")
+    con.execute("DELETE FROM lore_entries WHERE id = ?", (entry_id,))
     con.commit()
     return {"ok": True}
 

@@ -69,6 +69,8 @@ const GROK_WRAPPING_TAGS =
 // Tools that work regardless of which LLM backend drives the companion.
 const GENERAL_FLAGS = [
     ["enable_gesture_emotion_tools", "Avatar control tools"],
+    ["enable_lore_tool", "Lore stories (recall_stories)",
+     "Lets the companion look up its lore stories on demand. Only offered when at least one story below is tagged with the companion's name."],
     ["enable_call_agents_tool", "Call-companion tool (group calls)"],
     ["enable_memory_tools", "Memory"],
     ["enable_minecraft", "Minecraft bot (directs the game sidecar — see the Games tab)"],
@@ -133,6 +135,7 @@ export default function CompanionsView({ active }) {
             active: 1,
             enable_code_execution: 1,
             enable_gesture_emotion_tools: 1,
+            enable_lore_tool: 1,
             expression_style: "",
             speech_tag_style: "",
             enable_web_search: 1,
@@ -653,6 +656,18 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 })()}
             </section>
             <section>
+                {editingAgent.id != null && editingAgent.name ? (
+                    <LoreStories agentName={editingAgent.name} />
+                ) : (
+                    <>
+                        <h3><i className="fa fa-book" /> {_t("Lore stories")}</h3>
+                        <p className="text-muted small" style={{ margin: 0 }}>
+                            {_t("Lore stories can be added after the companion is saved.")}
+                        </p>
+                    </>
+                )}
+            </section>
+            <section>
                 {editingAgent.id != null ? (
                     <McpConnections agentId={editingAgent.id} />
                 ) : (
@@ -672,6 +687,155 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 saveDisabled={!editingAgent.name?.trim()}
                 pinned />
         </>
+    );
+}
+
+/** Lore stories tagged with this companion — a shared, global archive the
+ *  companion recalls on demand via the recall_stories tool. Character tags
+ *  are plain names on purpose (export-proof: a tag naming a companion this
+ *  install doesn't have just stays in the array). */
+function LoreStories({ agentName }) {
+    const [entries, setEntries] = useState([]);
+    const [editing, setEditing] = useState(null); // {id?, title, characters (comma string), story}
+    const [busy, setBusy] = useState(false);
+    const [openId, setOpenId] = useState(null);   // entry id with the story text expanded
+
+    const load = async () => {
+        try {
+            setEntries(await rpc("/api/lore/list", { character: agentName }));
+        } catch (e) {
+            notification.add(e?.message || _t("Could not load lore stories"), { type: "danger" });
+        }
+    };
+    useEffect(() => { load(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [agentName]);
+
+    const save = async () => {
+        setBusy(true);
+        try {
+            await rpc("/api/lore/save", {
+                id: editing.id,
+                title: editing.title,
+                description: editing.description,
+                characters: editing.characters,
+                tags: editing.tags,
+                story: editing.story,
+            });
+            setEditing(null);
+            load();
+        } catch (e) {
+            notification.add(e?.message || _t("Could not save the story"), { type: "danger" });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const remove = async (entry) => {
+        if (!window.confirm(_t("Delete the story '%s'? It disappears from every companion tagged in it.", entry.title))) return;
+        try {
+            await rpc("/api/lore/delete", { id: entry.id });
+            load();
+        } catch (e) {
+            notification.add(e?.message || _t("Delete failed"), { type: "danger" });
+        }
+    };
+
+    const set = (key, value) => setEditing((c) => ({ ...c, [key]: value }));
+
+    return (
+        <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                <h3 style={{ margin: 0 }}><i className="fa fa-book" /> {_t("Lore stories")}</h3>
+                <button className="btn btn-sm" onClick={() => setEditing({ title: "", description: "", characters: agentName, tags: "", story: "" })}>
+                    <i className="fa fa-plus" /> {_t("Add story")}
+                </button>
+            </div>
+            <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
+                {_t("Written stories from this companion's past, recalled on demand via the recall_stories tool. Tag every character present in the story; stories are shared, so a story tagged with several companions appears for each of them.")}
+            </p>
+            {!entries.length && !editing && (
+                <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
+                    {_t("No stories yet.")}
+                </p>
+            )}
+            {entries.map((entry) => (
+                <div key={entry.id} className="rx_memory_row">
+                    <strong>{entry.title}</strong>
+                    <span className="rx_memory_content text-muted small">
+                        {entry.description || (entry.characters || []).join(", ")}
+                    </span>
+                    <span className="rx_memory_meta">
+                        {(entry.characters || []).join(", ")}
+                        {(entry.tags || []).length ? ` · ${entry.tags.join(", ")}` : ""}
+                    </span>
+                    <button className="btn btn-sm btn-link p-0"
+                            onClick={() => setOpenId(openId === entry.id ? null : entry.id)}>
+                        {openId === entry.id ? _t("Hide") : _t("Read")}
+                    </button>
+                    <button className="btn btn-sm btn-link p-0"
+                            onClick={() => setEditing({
+                                id: entry.id,
+                                title: entry.title,
+                                description: entry.description || "",
+                                characters: (entry.characters || []).join(", "),
+                                tags: (entry.tags || []).join(", "),
+                                story: entry.story,
+                            })}>
+                        {_t("Edit")}
+                    </button>
+                    <button className="btn btn-sm btn-link p-0" title={_t("Remove")} onClick={() => remove(entry)}>
+                        <i className="fa fa-trash-o" />
+                    </button>
+                    {openId === entry.id && (
+                        <p className="small" style={{ flexBasis: "100%", whiteSpace: "pre-wrap", margin: "0.25rem 0 0" }}>
+                            {entry.story}
+                        </p>
+                    )}
+                </div>
+            ))}
+            {editing && (
+                <div className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+                    <div className="rx_row">
+                        <div>
+                            <label>{_t("Story title")}</label>
+                            <input type="text" value={editing.title}
+                                   onChange={(ev) => set("title", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label title={_t("Every character present in the story, comma-separated. Plain names: tagging a companion that doesn't exist on an install is fine, the name just stays in the list.")}>
+                                {_t("Characters (comma-separated names)")}
+                            </label>
+                            <input type="text" value={editing.characters}
+                                   placeholder={_t("e.g. 'Eve, Ara'")}
+                                   onChange={(ev) => set("characters", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label title={_t("Optional lowercase tags, comma-separated: life periods (childhood, teens, university, twenties, career, pre-crew, lost-years, crew-era, ongoing) plus free topic tags. The companion can filter and search its story list by these, and the full tag set is listed in its tool description.")}>
+                                {_t("Tags (optional, comma-separated)")}
+                            </label>
+                            <input type="text" value={editing.tags}
+                                   placeholder={_t("e.g. 'childhood, sad'")}
+                                   onChange={(ev) => set("tags", ev.target.value)} />
+                        </div>
+                    </div>
+                    <label title={_t("One line the companion sees when listing stories: who is involved, the main plot points, roughly when it happened. Without it, only the title tells the companion what a story is about.")}>
+                        {_t("Description (who, what, when - shown in the story list)")}
+                    </label>
+                    <input type="text" value={editing.description}
+                           onChange={(ev) => set("description", ev.target.value)} />
+                    <label>{_t("Story")}</label>
+                    <textarea rows={8} value={editing.story}
+                              onChange={(ev) => set("story", ev.target.value)} />
+                    <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+                        <button className="btn btn-sm" disabled={busy || !editing.title.trim() || !editing.story.trim()} onClick={save}>
+                            {_t("Save story")}
+                        </button>
+                        <button className="btn btn-sm" disabled={busy} onClick={() => setEditing(null)}>
+                            {_t("Cancel")}
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 }
 

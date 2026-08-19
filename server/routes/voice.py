@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
-from .. import affection_tools, delegate_tools, imagine_tools, local_tools, memory_tools, minecraft_tools, session_service, store
+from .. import affection_tools, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, session_service, store
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -122,6 +122,10 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         result = memory_tools.execute_memory_tool(con, session, tool_name, arguments)
         con.commit()
         return result
+    if tool_name in lore_tools.LORE_TOOL_NAMES:
+        if not agent["enable_lore_tool"]:
+            raise AccessError("Lore stories are disabled on this companion.")
+        return lore_tools.execute_lore_tool(con, session, tool_name, arguments)
     if tool_name in affection_tools.AFFECTION_TOOL_NAMES:
         if not agent["enable_affection_tool"]:
             raise AccessError("The affection meter is disabled on this companion.")

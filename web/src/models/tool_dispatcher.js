@@ -39,6 +39,8 @@ const NATIVE_TOOL_NAMES = new Set([
     "remember",
     "recall",
     "forget",
+    // Lore story archive: reads the shared lore_entries table server-side.
+    "recall_stories",
     // Affection meter: score persists server-side; the result payload
     // drives the heart effect in dispatch()'s post-result hook.
     "adjust_affection",

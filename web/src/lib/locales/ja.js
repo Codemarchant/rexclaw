@@ -531,6 +531,39 @@ export const JA = {
   "Memory": "メモリ",
   "Code execution (text)": "コード実行（テキスト）",
 
+  // Lore stories
+  "Lore stories": "ロアストーリー",
+  "Lore stories can be added after the companion is saved.":
+    "ロアストーリーは、コンパニオンの保存後に追加できます。",
+  "Add story": "ストーリーを追加",
+  "Written stories from this companion's past, recalled on demand via the recall_stories tool. Tag every character present in the story; stories are shared, so a story tagged with several companions appears for each of them.":
+    "このコンパニオンの過去を綴ったストーリーで、recall_stories ツールから必要に応じて呼び出されます。ストーリーに登場するキャラクター全員をタグ付けしてください。ストーリーは共有されるため、複数のコンパニオンをタグ付けしたストーリーはそれぞれに表示されます。",
+  "No stories yet.": "ストーリーはまだありません。",
+  "Read": "読む",
+  "Hide": "隠す",
+  "Story title": "ストーリータイトル",
+  "Lore stories (recall_stories)": "ロアストーリー（recall_stories）",
+  "Lets the companion look up its lore stories on demand. Only offered when at least one story below is tagged with the companion's name.":
+    "コンパニオンが必要に応じてロアストーリーを参照できるようにします。下のストーリーにコンパニオンの名前がタグ付けされている場合にのみ提供されます。",
+  "Tags (optional, comma-separated)": "タグ（任意、カンマ区切り）",
+  "Optional lowercase tags, comma-separated: life periods (childhood, teens, university, twenties, career, pre-crew, lost-years, crew-era, ongoing) plus free topic tags. The companion can filter and search its story list by these, and the full tag set is listed in its tool description.":
+    "任意の小文字タグをカンマ区切りで入力します：人生の時期（childhood、teens、university、twenties、career、pre-crew、lost-years、crew-era、ongoing）と自由なトピックタグ。コンパニオンはこれでストーリー一覧を絞り込み・検索でき、タグ一覧はツール説明にも記載されます。",
+  "e.g. 'childhood, sad'": "例：「childhood, sad」",
+  "Description (who, what, when - shown in the story list)":
+    "説明（誰が・何を・いつ - ストーリー一覧に表示）",
+  "One line the companion sees when listing stories: who is involved, the main plot points, roughly when it happened. Without it, only the title tells the companion what a story is about.":
+    "ストーリー一覧でコンパニオンが目にする 1 行です：登場人物、主な出来事、おおよその時期。これがないと、タイトルだけでストーリーの内容を判断することになります。",
+  "Characters (comma-separated names)": "キャラクター（カンマ区切りの名前）",
+  "Every character present in the story, comma-separated. Plain names: tagging a companion that doesn't exist on an install is fine, the name just stays in the list.":
+    "ストーリーに登場するキャラクターをカンマ区切りで入力します。ただの名前なので、その環境に存在しないコンパニオンをタグ付けしても問題ありません。名前はリストに残るだけです。",
+  "e.g. 'Eve, Ara'": "例：「Eve, Ara」",
+  "Story": "ストーリー",
+  "Save story": "ストーリーを保存",
+  "Could not load lore stories": "ロアストーリーを読み込めませんでした",
+  "Could not save the story": "ストーリーを保存できませんでした",
+  "Delete the story '%s'? It disappears from every companion tagged in it.":
+    "ストーリー「%s」を削除しますか？ タグ付けされたすべてのコンパニオンから消えます。",
+
   // ── Settings: MCP ─────────────────────────────────────────────────────
   "Remote MCP connections": "リモート MCP 接続",
   "Remote MCP connections can be added after the companion is saved.":
