@@ -229,6 +229,14 @@ CREATE TABLE IF NOT EXISTS agents (
     enable_text_mode INTEGER NOT NULL DEFAULT 1,
     enable_code_execution INTEGER NOT NULL DEFAULT 1,
     enable_gesture_emotion_tools INTEGER NOT NULL DEFAULT 1,
+    -- Optional per-companion style guides appended to the centrally-injected
+    -- expression ambles (session_service._expression_section). Empty means
+    -- the generic guidance stands alone. expression_style shapes
+    -- set_emotion/play_gesture usage (rendered when avatar control tools are
+    -- on); speech_tag_style shapes speech-tag usage (rendered for
+    -- grok-provider companions — the tags are a Grok voice-API feature).
+    expression_style TEXT,
+    speech_tag_style TEXT,
     enable_web_search INTEGER NOT NULL DEFAULT 1,
     enable_x_search INTEGER NOT NULL DEFAULT 1,
     enable_grok_imagine_tools INTEGER NOT NULL DEFAULT 1,
@@ -556,6 +564,9 @@ MIGRATIONS = (
     "WHERE affection_score = 100 AND enable_affection_tool = 0",
     # Per-companion LLM backend — groundwork for a future OpenAI provider.
     "ALTER TABLE agents ADD COLUMN provider TEXT NOT NULL DEFAULT 'grok'",
+    # Per-companion style guides for the centrally-injected expression ambles.
+    "ALTER TABLE agents ADD COLUMN expression_style TEXT",
+    "ALTER TABLE agents ADD COLUMN speech_tag_style TEXT",
 )
 
 

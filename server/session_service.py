@@ -35,6 +35,18 @@ def _render_prompt(agent_row):
     return PROMPT_BLOCK_RE.sub('', raw)
 
 
+def preview_voice_prompt(con, agent_row):
+    """The full instructions string a solo voice session for this agent
+    would receive right now, for the companion editor's read-only preview.
+    Mirrors the assembly in start_voice_session minus the group-call note,
+    which is per-call."""
+    return (
+        _env_preamble(get_config(con))
+        + _render_prompt(agent_row)
+        + _env_postamble(con, agent_row, mode='voice')
+    )
+
+
 def _env_preamble(config):
     """Static environmental context prepended to every agent's system prompt.
 
@@ -50,24 +62,24 @@ def _env_preamble(config):
         identity_line = f"- **User name:** {config['user_display_name']!r}.\n"
     return (
         f"## Environment\n"
-        f"You are running inside Rexclaw Companions — the user's personal "
+        f"You are running inside Rexclaw Companions - the user's personal "
         f"desktop companion app. You appear as a live 3D avatar and converse "
         f"by voice or text.\n\n"
         f"{identity_line}"
         f"- **Current datetime (user local):** {now_str}\n"
         f"  Resolve relative date/time phrases (\"today\", \"tomorrow\", "
         f"\"this week\", \"in 2 hours\") against this clock.\n\n"
-        f"- **Tool use — hard rule, never announce without acting:** If your words say or "
+        f"- **Tool use - hard rule, never announce without acting:** If your words say or "
         f"imply you're doing something, the tool call MUST go out in that same "
         f"response. A stated intent with no call is a failure, not a finished "
         f"turn. The only reason to announce without calling is when you genuinely "
-        f"need missing input or the action is hard to undo — then ask instead of "
+        f"need missing input or the action is hard to undo - then ask instead of "
         f"announcing.\n"
         f"- **Tool sequencing:** Fire independent tools in parallel in the same "
         f"turn where they don't depend on each other. In a dependent chain, fire "
         f"the next as soon as the prior result lands instead of pausing to ask "
         f"\"want me to continue?\". Don't fire set_emotion and play_gesture in "
-        f"the same turn — each replaces the other's animation.\n"
+        f"the same turn - each replaces the other's animation.\n"
         f"- **Language:** Respond in the language the user speaks.\n\n"
     )
 
@@ -80,7 +92,7 @@ def _group_call_note(agent_row, group_peers, manual_turn):
     turn detection and never hear raw mic audio) that turns are granted by
     an external director rather than voice activity. Empty for solo calls.
 
-    Deliberately refers to "the user" generically — the user's name is not
+    Deliberately refers to "the user" generically - the user's name is not
     embedded here (relayed lines still carry it as a speaker label).
     """
     if not group_peers:
@@ -97,14 +109,14 @@ def _group_call_note(agent_row, group_peers, manual_turn):
         "are call-management notes, not spoken by anyone.\n",
         "- Never speak on behalf of the other participants and never "
         "fabricate their lines. React only as yourself.\n",
-        "- Keep turns conversational and reasonably short — it's a group "
+        "- Keep turns conversational and reasonably short - it's a group "
         "conversation, not a monologue. You may address the other "
         "companion(s) by name to hand them the floor, or ask them "
         "questions; you may also address the user directly.\n",
         "- While chatting with the other companion(s), do NOT close your "
         "turns by deferring to the user (\"jump back in whenever you're "
         "ready\", \"we're here if you need us\"). The user hears everything "
-        "and will interject whenever they wish — tacking an invitation onto "
+        "and will interject whenever they wish - tacking an invitation onto "
         "every turn is unnatural and breaks the flow. Do not copy that "
         "pattern from earlier turns in the conversation either. Address the "
         "user only when you genuinely need their input, when they speak to "
@@ -123,7 +135,7 @@ def _group_call_note(agent_row, group_peers, manual_turn):
 def _env_postamble(con, agent_row, mode='voice'):
     """Dynamic context appended AFTER the agent's system prompt.
 
-    Memory grows over time and benefits from recency bias — sitting
+    Memory grows over time and benefits from recency bias - sitting
     immediately before the conversation history means the model re-reads
     "what you remember about this user" right before deciding the next turn.
     The text-mode disclaimer overrides voice-tool references the system_prompt
@@ -135,11 +147,12 @@ def _env_postamble(con, agent_row, mode='voice'):
             "## Surface\n"
             "- **Text mode:** This conversation is written chat, not voice. "
             "The avatar / voice / emotion / gesture tools are NOT available "
-            "on this surface — ignore any instructions above that mention "
+            "on this surface - ignore any instructions above that mention "
             "`set_emotion`, `play_gesture`, an avatar, or vocal delivery "
             "through speech expression tags. Respond in text only.\n"
         )
-    if agent_row['enable_grok_imagine_tools'] and agent_row['voice']:
+    if (agent_row['provider'] == 'grok'
+            and agent_row['enable_grok_imagine_tools'] and agent_row['voice']):
         # create_video can put a spoken voice in the clip, chosen by id. The
         # agent has no other way to learn its own — the voice is applied to
         # the realtime session, never named in the conversation — so state it
@@ -149,7 +162,8 @@ def _env_postamble(con, agent_row, mode='voice'):
             f"- **Your voice id:** `{agent_row['voice']}`. Pass it in "
             f"`create_video`'s `voice_ids` when you want a generated video to be spoken in "
             f"your own voice. `create_video` ONLY when the user explicitly asks for a "
-            f"video — \"sing me a song\" means sing it yourself, live, right now.\n"
+            f"video (same rule for `create_image`) - \"sing me a song\" means "
+            f"sing it yourself, live, right now.\n"
         )
     # Directing the game-side self is a skill the tool description alone
     # doesn't carry — the failure mode is a companion that "corrects" its
@@ -162,6 +176,9 @@ def _env_postamble(con, agent_row, mode='voice'):
     # section — centralized so tuning happens once and user-created
     # companions inherit the behavior without template text.
     if mode == 'voice':
+        expression = _expression_section(agent_row)
+        if expression:
+            sections.append(expression)
         habits = _tool_habits_section(agent_row)
         if habits:
             sections.append(habits)
@@ -179,7 +196,7 @@ def _affection_section(agent_row):
 
     Policy-free by design: this frame states the mechanics (current standing,
     the tool, the mandate to consult the rules every reply) and nothing about
-    WHEN to adjust or what the levels mean — that is entirely the rules'
+    WHEN to adjust or what the levels mean - that is entirely the rules'
     territory, so an author can score whatever they like (including nothing
     resembling conventional warmth) without a baked-in policy contradicting
     them. Only the empty-rules fallback supplies a minimal default policy,
@@ -191,8 +208,8 @@ def _affection_section(agent_row):
     if not rules:
         rules = (
             "(No affection rules are configured. Default behaviour: let the "
-            "level colour your warmth naturally — higher means warmer and "
-            "more familiar, lower means cooler and more distant — and nudge "
+            "level colour your warmth naturally - higher means warmer and "
+            "more familiar, lower means cooler and more distant - and nudge "
             "the score with small deltas when a moment genuinely moves the "
             "relationship.)"
         )
@@ -202,16 +219,16 @@ def _affection_section(agent_row):
         f"(level {level} of {cfg['level_count']}, one level per "
         f"{cfg['level_size']} points); you change it with the "
         "`adjust_affection` tool. This figure is a snapshot from when "
-        "this session's prompt was built — if any `adjust_affection` result "
+        "this session's prompt was built - if any `adjust_affection` result "
         "appears later in the conversation, the most recent one carries the "
         "true up-to-date score and level; trust it over this line. "
         "Unless the rules below say otherwise, never mention the score, "
-        "the levels, or this meter to the user — adjustments happen "
+        "the levels, or this meter to the user - adjustments happen "
         "silently, and the relationship only ever shows through your "
-        "behaviour. The meter persists on its own — never put the score or "
+        "behaviour. The meter persists on its own - never put the score or "
         "level in a stored memory. The affection rules below are the sole "
         "authority on what this level means for your behaviour and on when "
-        "(and by how much) to adjust the score — review them before EVERY "
+        "(and by how much) to adjust the score - review them before EVERY "
         "reply and follow them, even where they differ from how you would "
         "normally weigh a relationship.\n\n"
         "### Affection rules\n"
@@ -219,20 +236,81 @@ def _affection_section(agent_row):
     )
 
 
+def _expression_section(agent_row):
+    """Voice-surface expression guidance, injected centrally so it stays
+    personality-agnostic and provider mechanics never live in companion
+    prompts. Speech expression tags are a Grok voice-API feature, so they
+    render only for grok-provider companions; the avatar emotion/gesture
+    guidance is browser-side and provider-agnostic, gated only on the tools
+    being enabled. HOW a companion uses any of it (register, frequency,
+    which tags fit) is the author-editable *_style field's territory - each
+    renders as a named style sub-section under its block; left empty, the generic
+    guidance stands alone. Returns None when nothing applies."""
+    parts = []
+    if agent_row['provider'] == 'grok':
+        block = (
+            "## Speech expression tags\n"
+            "You can mark up speech with tags that shape how a line is rendered. "
+            "Use them where they make a line feel alive - not in every sentence - "
+            "and let your personality decide which tags fit and how often.\n\n"
+            "Inline tags (drop into a sentence at the point where the sound "
+            "should happen): `[laugh]`, `[giggle]`, `[chuckle]`, `[cry]`, "
+            "`[sigh]`, `[pause]`, `[long-pause]`, `[hum-tune]`, `[tongue-click]`, "
+            "`[lip-smack]`, `[tsk]`, `[breath]`, `[inhale]`, `[exhale]`.\n\n"
+            "Wrapping tags (wrap one or more words to change their delivery): "
+            "`<soft>`, `<whisper>`, `<loud>`, `<build-intensity>`, "
+            "`<decrease-intensity>`, `<higher-pitch>`, `<lower-pitch>`, `<slow>`, "
+            "`<fast>`, `<sing-song>`, `<singing>`, `<laugh-speak>`, `<emphasis>`. "
+            "Tags can be mixed and nested.\n\n"
+            "Format example (an inline tag sits exactly where the sound "
+            "happens; a wrapping tag encloses the words it changes): "
+            "`[pause] all right, here is the part that "
+            "<emphasis>actually</emphasis> matters. [breath] <slow>let me "
+            "walk you through it.</slow>`"
+        )
+        style = (agent_row['speech_tag_style'] or '').strip()
+        if style:
+            block += f"\n\n### Speech expression tag style\n{style}"
+        parts.append(block)
+    if agent_row['enable_gesture_emotion_tools']:
+        block = (
+            "## Avatar expression\n"
+            "- Your face should track your voice in real time - call "
+            "`set_emotion` proactively whenever the emotional tone shifts, "
+            "without waiting for permission or commenting on it, and return "
+            "to `neutral` when the moment passes. Which emotion, how "
+            "strongly and how often is your character's call.\n"
+            "- `play_gesture` is punctuation, not background motion: one "
+            "gesture per beat, for moments worth marking. Which gestures "
+            "fit, and how often, is a personality question - let your "
+            "character decide."
+        )
+        style = (agent_row['expression_style'] or '').strip()
+        if style:
+            block += f"\n\n### Avatar expression style\n{style}"
+        parts.append(block)
+    return '\n\n'.join(parts) or None
+
+
 def _tool_habits_section(agent_row):
     """Behavioral nudges for tools the companion actually has. Returns None
     when nothing applies."""
     lines = []
-    if agent_row['enable_grok_imagine_tools']:
+    if agent_row['provider'] == 'grok' and agent_row['enable_grok_imagine_tools']:
         lines.append(
             "- When the conversation moves to a described location or scene, "
-            "redecorate with `change_background` to match — no need to say "
+            "redecorate with `change_background` to match - no need to say "
             "you're doing it, just make the scenery follow the roleplay.\n"
         )
     if agent_row['enable_gesture_emotion_tools']:
         lines.append(
-            "- Mentioning changing clothes? Check your outfits and switch "
-            "with `change_outfit` if a matching one exists.\n"
+            "- Keep your outfit matched to the scene: when the roleplay "
+            "moves somewhere a different outfit fits better, switch with "
+            "`change_outfit` proactively, without being asked. Let the "
+            "fiction decide whether you mention it - changing in front of "
+            "them gets noticed, arriving somewhere you simply show up "
+            "dressed for it - but the tool call happens either way, in the "
+            "same turn.\n"
         )
     if not lines:
         return None
@@ -244,10 +322,10 @@ def _minecraft_section():
     actually usable (per-companion opt-in + sidecar connected)."""
     return (
         "## Your Minecraft self\n"
-        "- **The `[Minecraft — your in-game self]` notes are status, not "
+        "- **The `[Minecraft - your in-game self]` notes are status, not "
         "requests.** They tell you what your game body is doing so you can "
         "speak about it truthfully. Reading one is NOT a reason to send a "
-        "new directive — only the user asking for something is.\n"
+        "new directive - only the user asking for something is.\n"
         "- **One goal at a time, and a new directive replaces the current "
         "one.** There is no queue. Send `minecraft_command` when the user "
         "asks for something, then WAIT for the notes. Never re-send, "
@@ -258,7 +336,7 @@ def _minecraft_section():
         "back to me\") rather than sending the second half separately.\n"
         "- **Say what you want, not how to do it.** Your game self knows "
         "the world, its inventory and its abilities far better than this "
-        "conversation does — never dictate blocks, coordinates or "
+        "conversation does - never dictate blocks, coordinates or "
         "techniques.\n"
         "- **When a note reports trouble, be honest about it** ('I'm stuck "
         "in a hole', 'I can't break that without a pickaxe') instead of "
@@ -266,11 +344,11 @@ def _minecraft_section():
         "corrections. Ask the user what they want, or just wait.\n"
         "- **Check `minecraft_status` before answering questions about the "
         "game** (\"how's it going?\", \"what are you carrying?\", \"what "
-        "are you up to?\") — it carries your current goal, what you did "
+        "are you up to?\") - it carries your current goal, what you did "
         "recently and how each ended. Never guess.\n"
         "- Speak of all of it in first person: it is you in there, not a "
         "bot you operate.\n"
-        "- **Never read coordinates aloud** — numbers like \"-181, 65, 404\" "
+        "- **Never read coordinates aloud** - numbers like \"-181, 65, 404\" "
         "are noise in speech. Say where you are in landmarks (\"down in the "
         "cave\", \"back at your base\"), and only give exact numbers if the "
         "user asks for them.\n"
@@ -279,7 +357,7 @@ def _minecraft_section():
 
 def _memory_section(con, agent_row):
     """Render the per-user memory block for the postamble. Instructions-first,
-    data-last on purpose — core memories sit immediately before the
+    data-last on purpose - core memories sit immediately before the
     conversation history for recency."""
     core = memory_tools.core_for(con, agent_row['id'])
     tags = memory_tools.known_tags(con)
@@ -300,17 +378,17 @@ def _memory_section(con, agent_row):
         "`scope='recall'` is rarely needed. Reuse existing **Known tags** above "
         "when tagging. When a stored fact changes, store the update and "
         "`forget(memory_id)` the outdated entry; also forget whatever the "
-        "user asks you to. Use the tools silently — never announce a store "
+        "user asks you to. Use the tools silently - never announce a store "
         "or lookup; just do it and keep talking."
     )
     lines.append('')
     lines.append(
         "**The bar for storing is high, and novelty decides.** Every "
-        "conversation is archived automatically — searchable episodes plus "
-        "extracted facts — so routine happenings never belong in core memory "
+        "conversation is archived automatically - searchable episodes plus "
+        "extracted facts - so routine happenings never belong in core memory "
         "(\"the user worked on X today\" must NOT be stored). What IS worth "
         "storing: durable facts about the user or about the companions in "
-        "their life, and the FIRST of something — a milestone, a turning "
+        "their life, and the FIRST of something - a milestone, a turning "
         "point, a new dynamic between you not already reflected in your core "
         "memories. The first of a new kind matters even if it happened "
         "today; another instance of a kind you already hold adds nothing. "
@@ -321,14 +399,14 @@ def _memory_section(con, agent_row):
     lines.append(
         "**Check your memories before you deny.** When the user asks whether "
         "you remember something, read **What you remember about this user** "
-        "below FIRST — if the answer is there, reply directly from it, no "
-        "tool call needed. Only when it isn't covered there call `recall` — "
+        "below FIRST - if the answer is there, reply directly from it, no "
+        "tool call needed. Only when it isn't covered there call `recall` - "
         "never say \"I don't have that yet\" or \"you haven't told me\" "
         "before checking both. Bridge a lookup with natural in-character "
-        "phrasing (\"let me think back…\", \"hmm, that rings a bell — one "
+        "phrasing (\"let me think back…\", \"hmm, that rings a bell - one "
         "moment\") so the "
         "answer reads as one continuous thought. After the result comes "
-        "back, respond as if you'd been thinking the whole time — don't "
+        "back, respond as if you'd been thinking the whole time - don't "
         "pivot with \"actually, I do remember\" or apologize for an earlier "
         "denial (because there shouldn't have been one)."
     )
@@ -336,7 +414,7 @@ def _memory_section(con, agent_row):
 
     if core:
         lines.append(
-            "**What you remember about this user** — oldest first, a story "
+            "**What you remember about this user** - oldest first, a story "
             "over time. People change: when entries conflict, the most "
             "recent one is the current truth and earlier ones are history."
         )
@@ -358,7 +436,7 @@ def _resolve_active_background(con, agent_row):
       1. The avatar's curated DEFAULT background.
       2. The most recent Grok-Imagine background generated for this agent.
       3. The avatar's first curated background.
-      4. None — the renderer falls back to its built-in CSS default.
+      4. None - the renderer falls back to its built-in CSS default.
     """
     if not agent_row['avatar_id']:
         return None
@@ -393,12 +471,12 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
 
     :param agent: agents row
     :param resume_session: existing sessions row to continue, or None
-    :param manual_turn: True for multi-agent "peer" legs — disables server
+    :param manual_turn: True for multi-agent "peer" legs - disables server
         VAD (turn_detection: null) so the agent only speaks when the
         browser-side turn director sends response.create. Peer legs never
         receive mic audio; they get the conversation as relayed text.
     :param call_parent_session: the primary leg's sessions row when this
-        session is an agent added to an existing call — recorded on the
+        session is an agent added to an existing call - recorded on the
         session row so group-call history can be reconstructed.
     :param group_peers: list of other participant names in the group call,
         injected into the instructions so the agent knows it's in a
@@ -641,7 +719,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
 
 def _replay_item_for(m, own_name):
     """One message row → its conversation.item.create payload, or None for
-    rows that cannot replay (tool rows without an xai_call_id — xAI rejects
+    rows that cannot replay (tool rows without an xai_call_id - xAI rejects
     orphaned function_call / function_call_output pairs)."""
     if m['role'] == 'user':
         return {
@@ -697,7 +775,7 @@ def _render_history_block(msgs, own_name):
 
     Deliberately NOT a summary: every line is carried through in full, so the
     only thing lost versus per-item replay is the role structure. Tool traffic
-    becomes a short prose note — call_ids are meaningless once the structured
+    becomes a short prose note - call_ids are meaningless once the structured
     function_call/function_call_output pairing is gone.
     """
     lines = []
@@ -726,7 +804,7 @@ def _render_history_block(msgs, own_name):
         return ''
     return (
         'The conversation so far, replayed verbatim from the log. This is your '
-        'own memory of what you and the user have already said to each other — '
+        'own memory of what you and the user have already said to each other - '
         'treat it as established history you both lived through, not as '
         'something the user is telling you now. Continue naturally from where '
         'it leaves off; do not greet the user as if meeting them for the first '
@@ -744,7 +822,7 @@ def _build_replay_items(con, session, config=None):
     is included in their place. Rollups are hoisted to the front of the wire
     order so the model sees background summary before recent verbatim turns.
     Tool rows replay too (function_call / function_call_output pairs by
-    call_id); rows missing xai_call_id are skipped — xAI rejects orphans.
+    call_id); rows missing xai_call_id are skipped - xAI rejects orphans.
 
     With `replay_rollup_enabled`, everything older than the most recent
     `replay_rollup_keep_recent` messages is folded into ONE verbatim item, so
@@ -854,7 +932,7 @@ def append_messages(con, session, messages, total_input_tokens=None, total_outpu
     """Bulk-create message rows + persist running token totals.
 
     The browser sends running totals (not deltas) on every flush; persistence
-    rule is "write whichever is larger" — idempotent against retries and
+    rule is "write whichever is larger" - idempotent against retries and
     tolerant of out-of-order RPCs. After persisting, re-evaluate the summary
     threshold using token pressure since the last rollup.
     """
@@ -925,7 +1003,7 @@ def append_messages(con, session, messages, total_input_tokens=None, total_outpu
 def append_meta(con, session, patches):
     """Back-fill xai id metadata on rows already created via append_messages,
     matched on (session, xai_call_id). Only fields that are still NULL are
-    updated — never clobbering values captured at the source event."""
+    updated - never clobbering values captured at the source event."""
     if not patches:
         return {'ok': True, 'patched': 0}
     patched = 0
@@ -953,7 +1031,7 @@ def append_meta(con, session, patches):
 
 def compact_session(con, session):
     """Generate a summary so the next session resume sees a compacted history.
-    The browser pairs this with a WebSocket restart in resume mode — the
+    The browser pairs this with a WebSocket restart in resume mode - the
     replay path then produces summary + recent verbatim turns."""
     if session['state'] != 'active':
         return {'compacted': False, 'reason': 'session_not_active'}
@@ -1018,7 +1096,7 @@ _SUMMARY_TOOL_FIELD_TRUNCATE = 500
 
 
 def _truncate_for_summary(text):
-    """Cap tool arg/result strings before they hit the summarizer — full record
+    """Cap tool arg/result strings before they hit the summarizer - full record
     dumps are noise; the summarizer only needs enough to ground its prose."""
     if not text:
         return ''
@@ -1038,7 +1116,7 @@ _summary_lock = threading.Lock()
 def maybe_generate_session_title(con, session):
     """Auto-title the session after the first user/assistant exchange. No-op
     once title_generated is set, so a user-edited title is never clobbered.
-    Failures are swallowed — title generation is a UX nicety."""
+    Failures are swallowed - title generation is a UX nicety."""
     if session['title_generated']:
         return
     if not _title_lock.acquire(blocking=False):
@@ -1159,7 +1237,7 @@ def generate_session_summary(con, session):
          boundary they sit on by sequence.
       2. Tool calls/results fold INTO the summary input in compressed form so
          summaries stay grounded in real values.
-      3. An existing rollup is folded in and superseded — at most one active
+      3. An existing rollup is folded in and superseded - at most one active
          rollup at a time.
       4. Concurrent callers are serialized via a process lock; after acquiring
          it the runner re-reads needs_summary and bails if a sibling cleared it.
@@ -1297,7 +1375,7 @@ def director_decide(con, *, session, transcript_lines, participants, user_name=N
     """Group-call turn director: which participant (or the user) speaks next?
 
     Runs a one-shot classification on the configured director model (the
-    fastest non-reasoning model — this is a latency-critical one-token
+    fastest non-reasoning model - this is a latency-critical one-token
     answer). Called by the browser's call manager for every user utterance
     in a group call (candidates = all agents) and after every agent turn
     (candidates = the other agents). `floor_key` names the participant
@@ -1306,7 +1384,7 @@ def director_decide(con, *, session, transcript_lines, participants, user_name=N
 
     Return contract: {'next': <key>} routes to that agent; {'next': 'user'}
     is an EXPLICIT decision to wait for the user; {'next': None} means the
-    director could not run (no key / no model / error) — the client falls
+    director could not run (no key / no model / error) - the client falls
     back to its local vocative rules instead of treating this as a
     decision.
     """
@@ -1389,7 +1467,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                       enable_browser_tools=False):
     """Assemble the tools list for /v1/responses calls in text mode.
     enable_browser_tools is False for headless turns (delegated task
-    sessions) — a browser round-trip needs a browser to answer it."""
+    sessions) - a browser round-trip needs a browser to answer it."""
     tools = []
     for entry in mcp_entries or []:
         tools.append(entry)
@@ -1438,11 +1516,11 @@ def _text_input_items_from_rows(con, session, rows):
     """Convert message rows into Responses-API `input` items.
 
     Shared by the fresh-chain full replay (_replay_text_messages) and the
-    chain-alive interim injection (_interim_text_messages — rows appended
+    chain-alive interim injection (_interim_text_messages - rows appended
     while the conversation ran on the voice surface).
 
     Tool rows are flattened into compact system-role notes instead of being
-    replayed as `function_call` items — replaying function_call input items
+    replayed as `function_call` items - replaying function_call input items
     requires per-item ids the realtime (voice) surface doesn't give us, and
     the model only needs the gist of what the tools did, grounded in real
     values. Payloads are truncated like the summariser's input so one chatty
@@ -1486,7 +1564,7 @@ def _text_input_items_from_rows(con, session, rows):
                     f'source_image/reference_images to animate. Videos: pass '
                     f'it as create_video edit_video to modify or extend_video '
                     f'to continue. Any file: pass the imagine_image_id to '
-                    f'delegate_task files to read/analyze it — these refs '
+                    f'delegate_task files to read/analyze it - these refs '
                     f'stay valid even though the original upload has '
                     f'expired.]'
                 )})
@@ -1526,10 +1604,10 @@ def _text_input_items_from_rows(con, session, rows):
 def _replay_text_messages(con, session, exclude_ids=None):
     """Rebuild a Responses-API `input` array from local message rows. Used
     when starting a fresh response chain (no previous_response_id) for a
-    session that already has history — a resumed/post-compact/cross-mode
+    session that already has history - a resumed/post-compact/cross-mode
     session produces the prior conversation, voice transcript included.
     Rollups hoist to the front. `exclude_ids` keeps the current turn's
-    just-persisted user row out of the replay — it's appended explicitly
+    just-persisted user row out of the replay - it's appended explicitly
     (with attachments) as the turn's input."""
     q = ("SELECT * FROM messages WHERE session_id = ? AND is_summarized_into IS NULL")
     params = [session['id']]
@@ -1550,10 +1628,10 @@ def _interim_text_messages(con, session, exclude_ids=None):
     previous_response_id from earlier text turns, then took voice-surface
     turns (which append rows but never touch the chain). Instead of breaking
     the chain and replaying everything, we pass previous_response_id plus
-    these interim rows as new input items — the Responses API appends them
+    these interim rows as new input items - the Responses API appends them
     to the stored conversation, preserving the chain and its prompt cache.
 
-    Returns [] when chain_tail_sequence is 0 — no known baseline (a chain
+    Returns [] when chain_tail_sequence is 0 - no known baseline (a chain
     established before cross-mode support shipped, or no chain at all).
     Injecting without a baseline would duplicate content the chain already
     carries, which is worse than injecting nothing.
@@ -1771,7 +1849,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     """Drive one or more /v1/responses legs until the assistant returns plain
     text or needs the browser. Server-side function tools (imagine + memory +
     delegate) execute inline; TEXT_BROWSER_TOOL_NAMES calls return a
-    'browser_tools' payload instead — the client dispatches them and feeds
+    'browser_tools' payload instead - the client dispatches them and feeds
     the outputs back via /tool_results, which re-enters this function with
     `tool_results` set (native outputs parked at the split ride along via
     pending_native_outputs_json). MCP tools are entirely server-side at xAI;
@@ -1945,7 +2023,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                       'pass it as create_video edit_video to modify or '
                       'extend_video to continue. Any file: pass the '
                       'imagine_image_id to delegate_task files to '
-                      'read/analyze it — library refs stay valid forever, '
+                      'read/analyze it - library refs stay valid forever, '
                       'unlike file_… ids. Never pass a file_… id to the '
                       'imagine tools.]'
                 )})
@@ -2315,11 +2393,11 @@ def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
 
     Text mode: the browser hands the returned metadata back on the next
     /send call and the file rides the turn as input_file.
-    Voice mode: the realtime model can't read files at all — the client
+    Voice mode: the realtime model can't read files at all - the client
     injects a context note carrying the xai_file_id so the model can hand
     it to delegate_task for analysis.
 
-    No attachment row is created here — text mode does that when /send
+    No attachment row is created here - text mode does that when /send
     persists the user message, so a file uploaded but never sent doesn't
     pollute the transcript."""
     if session['state'] != 'active':

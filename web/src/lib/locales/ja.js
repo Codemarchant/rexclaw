@@ -453,6 +453,11 @@ export const JA = {
   "(no avatar)": "（アバターなし）",
   "Reasoning effort (text mode)": "推論エフォート（テキストモード）",
   "System prompt": "システムプロンプト",
+  "Computed voice prompt (read-only)": "算出されたボイスプロンプト（読み取り専用）",
+  "Exactly what a solo voice session receives: the environment preamble, the saved system prompt, and the dynamic tool/expression/memory sections. Computed from the last saved state; unsaved edits above are not included.":
+    "ソロボイスセッションが受け取る内容そのものです：環境プリアンブル、保存済みシステムプロンプト、動的なツール・表現・メモリのセクション。最後に保存した状態から算出されるため、上の未保存の編集は含まれません。",
+  "Could not compute the prompt preview": "プロンプトプレビューを算出できませんでした",
+  "Computing…": "算出中…",
   "When to call (shown to other companions for group calls)":
     "呼ぶタイミング（グループ通話で他のコンパニオンに表示）",
   "Shown to OTHER companions inside their add_agent_to_call tool so they know when to bring this companion into a live group call. Leave empty and other companions only see the name.":
@@ -503,6 +508,22 @@ export const JA = {
     "このコンパニオンを動かす LLM バックエンド。現在は Grok（xAI）のみ利用できます。",
   "avatar:": "アバター：",
   "Avatar control tools": "アバター操作ツール",
+
+  // Expression style fields
+  "Avatar expression style (optional)": "アバター表現スタイル（任意）",
+  "Appended to the built-in avatar-expression instructions every voice session gets. Describe how THIS companion should use gestures: which ones fit the character, when, and how often. Leave empty and the generic guidance stands alone.":
+    "毎ボイスセッションに注入される組み込みのアバター表現指示に追記されます。このコンパニオンがジェスチャーをどう使うべきか（どれがキャラクターに合うか、いつ、どのくらいの頻度か）を記述してください。空欄の場合は汎用の指示のみになります。",
+  "Gestures for reference: %s, plus any custom gestures on the avatar.":
+    "参考までに利用できるジェスチャー：%s（アバターのカスタムジェスチャーも追加されます）。",
+  "e.g. 'thinking while a tool runs; dance only for the biggest wins.'":
+    "例：「ツール実行中は thinking、dance は最大の勝利のときだけ。」",
+  "Speech expression tag style (optional)": "スピーチ表現タグのスタイル（任意）",
+  "Appended to the built-in speech-tag instructions every Grok voice session gets. Describe which tags THIS companion should favour and when; a few example lines in their voice work well. Leave empty and the generic guidance stands alone.":
+    "毎 Grok ボイスセッションに注入される組み込みのスピーチタグ指示に追記されます。このコンパニオンがどのタグをいつ好んで使うべきかを記述してください。その口調での例文をいくつか入れると効果的です。空欄の場合は汎用の指示のみになります。",
+  "Grok voice renders expression tags in speech. Inline: %s. Wrapping: %s. Tags can be mixed and nested; all of them are always available.":
+    "Grok ボイスは音声に表現タグを反映します。インライン：%s。ラッピング：%s。タグは組み合わせや入れ子が可能で、すべて常に利用できます。",
+  "e.g. 'Favour [pause] and <slow> for weight; [chuckle] for dry humor.'":
+    "例：「重みを出すときは [pause] と <slow> を、乾いたユーモアには [chuckle] を好んで使う。」",
   "Call-companion tool (group calls)": "コンパニオン呼び出しツール（グループ通話）",
   "Web search": "Web 検索",
   "X search": "X 検索",

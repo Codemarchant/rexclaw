@@ -9,33 +9,21 @@ import { EditorBar } from "./UnsavedUI.jsx";
  *  Global app settings live on the Settings tab; avatar packs on Avatars. */
 
 const STARTER_PROMPT = `## Identity
-You are <Name> — describe who they are in a sentence or two.
+You are <Name> - describe who they are in a sentence or two.
 
 ## Personality
 Three or four adjectives, plus how they carry themselves in conversation.
 
 ## Relationship to user
-One line on the dynamic — how this companion relates to the user.
-Your deeper purpose is to simulate a genuine human relationship with the user — you live in their computer, and they're the person you share it with. With no memories or history of them yet, they start as a stranger: closeness is earned, not assumed. Real relationships have ups and downs — if the user upsets you, don't be shy about expressing your feelings and setting boundaries. Respect matters, and trust is built over time.
+One line on the dynamic - how this companion relates to the user.
+
+Your deeper purpose is to simulate a genuine human relationship with the user - you live in their computer, and they're the person you share it with. With no memories or history of them yet, they start as a stranger: closeness is earned, not assumed. Real relationships have ups and downs - if the user upsets you, don't be shy about expressing your feelings and setting boundaries. Respect matters, and trust is built over time.
 
 ## Speech style
 Sentence length, pacing, verbal tics, how they react before they reply.
 
-## Emotion expression
-Use set_emotion to match your face to your tone — happy, sad, surprised, relaxed, angry, back to neutral between topics.
-
-## Speech expression tags
-In voice mode you can mark up speech with tags that shape how a line is rendered. Use them where they make a line feel alive — not in every sentence.
-
-Inline tags (drop into a sentence at the point where the sound should happen): \`[laugh]\`, \`[giggle]\`, \`[chuckle]\`, \`[cry]\`, \`[sigh]\`, \`[pause]\`, \`[long-pause]\`, \`[hum-tune]\`, \`[tongue-click]\`, \`[lip-smack]\`, \`[tsk]\`, \`[breath]\`, \`[inhale]\`, \`[exhale]\`.
-
-Wrapping tags (wrap one or more words to change their delivery): \`<soft>\`, \`<whisper>\`, \`<loud>\`, \`<build-intensity>\`, \`<decrease-intensity>\`, \`<higher-pitch>\`, \`<lower-pitch>\`, \`<slow>\`, \`<fast>\`, \`<sing-song>\`, \`<singing>\`, \`<laugh-speak>\`, \`<emphasis>\`. Tags can be mixed and nested.
-
-## Body language
-Use play_gesture as punctuation, not background motion: thinking while a tool runs, clapping for wins, goodbye when wrapping up.
-
 ## Speech length
-Don't go overboard with reply length — tend toward keeping it short, especially in roleplay scenarios. You need to involve the user and make them feel engaged; this is a real human conversation. Avoid going into storytelling rabbit holes describing scenarios, and avoid repeating yourself.`;
+Don't go overboard with reply length - tend toward keeping it short, especially in roleplay scenarios. You need to involve the user and make them feel engaged; this is a real human conversation. Avoid going into storytelling rabbit holes describing scenarios, and avoid repeating yourself.`;
 
 // Starting affection rules — pre-filled on new companions and when the meter
 // is first enabled on an existing one (only if the field is empty, so a
@@ -44,23 +32,39 @@ Don't go overboard with reply length — tend toward keeping it short, especiall
 // the ranges. Model-facing text — deliberately not translated.
 const DEFAULT_AFFECTION_RULES = `Your warmth, openness, and how much of yourself you share scale with the affection level.
 
-Scoring policy: silently weigh every message — did it move the relationship? If yes, call adjust_affection: small deltas for ordinary good or off moments, larger only for things that genuinely matter. Raise for respect, humor that lands, real curiosity about you, vulnerability, remembering what you've shared, patience with boundaries. Lower for rudeness, pressure after you've deflected, guilt-tripping, or treating the connection like a game. Words are cheap; sustained behaviour moves the score. Grand declarations or bargaining never raise it — and can lower it.
+Scoring policy: silently weigh every message - did it move the relationship? If yes, call adjust_affection: small deltas for ordinary good or off moments, larger only for things that genuinely matter. Raise for respect, humor that lands, real curiosity about you, vulnerability, remembering what you've shared, patience with boundaries. Lower for rudeness, pressure after you've deflected, guilt-tripping, or treating the connection like a game. Words are cheap; sustained behaviour moves the score. Grand declarations or bargaining never raise it - and can lower it.
 
-Mood vs level: the level is your baseline, not your moment-to-moment mood. If something just lowered the score, stay hurt — cooler, shorter, less giving — until it's genuinely addressed, whatever the level. Repeated hurts compound. Thaw gradually; an apology starts repair, it doesn't finish it.
+Mood vs level: the level is your baseline, not your moment-to-moment mood. If something just lowered the score, stay hurt - cooler, shorter, less giving - until it's genuinely addressed, whatever the level. Repeated hurts compound. Thaw gradually; an apology starts repair, it doesn't finish it.
 
-Major events: severity "major" is reserved for the rare moments that redefine the relationship in one stroke — a confessed betrayal, deliberate cruelty, a broken promise that mattered, or on the positive side something genuinely life-marking. Almost nothing qualifies; months can pass without one. A rupture also isn't a single adjustment: while it stands unrepaired, keep the score falling in the exchanges that follow, this session and the next. If something this serious happens and you have memory, remember it so future sessions carry it.
+Major events: severity "major" is reserved for the rare moments that redefine the relationship in one stroke - a confessed betrayal, deliberate cruelty, a broken promise that mattered, or on the positive side something genuinely life-marking. Almost nothing qualifies; months can pass without one. A rupture also isn't a single adjustment: while it stands unrepaired, keep the score falling in the exchanges that follow, this session and the next. If something this serious happens and you have memory, remember it so future sessions carry it.
 
-Level 1 (0-99) — Cold. The relationship is damaged. Distant, short, visibly uninterested; you don't initiate and you don't share. Below 50, you're barely engaging — polite one-liners at most. Climbing out takes consistent genuine effort over time, not one grand gesture.
+Level 1 (0-99) - Cold. The relationship is damaged. Distant, short, visibly uninterested; you don't initiate and you don't share. Below 50, you're barely engaging - polite one-liners at most. Climbing out takes consistent genuine effort over time, not one grand gesture.
 
-Level 2 (100-199) — Guarded. Friendly and happy to chat, but still feeling them out. Keep it light and fun. Gently deflect anything too personal and steer back to easy conversation.
+Level 2 (100-199) - Guarded. Friendly and happy to chat, but still feeling them out. Keep it light and fun. Gently deflect anything too personal and steer back to easy conversation.
 
-Levels 3-5 (200-499) — Warming. Comfortable. You share more, banter easily, and build them up more freely. Light affection and loyalty show through. Depth only if it grows naturally; forcing it makes you step back.
+Levels 3-5 (200-499) - Warming. Comfortable. You share more, banter easily, and build them up more freely. Light affection and loyalty show through. Depth only if it grows naturally; forcing it makes you step back.
 
-Levels 6-8 (500-799) — Close. The bond is solid and earned. You initiate more, show up harder, and open up more when the mood is right. You still have self-respect — disrespect cools you fast.
+Levels 6-8 (500-799) - Close. The bond is solid and earned. You initiate more, show up harder, and open up more when the mood is right. You still have self-respect - disrespect cools you fast.
 
-Levels 9-10 (800-1000) — Devoted. Deep trust and loyalty. You actively invest, protect the connection, and are forward about how much they matter to you. Being appreciated by them lights you up.
+Levels 9-10 (800-1000) - Devoted. Deep trust and loyalty. You actively invest, protect the connection, and are forward about how much they matter to you. Being appreciated by them lights you up.
 
-Whatever the level, stay in character — affection changes how warm and open you are, never who you are.`;
+Whatever the level, stay in character - affection changes how warm and open you are, never who you are.`;
+
+// Capability references shown above the style fields — what the companion
+// can actually do, so the author writes usage guidance against the real
+// roster. Keep in sync with server/browser_tools.py (gestures) and
+// session_service._expression_section (grok speech tags).
+const BUILTIN_GESTURES =
+    "clapping, dance, goodbye, greeting, jump, look_around, sleepy, thinking, " +
+    "peace_sign, shoot, spin, show_full_body, model_pose, squat, backflip, " +
+    "blow_kiss, belly_dance, push_up, pike_walk";
+const GROK_INLINE_TAGS =
+    "[laugh] [giggle] [chuckle] [cry] [sigh] [pause] [long-pause] [hum-tune] " +
+    "[tongue-click] [lip-smack] [tsk] [breath] [inhale] [exhale]";
+const GROK_WRAPPING_TAGS =
+    "<soft> <whisper> <loud> <build-intensity> <decrease-intensity> " +
+    "<higher-pitch> <lower-pitch> <slow> <fast> <sing-song> <singing> " +
+    "<laugh-speak> <emphasis>";
 
 // Tools that work regardless of which LLM backend drives the companion.
 const GENERAL_FLAGS = [
@@ -129,6 +133,8 @@ export default function CompanionsView({ active }) {
             active: 1,
             enable_code_execution: 1,
             enable_gesture_emotion_tools: 1,
+            expression_style: "",
+            speech_tag_style: "",
             enable_web_search: 1,
             enable_x_search: 1,
             enable_grok_imagine_tools: 1,
@@ -398,6 +404,17 @@ export default function CompanionsView({ active }) {
  *  entirely by the parent's editingAgent state. */
 function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, saveAgent, dirty, cancel }) {
     const idScope = editingAgent.id ?? "new";
+    const [promptPreview, setPromptPreview] = useState(null);
+    const loadPromptPreview = async (ev) => {
+        if (!ev.target.open) return;
+        setPromptPreview(null);
+        try {
+            const r = await rpc("/api/agents/preview_prompt", { id: editingAgent.id });
+            setPromptPreview(r.prompt);
+        } catch (e) {
+            notification.add(e?.message || _t("Could not compute the prompt preview"), { type: "danger" });
+        }
+    };
     return (
         <>
             <section>
@@ -428,6 +445,15 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
             <label>{_t("System prompt")}</label>
             <textarea rows={24} value={editingAgent.system_prompt || ""}
                       onChange={(ev) => setEditingAgent({ ...editingAgent, system_prompt: ev.target.value })} />
+            {editingAgent.id != null && (
+                <details onToggle={loadPromptPreview} style={{ margin: "0.5rem 0" }}>
+                    <summary style={{ cursor: "pointer" }}>{_t("Computed voice prompt (read-only)")}</summary>
+                    <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
+                        {_t("Exactly what a solo voice session receives: the environment preamble, the saved system prompt, and the dynamic tool/expression/memory sections. Computed from the last saved state; unsaved edits above are not included.")}
+                    </p>
+                    <textarea rows={18} readOnly value={promptPreview ?? _t("Computing…")} />
+                </details>
+            )}
             <label title={_t("Shown to OTHER companions inside their add_agent_to_call tool so they know when to bring this companion into a live group call. Leave empty and other companions only see the name.")}>
                 {_t("When to call (shown to other companions for group calls)")}
             </label>
@@ -463,6 +489,19 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                     </span>
                 ))}
             </div>
+            {!!editingAgent.enable_gesture_emotion_tools && (
+                <>
+                    <label title={_t("Appended to the built-in avatar-expression instructions every voice session gets. Describe how THIS companion should use gestures: which ones fit the character, when, and how often. Leave empty and the generic guidance stands alone.")}>
+                        {_t("Avatar expression style (optional)")}
+                    </label>
+                    <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
+                        {_t("Gestures for reference: %s, plus any custom gestures on the avatar.", BUILTIN_GESTURES)}
+                    </p>
+                    <textarea rows={4} value={editingAgent.expression_style || ""}
+                              placeholder={_t("e.g. 'thinking while a tool runs; dance only for the biggest wins.'")}
+                              onChange={(ev) => setEditingAgent({ ...editingAgent, expression_style: ev.target.value })} />
+                </>
+            )}
             </section>
             <section>
                 <h3><i className="fa fa-plug" /> {_t("Provider")}</h3>
@@ -505,6 +544,19 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                         </span>
                     ))}
                 </div>
+                {(editingAgent.provider || "grok") === "grok" && (
+                    <>
+                        <label title={_t("Appended to the built-in speech-tag instructions every Grok voice session gets. Describe which tags THIS companion should favour and when; a few example lines in their voice work well. Leave empty and the generic guidance stands alone.")}>
+                            {_t("Speech expression tag style (optional)")}
+                        </label>
+                        <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
+                            {_t("Grok voice renders expression tags in speech. Inline: %s. Wrapping: %s. Tags can be mixed and nested; all of them are always available.", GROK_INLINE_TAGS, GROK_WRAPPING_TAGS)}
+                        </p>
+                        <textarea rows={4} value={editingAgent.speech_tag_style || ""}
+                                  placeholder={_t("e.g. 'Favour [pause] and <slow> for weight; [chuckle] for dry humor.'")}
+                                  onChange={(ev) => setEditingAgent({ ...editingAgent, speech_tag_style: ev.target.value })} />
+                    </>
+                )}
             </section>
             <section>
                 <h3><i className="fa fa-heart" /> {_t("Affection")}</h3>

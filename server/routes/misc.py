@@ -47,6 +47,7 @@ _AGENT_FIELDS = (
     "name", "active", "sequence", "provider", "voice", "system_prompt", "avatar_id",
     "reasoning_effort",
     "enable_code_execution", "enable_gesture_emotion_tools",
+    "expression_style", "speech_tag_style",
     "enable_web_search", "enable_x_search", "enable_grok_imagine_tools",
     "enable_memory_tools", "core_memory_cap",
     "enable_affection_tool", "affection_animations",
@@ -230,12 +231,26 @@ def agents_delete(payload: dict = Body(default={}), con=Depends(db_con)):
     return {"ok": True}
 
 
+@router.post("/agents/preview_prompt")
+def agents_preview_prompt(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Read-only: the full computed instructions a solo voice session for
+    this agent would receive right now (environment preamble + rendered
+    system prompt + dynamic postamble sections)."""
+    row = con.execute(
+        "SELECT * FROM agents WHERE id = ?", (payload.get("id"),)
+    ).fetchone()
+    if not row:
+        raise UserError("Companion not found.")
+    from ..session_service import preview_voice_prompt
+    return {"prompt": preview_voice_prompt(con, row)}
+
+
 @router.post("/agents/restore_presets")
 def agents_restore_presets(payload: dict = Body(default={}), con=Depends(db_con)):
     """Re-create any deleted preset companions (matched by name) from the
     bundled seeds. Existing agents are never touched — restoring brings back
     the original prompt/voice/avatar only for presets that are missing."""
-    from ..seeds import AGENT_SEEDS
+    from ..seeds import AGENT_SEEDS, insert_seed
     restored = []
     for seed in AGENT_SEEDS:
         exists = con.execute(
@@ -243,16 +258,7 @@ def agents_restore_presets(payload: dict = Body(default={}), con=Depends(db_con)
         ).fetchone()
         if exists:
             continue
-        avatar = con.execute(
-            "SELECT id FROM avatars WHERE pack_key = ?", (seed["pack"],)
-        ).fetchone()
-        con.execute(
-            "INSERT INTO agents (name, sequence, voice, system_prompt, avatar_id,"
-            " when_to_call_description, wake_phrase) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (seed["name"], seed["sequence"], seed["voice"], seed["prompt"],
-             avatar["id"] if avatar else None, seed.get("when_to_call"),
-             seed.get("wake")),
-        )
+        insert_seed(con, seed)
         restored.append(seed["name"])
     con.commit()
     return {"ok": True, "restored": restored}
