@@ -16,7 +16,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, store, transfer
+from .. import avatar_packs, portraits, store, transfer
 from ..errors import UserError
 from .common import db_con
 
@@ -41,8 +41,20 @@ def manage_list(payload: dict = Body(default={}), con=Depends(db_con)):
     for r in rows:
         d = dict(r)
         d["editable"] = bool(r["pack_key"]) and avatar_packs.pack_is_editable(r["pack_key"])
+        d["portrait_url"] = portraits.portrait_url(r["vrm_path"])
         out.append(d)
     return out
+
+
+@router.get("/portrait")
+def portrait(vrm: str, v: str = ""):
+    """The portrait JPEG for a served VRM path (see server/portraits.py).
+    `v` is only a cache-buster; the file is keyed by the VRM's mtime/size."""
+    path = portraits.portrait_file(vrm)
+    if not path:
+        raise UserError("No portrait for that avatar.")
+    return FileResponse(str(path), media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @router.post("/create")

@@ -10,6 +10,7 @@ dependencies = [
     "requests>=2.31",
     "python-multipart>=0.0.9",
     "cryptography>=42",
+    "pillow>=10",
 ]
 
 [project.scripts]

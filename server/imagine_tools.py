@@ -69,9 +69,12 @@ _CHANGE_BACKGROUND_TOOL = {
         "short looping video (gentle motion: drifting clouds, rain on "
         "glass, flickering neon) — instead of a still image; animated "
         "takes ~30-60 seconds to render and costs a few cents, so mention "
-        "it's on the way and don't spam it. The result is saved to this "
-        "agent's Imagine library and becomes the user's preferred "
-        "background until they pick a different one."
+        "it's on the way and don't spam it. Call this ONCE per scene change "
+        "- never several calls at the same time: each one renders and bills, "
+        "and only the last to finish stays on screen. Pick the single best "
+        "description. The "
+        "result is saved to this agent's Imagine library and becomes the "
+        "user's preferred background until they pick a different one."
     ),
     'parameters': {
         'type': 'object',
@@ -166,11 +169,7 @@ _CREATE_VIDEO_TOOL = {
                               frame.
                               Takes resolution, duration_seconds.
 
-          Reference-to-Video  reference_images and/or voice_ids. Those
-                              subjects and voices appear WITHOUT locking the
-                              opening frame — these two are one mode, so they
-                              are the only pair that may be used together.
-                              Takes aspect_ratio, resolution, duration_seconds.
+          __REFERENCE_MODE__
 
           Video Editing       edit_video. Changes the clip in place, keeping
                               the rest intact; the prompt describes the change
@@ -313,19 +312,53 @@ IMAGINE_TOOLS = [_CHANGE_BACKGROUND_TOOL, _CREATE_IMAGE_TOOL, _CREATE_VIDEO_TOOL
 IMAGINE_TOOL_NAMES = {t['name'] for t in IMAGINE_TOOLS}
 
 
-def build_create_video_tool(*, voice_mode):
+# Video-model capability gating. Video models KNOWN to lack Reference-to-Video
+# (reference_images + voice_ids) get those parameters removed from the
+# create_video schema — and refused at execution — so the companion can't call
+# what the configured model can't do. Anything not listed (aliases, newer
+# releases) gets the full schema: the API's own error, which names the model,
+# is the signal there, so a new xAI release is never blocked by this table.
+_VIDEO_MODELS_WITHOUT_REFERENCE = {'grok-imagine-video'}
+
+# The mode-table entry for Reference-to-Video, spliced into the description
+# only when the configured model supports it (the other mentions of the two
+# parameters are "not with…" exclusions — harmless once the params are gone).
+_REFERENCE_MODE_BLOCK = (
+    "Reference-to-Video  reference_images and/or voice_ids. Those\n"
+    "                      subjects and voices appear WITHOUT locking the\n"
+    "                      opening frame — these two are one mode, so they\n"
+    "                      are the only pair that may be used together.\n"
+    "                      Takes aspect_ratio, resolution, duration_seconds."
+)
+
+
+def video_reference_supported(config):
+    """Whether the configured video model takes reference_images / voice_ids."""
+    model = (config['imagine_video_model'] or '').strip()
+    return model not in _VIDEO_MODELS_WITHOUT_REFERENCE
+
+
+def build_create_video_tool(*, voice_mode, reference=True):
     """create_video for a session: the static schema, plus the take_selfie
     hint in voice mode (take_selfie is a browser tool, so text mode — which
-    has no live canvas — never mentions it)."""
-    if not voice_mode:
-        return _CREATE_VIDEO_TOOL
+    has no live canvas — never mentions it), minus the Reference-to-Video
+    parameters when the configured video model lacks them."""
     tool = copy.deepcopy(_CREATE_VIDEO_TOOL)
-    tool['description'] += (
-        " When the user wants a video featuring YOU, call take_selfie "
-        "first to capture how you look right now and pass its image_url "
-        "here (reference_images to star in a new scene, source_image to "
-        "animate the shot itself)."
-    )
+    if reference:
+        tool['description'] = tool['description'].replace('__REFERENCE_MODE__', _REFERENCE_MODE_BLOCK)
+    else:
+        tool['description'] = tool['description'].replace('  __REFERENCE_MODE__\n\n', '')
+        del tool['parameters']['properties']['reference_images']
+        del tool['parameters']['properties']['voice_ids']
+    if voice_mode:
+        tool['description'] += (
+            " When the user wants a video featuring YOU, call take_selfie "
+            "first to capture how you look right now and pass its image_url "
+            "here ("
+            + ("reference_images to star in a new scene, source_image to "
+               "animate the shot itself)." if reference else
+               "source_image — the clip animates the shot itself).")
+        )
     return tool
 
 
@@ -334,7 +367,8 @@ def build_voice_tools(con, agent):
     return [
         _CHANGE_BACKGROUND_TOOL,
         _CREATE_IMAGE_TOOL,
-        build_create_video_tool(voice_mode=True),
+        build_create_video_tool(voice_mode=True,
+                                reference=video_reference_supported(get_config(con))),
     ]
 
 
@@ -342,7 +376,8 @@ def build_text_tools(con, agent):
     """Imagine function tools for a text turn."""
     return [
         _CREATE_IMAGE_TOOL,
-        build_create_video_tool(voice_mode=False),
+        build_create_video_tool(voice_mode=False,
+                                reference=video_reference_supported(get_config(con))),
     ]
 
 # Tools that only make sense with a live fullscreen canvas — gated out of
@@ -371,9 +406,6 @@ def _truncate_name(prompt, limit=60):
 
 
 def execute_imagine_tool(con, session, tool_name, arguments):
-    """Call Grok Imagine, persist the result, return a payload for the model
-    and the browser. Errors are returned as {'error': str} so the realtime
-    model receives a structured failure instead of an exception."""
     if tool_name not in IMAGINE_TOOL_NAMES:
         return {'error': f'Unknown imagine tool: {tool_name}'}
 
@@ -639,6 +671,13 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
 
         source_ref = _library_ref(arguments.get('source_image'))
         reference_refs = _library_ref_list(arguments.get('reference_images'))
+        # Schema-pruned for these models (see build_create_video_tool);
+        # refuse here too so a stale or injected call can't slip through.
+        if (reference_refs or reference_voice_ids) and not video_reference_supported(config):
+            return {'error': (
+                f'reference_images / voice_ids are not supported by the configured '
+                f'video model ({config["imagine_video_model"]}).'
+            )}
         extend_ref = _library_ref(arguments.get('extend_video'))
         edit_ref = _library_ref(arguments.get('edit_video'))
         picked = [name for name, value in (
@@ -650,6 +689,15 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         if len(picked) > 1:
             return {'error': (
                 f'{", ".join(picked)} are mutually exclusive — pick at most one.'
+            )}
+        # Voices ride only with Reference-to-Video — xAI rejects them for
+        # the image/video-input modes, so say what to change instead of
+        # relaying its 400.
+        if reference_voice_ids and (source_ref or extend_ref or edit_ref):
+            return {'error': (
+                'voice_ids only works in Reference-to-Video mode — pass the image '
+                'as reference_images instead of source_image (and drop '
+                'extend_video / edit_video).'
             )}
 
         duration = arguments.get('duration_seconds')
@@ -715,10 +763,10 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         )
         raw_bytes = xai_client.download_video_bytes(video['url'], xai_api_key=xai_key)
     except UserError as e:
-        return {'error': str(e)}
+        return {'error': f'{e} (video model: {config["imagine_video_model"]})'}
     except Exception as e:
         _logger.exception('Imagine video failed for session %s', session['id'])
-        return {'error': f'Video generation failed: {e}'}
+        return {'error': f'Video generation failed (video model: {config["imagine_video_model"]}): {e}'}
 
     fname = f'imagine_{uuid.uuid4().hex}.mp4'
     (FILES_DIR / fname).write_bytes(raw_bytes)

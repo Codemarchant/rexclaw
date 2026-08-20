@@ -67,6 +67,10 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
         ipcRenderer.removeAllListeners("startup-mascot");
         ipcRenderer.on("startup-mascot", (event, flag) => cb(flag));
     },
+    // "Launch at login": {supported, enabled, error?} — OS login item for
+    // this executable (Windows/macOS; supported:false elsewhere).
+    launchAtLogin: () => ipcRenderer.invoke("launch-at-login-get"),
+    setLaunchAtLogin: (flag) => ipcRenderer.invoke("launch-at-login-set", !!flag),
     // Mascot settings window (/#mascot-settings): the island's ⚙ and the
     // tray both open it here — the shell owns window creation.
     openMascotSettings: () => ipcRenderer.invoke("mascot-settings-open"),

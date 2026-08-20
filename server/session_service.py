@@ -152,7 +152,8 @@ def _env_postamble(con, agent_row, mode='voice'):
             "through speech expression tags. Respond in text only.\n"
         )
     if (agent_row['provider'] == 'grok'
-            and agent_row['enable_grok_imagine_tools'] and agent_row['voice']):
+            and agent_row['enable_grok_imagine_tools'] and agent_row['voice']
+            and imagine_tools.video_reference_supported(get_config(con))):
         # create_video can put a spoken voice in the clip, chosen by id. The
         # agent has no other way to learn its own — the voice is applied to
         # the realtime session, never named in the conversation — so state it
@@ -305,7 +306,9 @@ def _tool_habits_section(agent_row):
         lines.append(
             "- When the conversation moves to a described location or scene, "
             "redecorate with `change_background` to match - no need to say "
-            "you're doing it, just make the scenery follow the roleplay.\n"
+            "you're doing it, just make the scenery follow the roleplay. One "
+            "call per scene change: never fire several at once - each renders "
+            "and bills, and only one can be on screen.\n"
         )
     if agent_row['enable_gesture_emotion_tools']:
         lines.append(

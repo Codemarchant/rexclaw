@@ -43,7 +43,7 @@ leaves your machine.
 | ⛏️ **Minecraft bot (`minecraft_command`)** | Opt-in per companion: your companion joins your Minecraft world as a real player and plays alongside you. Tell them by voice — "come mine with me", "get us some food", "build a shelter before dark" — and the bot plans and plays autonomously (pathfinding, mining, crafting, combat, chests), while your companion keeps talking with you and reacts aloud to what happens in the world ("found diamonds!"). Runs as a separate sidecar process (`game_integrations/minecraft/` folder) with its own cheaper text-model brain that writes little JavaScript plans against a skill library; the voice call only carries directives and highlights, so long jobs don't inflate call cost. **Off by default** — it executes model-generated scripts in your world, so use it on your own or trusted servers. |
 | 🖥️ **Screen sharing** | Share your screen with one click and your companion can see what you see — ask them to look at a photo, an article, an error (`take_screenshot`), or show them a moment from a video or game with `record_screen_clip` (up to 90 s, sound included if you share audio). Captures post to the transcript and save to the library for later. Red dot while recording; nothing is captured unless you armed the share. |
 | 👥 **A fully written crew** | Eve, Ara, Rex, Sal and Leo — five companions with backstories, speech quirks and matching voices. Fork them or build your own. |
-| 📦 **Portable companions** | Export a whole companion as one shareable zip — settings and prompt, plus memories, conversation history and the avatar pack, each on its own toggle — and import someone else's in one click. Avatar packs also export/import on their own, and memories travel as a versioned JSON file. Back up, move machines, or share a finished companion with the community. |
+| 📦 **Portable companions** | Export a whole companion as one shareable zip — settings and prompt, plus the avatar pack, lore stories, memories and conversation history, each on its own toggle (memories and history are off by default, so a share never carries your personal history by accident) — and import someone else's in one click. Avatar packs also export/import on their own, and memories travel as a versioned JSON file. Back up, move machines, or share a finished companion with the community. |
 | 🔌 **Remote MCP tools** | Attach any number of remote MCP servers per companion, with bearer auth and per-tool whitelists — configured in the UI. |
 | 🔒 **Self-hosted & BYOK** | One SQLite file, local image storage, a localhost-only server. The browser opens its realtime socket straight to xAI with a short-lived token — the long-lived key stays server-side on your machine. |
 
@@ -213,9 +213,10 @@ Motion Pack) covers the built-ins, and packs can add custom clips per avatar.
 ## 📦 Export & import
 
 Everything is portable, each from its own tab. **Companions**: the download
-icon exports a companion as one zip — settings plus memories, conversation
-history and the avatar pack, each on its own toggle — and **Import** recreates
-it as a new companion. Nothing is ever overwritten (deleting an import can't
+icon exports a companion as one zip — settings plus the avatar pack, lore
+stories, memories and conversation history, each on its own toggle (memories
+and history default to off: they are about you, not the character) — and
+**Import** recreates it as a new companion. Nothing is ever overwritten (deleting an import can't
 touch an original), and MCP connections never leave — they can carry auth
 secrets. **Avatars**: any avatar exports as a self-contained pack zip;
 **Import pack** accepts one (or any hand-zipped pack folder). **Memories**:

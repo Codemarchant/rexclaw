@@ -15,8 +15,8 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import local_tools, lore_tools, memory_tools, minecraft_tools, transfer
-from ..db import ASSETS_DIR, FILES_DIR, utcnow
+from .. import local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, transfer, xai_client
+from ..db import ASSETS_DIR, FILES_DIR, shipped_column_defaults, utcnow
 from ..wake_models import WAKE_MODELS
 from ..errors import UserError
 from .common import db_con
@@ -98,11 +98,51 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
     return {"ok": True, "updated": sorted(updates.keys())}
 
 
+# Model fields whose shipped defaults "Restore suggested models" puts back.
+# The values are the SCHEMA column defaults of this version (not the user's
+# DB, whose stored defaults are frozen at install time), so bumping a default
+# in db.py is the single edit that updates the button.
+_MODEL_DEFAULT_FIELDS = (
+    "xai_model", "text_model", "summary_model", "imagine_model",
+    "imagine_video_model", "director_model", "multi_agent_model",
+)
+
+
+@router.post("/xai/model_defaults")
+def xai_model_defaults():
+    return {"defaults": shipped_column_defaults("config", _MODEL_DEFAULT_FIELDS)}
+
+
+@router.post("/xai/models")
+def xai_models(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Every model the key can reach, grouped by kind — a read-only reference
+    for the Settings "See all models" dialog (not every listed model suits
+    every field). Uses the stored key, or `api_key` from the payload so it
+    works on a key that isn't saved yet."""
+    row = con.execute("SELECT xai_api_key, xai_responses_url FROM config WHERE id = 1").fetchone()
+    key = payload.get("api_key")
+    key = key.strip() if isinstance(key, str) and key.strip() else row["xai_api_key"]
+    if not key:
+        raise UserError("Enter your xAI API key first.")
+    # API root from the configured responses URL (…/v1/responses → …/v1).
+    base_url = (row["xai_responses_url"] or "https://api.x.ai/v1/responses").rsplit("/", 1)[0]
+    groups = []
+    for kind in xai_client.MODEL_LIST_KINDS:
+        try:
+            groups.append({"kind": kind, "models": xai_client.list_models(
+                xai_api_key=key, base_url=base_url, kind=kind)})
+        except UserError as e:
+            groups.append({"kind": kind, "models": [], "error": str(e)})
+    return {"groups": groups}
+
+
 @router.post("/agents/list")
 def agents_list(payload: dict = Body(default={}), con=Depends(db_con)):
     rows = con.execute("SELECT * FROM agents ORDER BY sequence, name").fetchall()
     return [
-        {k: r[k] for k in ("id",) + _AGENT_FIELDS}
+        # is_stock: one of the five bundled companions (by name) — unlocks
+        # the editor's "Reset to stock".
+        {**{k: r[k] for k in ("id",) + _AGENT_FIELDS}, "is_stock": r["name"] in seeds.SEED_NAMES}
         for r in rows
     ]
 
@@ -126,6 +166,29 @@ def agents_save(payload: dict = Body(default={}), con=Depends(db_con)):
         agent_id = cur.lastrowid
     con.commit()
     return {"ok": True, "id": agent_id}
+
+
+# What "Reset to stock" leaves alone: the companion's relationship progress
+# is state, not configuration. (History, memories, lore and MCP rows are
+# separate tables and untouched by construction.)
+_STOCK_RESET_KEEP = ("affection_score",)
+
+
+@router.post("/agents/stock_values")
+def agents_stock_values(payload: dict = Body(default={}), con=Depends(db_con)):
+    """The form values a bundled companion shipped with: seed values over the
+    agents table's shipped column defaults. Nothing is written — the editor
+    loads these as an unsaved draft, so Save/Discard is the confirmation."""
+    row = con.execute("SELECT * FROM agents WHERE id = ?", (payload.get("id"),)).fetchone()
+    if not row:
+        raise UserError("Companion not found.")
+    seed = seeds.seed_by_name(row["name"])
+    if not seed:
+        raise UserError(f"{row['name']} is not one of the bundled companions.")
+    fields = tuple(f for f in _AGENT_FIELDS if f not in _STOCK_RESET_KEEP)
+    values = shipped_column_defaults("agents", fields)
+    values.update({k: v for k, v in seeds.seed_columns(con, seed).items() if k in fields})
+    return {"values": values}
 
 
 @router.post("/agents/duplicate")
@@ -155,7 +218,7 @@ def agents_duplicate(payload: dict = Body(default={}), con=Depends(db_con)):
 
 @router.get("/agents/export")
 def agents_export(agent_id: int, memories: int = 1, sessions: int = 1,
-                  avatar: int = 1, con=Depends(db_con)):
+                  avatar: int = 1, lore: int = 1, con=Depends(db_con)):
     """Download a companion package zip (see server/transfer.py for the
     format). GET so the browser/Electron streams it straight to a file —
     packs with VRMs run to hundreds of MB. The zip is built in a temp file
@@ -168,6 +231,7 @@ def agents_export(agent_id: int, memories: int = 1, sessions: int = 1,
             include_memories=bool(memories),
             include_sessions=bool(sessions),
             include_avatar=bool(avatar),
+            include_lore=bool(lore),
         )
     except Exception:
         os.unlink(tmp.name)
@@ -203,7 +267,7 @@ def avatars_list(payload: dict = Body(default={}), con=Depends(db_con)):
         " (SELECT COUNT(*) FROM avatar_outfits o WHERE o.avatar_id = a.id) AS outfit_count"
         " FROM avatars a WHERE a.active = 1 ORDER BY a.sequence, a.name",
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [{**dict(r), "portrait_url": portraits.portrait_url(r["vrm_path"])} for r in rows]
 
 
 @router.post("/agents/delete")

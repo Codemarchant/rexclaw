@@ -8,6 +8,7 @@ import { useReactive } from "../lib/reactive";
 import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { UnsavedBar } from "./UnsavedUI.jsx";
 import HotkeysSettings from "./HotkeysSettings.jsx";
+import ModelsDialog from "./ModelsDialog.jsx";
 
 // Languages the server can fetch a Vosk wake-word model for (keep in sync
 // with WAKE_MODELS in server/routes/misc.py).
@@ -27,6 +28,8 @@ export default function SettingsView({ active }) {
     const [saving, setSaving] = useState(false);
     const [headset, setHeadset] = useState(null);   // desktop shell only: HTTPS-on-WiFi state
     const [startInMascot, setStartInMascot] = useState(null);  // desktop shell only
+    const [launchAtLogin, setLaunchAtLogin] = useState(null);  // desktop shell only: {supported, enabled}
+    const [modelsOpen, setModelsOpen] = useState(false);   // "See all models" dialog
     // Hotkey overrides, parsed out of config.hotkeys_json for editing and
     // serialised back on save.
     const [hotkeys, setHotkeys] = useState({});
@@ -65,6 +68,7 @@ export default function SettingsView({ active }) {
         if (active) {
             window.rexclawDesktop?.headsetInfo?.().then(setHeadset).catch(() => {});
             window.rexclawDesktop?.startupMascot?.().then((v) => setStartInMascot(!!v)).catch(() => {});
+            window.rexclawDesktop?.launchAtLogin?.().then(setLaunchAtLogin).catch(() => {});
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
@@ -79,6 +83,35 @@ export default function SettingsView({ active }) {
         } catch (e) {
             setStartInMascot(!flag);
             notification.add(e?.message || _t("Could not save that."), { type: "danger" });
+        }
+    };
+
+    /** OS login item — written straight to the OS by the shell, so it
+     *  applies immediately, independent of Save settings. */
+    const toggleLaunchAtLogin = async (flag) => {
+        const previous = launchAtLogin;
+        setLaunchAtLogin((v) => ({ ...v, enabled: flag }));
+        try {
+            const res = await window.rexclawDesktop.setLaunchAtLogin(flag);
+            setLaunchAtLogin(res);
+            if (res?.error) notification.add(res.error, { type: "danger" });
+        } catch (e) {
+            setLaunchAtLogin(previous);
+            notification.add(e?.message || _t("Could not save that."), { type: "danger" });
+        }
+    };
+
+    /** Put the app's shipped model ids back into every model field (the
+     *  config table's column defaults, so an update that bumps a default is
+     *  one click away for existing installs). Marks the form dirty — Save
+     *  still applies it. */
+    const restoreSuggestedModels = async () => {
+        try {
+            const res = await rpc("/api/xai/model_defaults");
+            setConfig((c) => ({ ...c, ...res.defaults }));
+            markDirty(true);
+        } catch (e) {
+            notification.add(e?.message || _t("Could not load the suggested models."), { type: "danger" });
         }
     };
 
@@ -181,6 +214,16 @@ export default function SettingsView({ active }) {
                 {startInMascot !== null && (
                     <section>
                         <h3><i className="fa fa-desktop" /> {_t("Desktop app")}</h3>
+                        {launchAtLogin?.supported && (
+                            <div className="rx_check">
+                                <input id="rx_launch_at_login" type="checkbox"
+                                       checked={!!launchAtLogin.enabled}
+                                       onChange={(ev) => toggleLaunchAtLogin(ev.target.checked)} />
+                                <label htmlFor="rx_launch_at_login">
+                                    {_t("Launch Rexclaw when you sign in to your computer")}
+                                </label>
+                            </div>
+                        )}
                         <p className="text-muted">
                             {_t("Mascot mode is the pop-out avatar: a small transparent "
                                 + "always-on-top window with no app chrome around it. Start "
@@ -282,6 +325,17 @@ export default function SettingsView({ active }) {
                             </select>
                         </div>
                     </div>
+                    <div className="rx_model_actions">
+                        <button className="btn btn-light" onClick={restoreSuggestedModels}
+                                title={_t("Fill every model field with the ids this version of Rexclaw ships with and is tested against. Save to apply.")}>
+                            <i className="fa fa-undo" /> {_t("Restore suggested models")}
+                        </button>
+                        <button className="btn btn-light" onClick={() => setModelsOpen(true)}
+                                title={_t("List every model your xAI key can reach, by kind. For reference — not every model suits every field.")}>
+                            <i className="fa fa-list-ul" /> {_t("See all models")}
+                        </button>
+                    </div>
+                    {modelsOpen && <ModelsDialog apiKey={apiKeyDraft} onClose={() => setModelsOpen(false)} />}
                 </section>
 
                 <section>

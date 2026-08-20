@@ -426,24 +426,44 @@ AGENT_SEEDS = [
 ]
 
 
-def insert_seed(con, seed):
-    """Insert one preset companion row from AGENT_SEEDS. Shared by first-boot
-    seeding and the restore-presets endpoint so the column list can't drift.
-    Returns the new agent id."""
+SEED_NAMES = frozenset(seed["name"] for seed in AGENT_SEEDS)
+
+
+def seed_by_name(name):
+    """The AGENT_SEEDS entry a companion of this name came from, or None."""
+    return next((seed for seed in AGENT_SEEDS if seed["name"] == name), None)
+
+
+def seed_columns(con, seed):
+    """The agents-table columns one seed defines, as a {column: value} dict.
+    Shared by first-boot seeding, restore-presets and the per-companion
+    "reset to stock" so the seed→column mapping lives in one place."""
     avatar = con.execute(
         "SELECT id FROM avatars WHERE pack_key = ?", (seed["pack"],)
     ).fetchone()
     if not avatar:
         _logger.warning("seed: avatar pack %r not found - agent %s gets no avatar",
                         seed["pack"], seed["name"])
+    return {
+        "name": seed["name"],
+        "sequence": seed["sequence"],
+        "voice": seed["voice"],
+        "system_prompt": seed["prompt"],
+        "avatar_id": avatar["id"] if avatar else None,
+        "when_to_call_description": seed.get("when_to_call"),
+        "wake_phrase": seed.get("wake"),
+        "speech_tag_style": seed.get("speech_tag_style"),
+        "expression_style": seed.get("expression_style"),
+    }
+
+
+def insert_seed(con, seed):
+    """Insert one preset companion row from AGENT_SEEDS. Returns the new
+    agent id."""
+    cols = seed_columns(con, seed)
     cur = con.execute(
-        "INSERT INTO agents (name, sequence, voice, system_prompt, avatar_id,"
-        " when_to_call_description, wake_phrase, speech_tag_style,"
-        " expression_style) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (seed["name"], seed["sequence"], seed["voice"], seed["prompt"],
-         avatar["id"] if avatar else None, seed.get("when_to_call"),
-         seed.get("wake"), seed.get("speech_tag_style"),
-         seed.get("expression_style")),
+        f"INSERT INTO agents ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+        tuple(cols.values()),
     )
     return cur.lastrowid
 

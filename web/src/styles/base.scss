@@ -239,6 +239,51 @@ body {
         input { width: auto; }
     }
 
+    // Avatar portraits (server/portraits.py): rounded square like the VRM
+    // thumbnail itself, cover-cropped; the fallback is the same box with a
+    // generic icon.
+    .rx_portrait {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 22%;
+        overflow: hidden;
+        background: #e2e8f0;
+        color: #94a3b8;
+        border: 1px solid #cbd5e1;
+        img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    }
+    .rx_portrait--sm { width: 2.6rem; height: 2.6rem; font-size: 1.2rem; }
+    .rx_portrait--lg { width: 5.25rem; height: 5.25rem; font-size: 2.3rem; }
+    .rx_memory_row--portrait { align-items: center; }
+    // Companion editor: portrait sits beside the avatar dropdown.
+    .rx_avatar_pick {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        column-gap: 0.5rem;
+        align-items: center;
+        > label { grid-column: 1 / -1; }
+    }
+
+    // Editor heading with a right-aligned action (e.g. "Reset to stock").
+    h3.rx_editor_head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        .btn { border: 1px solid #cbd5e1; font-weight: 500; }
+    }
+
+    // "Restore suggested models" / "See all models" row under the model fields.
+    .rx_model_actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.85rem;
+        .btn { border: 1px solid #cbd5e1; }
+    }
+
     // Voice-activation status readout — shaped like an input so the row
     // aligns, but read-only text.
     .rx_wake_status {
@@ -751,4 +796,41 @@ body {
         gap: 0.5rem;
         flex-wrap: wrap;
     }
+}
+
+// "See all models" — wider dialog with a scrolling, grouped id list.
+.rx_dialog--models {
+    max-width: 40rem;
+    .rx_models_body {
+        max-height: 60vh;
+        overflow: auto;
+        margin: 0 0 1rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+    }
+    .rx_models_group + .rx_models_group { border-top: 1px solid #e2e8f0; }
+    .rx_models_group h5 {
+        margin: 0;
+        padding: 0.4rem 0.75rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+        background: #f8fafc;
+        position: sticky;
+        top: 0;
+    }
+    .rx_models_msg { padding: 0.5rem 0.75rem; font-size: 0.85rem; color: #64748b; &.is-error { color: #b91c1c; } }
+    ul { list-style: none; margin: 0; padding: 0.25rem 0; }
+    li {
+        display: flex;
+        align-items: baseline;
+        gap: 0.6rem;
+        padding: 0.3rem 0.75rem;
+        font-size: 0.85rem;
+        flex-wrap: wrap;
+    }
+    .rx_model_id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem; }
+    .rx_model_alias { color: #64748b; font-size: 0.78rem; }
 }

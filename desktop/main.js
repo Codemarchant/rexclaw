@@ -1239,6 +1239,37 @@ ipcMain.handle("startup-mascot-get", () => !!loadSettings().startInMascot);
 
 ipcMain.handle("startup-mascot-set", (event, flag) => setStartupMascot(flag));
 
+// "Launch at login": an OS login item pointing at this executable (registry
+// Run key on Windows, login item on macOS — Electron 33 supports no other
+// platform, so the UI hides the toggle elsewhere). In dev the login item
+// would point at the bare electron binary, hence the app-path arg.
+const LOGIN_ITEM_OPTS = {
+    path: process.execPath,
+    args: app.isPackaged ? [] : [path.resolve(process.argv[1] || ".")],
+};
+
+function launchAtLoginInfo() {
+    const supported = process.platform === "win32" || process.platform === "darwin";
+    let enabled = false;
+    if (supported) {
+        try { enabled = !!app.getLoginItemSettings(LOGIN_ITEM_OPTS).openAtLogin; } catch (e) { /* ignore */ }
+    }
+    return { supported, enabled };
+}
+
+ipcMain.handle("launch-at-login-get", () => launchAtLoginInfo());
+
+ipcMain.handle("launch-at-login-set", (event, flag) => {
+    const info = launchAtLoginInfo();
+    if (!info.supported) return info;
+    try {
+        app.setLoginItemSettings({ ...LOGIN_ITEM_OPTS, openAtLogin: !!flag });
+    } catch (err) {
+        return { ...info, error: `Could not update the login item: ${err.message}` };
+    }
+    return launchAtLoginInfo();
+});
+
 ipcMain.handle("mascot-align", (event, corner) => {
     const valid = ["top-left", "top-right", "bottom-left", "bottom-right"];
     if (!valid.includes(corner)) return false;

@@ -6,6 +6,7 @@ import { confirmAsk } from "../lib/confirm";
 import Pager, { usePager } from "./Pager.jsx";
 import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { EditorBar } from "./UnsavedUI.jsx";
+import Portrait from "./Portrait.jsx";
 
 /** Avatar manager — create/edit/delete avatar packs from the desktop UI.
  *  Round-trips through the manifest: uploads land in the pack folder, Save
@@ -95,6 +96,7 @@ export default function AvatarManager({ onChange, active = true }) {
                 manifest: { ...BLANK_MANIFEST, ...r.manifest },
                 files: r.files,
                 isNew: false,
+                portrait_url: a.portrait_url,   // from the saved main VRM
             });
         } catch (e) {
             notification.add(e?.message || _t("Could not open avatar"), { type: "danger" });
@@ -152,6 +154,10 @@ export default function AvatarManager({ onChange, active = true }) {
     const editDirty = !!editing && (editing.isNew
         || (editBaseline.current !== null && JSON.stringify(editing.manifest) !== editBaseline.current));
     useUnsavedGuard(active, editDirty, save, cancelEdit);
+    // Leaving the tab closes the editor so coming back lands on the list (a
+    // never-saved new pack is always dirty, so the guard has already run
+    // cancelEdit's orphan cleanup or saved it by the time `active` drops).
+    useEffect(() => { if (!active) setEditing(null); }, [active]);
 
     // The name chosen here also names the pack folder (folders only follow
     // the display name at creation), so ask up front instead of hardcoding
@@ -295,7 +301,8 @@ export default function AvatarManager({ onChange, active = true }) {
             )}
             <Pager pager={pager} />
             {pager.slice(visibleList).map((a) => (
-                <div key={a.id} className="rx_memory_row">
+                <div key={a.id} className="rx_memory_row rx_memory_row--portrait">
+                    <Portrait url={a.portrait_url} size="sm" />
                     <strong>{a.name}</strong>
                     <span className="rx_memory_content text-muted small">
                         {a.outfit_count} {_t("outfits")} · {a.gesture_count} {_t("gestures")} · {a.background_count} {_t("backgrounds")}
@@ -446,10 +453,14 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     return (
         <>
             <section>
-            <h3>
-                <i className="fa fa-user-circle-o" />{" "}
-                {editing.isNew ? _t("New avatar") : _t("Edit avatar")}
-                {manifest.name ? ` — ${manifest.name}` : ""}
+            <h3 className="rx_editor_head">
+                <span>
+                    <i className="fa fa-user-circle-o" />{" "}
+                    {editing.isNew ? _t("New avatar") : _t("Edit avatar")}
+                    {manifest.name ? ` — ${manifest.name}` : ""}
+                </span>
+                <Portrait url={editing.portrait_url} size="lg"
+                          title={_t("Portrait — the thumbnail embedded in the main VRM. Updates when the VRM changes (after Save).")} />
             </h3>
             <div className="rx_row">
                 <div>
@@ -463,13 +474,13 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                 <FileField library={library} label={_t("Idle animation VRMA (optional)")} kind="vrma" packKey={pack_key}
                            value={manifest.vrma_idle} accept=".vrma"
                            onUploaded={(fn) => setM({ vrma_idle: fn })} />
-                <label className="rx_check" style={{ alignSelf: "end" }}
-                       title={_t("Emotions the companion sets fade back toward neutral after a few seconds. Turn off to hold each expression until the next one.")}>
-                    <input type="checkbox" checked={manifest.emotion_decay !== false}
-                           onChange={(ev) => setM({ emotion_decay: ev.target.checked })} />
-                    <span>{_t("Fade emotions back to neutral")}</span>
-                </label>
             </div>
+            <label className="rx_check"
+                   title={_t("Emotions the companion sets fade back toward neutral after a few seconds. Turn off to hold each expression until the next one.")}>
+                <input type="checkbox" checked={manifest.emotion_decay !== false}
+                       onChange={(ev) => setM({ emotion_decay: ev.target.checked })} />
+                <span>{_t("Fade emotions back to neutral")}</span>
+            </label>
             <p className="text-muted small rx_pack_path">
                 <i className="fa fa-folder-o" /> {_t("Pack folder:")}{" "}
                 <code>data/avatars/{editing.isNew ? "…" : pack_key}/</code>

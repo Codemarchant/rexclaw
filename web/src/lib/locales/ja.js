@@ -237,6 +237,21 @@ export const JA = {
   "Could not load companions": "コンパニオンを読み込めませんでした",
   "Settings saved.": "設定を保存しました。",
   "xAI connection": "xAI 接続",
+  "Restore suggested models": "推奨モデルに戻す",
+  "Fill every model field with the ids this version of Rexclaw ships with and is tested against. Save to apply.": "このバージョンの Rexclaw に同梱され、動作確認済みのモデル ID をすべてのモデル欄に入れます。保存すると反映されます。",
+  "See all models": "すべてのモデルを見る",
+  "List every model your xAI key can reach, by kind. For reference — not every model suits every field.": "xAI キーで利用できるモデルを種類別に一覧表示します。参考用です — すべてのモデルがすべての欄に適しているわけではありません。",
+  "Could not load the suggested models.": "推奨モデルを読み込めませんでした。",
+  "Could not load models.": "モデルを読み込めませんでした。",
+  "Available models": "利用可能なモデル",
+  "Every model your key can reach, grouped by kind. Type the id you want into the matching field above — not every model suits every field (e.g. coding or reasoning-only models won't work as the text model).": "キーで利用できるすべてのモデルを種類別に表示しています。使いたい ID を上の該当する欄に入力してください。すべてのモデルがすべての欄に適しているわけではありません（例：コーディング専用や推論専用モデルはテキストモデルとして動作しません）。",
+  "Voice models": "音声モデル",
+  "Text models": "テキストモデル",
+  "Image models": "画像モデル",
+  "Video models": "動画モデル",
+  "None returned for your key.": "このキーでは返されませんでした。",
+  "alias": "エイリアス",
+  "Close": "閉じる",
   "API key": "API キー",
   "saved": "保存済み",
   "•••••••• (leave blank to keep current key)": "••••••••（空欄のままなら現在のキーを維持）",
@@ -374,6 +389,7 @@ export const JA = {
 
   // ── Settings: desktop app ─────────────────────────────────────────────
   "Desktop app": "デスクトップアプリ",
+  "Launch Rexclaw when you sign in to your computer": "パソコンにサインインしたとき Rexclaw を起動する",
   "Mascot mode is the pop-out avatar: a small transparent always-on-top window with no app chrome around it. Start there and Rexclaw opens as the companion on your desktop rather than as an application window — the full window is still one \"pop back in\" away, from the avatar's controls or the tray icon. Takes effect on the next launch (independent of Save settings).":
     "マスコットモードとは、ポップアウトしたアバターのことです。アプリの枠がない、小さく透明な最前面ウィンドウとして表示されます。これを有効にすると、Rexclaw はアプリウィンドウではなくデスクトップ上のコンパニオンとして起動します。通常のウィンドウには、アバターの操作パネルかトレイアイコンから「戻す」だけでいつでも切り替えられます。次回の起動から反映されます（「設定を保存」とは独立して適用されます）。",
   "Open in mascot mode": "マスコットモードで起動する",
@@ -439,6 +455,10 @@ export const JA = {
   "Search avatars…": "アバターを検索…",
   "No matches.": "一致するものはありません。",
   "Edit companion": "コンパニオンを編集",
+  "Reset to stock": "初期設定に戻す",
+  "Portrait — the thumbnail embedded in the main VRM. Updates when the VRM changes (after Save).": "ポートレート — メイン VRM に埋め込まれたサムネイルです。VRM を変更すると（保存後に）更新されます。",
+  "Put this bundled companion's prompt, voice, avatar, wake phrase and tool settings back to how they shipped. Loads into the form — Save to apply, Discard to back out. Conversations, memories, lore and affection progress are kept.": "この同梱コンパニオンのプロンプト、音声、アバター、ウェイクフレーズ、ツール設定を出荷時の状態に戻します。フォームに読み込まれるだけなので、「保存」で反映、「破棄」で取り消せます。会話、記憶、ロア、好感度の進行は保持されます。",
+  "Could not load the stock settings": "初期設定を読み込めませんでした",
   "voice:": "ボイス：",
   "Delete companion": "コンパニオンを削除",
   "Delete %s? This permanently removes the companion plus all its sessions, transcripts and memories.":
@@ -625,8 +645,12 @@ export const JA = {
     "アバターパック（.zip）をインポート — 他の rexclaw からの zip 化されたパックフォルダ",
   "Export as avatar pack (.zip)": "アバターパック（.zip）としてエクスポート",
   "%s imported.": "%s をインポートしました。",
-  "Export companion package (.zip) — settings plus optional memories, sessions and avatar, shareable with any rexclaw install":
-    "コンパニオンパッケージ（.zip）をエクスポート — 設定に加えて、メモリ・セッション・アバターを選んで同梱。どの rexclaw にも取り込めます",
+  "Export companion package (.zip) — settings and prompt, plus avatar, lore, memories and sessions on their own toggles; shareable with any rexclaw install":
+    "コンパニオンパッケージ（.zip）をエクスポート — 設定とプロンプトに加えて、アバター・ロア・メモリ・セッションをそれぞれ選んで同梱。どの rexclaw にも取り込めます",
+  "The avatar pack (models, outfits, backgrounds)": "アバターパック（モデル、衣装、背景）",
+  "Lore stories tagged with this companion": "このコンパニオンがタグ付けされたロアストーリー",
+  "What the companion remembers about you — personal; leave off when sharing": "コンパニオンがあなたについて覚えていること — 個人的な内容です。共有するときはオフのままに",
+  "Your full conversation transcripts — personal; leave off when sharing": "会話の全文トランスクリプト — 個人的な内容です。共有するときはオフのままに",
   "Download package": "パッケージをダウンロード",
   "Import a companion package (.zip) exported from another rexclaw install":
     "他の rexclaw からエクスポートしたコンパニオンパッケージ（.zip）をインポート",
@@ -716,6 +740,7 @@ export const JA = {
 
   // ── Sessions tab ──────────────────────────────────────────────────────
   "Sessions": "セッション",
+  "Lore": "ロア",
   "Every conversation you've had, voice and text — read the transcript, rename, resume, or delete. Reading here never reconnects to xAI.":
     "これまでの音声・テキストの全会話です — トランスクリプトの閲覧、名前の変更、再開、削除ができます。ここでの閲覧が xAI に再接続することはありません。",
   "Search titles, summaries, companions…": "タイトル・要約・コンパニオンを検索…",

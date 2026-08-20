@@ -5,6 +5,7 @@ import { _t } from "../lib/i18n";
 import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { confirmAsk } from "../lib/confirm";
 import { EditorBar } from "./UnsavedUI.jsx";
+import Portrait from "./Portrait.jsx";
 import LoreStoriesPanel from "./LoreStoriesPanel.jsx";
 import Pager, { usePager } from "./Pager.jsx";
 
@@ -126,7 +127,10 @@ export default function CompanionsView({ active }) {
     const [editingAgent, setEditingAgent] = useState(null); // agent object being edited
     const [saving, setSaving] = useState(false);
     const [exportFor, setExportFor] = useState(null);       // agent id with the export toggles open
-    const [exportOpts, setExportOpts] = useState({ memories: true, sessions: true, avatar: true });
+    // Defaults favour sharing the character: avatar + lore on, the user's
+    // own memories and transcripts off (a backup is a deliberate two ticks;
+    // an accidental share of personal history can't be undone).
+    const [exportOpts, setExportOpts] = useState({ memories: false, sessions: false, avatar: true, lore: true });
     const [importing, setImporting] = useState(false);
     const [deletingId, setDeletingId] = useState(null);     // agent id mid-delete (big histories take seconds)
     const [query, setQuery] = useState("");
@@ -242,6 +246,7 @@ export default function CompanionsView({ active }) {
             memories: exportOpts.memories ? "1" : "0",
             sessions: exportOpts.sessions ? "1" : "0",
             avatar: exportOpts.avatar ? "1" : "0",
+            lore: exportOpts.lore ? "1" : "0",
         });
         const link = document.createElement("a");
         link.href = `/api/agents/export?${params}`;
@@ -253,11 +258,12 @@ export default function CompanionsView({ active }) {
         exportFor === a.id ? (
             <span style={{ display: "inline-flex", gap: "0.5rem", alignItems: "center" }}>
                 {[
-                    ["memories", _t("Memories")],
-                    ["sessions", _t("Sessions")],
-                    ["avatar", _t("Avatar")],
-                ].map(([k, label]) => (
-                    <label key={k} className="small"
+                    ["avatar", _t("Avatar"), _t("The avatar pack (models, outfits, backgrounds)")],
+                    ["lore", _t("Lore"), _t("Lore stories tagged with this companion")],
+                    ["memories", _t("Memories"), _t("What the companion remembers about you — personal; leave off when sharing")],
+                    ["sessions", _t("Sessions"), _t("Your full conversation transcripts — personal; leave off when sharing")],
+                ].map(([k, label, hint]) => (
+                    <label key={k} className="small" title={hint}
                            style={{ display: "inline-flex", gap: "0.25rem", alignItems: "center", margin: 0 }}>
                         <input type="checkbox" checked={exportOpts[k]}
                                onChange={(e) => setExportOpts({ ...exportOpts, [k]: e.target.checked })} />
@@ -275,7 +281,7 @@ export default function CompanionsView({ active }) {
             </span>
         ) : (
             <button className="btn btn-sm btn-link p-0"
-                    title={_t("Export companion package (.zip) — settings plus optional memories, sessions and avatar, shareable with any rexclaw install")}
+                    title={_t("Export companion package (.zip) — settings and prompt, plus avatar, lore, memories and sessions on their own toggles; shareable with any rexclaw install")}
                     onClick={() => setExportFor(a.id)}>
                 <i className="fa fa-download" />
             </button>
@@ -333,6 +339,10 @@ export default function CompanionsView({ active }) {
     const agentDirty = !!editingAgent && editBaseline.current !== null
         && JSON.stringify(editingAgent) !== editBaseline.current;
     useUnsavedGuard(active, agentDirty, saveAgent, () => setEditingAgent(null));
+    // Leaving the tab closes the editor so coming back lands on the list. By
+    // the time `active` drops the guard has already resolved any unsaved
+    // edits (Save / Discard), so nothing is lost here.
+    useEffect(() => { if (!active) setEditingAgent(null); }, [active]);
 
     const q = query.trim().toLowerCase();
     const visibleAgents = q ? agents.filter((a) => (a.name || "").toLowerCase().includes(q)) : agents;
@@ -399,8 +409,9 @@ export default function CompanionsView({ active }) {
                     )}
                     <Pager pager={pager} />
                     {pager.slice(visibleAgents).map((a) => (
-                        <div key={a.id} className="rx_memory_row"
+                        <div key={a.id} className="rx_memory_row rx_memory_row--portrait"
                              style={deletingId != null && deletingId !== a.id ? { opacity: 0.6 } : undefined}>
+                            <Portrait url={avatars.find((x) => x.id === a.avatar_id)?.portrait_url} size="sm" />
                             <strong>{a.name}</strong>
                             <span className="text-muted small">
                                 {deletingId === a.id ? _t("Deleting…") : [
@@ -439,6 +450,17 @@ export default function CompanionsView({ active }) {
 function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, saveAgent, dirty, cancel }) {
     const idScope = editingAgent.id ?? "new";
     const [promptPreview, setPromptPreview] = useState(null);
+    /** Bundled companions only: load the shipped prompt/voice/avatar/tool
+     *  settings into the draft. Nothing is saved here — the unsaved bar
+     *  appears and Save applies it (Discard backs out). */
+    const resetToStock = async () => {
+        try {
+            const r = await rpc("/api/agents/stock_values", { id: editingAgent.id });
+            setEditingAgent({ ...editingAgent, ...r.values });
+        } catch (e) {
+            notification.add(e?.message || _t("Could not load the stock settings"), { type: "danger" });
+        }
+    };
     const loadPromptPreview = async (ev) => {
         if (!ev.target.open) return;
         setPromptPreview(null);
@@ -452,10 +474,18 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
     return (
         <>
             <section>
-            <h3>
-                <i className="fa fa-users" />{" "}
-                {editingAgent.id == null ? _t("New companion") : _t("Edit companion")}
-                {editingAgent.name ? ` — ${editingAgent.name}` : ""}
+            <h3 className="rx_editor_head">
+                <span>
+                    <i className="fa fa-users" />{" "}
+                    {editingAgent.id == null ? _t("New companion") : _t("Edit companion")}
+                    {editingAgent.name ? ` — ${editingAgent.name}` : ""}
+                </span>
+                {editingAgent.id != null && editingAgent.is_stock && (
+                    <button className="btn btn-sm" onClick={resetToStock}
+                            title={_t("Put this bundled companion's prompt, voice, avatar, wake phrase and tool settings back to how they shipped. Loads into the form — Save to apply, Discard to back out. Conversations, memories, lore and affection progress are kept.")}>
+                        <i className="fa fa-undo" /> {_t("Reset to stock")}
+                    </button>
+                )}
             </h3>
             <div className="rx_row">
                 <div>
@@ -463,8 +493,9 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                     <input type="text" value={editingAgent.name || ""}
                            onChange={(ev) => setEditingAgent({ ...editingAgent, name: ev.target.value })} />
                 </div>
-                <div>
+                <div className="rx_avatar_pick">
                     <label>{_t("Avatar")}</label>
+                    <Portrait url={avatars.find((x) => x.id === editingAgent.avatar_id)?.portrait_url} size="sm" />
                     <select value={editingAgent.avatar_id ?? ""}
                             onChange={(ev) => setEditingAgent({ ...editingAgent, avatar_id: parseInt(ev.target.value, 10) || null })}>
                         <option value="">{_t("(no avatar)")}</option>

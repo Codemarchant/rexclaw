@@ -612,5 +612,32 @@ def init_db():
         con.close()
 
 
+def shipped_column_defaults(table, fields):
+    """Column defaults for `fields` of `table` as THIS version of the SCHEMA
+    declares them, typed (INTEGER → int, quoted TEXT → str, no default →
+    None). Read from a throwaway in-memory database, not the user's file:
+    SQLite freezes a column's default at the moment the column was created,
+    so an existing install's PRAGMA still reports whatever db.py said back
+    then."""
+    mem = sqlite3.connect(":memory:")
+    try:
+        mem.executescript(SCHEMA)
+        out = {}
+        for _cid, name, ctype, _notnull, dflt, _pk in mem.execute(f"PRAGMA table_info({table})"):
+            if name not in fields:
+                continue
+            if dflt is None or dflt.upper() == "NULL":
+                out[name] = None
+            elif dflt.startswith("'"):
+                out[name] = dflt.strip("'")
+            elif ctype.upper().startswith("INT"):
+                out[name] = int(dflt)
+            else:
+                out[name] = dflt
+        return out
+    finally:
+        mem.close()
+
+
 def get_config(con):
     return con.execute("SELECT * FROM config WHERE id = 1").fetchone()

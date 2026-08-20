@@ -41,7 +41,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
-from . import avatar_packs, lore_tools, memory_tools
+from . import avatar_packs, lore_tools, memory_tools, portraits
 from .db import ASSETS_DIR, utcnow
 from .errors import UserError
 
@@ -497,7 +497,8 @@ def _agent_portable_fields():
 
 
 def export_companion_zip(con, agent_id, out_path, *,
-                         include_memories, include_sessions, include_avatar):
+                         include_memories, include_sessions, include_avatar,
+                         include_lore=True):
     """Build the companion package at out_path. Returns the agent's name."""
     agent = con.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
     if not agent:
@@ -505,7 +506,7 @@ def export_companion_zip(con, agent_id, out_path, *,
     avatar = None
     if agent["avatar_id"]:
         avatar = con.execute(
-            "SELECT pack_key, name FROM avatars WHERE id = ?", (agent["avatar_id"],),
+            "SELECT pack_key, name, vrm_path FROM avatars WHERE id = ?", (agent["avatar_id"],),
         ).fetchone()
     include_avatar = bool(include_avatar and avatar and avatar["pack_key"])
 
@@ -519,6 +520,7 @@ def export_companion_zip(con, agent_id, out_path, *,
                 "memories": bool(include_memories),
                 "sessions": bool(include_sessions),
                 "avatar": include_avatar,
+                "lore": bool(include_lore),
             },
         })
         _writestr_json(zf, "companion.json", {
@@ -530,11 +532,12 @@ def export_companion_zip(con, agent_id, out_path, *,
                            memories_payload_for_agent(con, agent_id, agent["name"]))
         if include_sessions:
             _writestr_json(zf, "sessions.json", sessions_payload_for_agent(con, agent_id))
-        # Lore stories tagged with this companion always travel with it - they
-        # are companion-defining content, like the prompt. Character tags stay
-        # plain names; a destination without those companions just keeps them
-        # in the array.
-        lore = lore_tools.list_entries(con, agent["name"])
+        # Lore stories tagged with this companion - companion-defining
+        # content, like the prompt, so on by default; the toggle exists
+        # because a story tagged with several companions would otherwise
+        # travel with each of them. Character tags stay plain names; a
+        # destination without those companions just keeps them in the array.
+        lore = lore_tools.list_entries(con, agent["name"]) if include_lore else []
         if lore:
             _writestr_json(zf, "lore.json", {
                 "format": LORE_FILE_FORMAT,
@@ -546,6 +549,11 @@ def export_companion_zip(con, agent_id, out_path, *,
             })
         if include_avatar:
             add_pack_to_zip(zf, avatar["pack_key"], prefix="avatar/")
+        # A face for the package before it's even imported (shared zips get
+        # looked at). Derived from the VRM, so the importer ignores it.
+        portrait = portraits.portrait_file(avatar["vrm_path"]) if avatar else None
+        if portrait:
+            zf.write(portrait, "portrait.jpg")
     return agent["name"]
 
 

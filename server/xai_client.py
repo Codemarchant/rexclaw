@@ -911,3 +911,47 @@ def generate_memory_extraction(*, xai_api_key, responses_url, summary_model,
         'facts': facts if isinstance(facts, list) else [],
         'episode': episode if isinstance(episode, dict) else {},
     }, usage
+
+
+# Model discovery — the typed listing endpoints (language / image / video).
+# There is no realtime-models endpoint, so voice models come from the flat
+# /v1/models list filtered by id prefix.
+MODEL_LIST_KINDS = {
+    'language': ('language-models', None),
+    'image': ('image-generation-models', None),
+    'video': ('video-generation-models', None),
+    'voice': ('models', 'grok-voice'),
+}
+
+
+def list_models(*, xai_api_key, base_url, kind, timeout=DEFAULT_TIMEOUT):
+    """[{id, aliases}] for one model kind, sorted by id. `base_url` is the
+    API root (https://api.x.ai/v1). Raises UserError with xAI's message."""
+    if not xai_api_key:
+        raise UserError(NO_KEY_MSG)
+    try:
+        endpoint, prefix = MODEL_LIST_KINDS[kind]
+    except KeyError:
+        raise UserError(f"Unknown model kind: {kind}")
+    url = f"{base_url.rstrip('/')}/{endpoint}"
+    headers = {'Authorization': f'Bearer {xai_api_key}'}
+    try:
+        resp = requests.get(url, headers=headers, timeout=timeout)
+    except requests.RequestException as e:
+        raise UserError(f"Could not reach xAI: {e}")
+    if resp.status_code >= 400:
+        raise UserError(f"Model list failed ({resp.status_code}): {resp.text[:300]}")
+    try:
+        body = resp.json()
+    except ValueError:
+        raise UserError("Model list returned a non-JSON response.")
+    items = body.get('models') or body.get('data') or [] if isinstance(body, dict) else body
+    out = []
+    for item in items if isinstance(items, list) else []:
+        model_id = item.get('id') if isinstance(item, dict) else None
+        if not model_id or (prefix and not model_id.startswith(prefix)):
+            continue
+        aliases = [a for a in (item.get('aliases') or []) if isinstance(a, str) and a != model_id]
+        out.append({'id': model_id, 'aliases': aliases})
+    out.sort(key=lambda m: m['id'])
+    return out
