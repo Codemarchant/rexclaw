@@ -33,12 +33,14 @@ sessions columns (their field lists below), and any new manifest field that
 references a FILE (add it to _iter_manifest_refs so shared-asset refs inline
 into the zip). Importers read only the keys they know and missing keys take
 DB defaults, so additive changes stay compatible in both directions — bump a
-FILE_VERSION only for breaking shape changes.
+FILE_VERSION only for breaking shape changes. New heartbeat config columns
+join _HEARTBEAT_PORTABLE_FIELDS by hand (state/FK columns stay out).
 """
 import json
 import logging
 import shutil
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import avatar_packs, lore_tools, memory_tools, portraits
@@ -55,6 +57,8 @@ MEMORIES_FILE_FORMAT = "rexclaw_memories"
 MEMORIES_FILE_VERSION = 1
 LORE_FILE_FORMAT = "rexclaw_lore"
 LORE_FILE_VERSION = 1
+HEARTBEATS_FILE_FORMAT = "rexclaw_heartbeats"
+HEARTBEATS_FILE_VERSION = 1
 
 # Already-compressed formats are STORED (zipping a VRM buys ~nothing and
 # costs real time at 100+ MB); everything else (json, text) deflates.
@@ -433,7 +437,7 @@ def import_sessions(con, sessions, agent_id):
         if not isinstance(s, dict):
             raise UserError(f"Invalid session entry #{i + 1}.")
         mode = s.get("mode") if s.get("mode") in ("voice", "text") else "text"
-        origin = s.get("origin") if s.get("origin") in ("manual", "delegated") else "manual"
+        origin = s.get("origin") if s.get("origin") in ("manual", "delegated", "heartbeat") else "manual"
         cur = con.execute(
             "INSERT INTO sessions (name, agent_id, state, mode, origin, started_at,"
             " ended_at, last_active_at, summary, title_generated,"
@@ -485,6 +489,78 @@ def import_sessions(con, sessions, agent_id):
 
 
 # ---------------------------------------------------------------------------
+# Heartbeats ⇄ JSON
+# ---------------------------------------------------------------------------
+
+# The portable subset of a heartbeat row: configuration only. session_id is
+# a database-local FK, run timestamps/past_due/last_error are state — none of
+# it means anything on another install.
+_HEARTBEAT_PORTABLE_FIELDS = (
+    "name", "active", "prompt", "interval_number", "interval_unit",
+    "mode", "session_strategy",
+)
+
+
+def heartbeats_payload_for_agent(con, agent_id):
+    rows = con.execute(
+        "SELECT * FROM heartbeats WHERE agent_id = ? ORDER BY id", (agent_id,),
+    ).fetchall()
+    return {"format": HEARTBEATS_FILE_FORMAT, "version": HEARTBEATS_FILE_VERSION,
+            "heartbeats": [{k: r[k] for k in _HEARTBEAT_PORTABLE_FIELDS}
+                           for r in rows]}
+
+
+def import_heartbeats(con, rows, agent_id):
+    """Insert exported heartbeats under `agent_id`. Everything lands
+    inactive regardless of the exported flag — an import must never start
+    firing (or calling) on its own; the user reviews and activates each,
+    which also recomputes next_run_at. Returns the count."""
+    from . import heartbeat
+    if not isinstance(rows, list):
+        raise UserError("Invalid heartbeats file: 'heartbeats' must be a list.")
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    imported = 0
+    for i, h in enumerate(rows):
+        if not isinstance(h, dict):
+            raise UserError(f"Invalid heartbeat entry #{i + 1}.")
+        try:
+            interval_number = max(1, int(h.get("interval_number") or 30))
+        except (TypeError, ValueError):
+            interval_number = 30
+        unit = h.get("interval_unit")
+        unit = unit if unit in heartbeat._INTERVAL_UNITS else "minutes"
+        mode = h.get("mode") if h.get("mode") in heartbeat._MODES else "silent"
+        strategy = h.get("session_strategy")
+        if strategy not in heartbeat._SESSION_STRATEGIES:
+            # Dev-era exports carried a persist_session flag instead.
+            strategy = "persistent" if h.get("persist_session") else "isolated"
+        if strategy == "fixed":
+            # The chosen session doesn't travel — the closest portable
+            # equivalent of "append to one specific thread" is a persistent
+            # workspace of its own.
+            strategy = "persistent"
+        vals = {
+            "agent_id": agent_id,
+            "name": str(h.get("name") or ""),
+            "active": 0,
+            "prompt": str(h.get("prompt") or ""),
+            "interval_number": interval_number,
+            "interval_unit": unit,
+            "mode": mode,
+            "session_strategy": strategy,
+            "next_run_at": heartbeat.compute_next_run(
+                {"interval_number": interval_number, "interval_unit": unit}, now),
+            "created_at": utcnow(),
+        }
+        cols = ", ".join(vals)
+        marks = ", ".join("?" * len(vals))
+        con.execute(f"INSERT INTO heartbeats ({cols}) VALUES ({marks})",
+                    tuple(vals.values()))
+        imported += 1
+    return imported
+
+
+# ---------------------------------------------------------------------------
 # Companion package ⇄ zip
 # ---------------------------------------------------------------------------
 
@@ -498,7 +574,7 @@ def _agent_portable_fields():
 
 def export_companion_zip(con, agent_id, out_path, *,
                          include_memories, include_sessions, include_avatar,
-                         include_lore=True):
+                         include_lore=True, include_heartbeats=False):
     """Build the companion package at out_path. Returns the agent's name."""
     agent = con.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
     if not agent:
@@ -521,6 +597,7 @@ def export_companion_zip(con, agent_id, out_path, *,
                 "sessions": bool(include_sessions),
                 "avatar": include_avatar,
                 "lore": bool(include_lore),
+                "heartbeats": bool(include_heartbeats),
             },
         })
         _writestr_json(zf, "companion.json", {
@@ -532,6 +609,11 @@ def export_companion_zip(con, agent_id, out_path, *,
                            memories_payload_for_agent(con, agent_id, agent["name"]))
         if include_sessions:
             _writestr_json(zf, "sessions.json", sessions_payload_for_agent(con, agent_id))
+        # Off by default: heartbeat prompts are often personal routines, and
+        # a package that starts firing scheduled prompts on import would be
+        # a surprise (the importer lands them inactive regardless).
+        if include_heartbeats:
+            _writestr_json(zf, "heartbeats.json", heartbeats_payload_for_agent(con, agent_id))
         # Lore stories tagged with this companion - companion-defining
         # content, like the prompt, so on by default; the toggle exists
         # because a story tagged with several companions would otherwise
@@ -686,6 +768,15 @@ def import_companion_zip(con, zip_path):
                 lore_imported, lore_duplicates = import_lore_entries(
                     con, data.get("stories"))
 
+            heartbeats_imported = 0
+            if "heartbeats.json" in names:
+                data = _read_json(zf, "heartbeats.json")
+                if data.get("format") != HEARTBEATS_FILE_FORMAT \
+                        or data.get("version") != HEARTBEATS_FILE_VERSION:
+                    raise UserError("Unsupported heartbeats file in the companion package.")
+                heartbeats_imported = import_heartbeats(
+                    con, data.get("heartbeats"), new_agent_id)
+
         con.commit()
         return {
             "ok": True,
@@ -699,6 +790,7 @@ def import_companion_zip(con, zip_path):
             "memory_duplicates": memory_duplicates,
             "sessions_imported": sessions_imported,
             "messages_imported": messages_imported,
+            "heartbeats_imported": heartbeats_imported,
         }
     except zipfile.BadZipFile:
         raise UserError("Not a zip file.")

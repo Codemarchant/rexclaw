@@ -885,6 +885,111 @@ export const JA = {
   "Remote MCP server unreachable — continuing without MCP tools.":
     "リモート MCP サーバーに接続できません — MCP ツールなしで続行します。",
 
+  // ── Heartbeats ────────────────────────────────────────────────────────
+  "Heartbeats": "ハートビート",
+  "Heartbeats can be added after the companion is saved.":
+    "ハートビートはコンパニオンを保存した後に追加できます。",
+  "Scheduled prompts that keep the companion living between your conversations — write a diary entry, check on something, or call you. Silent heartbeats run in the background while the app is open; call heartbeats ring you like the wake word does. Schedules missed while the app was closed never run on their own: they wait here, past due, for your decision.":
+    "会話と会話のあいだもコンパニオンが生き続けるための定期プロンプトです — 日記を書いたり、何かを確認したり、あなたに通話をかけたり。サイレントのハートビートはアプリ起動中にバックグラウンドで実行され、通話ハートビートはウェイクワードと同じようにあなたを呼び出します。アプリを閉じている間に期限が来た予定は勝手には実行されず、期限超過としてあなたの判断を待ちます。",
+  "Could not load heartbeats": "ハートビートを読み込めませんでした",
+  "Could not save the heartbeat": "ハートビートを保存できませんでした",
+  "Delete the heartbeat '%s'?": "ハートビート「%s」を削除しますか？",
+  "(unnamed)": "（名称未設定）",
+  "Could not resolve the heartbeat": "ハートビートを処理できませんでした",
+  "Could not resolve the heartbeats": "ハートビートを処理できませんでした",
+  "Execute every past-due heartbeat of %s once, now? Each run is a real model turn.":
+    "%s の期限超過ハートビートをすべて今すぐ 1 回ずつ実行しますか？各実行は実際のモデル呼び出しです。",
+  "Execute every past-due heartbeat of every companion once, now? Each run is a real model turn.":
+    "すべてのコンパニオンの期限超過ハートビートを今すぐ 1 回ずつ実行しますか？各実行は実際のモデル呼び出しです。",
+  "Executed %s past-due heartbeats.": "%s 件の期限超過ハートビートを実行しました。",
+  "Deferred %s past-due heartbeats to their next slot.":
+    "%s 件の期限超過ハートビートを次回の予定時刻に延期しました。",
+  "%s past-due heartbeats pending your decision.":
+    "%s 件の期限超過ハートビートがあなたの判断を待っています。",
+  "Heartbeat schedules that came due while the app was closed. They never run on their own — decide here in one go, or per heartbeat inside each companion's editor.":
+    "アプリを閉じている間に期限が来たハートビートです。勝手に実行されることはありません — ここで一括で、または各コンパニオンの編集画面で個別に判断してください。",
+  "Execute all": "すべて実行",
+  "Working through the past-due heartbeats — each execution is a full model turn, this can take a while…":
+    "期限超過のハートビートを処理中です — 各実行はモデルの 1 ターンなので、しばらくかかることがあります…",
+  "Defer all": "すべて延期",
+  "Run every past-due heartbeat once now, then reschedule from now":
+    "期限超過のハートビートをすべて今すぐ 1 回実行し、今を起点に再スケジュールします",
+  "Skip the missed runs — each heartbeat waits for its next scheduled slot":
+    "逃した実行はスキップし、各ハートビートは次回の予定時刻を待ちます",
+  "Execute all past due": "期限超過をすべて実行",
+  "Defer all past due": "期限超過をすべて延期",
+  "Add heartbeat": "ハートビートを追加",
+  "e.g. 'Afternoon diary'": "例：「午後の日記」",
+  "How often the heartbeat fires while the app is running. Also drives the default 'Next run' (now + interval) until you pick a date yourself.":
+    "アプリ起動中にハートビートが発火する頻度です。日時を自分で指定するまでは、既定の「次回実行」（現在 + 間隔）もこれで決まります。",
+  "Every": "間隔",
+  "minutes": "分",
+  "hours": "時間",
+  "days": "日",
+  "Silent: the prompt runs as a background text turn — you find the result in the session later. Call the user first: the companion starts a voice call with you, carries out the prompt, and speaks first (needs the app open).":
+    "サイレント：プロンプトはバックグラウンドのテキストターンとして実行され、結果は後からセッションで確認できます。先に通話をかける：コンパニオンがあなたに音声通話を開始し、プロンプトを実行してから先に話しかけます（アプリが開いている必要があります）。",
+  "Mode": "モード",
+  "Silent (background)": "サイレント（バックグラウンド）",
+  "Call the user first": "先にユーザーへ通話をかける",
+  "What the companion should do each time the heartbeat fires. It always knows the current time, when this heartbeat last ran, and when you last actually talked — so prompts like 'if it's been more than 4 hours since our last call, write a diary entry about what you've been doing' work.":
+    "ハートビートが発火するたびにコンパニオンがすべきことです。現在時刻、このハートビートの前回実行時刻、あなたと最後に実際に話した時刻を常に把握しているので、「前回の通話から 4 時間以上経っていたら、その間何をしていたか日記を書いて」のようなプロンプトが機能します。",
+  "Prompt": "プロンプト",
+  "e.g. 'Bring your diary up to date: one date-stamped entry per 4-hour span since our last conversation ended (under 4 hours = one short entry noting it's only been a little while). Decide what you were doing from your job, hobbies and recent conversations; weekends and time off count, and entries may continue the previous span. Sleeping hours are 23:00–07:00: just log \"sleeping\" for those spans. This records your life between calls, so you know what you've been up to when the user comes back.'":
+    "例：「日記を最新の状態にして：前回の会話が終わってからの 4 時間ごとに、日時付きのエントリを 1 件ずつ、順番に（4 時間未満なら、まだ少ししか経っていないと添えた短い 1 件だけ）。何をしていたかは仕事・趣味・最近の会話から決めて。週末や休みも考慮し、前の枠の続きでも構わない。睡眠時間は 23:00〜07:00 で、その枠は『就寝中』とだけ記録して。これは通話と通話のあいだの生活の記録で、ユーザーが戻ってきたとき何をしていたか話せるようにするためのもの。」",
+  "Where each run lands. 'Latest conversation' resolves fresh every run to the same session 'Resume last' picks up — so the companion's diary entries are right there next time you resume. 'One ongoing heartbeat session' keeps a workspace of its own. 'A session I pick' always runs in one specific conversation. 'Own session per run' is a throwaway, ended after each run.":
+    "毎回の実行がどこに記録されるか。「最新の会話」は実行のたびに「前回の続きを再開」が選ぶのと同じセッションを解決するので、次に再開したときコンパニオンの日記がそこにあります。「継続ハートビートセッション」は専用ワークスペースを維持します。「自分で選んだセッション」は常に特定の会話で実行します。「実行ごとに専用セッション」は使い捨てで、実行後に終了します。",
+  "Runs in": "実行先",
+  "Latest conversation (the 'Resume last' target)": "最新の会話（「前回の続きを再開」の対象）",
+  "One ongoing heartbeat session": "継続ハートビートセッション",
+  "A session I pick": "自分で選んだセッション",
+  "Own session per run (throwaway)": "実行ごとに専用セッション（使い捨て）",
+  "When the next run is due, in your local time. Maintained automatically — after each run it advances to last run + interval — and you can set it directly to schedule the next run yourself (e.g. tomorrow 09:00). Setting it in the past makes a silent heartbeat run on the next scheduler tick.":
+    "次回実行の予定時刻（ローカル時間）。自動で維持され、実行のたびに前回実行 + 間隔へ進みます — 直接指定して次回を任意にスケジュールすることもできます（例：明日 09:00）。過去の時刻に設定すると、サイレントのハートビートは次のスケジューラーティックで実行されます。",
+  "Next run": "次回実行",
+  "The conversation this heartbeat always runs in — its turns land in that thread.":
+    "このハートビートが常に実行される会話 — そのスレッドにターンが追加されます。",
+  "(pick a session…)": "（セッションを選択…）",
+  "Session": "セッション",
+  "The heartbeat only fires while active: at the 'Next run' date, then every interval.":
+    "ハートビートは有効な間だけ発火します：「次回実行」の日時に、以降は間隔ごとに。",
+  "own session per run": "実行ごとに専用セッション",
+  "latest conversation": "最新の会話",
+  "chosen session": "選んだセッション",
+  "Save heartbeat": "ハートビートを保存",
+  "No heartbeats yet.": "ハートビートはまだありません。",
+  "every %s %s": "%s %sごと",
+  "calls you": "あなたに通話",
+  "silent": "サイレント",
+  "ongoing session": "継続セッション",
+  "Last run failed:": "前回の実行が失敗しました:",
+  "next:": "次回:",
+  "inactive": "無効",
+  "last:": "前回:",
+  "This heartbeat came due while the app was closed (or nobody answered its call). It won't run until you decide.":
+    "このハートビートはアプリを閉じている間に期限が来ました（または通話に誰も応答しませんでした）。あなたが判断するまで実行されません。",
+  "past due": "期限超過",
+  "Run it once now, then reschedule from now": "今すぐ 1 回実行し、今を起点に再スケジュールします",
+  "Skip the missed run — wait for the next scheduled slot":
+    "逃した実行はスキップし、次回の予定時刻を待ちます",
+  "Execute": "実行",
+  "Defer": "延期",
+  "(current session #%s)": "（現在のセッション #%s）",
+  "Scheduled prompts — imported inactive, ready to review and switch on":
+    "定期プロンプト — 無効状態でインポートされ、確認してから有効化できます",
+
+  // ── Companion delete: linked-avatar tickbox ───────────────────────────
+  "Also delete its avatar '%s' (pack files included)":
+    "アバター「%s」も削除する（パックのファイルを含む）",
+  "Avatar kept: %s": "アバターは残されました: %s",
+
+  // ── Row-draft flush on main Save ──────────────────────────────────────
+  "The open heartbeat draft is incomplete — finish it or cancel it, then save again.":
+    "開いているハートビートの下書きが未完成です — 完成させるかキャンセルしてから、もう一度保存してください。",
+  "The open story draft is incomplete — finish it or cancel it, then save again.":
+    "開いているストーリーの下書きが未完成です — 完成させるかキャンセルしてから、もう一度保存してください。",
+  "The open MCP connection draft is incomplete — finish it or cancel it, then save again.":
+    "開いている MCP 接続の下書きが未完成です — 完成させるかキャンセルしてから、もう一度保存してください。",
+
   // ── Locale-aware call injections (model-facing, not shown in the UI) ────
   "[System]: The call reconnected after a window change on the user's side. Do not greet or announce yourself — simply continue the conversation from where it left off.":
     "[System]: ユーザー側のウィンドウ切り替え後に通話が再接続されました。挨拶や名乗りはせず、会話を中断したところからそのまま続けてください。",

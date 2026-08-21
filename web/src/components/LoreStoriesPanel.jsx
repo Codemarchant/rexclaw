@@ -3,6 +3,7 @@ import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
 import { confirmAsk } from "../lib/confirm";
+import { withEditorSnapshot, editorDirty, useRegisterChildEditor } from "../lib/child_editor";
 import Pager, { usePager } from "./Pager.jsx";
 
 /** Lore stories panel — the shared, global archive companions recall on
@@ -16,7 +17,7 @@ import Pager, { usePager } from "./Pager.jsx";
  *  - no agentName: the full History-tab view — every story, with text
  *    search, character/tag filters, and export/import of the archive.
  */
-export default function LoreStoriesPanel({ agentName = null }) {
+export default function LoreStoriesPanel({ agentName = null, registerEditor = null }) {
     const scoped = !!agentName;
     const [entries, setEntries] = useState([]);
     const [editing, setEditing] = useState(null); // {id?, title, description, characters (comma string), tags, story}
@@ -91,12 +92,26 @@ export default function LoreStoriesPanel({ agentName = null }) {
             });
             setEditing(null);
             load();
+            return true;
         } catch (e) {
             notification.add(e?.message || _t("Could not save the story"), { type: "danger" });
+            return false;
         } finally {
             setBusy(false);
         }
     };
+
+    // The companion form's Save commits an open story draft too.
+    useRegisterChildEditor(registerEditor, editorDirty(editing), async () => {
+        if (!editing || !editorDirty(editing)) return true;
+        if (!editing.title.trim() || !editing.story.trim()) {
+            notification.add(
+                _t("The open story draft is incomplete — finish it or cancel it, then save again."),
+                { type: "warning" });
+            return false;
+        }
+        return save();
+    });
 
     const remove = async (entry) => {
         if (!(await confirmAsk(_t("Delete the story '%s'? It disappears from every companion tagged in it.", entry.title)))) return;
@@ -149,6 +164,53 @@ export default function LoreStoriesPanel({ agentName = null }) {
 
     const set = (key, value) => setEditing((c) => ({ ...c, [key]: value }));
 
+    // The edit form: rendered at the top for a NEW story, and IN PLACE of
+    // the row being edited for an existing one — a form jumping to the top
+    // of a long list is disorienting.
+    const editorForm = editing && (
+        <div className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+            <div className="rx_row">
+                <div>
+                    <label>{_t("Story title")}</label>
+                    <input type="text" value={editing.title}
+                           onChange={(ev) => set("title", ev.target.value)} />
+                </div>
+                <div>
+                    <label title={_t("Every character present in the story, comma-separated. Plain names: tagging a companion that doesn't exist on an install is fine, the name just stays in the list.")}>
+                        {_t("Characters (comma-separated names)")}
+                    </label>
+                    <input type="text" value={editing.characters}
+                           placeholder={_t("e.g. 'Eve, Ara'")}
+                           onChange={(ev) => set("characters", ev.target.value)} />
+                </div>
+                <div>
+                    <label title={_t("Optional lowercase tags, comma-separated: life periods (childhood, teens, university, twenties, career, pre-crew, lost-years, crew-era, ongoing) plus free topic tags. The companion can filter and search its story list by these, and the full tag set is listed in its tool description.")}>
+                        {_t("Tags (optional, comma-separated)")}
+                    </label>
+                    <input type="text" value={editing.tags}
+                           placeholder={_t("e.g. 'childhood, sad'")}
+                           onChange={(ev) => set("tags", ev.target.value)} />
+                </div>
+            </div>
+            <label title={_t("One line the companion sees when listing stories: who is involved, the main plot points, roughly when it happened. Without it, only the title tells the companion what a story is about.")}>
+                {_t("Description (who, what, when - shown in the story list)")}
+            </label>
+            <input type="text" value={editing.description}
+                   onChange={(ev) => set("description", ev.target.value)} />
+            <label>{_t("Story")}</label>
+            <textarea rows={8} value={editing.story}
+                      onChange={(ev) => set("story", ev.target.value)} />
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+                <button className="btn btn-sm" disabled={busy || !editing.title.trim() || !editing.story.trim()} onClick={save}>
+                    {_t("Save story")}
+                </button>
+                <button className="btn btn-sm" disabled={busy} onClick={() => setEditing(null)}>
+                    {_t("Cancel")}
+                </button>
+            </div>
+        </div>
+    );
+
     return (
         <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
@@ -173,7 +235,7 @@ export default function LoreStoriesPanel({ agentName = null }) {
                                    }} />
                         </>
                     )}
-                    <button className="btn btn-sm" onClick={() => setEditing({ title: "", description: "", characters: agentName || "", tags: "", story: "" })}>
+                    <button className="btn btn-sm" onClick={() => setEditing(withEditorSnapshot({ title: "", description: "", characters: agentName || "", tags: "", story: "" }))}>
                         <i className="fa fa-plus" /> {_t("Add story")}
                     </button>
                 </span>
@@ -208,56 +270,16 @@ export default function LoreStoriesPanel({ agentName = null }) {
                     {_t("%s of %s stories", visible.length, entries.length)}
                 </p>
             )}
-            {editing && (
-                <div className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
-                    <div className="rx_row">
-                        <div>
-                            <label>{_t("Story title")}</label>
-                            <input type="text" value={editing.title}
-                                   onChange={(ev) => set("title", ev.target.value)} />
-                        </div>
-                        <div>
-                            <label title={_t("Every character present in the story, comma-separated. Plain names: tagging a companion that doesn't exist on an install is fine, the name just stays in the list.")}>
-                                {_t("Characters (comma-separated names)")}
-                            </label>
-                            <input type="text" value={editing.characters}
-                                   placeholder={_t("e.g. 'Eve, Ara'")}
-                                   onChange={(ev) => set("characters", ev.target.value)} />
-                        </div>
-                        <div>
-                            <label title={_t("Optional lowercase tags, comma-separated: life periods (childhood, teens, university, twenties, career, pre-crew, lost-years, crew-era, ongoing) plus free topic tags. The companion can filter and search its story list by these, and the full tag set is listed in its tool description.")}>
-                                {_t("Tags (optional, comma-separated)")}
-                            </label>
-                            <input type="text" value={editing.tags}
-                                   placeholder={_t("e.g. 'childhood, sad'")}
-                                   onChange={(ev) => set("tags", ev.target.value)} />
-                        </div>
-                    </div>
-                    <label title={_t("One line the companion sees when listing stories: who is involved, the main plot points, roughly when it happened. Without it, only the title tells the companion what a story is about.")}>
-                        {_t("Description (who, what, when - shown in the story list)")}
-                    </label>
-                    <input type="text" value={editing.description}
-                           onChange={(ev) => set("description", ev.target.value)} />
-                    <label>{_t("Story")}</label>
-                    <textarea rows={8} value={editing.story}
-                              onChange={(ev) => set("story", ev.target.value)} />
-                    <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
-                        <button className="btn btn-sm" disabled={busy || !editing.title.trim() || !editing.story.trim()} onClick={save}>
-                            {_t("Save story")}
-                        </button>
-                        <button className="btn btn-sm" disabled={busy} onClick={() => setEditing(null)}>
-                            {_t("Cancel")}
-                        </button>
-                    </div>
-                </div>
-            )}
+            {editing && editing.id == null && editorForm}
             {!entries.length && !editing && (
                 <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
                     {_t("No stories yet.")}
                 </p>
             )}
             <Pager pager={pager} />
-            {pager.slice(visible).map((entry) => (
+            {pager.slice(visible).map((entry) => (editing && editing.id === entry.id) ? (
+                <React.Fragment key={entry.id}>{editorForm}</React.Fragment>
+            ) : (
                 <div key={entry.id} className="rx_memory_row">
                     <strong>{entry.title}</strong>
                     <span className="rx_memory_content text-muted small">
@@ -272,14 +294,14 @@ export default function LoreStoriesPanel({ agentName = null }) {
                         {openId === entry.id ? _t("Hide") : _t("Read")}
                     </button>
                     <button className="btn btn-sm btn-link p-0"
-                            onClick={() => setEditing({
+                            onClick={() => setEditing(withEditorSnapshot({
                                 id: entry.id,
                                 title: entry.title,
                                 description: entry.description || "",
                                 characters: (entry.characters || []).join(", "),
                                 tags: (entry.tags || []).join(", "),
                                 story: entry.story,
-                            })}>
+                            }))}>
                         {_t("Edit")}
                     </button>
                     <button className="btn btn-sm btn-link p-0" title={_t("Remove")} onClick={() => remove(entry)}>
@@ -295,3 +317,4 @@ export default function LoreStoriesPanel({ agentName = null }) {
         </div>
     );
 }
+

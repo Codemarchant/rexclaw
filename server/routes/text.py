@@ -93,7 +93,7 @@ def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
         "SELECT s.*, a.name AS agent_name,"
         " (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count"
         " FROM sessions s JOIN agents a ON a.id = s.agent_id"
-        " WHERE s.origin != 'delegated'"
+        " WHERE s.origin NOT IN ('delegated', 'heartbeat')"
         " ORDER BY s.last_active_at DESC, s.id DESC LIMIT ?",
         (limit,),
     ).fetchall()
@@ -165,7 +165,7 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
         # history would never surface through it.
         sess = con.execute(
             "SELECT * FROM sessions WHERE agent_id = ?"
-            " AND state IN ('ended', 'active') AND origin != 'delegated'"
+            " AND state IN ('ended', 'active') AND origin NOT IN ('delegated', 'heartbeat')"
             " ORDER BY last_active_at DESC, id DESC LIMIT 1",
             (a["id"],),
         ).fetchone()

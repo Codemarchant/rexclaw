@@ -49,10 +49,11 @@ def session_start(payload: dict = Body(default={}), con=Depends(db_con)):
     # Mode-agnostic on purpose: a conversation last held in text continues
     # seamlessly as voice (start_session flips its mode).
     if payload.get("resume_last") and not resume_session:
-        # origin filter: delegated task workspaces are background artifacts —
-        # never silently resumed as an interactive conversation.
+        # origin filter: delegated task workspaces and heartbeat sessions
+        # are background artifacts — never silently resumed as an
+        # interactive conversation.
         q = ("SELECT * FROM sessions WHERE agent_id = ?"
-             " AND state IN ('ended', 'active') AND origin != 'delegated'")
+             " AND state IN ('ended', 'active') AND origin NOT IN ('delegated', 'heartbeat')")
         params = [agent["id"]]
         if call_parent_session:
             q += " AND id != ?"
@@ -357,7 +358,7 @@ def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
         "SELECT s.*, a.name AS agent_name,"
         " (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count"
         " FROM sessions s JOIN agents a ON a.id = s.agent_id"
-        " WHERE s.origin != 'delegated'"
+        " WHERE s.origin NOT IN ('delegated', 'heartbeat')"
         " ORDER BY s.last_active_at DESC, s.id DESC LIMIT ?",
         (limit,),
     ).fetchall()
@@ -396,7 +397,7 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
         # task workspaces are excluded — not user conversations.
         sess = con.execute(
             "SELECT * FROM sessions WHERE agent_id = ?"
-            " AND state IN ('ended', 'active') AND origin != 'delegated'"
+            " AND state IN ('ended', 'active') AND origin NOT IN ('delegated', 'heartbeat')"
             " ORDER BY last_active_at DESC, id DESC LIMIT 1",
             (a["id"],),
         ).fetchone()

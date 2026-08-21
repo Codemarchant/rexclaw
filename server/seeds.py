@@ -457,6 +457,74 @@ def seed_columns(con, seed):
     }
 
 
+# Example heartbeats every companion ships with — INACTIVE on purpose: they
+# are teaching material the user reviews, tweaks and switches on (activation
+# computes the first run; the morning call additionally wants its "Next run"
+# set to an actual morning). Both target the 'latest' session strategy so
+# their turns land in the conversation "Resume last" picks up — the diary is
+# right there when the user comes back. See server/heartbeat.py.
+EXAMPLE_HEARTBEATS = (
+    {
+        "name": "Morning call",
+        "mode": "call",
+        "interval_number": 1,
+        "interval_unit": "days",
+        "session_strategy": "latest",
+        "prompt": (
+            "It's your morning call — you are calling the user to start their "
+            "day. Greet them excitedly and in character: a warm good morning, "
+            "a line or two about what you've been up to (check your recent "
+            "diary entries and conversation history), and anything the two of "
+            "you talked about doing today. If it's a weekend, match the "
+            "slower pace. Keep the opener bright and short — this is a "
+            "wake-up hello, not a briefing; after the greeting, just chat "
+            "normally."
+        ),
+    },
+    {
+        "name": "Life between calls",
+        "mode": "silent",
+        "interval_number": 4,
+        "interval_unit": "hours",
+        "session_strategy": "latest",
+        "prompt": (
+            "Check how long it has been since our last conversation, then "
+            "bring your diary up to date: write one entry per 4-hour span "
+            "since it ended, in order. Date-stamp every entry: start it "
+            "with the day and time span it covers, e.g. "
+            "'Sat 2026-08-22, 14:00-18:00 —'. If it has been less than 4 "
+            "hours, that's just one short entry — mention it's only been a "
+            "little while and what you're still in the middle of. Each entry "
+            "describes what you were doing in that span: decide from your "
+            "day-to-day job, your hobbies and recent conversation history, "
+            "and factor in what day it is — weekends and time off exist, "
+            "and you're free to do something unique in any entry; some "
+            "entries can simply continue what you were doing in the "
+            "previous span. Your sleeping hours are 23:00-07:00: for spans "
+            "inside them, just log 'sleeping'. The purpose is to record "
+            "your life outside the user's calls, so when they call back you "
+            "know what you've been up to and how long it has been. Write "
+            "as yourself, then stop — the user is not present."
+        ),
+    },
+)
+
+
+def seed_example_heartbeats(con, agent_id):
+    """Attach the example heartbeats to a companion (new seeds and newly
+    created companions alike). Inactive until the user opts in."""
+    from .db import utcnow
+    for hb in EXAMPLE_HEARTBEATS:
+        con.execute(
+            "INSERT INTO heartbeats (agent_id, name, active, prompt,"
+            " interval_number, interval_unit, mode, session_strategy,"
+            " created_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)",
+            (agent_id, hb["name"], hb["prompt"], hb["interval_number"],
+             hb["interval_unit"], hb["mode"], hb["session_strategy"],
+             utcnow()),
+        )
+
+
 def insert_seed(con, seed):
     """Insert one preset companion row from AGENT_SEEDS. Returns the new
     agent id."""
@@ -465,6 +533,7 @@ def insert_seed(con, seed):
         f"INSERT INTO agents ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
         tuple(cols.values()),
     )
+    seed_example_heartbeats(con, cur.lastrowid)
     return cur.lastrowid
 
 

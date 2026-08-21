@@ -323,7 +323,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- sessions are background task workspaces spawned by the delegate_task
     -- tool — hidden from the history/resume lists, continued across turns
     -- via the tool, and left active so follow-ups work without ceremony.
-    origin TEXT NOT NULL DEFAULT 'manual',   -- manual | delegated
+    -- 'heartbeat' sessions are created by the heartbeat scheduler (both the
+    -- per-tick isolated ones and auto-created persistent workspaces) —
+    -- likewise hidden from resume lists; a user-picked heartbeat target
+    -- session keeps its 'manual' origin.
+    origin TEXT NOT NULL DEFAULT 'manual',   -- manual | delegated | heartbeat
     -- For delegated task sessions: the interactive session whose
     -- delegate_task call spawned this workspace.
     delegate_parent_session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
@@ -449,6 +453,44 @@ CREATE TABLE IF NOT EXISTS imagine_images (
     xai_file_expires_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_imagine_agent ON imagine_images (agent_id, kind, created_at DESC);
+
+-- Heartbeats: per-companion scheduled prompts, run by the in-process
+-- scheduler thread (server/heartbeat.py) — the standalone stand-in for the
+-- Odoo module's ir.cron heartbeats. A missed schedule (server was off) is
+-- NEVER auto-run: it flips past_due and waits for the user to Execute or
+-- Defer it from the Companions view.
+CREATE TABLE IF NOT EXISTS heartbeats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    name TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 0,       -- created inactive, like Odoo's
+    prompt TEXT NOT NULL DEFAULT '',
+    interval_number INTEGER NOT NULL DEFAULT 30,
+    interval_unit TEXT NOT NULL DEFAULT 'minutes',  -- minutes | hours | days
+    -- 'silent' runs a headless text turn server-side; 'call' waits for an
+    -- open client to claim it and start a voice call where the companion
+    -- executes the prompt and speaks first.
+    mode TEXT NOT NULL DEFAULT 'silent',     -- silent | call
+    -- Where each run lands:
+    --   isolated   - fresh throwaway session per tick, ended afterwards
+    --   persistent - one ongoing heartbeat workspace, auto-created on the
+    --                first run and remembered in session_id
+    --   latest     - the companion's most recent real conversation, resolved
+    --                fresh EVERY tick with the same query "Resume last" uses,
+    --                so heartbeat turns land in the thread the user actually
+    --                comes back to
+    --   fixed      - the specific session in session_id, chosen by the user
+    session_strategy TEXT NOT NULL DEFAULT 'isolated',
+    -- Legacy (pre-session_strategy dev builds); superseded, kept unused.
+    persist_session INTEGER NOT NULL DEFAULT 0,
+    session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+    next_run_at TEXT,                        -- naive-UTC ISO, like utcnow()
+    last_run_at TEXT,
+    past_due INTEGER NOT NULL DEFAULT 0,     -- pending user decision; scheduler skips
+    last_error TEXT,                         -- last failed tick, cleared on success
+    created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_heartbeats_due ON heartbeats (active, past_due, next_run_at);
 """
 
 
@@ -591,6 +633,16 @@ MIGRATIONS = (
     "ALTER TABLE agents ADD COLUMN enable_lore_tool INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE lore_entries ADD COLUMN description TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE lore_entries ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+    # Heartbeat session strategy replaces the persist_session flag (dev-era
+    # builds only). Backfill: a USER-PICKED session (origin manual) was
+    # 'fixed'; the persist flag or an auto-created workspace (origin
+    # heartbeat) was 'persistent'. Runs as a no-op on fresh DBs (no rows).
+    "ALTER TABLE heartbeats ADD COLUMN session_strategy TEXT NOT NULL DEFAULT 'isolated'",
+    "UPDATE heartbeats SET session_strategy = CASE"
+    " WHEN session_id IN (SELECT id FROM sessions WHERE origin = 'manual')"
+    " THEN 'fixed' ELSE 'persistent' END"
+    " WHERE session_strategy = 'isolated'"
+    " AND (session_id IS NOT NULL OR persist_session != 0)",
 )
 
 

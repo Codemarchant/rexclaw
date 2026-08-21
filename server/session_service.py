@@ -2080,8 +2080,13 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
             # and retry this leg once so one broken connection can't block
             # the conversation. A visible tool-result note is persisted so
             # both the user and the model know MCP was skipped this turn.
+            # xAI words MCP-connection failures differently per failure kind:
+            # unreachable host vs unresolvable/invalid server_url ("cannot
+            # resolve Server URL", invalid-argument 400). Either way the fix
+            # is the same — drop MCP and retry.
             if (not mcp_dropped and mcp_entries
-                    and 'Failed to connect to MCP server' in str(e)):
+                    and ('Failed to connect to MCP server' in str(e)
+                         or 'cannot resolve Server URL' in str(e))):
                 _logger.warning(
                     'MCP server unreachable for session %s; retrying turn '
                     'without MCP tools: %s', session['id'], e)

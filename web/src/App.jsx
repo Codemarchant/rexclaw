@@ -16,6 +16,7 @@ import { unsavedGuard, getUnsavedHandlers, clearUnsaved } from "./lib/unsaved_gu
 import { uiState, toggleImmersive, MASCOT_MODE, MASCOT_SETTINGS_MODE, TRANSCRIPT_MODE } from "./lib/ui_state";
 import { startHotkeys } from "./lib/hotkeys";
 import { wakeWord } from "./lib/wake_word";
+import { heartbeatCall } from "./lib/heartbeat_call";
 import { startTranscriptOwner } from "./services/transcript_sync";
 import { useReactive } from "./lib/reactive";
 import { _t, i18nState } from "./lib/i18n";
@@ -98,6 +99,9 @@ export default function App() {
     // Voice activation standby ("hey Eve") — the service no-ops unless the
     // feature is enabled and elects one window to hold the mic.
     useEffect(() => { wakeWord.start(); }, []);
+    // Heartbeat call mode — one elected window polls for due "call the
+    // user" heartbeats and answers by starting the call.
+    useEffect(() => { heartbeatCall.start(); }, []);
     // In immersive mode on the Voice tab, hide the whole header for a pure
     // full-screen avatar. Other tabs always keep their header.
     const hideHeader = ui.immersive && tab === "voice";

@@ -12,10 +12,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import heartbeat
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, init_db
 from .errors import UserError
-from .routes import avatars, minecraft, misc, text, voice
+from .routes import avatars, heartbeats, minecraft, misc, text, voice
 from .lore_seeds import seed_lore_if_empty
 from .seeds import seed_if_empty
 
@@ -49,12 +50,18 @@ def startup():
         seed_lore_if_empty(con)
     finally:
         con.close()
+    # Daemon thread; opens its own DB connection per tick. Its first pass
+    # flags schedules missed while the server was off as past-due. Only
+    # spins up when active heartbeats exist — activating one later starts
+    # it lazily from the save route.
+    heartbeat.start_scheduler_if_needed()
     _logger.info("Rexclaw Companions server ready.")
 
 
 app.include_router(voice.router)
 app.include_router(text.router)
 app.include_router(misc.router)
+app.include_router(heartbeats.router)
 app.include_router(avatars.router)
 app.include_router(minecraft.router)
 

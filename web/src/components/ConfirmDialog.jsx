@@ -23,6 +23,15 @@ export default function ConfirmDialog() {
                  onMouseDown={(e) => e.stopPropagation()}>
                 <h4>{_t("Are you sure?")}</h4>
                 <p>{state.message}</p>
+                {state.checkboxLabel && (
+                    <label className="small"
+                           style={{ display: "flex", gap: "0.4rem", alignItems: "center",
+                                    margin: "0 0 0.75rem", cursor: "pointer" }}>
+                        <input type="checkbox" checked={state.checked}
+                               onChange={(ev) => { confirmState.checked = ev.target.checked; }} />
+                        {state.checkboxLabel}
+                    </label>
+                )}
                 <div className="rx_dialog_actions">
                     <button type="button" className="btn btn-light btn-sm"
                             onClick={() => confirmAnswer(false)}>

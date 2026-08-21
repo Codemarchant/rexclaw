@@ -15,7 +15,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, transfer, xai_client
+from .. import avatar_packs, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, transfer, xai_client
 from ..db import ASSETS_DIR, FILES_DIR, shipped_column_defaults, utcnow
 from ..wake_models import WAKE_MODELS
 from ..errors import UserError
@@ -164,6 +164,9 @@ def agents_save(payload: dict = Body(default={}), con=Depends(db_con)):
         marks = ", ".join("?" * len(updates))
         cur = con.execute(f"INSERT INTO agents ({cols}) VALUES ({marks})", tuple(updates.values()))
         agent_id = cur.lastrowid
+        # Every companion ships with the example heartbeats (inactive) —
+        # duplicates deliberately don't (a copy keeps settings only).
+        seeds.seed_example_heartbeats(con, agent_id)
     con.commit()
     return {"ok": True, "id": agent_id}
 
@@ -218,7 +221,8 @@ def agents_duplicate(payload: dict = Body(default={}), con=Depends(db_con)):
 
 @router.get("/agents/export")
 def agents_export(agent_id: int, memories: int = 1, sessions: int = 1,
-                  avatar: int = 1, lore: int = 1, con=Depends(db_con)):
+                  avatar: int = 1, lore: int = 1, heartbeats: int = 0,
+                  con=Depends(db_con)):
     """Download a companion package zip (see server/transfer.py for the
     format). GET so the browser/Electron streams it straight to a file —
     packs with VRMs run to hundreds of MB. The zip is built in a temp file
@@ -232,6 +236,7 @@ def agents_export(agent_id: int, memories: int = 1, sessions: int = 1,
             include_sessions=bool(sessions),
             include_avatar=bool(avatar),
             include_lore=bool(lore),
+            include_heartbeats=bool(heartbeats),
         )
     except Exception:
         os.unlink(tmp.name)
@@ -273,15 +278,22 @@ def avatars_list(payload: dict = Body(default={}), con=Depends(db_con)):
 @router.post("/agents/delete")
 def agents_delete(payload: dict = Body(default={}), con=Depends(db_con)):
     """Delete a companion and everything that hangs off it: sessions (and
-    their messages/attachments via FK cascade), memories, imagine images and
-    MCP connections (all ON DELETE CASCADE). Refuses to delete the last
-    agent — the app needs at least one companion to function."""
+    their messages/attachments via FK cascade), memories, imagine images,
+    MCP connections and heartbeats (all ON DELETE CASCADE). Refuses to
+    delete the last agent — the app needs at least one companion to
+    function. delete_avatar additionally removes the linked avatar pack
+    (row + files), but only when it's safe: a pack still worn by another
+    companion or a bundled read-only pack is kept, with the reason in
+    avatar_note."""
     agent_id = payload.get("id")
+    delete_avatar = bool(payload.get("delete_avatar"))
     if not isinstance(agent_id, int):
         raise UserError("id must be an integer.")
     count = con.execute("SELECT COUNT(*) AS n FROM agents").fetchone()["n"]
     if count <= 1:
         raise UserError("Cannot delete the last companion.")
+    row = con.execute("SELECT avatar_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    avatar_id = row["avatar_id"] if row else None
     # sessions.agent_id has no cascade (a session without its agent is
     # meaningless) — delete them explicitly; messages cascade off sessions.
     con.execute("DELETE FROM sessions WHERE agent_id = ?", (agent_id,))
@@ -293,7 +305,33 @@ def agents_delete(payload: dict = Body(default={}), con=Depends(db_con)):
         (agent_id,),
     )
     con.commit()
-    return {"ok": True}
+
+    avatar_deleted = False
+    avatar_note = None
+    if delete_avatar and avatar_id:
+        av = con.execute("SELECT pack_key, name FROM avatars WHERE id = ?",
+                         (avatar_id,)).fetchone()
+        still_used = con.execute(
+            "SELECT COUNT(*) AS n FROM agents WHERE avatar_id = ?",
+            (avatar_id,)).fetchone()["n"]
+        if not av:
+            pass
+        elif still_used:
+            avatar_note = "other companions still use this avatar."
+        elif av["pack_key"]:
+            try:
+                avatar_packs.delete_pack(con, av["pack_key"])
+                avatar_deleted = True
+            except UserError as e:
+                # Bundled read-only pack (deleting its row would only make
+                # scan_packs recreate it next boot anyway).
+                avatar_note = str(e)
+        else:
+            # Hand-created avatar row without a pack folder.
+            con.execute("DELETE FROM avatars WHERE id = ?", (avatar_id,))
+            con.commit()
+            avatar_deleted = True
+    return {"ok": True, "avatar_deleted": avatar_deleted, "avatar_note": avatar_note}
 
 
 @router.post("/lore/list")

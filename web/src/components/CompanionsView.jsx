@@ -1,12 +1,14 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
 import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { confirmAsk } from "../lib/confirm";
 import { EditorBar } from "./UnsavedUI.jsx";
+import { withEditorSnapshot, editorDirty, useRegisterChildEditor } from "../lib/child_editor";
 import Portrait from "./Portrait.jsx";
 import LoreStoriesPanel from "./LoreStoriesPanel.jsx";
+import HeartbeatsPanel from "./HeartbeatsPanel.jsx";
 import Pager, { usePager } from "./Pager.jsx";
 
 /** Companions tab — create, edit and delete companions with room to breathe.
@@ -129,23 +131,52 @@ export default function CompanionsView({ active }) {
     const [exportFor, setExportFor] = useState(null);       // agent id with the export toggles open
     // Defaults favour sharing the character: avatar + lore on, the user's
     // own memories and transcripts off (a backup is a deliberate two ticks;
-    // an accidental share of personal history can't be undone).
-    const [exportOpts, setExportOpts] = useState({ memories: false, sessions: false, avatar: true, lore: true });
+    // an accidental share of personal history can't be undone). Heartbeats
+    // off too — scheduled prompts are usually personal routines.
+    const [exportOpts, setExportOpts] = useState({ memories: false, sessions: false, avatar: true, lore: true, heartbeats: false });
     const [importing, setImporting] = useState(false);
     const [deletingId, setDeletingId] = useState(null);     // agent id mid-delete (big histories take seconds)
+    const [pastDueHb, setPastDueHb] = useState(0);          // past-due heartbeats across all companions
+    const [resolvingHb, setResolvingHb] = useState(false);  // bulk resolve in flight (each execute is a model turn)
     const [query, setQuery] = useState("");
     const importInputRef = useRef(null);
 
     const load = async () => {
         try {
-            const [ags, avs] = await Promise.all([
+            const [ags, avs, hbs] = await Promise.all([
                 rpc("/api/agents/list", {}),
                 rpc("/api/avatars/list", {}),
+                rpc("/api/heartbeats/list", {}),
             ]);
             setAgents(ags);
             setAvatars(avs);
+            setPastDueHb((hbs || []).filter((h) => h.past_due).length);
         } catch (e) {
             notification.add(e?.message || _t("Could not load companions"), { type: "danger" });
+        }
+    };
+
+    // Missed heartbeat schedules across ALL companions ("past due, pending
+    // user decision") — resolved in one go from the banner, or per row
+    // inside each companion's editor.
+    const resolveAllHeartbeats = async (action) => {
+        if (resolvingHb) return;
+        if (action === "execute" && !(await confirmAsk(
+            _t("Execute every past-due heartbeat of every companion once, now? Each run is a real model turn.")))) return;
+        setResolvingHb(true);
+        try {
+            const r = await rpc("/api/heartbeats/resolve_all", { action });
+            notification.add(
+                action === "execute"
+                    ? _t("Executed %s past-due heartbeats.", r.resolved)
+                    : _t("Deferred %s past-due heartbeats to their next slot.", r.resolved),
+                { type: "info" },
+            );
+            load();
+        } catch (e) {
+            notification.add(e?.message || _t("Could not resolve the heartbeats"), { type: "danger" });
+        } finally {
+            setResolvingHb(false);
         }
     };
 
@@ -219,15 +250,32 @@ export default function CompanionsView({ active }) {
     };
 
     const deleteAgent = async (a) => {
-        if (!(await confirmAsk(
-            _t("Delete %s? This permanently removes the companion plus all its sessions, transcripts and memories.", a.name),
-        ))) return;
+        // Offer to take the linked avatar along — but only when no other
+        // companion wears it (the server re-checks; it also keeps bundled
+        // read-only packs and says so via avatar_note).
+        const av = avatars.find((x) => x.id === a.avatar_id);
+        const shared = !!av && agents.some((o) => o.id !== a.id && o.avatar_id === a.avatar_id);
+        const checkboxLabel = av && !shared
+            ? _t("Also delete its avatar '%s' (pack files included)", av.name)
+            : null;
+        const msg = _t("Delete %s? This permanently removes the companion plus all its sessions, transcripts and memories.", a.name);
+        const answer = checkboxLabel
+            ? await confirmAsk(msg, { checkboxLabel })
+            : await confirmAsk(msg);
+        const ok = checkboxLabel ? answer?.ok : answer;
+        const deleteAvatar = checkboxLabel ? !!answer?.checked : false;
+        if (!ok) return;
         // Deleting cascades through every session/message/memory row — a
         // companion with a long history takes seconds. Lock the list rows
         // until the server confirms so it can't be clicked mid-flight.
         setDeletingId(a.id);
         try {
-            await rpc("/api/agents/delete", { id: a.id });
+            const resp = await rpc("/api/agents/delete", {
+                id: a.id, delete_avatar: deleteAvatar ? 1 : 0,
+            });
+            if (deleteAvatar && !resp.avatar_deleted && resp.avatar_note) {
+                notification.add(_t("Avatar kept: %s", resp.avatar_note), { type: "warning" });
+            }
             if (editingAgent?.id === a.id) setEditingAgent(null);
             await load();
         } catch (e) {
@@ -247,6 +295,7 @@ export default function CompanionsView({ active }) {
             sessions: exportOpts.sessions ? "1" : "0",
             avatar: exportOpts.avatar ? "1" : "0",
             lore: exportOpts.lore ? "1" : "0",
+            heartbeats: exportOpts.heartbeats ? "1" : "0",
         });
         const link = document.createElement("a");
         link.href = `/api/agents/export?${params}`;
@@ -262,6 +311,7 @@ export default function CompanionsView({ active }) {
                     ["lore", _t("Lore"), _t("Lore stories tagged with this companion")],
                     ["memories", _t("Memories"), _t("What the companion remembers about you — personal; leave off when sharing")],
                     ["sessions", _t("Sessions"), _t("Your full conversation transcripts — personal; leave off when sharing")],
+                    ["heartbeats", _t("Heartbeats"), _t("Scheduled prompts — imported inactive, ready to review and switch on")],
                 ].map(([k, label, hint]) => (
                     <label key={k} className="small" title={hint}
                            style={{ display: "inline-flex", gap: "0.25rem", alignItems: "center", margin: 0 }}>
@@ -312,10 +362,29 @@ export default function CompanionsView({ active }) {
         }
     };
 
+    // Open row-level drafts inside the editor (heartbeats, MCP connections,
+    // lore stories). Panels register {dirty, flush}; the main Save commits
+    // them first, and their dirtiness feeds the unsaved guard — so a draft
+    // can never silently die because the user pressed the wrong Save button.
+    const childEditors = useRef({});
+    const [childDirty, setChildDirty] = useState(false);
+    const registerChildEditor = useCallback((key, entry) => {
+        if (entry) childEditors.current[key] = entry;
+        else delete childEditors.current[key];
+        const any = Object.values(childEditors.current).some((e) => e.dirty);
+        setChildDirty((prev) => (prev === any ? prev : any));
+    }, []);
+
     const saveAgent = async () => {
         if (!editingAgent) return false;
         setSaving(true);
         try {
+            // Main Save means "save everything on this page": commit open
+            // heartbeat/MCP/lore drafts first. An incomplete draft refuses
+            // (with its own toast) and keeps the editor open.
+            for (const entry of Object.values(childEditors.current)) {
+                if (entry?.dirty && !(await entry.flush())) return false;
+            }
             await rpc("/api/agents/save", editingAgent);
             setEditingAgent(null);
             load();
@@ -338,7 +407,10 @@ export default function CompanionsView({ active }) {
     }, [editingAgent]);
     const agentDirty = !!editingAgent && editBaseline.current !== null
         && JSON.stringify(editingAgent) !== editBaseline.current;
-    useUnsavedGuard(active, agentDirty, saveAgent, () => setEditingAgent(null));
+    // Child drafts count as unsaved too: leaving the tab with an open
+    // heartbeat/MCP/lore edit prompts Save / Discard like any form edit.
+    const anyDirty = agentDirty || childDirty;
+    useUnsavedGuard(active, anyDirty, saveAgent, () => setEditingAgent(null));
     // Leaving the tab closes the editor so coming back lands on the list. By
     // the time `active` drops the guard has already resolved any unsaved
     // edits (Save / Discard), so nothing is lost here.
@@ -358,7 +430,8 @@ export default function CompanionsView({ active }) {
                 <div className="rx_settings_inner rx_settings_inner--wide">
                     <AgentEditorFields editingAgent={editingAgent} setEditingAgent={setEditingAgent}
                                        avatars={avatars} saving={saving} saveAgent={saveAgent}
-                                       dirty={agentDirty}
+                                       dirty={anyDirty}
+                                       registerChildEditor={registerChildEditor}
                                        cancel={() => setEditingAgent(null)} />
                 </div>
             </div>
@@ -404,6 +477,24 @@ export default function CompanionsView({ active }) {
                             />
                         </span>
                     </h3>
+                    {pastDueHb > 0 && (
+                        <p className="small" style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "0.25rem 0" }}>
+                            <i className={resolvingHb ? "fa fa-spinner fa-spin" : "fa fa-clock-o"} />
+                            <span title={_t("Heartbeat schedules that came due while the app was closed. They never run on their own — decide here in one go, or per heartbeat inside each companion's editor.")}>
+                                {resolvingHb
+                                    ? _t("Working through the past-due heartbeats — each execution is a full model turn, this can take a while…")
+                                    : _t("%s past-due heartbeats pending your decision.", pastDueHb)}
+                            </span>
+                            <button className="btn btn-sm" disabled={resolvingHb}
+                                    onClick={() => resolveAllHeartbeats("execute")}>
+                                <i className="fa fa-play" /> {_t("Execute all")}
+                            </button>
+                            <button className="btn btn-sm" disabled={resolvingHb}
+                                    onClick={() => resolveAllHeartbeats("defer")}>
+                                <i className="fa fa-forward" /> {_t("Defer all")}
+                            </button>
+                        </p>
+                    )}
                     {!!query.trim() && !visibleAgents.length && (
                         <p className="text-muted small">{_t("No matches.")}</p>
                     )}
@@ -447,8 +538,13 @@ export default function CompanionsView({ active }) {
 
 /** Shared form body for both "edit companion" and "new companion". Controlled
  *  entirely by the parent's editingAgent state. */
-function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, saveAgent, dirty, cancel }) {
+function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, saveAgent, dirty,
+                             registerChildEditor, cancel }) {
     const idScope = editingAgent.id ?? "new";
+    // Stable per-panel registration callbacks (see lib/child_editor.js).
+    const regHeartbeats = useCallback((e) => registerChildEditor("heartbeats", e), [registerChildEditor]);
+    const regMcp = useCallback((e) => registerChildEditor("mcp", e), [registerChildEditor]);
+    const regLore = useCallback((e) => registerChildEditor("lore", e), [registerChildEditor]);
     const [promptPreview, setPromptPreview] = useState(null);
     /** Bundled companions only: load the shipped prompt/voice/avatar/tool
      *  settings into the draft. Nothing is saved here — the unsaved bar
@@ -719,7 +815,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
             </section>
             <section>
                 {editingAgent.id != null ? (
-                    <McpConnections agentId={editingAgent.id} />
+                    <McpConnections agentId={editingAgent.id} registerEditor={regMcp} />
                 ) : (
                     <>
                         <h3><i className="fa fa-server" /> {_t("Remote MCP connections")}</h3>
@@ -730,8 +826,21 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 )}
             </section>
             <section>
+                {editingAgent.id != null ? (
+                    <HeartbeatsPanel agentId={editingAgent.id} agentName={editingAgent.name || ""}
+                                     registerEditor={regHeartbeats} />
+                ) : (
+                    <>
+                        <h3><i className="fa fa-heartbeat" /> {_t("Heartbeats")}</h3>
+                        <p className="text-muted small" style={{ margin: 0 }}>
+                            {_t("Heartbeats can be added after the companion is saved.")}
+                        </p>
+                    </>
+                )}
+            </section>
+            <section>
                 {editingAgent.id != null && editingAgent.name ? (
-                    <LoreStoriesPanel agentName={editingAgent.name} />
+                    <LoreStoriesPanel agentName={editingAgent.name} registerEditor={regLore} />
                 ) : (
                     <>
                         <h3><i className="fa fa-book" /> {_t("Lore stories")}</h3>
@@ -768,7 +877,7 @@ const EMPTY_MCP = {
 /** Remote MCP connections for one companion. Saved independently of the
  *  agent form (separate rows, immediate persistence). xAI's servers dial the
  *  configured URL directly, so it must be publicly reachable over HTTPS. */
-function McpConnections({ agentId }) {
+function McpConnections({ agentId, registerEditor = null }) {
     const [conns, setConns] = useState([]);
     const [editing, setEditing] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -785,15 +894,30 @@ function McpConnections({ agentId }) {
     const save = async () => {
         setBusy(true);
         try {
-            await rpc("/api/mcp/save", { ...editing, agent_id: agentId });
+            const { _snap, ...fields } = editing;
+            await rpc("/api/mcp/save", { ...fields, agent_id: agentId });
             setEditing(null);
             load();
+            return true;
         } catch (e) {
             notification.add(e?.message || "Save failed", { type: "danger" });
+            return false;
         } finally {
             setBusy(false);
         }
     };
+
+    // The companion form's Save commits an open connection draft too.
+    useRegisterChildEditor(registerEditor, editorDirty(editing), async () => {
+        if (!editing || !editorDirty(editing)) return true;
+        if (!editing.server_label.trim() || !editing.server_url.trim()) {
+            notification.add(
+                _t("The open MCP connection draft is incomplete — finish it or cancel it, then save again."),
+                { type: "warning" });
+            return false;
+        }
+        return save();
+    });
 
     const remove = async (c) => {
         if (!(await confirmAsk(_t("Remove MCP connection %s?", c.server_label)))) return;
@@ -807,6 +931,61 @@ function McpConnections({ agentId }) {
 
     const set = (key, value) => setEditing((c) => ({ ...c, [key]: value }));
 
+    // Rendered at the top for a NEW connection, in place of the edited row
+    // otherwise — a form jumping to the top of the list is disorienting.
+    const editorForm = editing && (
+        <div className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+            <div className="rx_row">
+                <div>
+                    <label>{_t("Server label (a-z, 0-9, _ — shown to the model)")}</label>
+                    <input type="text" value={editing.server_label}
+                           onChange={(ev) => set("server_label", ev.target.value)} />
+                </div>
+                <div>
+                    <label>{_t("Server URL (public https://)")}</label>
+                    <input type="text" placeholder="https://mcp.example.com/mcp"
+                           value={editing.server_url}
+                           onChange={(ev) => set("server_url", ev.target.value)} />
+                </div>
+            </div>
+            <label>{_t("Description (hint to the model about when to use this server)")}</label>
+            <input type="text" value={editing.server_description || ""}
+                   onChange={(ev) => set("server_description", ev.target.value)} />
+            <div className="rx_row">
+                <div>
+                    <label>{_t("Bearer token")} {editing.id && editing.has_authorization ? _t("(saved — blank keeps it)") : _t("(optional)")}</label>
+                    <input type="password" value={editing.authorization || ""}
+                           onChange={(ev) => set("authorization", ev.target.value)} />
+                </div>
+                <div>
+                    <label>{_t("Extra headers (JSON object, optional)")}</label>
+                    <input type="text" placeholder='{"X-Tenant": "acme"}'
+                           value={editing.headers || ""}
+                           onChange={(ev) => set("headers", ev.target.value)} />
+                </div>
+            </div>
+            <label>{_t("Allowed tools (one per line — blank allows all)")}</label>
+            <textarea rows={3} value={editing.allowed_tools || ""}
+                      onChange={(ev) => set("allowed_tools", ev.target.value)} />
+            <div className="rx_flags">
+                {[["enable_for_voice", "Voice sessions"],
+                  ["enable_for_text", "Text sessions"],
+                  ["active", "Active"]].map(([key, label]) => (
+                    <span key={key} className="rx_check">
+                        <input id={`mcp-${editing.id ?? "new"}-${key}`} type="checkbox"
+                               checked={!!editing[key]}
+                               onChange={(ev) => set(key, ev.target.checked ? 1 : 0)} />
+                        <label htmlFor={`mcp-${editing.id ?? "new"}-${key}`}>{_t(label)}</label>
+                    </span>
+                ))}
+            </div>
+            <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem" }}>
+                <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{_t("Save connection")}</button>
+                <button className="btn btn-sm" onClick={() => setEditing(null)}>{_t("Cancel")}</button>
+            </div>
+        </div>
+    );
+
     return (
         <div>
             {/* div, not <label>: a label forwards clicks anywhere on it to
@@ -814,68 +993,19 @@ function McpConnections({ agentId }) {
                 row space) would trigger Add connection. */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
                 <h3 style={{ margin: 0 }}><i className="fa fa-server" /> {_t("Remote MCP connections")}</h3>
-                <button className="btn btn-sm" onClick={() => setEditing({ ...EMPTY_MCP })}>
+                <button className="btn btn-sm" onClick={() => setEditing(withEditorSnapshot({ ...EMPTY_MCP }))}>
                     <i className="fa fa-plus" /> {_t("Add connection")}
                 </button>
             </div>
-            {editing && (
-                <div className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
-                    <div className="rx_row">
-                        <div>
-                            <label>{_t("Server label (a-z, 0-9, _ — shown to the model)")}</label>
-                            <input type="text" value={editing.server_label}
-                                   onChange={(ev) => set("server_label", ev.target.value)} />
-                        </div>
-                        <div>
-                            <label>{_t("Server URL (public https://)")}</label>
-                            <input type="text" placeholder="https://mcp.example.com/mcp"
-                                   value={editing.server_url}
-                                   onChange={(ev) => set("server_url", ev.target.value)} />
-                        </div>
-                    </div>
-                    <label>{_t("Description (hint to the model about when to use this server)")}</label>
-                    <input type="text" value={editing.server_description || ""}
-                           onChange={(ev) => set("server_description", ev.target.value)} />
-                    <div className="rx_row">
-                        <div>
-                            <label>{_t("Bearer token")} {editing.id && editing.has_authorization ? _t("(saved — blank keeps it)") : _t("(optional)")}</label>
-                            <input type="password" value={editing.authorization || ""}
-                                   onChange={(ev) => set("authorization", ev.target.value)} />
-                        </div>
-                        <div>
-                            <label>{_t("Extra headers (JSON object, optional)")}</label>
-                            <input type="text" placeholder='{"X-Tenant": "acme"}'
-                                   value={editing.headers || ""}
-                                   onChange={(ev) => set("headers", ev.target.value)} />
-                        </div>
-                    </div>
-                    <label>{_t("Allowed tools (one per line — blank allows all)")}</label>
-                    <textarea rows={3} value={editing.allowed_tools || ""}
-                              onChange={(ev) => set("allowed_tools", ev.target.value)} />
-                    <div className="rx_flags">
-                        {[["enable_for_voice", "Voice sessions"],
-                          ["enable_for_text", "Text sessions"],
-                          ["active", "Active"]].map(([key, label]) => (
-                            <span key={key} className="rx_check">
-                                <input id={`mcp-${editing.id ?? "new"}-${key}`} type="checkbox"
-                                       checked={!!editing[key]}
-                                       onChange={(ev) => set(key, ev.target.checked ? 1 : 0)} />
-                                <label htmlFor={`mcp-${editing.id ?? "new"}-${key}`}>{_t(label)}</label>
-                            </span>
-                        ))}
-                    </div>
-                    <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem" }}>
-                        <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{_t("Save connection")}</button>
-                        <button className="btn btn-sm" onClick={() => setEditing(null)}>{_t("Cancel")}</button>
-                    </div>
-                </div>
-            )}
+            {editing && editing.id == null && editorForm}
             {!conns.length && !editing && (
                 <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
                     {_t("None configured. An MCP server gives this companion extra tools; xAI connects to it directly, so the URL must be public HTTPS.")}
                 </p>
             )}
-            {conns.map((c) => (
+            {conns.map((c) => (editing && editing.id === c.id) ? (
+                <React.Fragment key={c.id}>{editorForm}</React.Fragment>
+            ) : (
                 <div key={c.id} className="rx_memory_row">
                     <strong>{c.server_label}</strong>
                     <span className="rx_memory_content text-muted small">{c.server_url}</span>
@@ -885,7 +1015,7 @@ function McpConnections({ agentId }) {
                         {c.has_authorization ? " · 🔑" : ""}
                     </span>
                     <button className="btn btn-sm btn-link p-0"
-                            onClick={() => setEditing({ ...c, authorization: "" })}>
+                            onClick={() => setEditing(withEditorSnapshot({ ...c, authorization: "" }))}>
                         {_t("Edit")}
                     </button>
                     <button className="btn btn-sm btn-link p-0" title={_t("Remove")} onClick={() => remove(c)}>
