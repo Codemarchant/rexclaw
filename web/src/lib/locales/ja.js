@@ -977,6 +977,18 @@ export const JA = {
   "Scheduled prompts — imported inactive, ready to review and switch on":
     "定期プロンプト — 無効状態でインポートされ、確認してから有効化できます",
 
+  // ── List sorting (Companions / Avatars) ───────────────────────────────
+  "List order": "並び順",
+  "Sort: name": "並び順: 名前",
+  "Sort: created": "並び順: 作成順",
+
+  // ── Avatar editor: collapsible list rows ──────────────────────────────
+  "partner:": "パートナー:",
+  "Revert this entry to how it was when you opened it (a new entry is removed)":
+    "このエントリを開いた時点の状態に戻します（新規エントリは削除されます）",
+  "Keep the edits in the draft — 'Save avatar' writes them to the pack":
+    "編集は下書きに保持されます — 「アバターを保存」でパックに書き込まれます",
+
   // ── Companion delete: linked-avatar tickbox ───────────────────────────
   "Also delete its avatar '%s' (pack files included)":
     "アバター「%s」も削除する（パックのファイルを含む）",

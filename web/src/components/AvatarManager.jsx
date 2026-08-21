@@ -5,6 +5,7 @@ import { _t } from "../lib/i18n";
 import { confirmAsk } from "../lib/confirm";
 import Pager, { usePager } from "./Pager.jsx";
 import { useUnsavedGuard } from "../lib/unsaved_guard";
+import { useListSort } from "../lib/list_sort";
 import { EditorBar } from "./UnsavedUI.jsx";
 import Portrait from "./Portrait.jsx";
 
@@ -252,8 +253,10 @@ export default function AvatarManager({ onChange, active = true }) {
         }
     };
 
+    const sort = useListSort("rexclaw.avatars_sort");
     const q = query.trim().toLowerCase();
-    const visibleList = q ? list.filter((a) => (a.name || "").toLowerCase().includes(q)) : list;
+    const visibleList = sort.apply(
+        q ? list.filter((a) => (a.name || "").toLowerCase().includes(q)) : list);
     // Hook lives above the editor early-return so it runs every render.
     const pager = usePager(visibleList.length);
 
@@ -268,20 +271,26 @@ export default function AvatarManager({ onChange, active = true }) {
     return (
         <section>
             <h3><i className="fa fa-user-circle-o" /> {_t("Avatars")}</h3>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginBottom: "0.5rem" }}>
+            <div style={{ display: "flex", alignItems: "stretch", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
                 <input
                     type="text"
                     placeholder={_t("Search avatars…")}
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    style={{ width: "12rem" }}
+                    style={{ flex: "1 1 14rem", minWidth: "10rem" }}
                 />
-                <button className="btn btn-sm" disabled={importingPack}
+                <select value={sort.sortBy} title={_t("List order")}
+                        style={{ flex: "0 0 auto", width: "auto" }}
+                        onChange={(e) => sort.setSortBy(e.target.value)}>
+                    <option value="name">{_t("Sort: name")}</option>
+                    <option value="created">{_t("Sort: created")}</option>
+                </select>
+                <button className="btn btn-sm" disabled={importingPack} style={{ whiteSpace: "nowrap" }}
                         title={_t("Import an avatar pack (.zip) — a zipped pack folder from any rexclaw install")}
                         onClick={() => packImportRef.current?.click()}>
                     <i className="fa fa-upload" /> {importingPack ? _t("Importing…") : _t("Import pack")}
                 </button>
-                <button className="btn btn-sm btn-primary" onClick={startNew}>
+                <button className="btn btn-sm btn-primary" style={{ whiteSpace: "nowrap" }} onClick={startNew}>
                     <i className="fa fa-plus" /> {_t("New avatar")}
                 </button>
                 <input
@@ -425,15 +434,58 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
         rpc("/api/avatars/shared_assets", {}).then(setLibrary).catch(() => setLibrary([]));
     }, []);
 
+    // One expanded item at a time — every other row shows as a compact
+    // summary line with Edit/Remove, matching the companion editor's list
+    // panels. Field edits write into the manifest draft live, but opening a
+    // row snapshots the item so its Cancel can restore it (or remove a
+    // just-added row) — a real per-row Save/Cancel flow. Row Save keeps the
+    // edits in the draft; nothing reaches disk until "Save avatar".
+    const [openItem, setOpenItem] = useState(null);   // { list, idx, orig } | null
+    const isOpen = (list, idx) => openItem?.list === list && openItem.idx === idx;
+    const openFor = (list, idx, item) =>
+        setOpenItem({ list, idx, orig: JSON.parse(JSON.stringify(item)) });
+
     const setList = (key, idx, patch) => {
         const arr = [...(manifest[key] || [])];
         arr[idx] = { ...arr[idx], ...patch };
         setM({ [key]: arr });
     };
+    const replaceItem = (key, idx, item) => {
+        const arr = [...(manifest[key] || [])];
+        arr[idx] = item;
+        setM({ [key]: arr });
+    };
     // Prepend: new rows appear at the top of their list (matches the
-    // memories view and every other list editor in the app).
-    const addItem = (key, item) => setM({ [key]: [item, ...(manifest[key] || [])] });
-    const removeItem = (key, idx) => setM({ [key]: (manifest[key] || []).filter((_, i) => i !== idx) });
+    // memories view and every other list editor in the app), already
+    // expanded for editing. orig=null marks "new" — its Cancel removes it.
+    const addItem = (key, item) => {
+        setM({ [key]: [item, ...(manifest[key] || [])] });
+        setOpenItem({ list: key, idx: 0, orig: null });
+    };
+    // Indexes shift on removal — close whatever was open rather than
+    // tracking the shift.
+    const removeItem = (key, idx) => {
+        setM({ [key]: (manifest[key] || []).filter((_, i) => i !== idx) });
+        setOpenItem(null);
+    };
+    const cancelRow = () => {
+        if (!openItem) return;
+        if (openItem.orig == null) removeItem(openItem.list, openItem.idx);
+        else { replaceItem(openItem.list, openItem.idx, openItem.orig); setOpenItem(null); }
+    };
+
+    const rowButtons = (
+        <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+            <button className="btn btn-sm" onClick={cancelRow}
+                    title={_t("Revert this entry to how it was when you opened it (a new entry is removed)")}>
+                {_t("Cancel")}
+            </button>
+            <button className="btn btn-sm btn-primary" onClick={() => setOpenItem(null)}
+                    title={_t("Keep the edits in the draft — 'Save avatar' writes them to the pack")}>
+                <i className="fa fa-check" /> {_t("Save")}
+            </button>
+        </div>
+    );
 
     // Scene backgrounds carry an [x,y,z] offset; patch one axis in place.
     const setOffset = (idx, axis, val) => {
@@ -496,16 +548,35 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
             {/* Outfits */}
             <Section title={_t("Outfits")}
                      onAdd={() => addItem("outfits", { name: "", vrm: "", description: "" })}>
-                {(manifest.outfits || []).map((o, i) => (
-                    <div key={i} className="rx_subrow rx_subrow--outfit">
-                        <input type="text" placeholder={_t("Name")} value={o.name || ""}
-                               onChange={(ev) => setList("outfits", i, { name: ev.target.value })} />
-                        <FileField library={library} kind="vrm" packKey={pack_key} value={o.vrm} accept=".vrm"
-                                   onUploaded={(fn) => setList("outfits", i, { vrm: fn })} />
-                        <input type="text" placeholder={_t("Description (fed to the LLM — when to wear it)")}
-                               value={o.description || ""}
-                               onChange={(ev) => setList("outfits", i, { description: ev.target.value })} />
-                        <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("outfits", i)}>
+                {(manifest.outfits || []).map((o, i) => isOpen("outfits", i) ? (
+                    <div key={i} className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+                        <div className="rx_subrow rx_subrow--outfit">
+                            <input type="text" placeholder={_t("Name")} value={o.name || ""}
+                                   onChange={(ev) => setList("outfits", i, { name: ev.target.value })} />
+                            <FileField library={library} kind="vrm" packKey={pack_key} value={o.vrm} accept=".vrm"
+                                       onUploaded={(fn) => setList("outfits", i, { vrm: fn })} />
+                            <input type="text" placeholder={_t("Description (fed to the LLM — when to wear it)")}
+                                   value={o.description || ""}
+                                   onChange={(ev) => setList("outfits", i, { description: ev.target.value })} />
+                            <button className="btn btn-sm btn-link p-0" title={_t("Remove")}
+                                    onClick={() => removeItem("outfits", i)}>
+                                <i className="fa fa-trash-o" />
+                            </button>
+                        </div>
+                        {rowButtons}
+                    </div>
+                ) : (
+                    <div key={i} className="rx_memory_row">
+                        <strong>{o.name || _t("(unnamed)")}</strong>
+                        <span className="rx_memory_content text-muted small">
+                            {o.vrm || _t("(none)")}{o.description ? ` · ${o.description}` : ""}
+                        </span>
+                        <button className="btn btn-sm btn-link p-0"
+                                onClick={() => openFor("outfits", i, o)}>
+                            {_t("Edit")}
+                        </button>
+                        <button className="btn btn-sm btn-link p-0" title={_t("Remove")}
+                                onClick={() => removeItem("outfits", i)}>
                             <i className="fa fa-trash-o" />
                         </button>
                     </div>
@@ -517,21 +588,42 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                      onAdd={() => addItem("gestures", { enum: "", vrma: "", description: "", loop: false })}>
                 {(manifest.gestures || []).map((g, i) => ({ g, i }))
                     .filter(({ g }) => g.type !== "combo")
-                    .map(({ g, i }) => (
-                    <div key={i} className="rx_subrow rx_subrow--gesture">
-                        <input type="text" placeholder={_t("enum (e.g. wave_hello)")} value={g.enum || ""}
-                               title={_t("Gesture name the model calls — lowercase letters, digits and underscores, starting with a letter (e.g. wave_hello, test_1).")}
-                               onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
-                        <FileField library={library} kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
-                                   onUploaded={(fn) => setList("gestures", i, { vrma: fn })} />
-                        <input type="text" placeholder={_t("Description (when to use it)")} value={g.description || ""}
-                               onChange={(ev) => setList("gestures", i, { description: ev.target.value })} />
-                        <label className="rx_check" style={{ margin: 0 }}>
-                            <input type="checkbox" checked={!!g.loop}
-                                   onChange={(ev) => setList("gestures", i, { loop: ev.target.checked })} />
-                            <span>{_t("loop")}</span>
-                        </label>
-                        <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("gestures", i)}>
+                    .map(({ g, i }) => isOpen("gestures", i) ? (
+                    <div key={i} className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+                        <div className="rx_subrow rx_subrow--gesture">
+                            <input type="text" placeholder={_t("enum (e.g. wave_hello)")} value={g.enum || ""}
+                                   title={_t("Gesture name the model calls — lowercase letters, digits and underscores, starting with a letter (e.g. wave_hello, test_1).")}
+                                   onChange={(ev) => setList("gestures", i, { enum: ev.target.value })} />
+                            <FileField library={library} kind="vrma" packKey={pack_key} value={g.vrma} accept=".vrma"
+                                       onUploaded={(fn) => setList("gestures", i, { vrma: fn })} />
+                            <input type="text" placeholder={_t("Description (when to use it)")} value={g.description || ""}
+                                   onChange={(ev) => setList("gestures", i, { description: ev.target.value })} />
+                            <label className="rx_check" style={{ margin: 0 }}>
+                                <input type="checkbox" checked={!!g.loop}
+                                       onChange={(ev) => setList("gestures", i, { loop: ev.target.checked })} />
+                                <span>{_t("loop")}</span>
+                            </label>
+                            <button className="btn btn-sm btn-link p-0" title={_t("Remove")}
+                                    onClick={() => removeItem("gestures", i)}>
+                                <i className="fa fa-trash-o" />
+                            </button>
+                        </div>
+                        {rowButtons}
+                    </div>
+                ) : (
+                    <div key={i} className="rx_memory_row">
+                        <strong>{g.enum || _t("(unnamed)")}</strong>
+                        <span className="rx_memory_content text-muted small">
+                            {g.vrma || _t("(none)")}
+                            {g.loop ? ` · ${_t("loop")}` : ""}
+                            {g.description ? ` · ${g.description}` : ""}
+                        </span>
+                        <button className="btn btn-sm btn-link p-0"
+                                onClick={() => openFor("gestures", i, g)}>
+                            {_t("Edit")}
+                        </button>
+                        <button className="btn btn-sm btn-link p-0" title={_t("Remove")}
+                                onClick={() => removeItem("gestures", i)}>
                             <i className="fa fa-trash-o" />
                         </button>
                     </div>
@@ -552,8 +644,26 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                 </p>
                 {(manifest.gestures || []).map((g, i) => ({ g, i }))
                     .filter(({ g }) => g.type === "combo")
-                    .map(({ g, i }) => (
-                    <div key={i} className="rx_subrow rx_subrow--combo">
+                    .map(({ g, i }) => !isOpen("gestures", i) ? (
+                    <div key={i} className="rx_memory_row">
+                        <strong>{g.enum || _t("(unnamed)")}</strong>
+                        <span className="rx_memory_content text-muted small">
+                            {_t("partner:")} {(g.partner_avatar || "").trim() || g.partner_vrm || _t("(none)")}
+                            {g.loop ? ` · ${_t("loop")}` : ""}
+                            {g.description ? ` · ${g.description}` : ""}
+                        </span>
+                        <button className="btn btn-sm btn-link p-0"
+                                onClick={() => openFor("gestures", i, g)}>
+                            {_t("Edit")}
+                        </button>
+                        <button className="btn btn-sm btn-link p-0" title={_t("Remove")}
+                                onClick={() => removeItem("gestures", i)}>
+                            <i className="fa fa-trash-o" />
+                        </button>
+                    </div>
+                ) : (
+                    <div key={i} className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+                    <div className="rx_subrow rx_subrow--combo">
                         <div className="rx_combo_line">
                             <input type="text" className="rx_field_enum"
                                    placeholder={_t("enum (e.g. dance_together)")} value={g.enum || ""}
@@ -619,14 +729,35 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                         </span>
                         </div>
                     </div>
+                    {rowButtons}
+                    </div>
                 ))}
             </Section>
 
             {/* Backgrounds */}
             <Section title={_t("Backgrounds")}
                      onAdd={() => addItem("backgrounds", { name: "", type: "static", preset: "vignette_charcoal", is_default: false })}>
-                {(manifest.backgrounds || []).map((b, i) => (
-                    <div key={i} className="rx_subrow rx_subrow--bg">
+                {(manifest.backgrounds || []).map((b, i) => !isOpen("backgrounds", i) ? (
+                    <div key={i} className="rx_memory_row">
+                        <strong>{b.name || _t("(unnamed)")}</strong>
+                        <span className="rx_memory_content text-muted small">
+                            {b.type === "scene" ? `${_t("3D scene (GLB)")} · ${b.glb || _t("(none)")}`
+                                : b.type === "image" ? `${_t("Image")} · ${b.image || _t("(none)")}`
+                                : `${_t("Preset")} · ${b.preset || _t("(none)")}`}
+                            {b.is_default ? ` · ${_t("default")}` : ""}
+                        </span>
+                        <button className="btn btn-sm btn-link p-0"
+                                onClick={() => openFor("backgrounds", i, b)}>
+                            {_t("Edit")}
+                        </button>
+                        <button className="btn btn-sm btn-link p-0" title={_t("Remove")}
+                                onClick={() => removeItem("backgrounds", i)}>
+                            <i className="fa fa-trash-o" />
+                        </button>
+                    </div>
+                ) : (
+                    <div key={i} className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+                    <div className="rx_subrow rx_subrow--bg">
                         <input type="text" placeholder={_t("Name")} value={b.name || ""}
                                onChange={(ev) => setList("backgrounds", i, { name: ev.target.value })} />
                         <select value={b.type || "static"}
@@ -675,6 +806,8 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                                        onCommit={(n) => setList("backgrounds", i, { rotation_y: n })} /></label>
                             </span>
                         )}
+                    </div>
+                    {rowButtons}
                     </div>
                 ))}
             </Section>

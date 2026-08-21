@@ -6,6 +6,7 @@ import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { confirmAsk } from "../lib/confirm";
 import { EditorBar } from "./UnsavedUI.jsx";
 import { withEditorSnapshot, editorDirty, useRegisterChildEditor } from "../lib/child_editor";
+import { useListSort } from "../lib/list_sort";
 import Portrait from "./Portrait.jsx";
 import LoreStoriesPanel from "./LoreStoriesPanel.jsx";
 import HeartbeatsPanel from "./HeartbeatsPanel.jsx";
@@ -416,8 +417,10 @@ export default function CompanionsView({ active }) {
     // edits (Save / Discard), so nothing is lost here.
     useEffect(() => { if (!active) setEditingAgent(null); }, [active]);
 
+    const sort = useListSort("rexclaw.companions_sort");
     const q = query.trim().toLowerCase();
-    const visibleAgents = q ? agents.filter((a) => (a.name || "").toLowerCase().includes(q)) : agents;
+    const visibleAgents = sort.apply(
+        q ? agents.filter((a) => (a.name || "").toLowerCase().includes(q)) : agents);
     // Hook lives above the editor early-return so it runs every render.
     const pager = usePager(visibleAgents.length);
 
@@ -442,41 +445,45 @@ export default function CompanionsView({ active }) {
         <div className="rx_settings">
             <div className="rx_settings_inner rx_settings_inner--wide">
                 <section>
-                    <h3 style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <span><i className="fa fa-users" /> {_t("Companions")}</span>
-                        <span style={{ display: "flex", gap: "0.5rem" }}>
-                            <input
-                                type="text"
-                                placeholder={_t("Search companions…")}
-                                value={query}
-                                onChange={(e) => setQuery(e.target.value)}
-                                style={{ width: "12rem" }}
-                            />
-                            <button className="btn btn-sm" onClick={restorePresets}
-                                    title={_t("Re-create any deleted preset companions (Eve, Ara, Rex, Sal, Leo) with their original prompts. Existing companions are untouched.")}>
-                                <i className="fa fa-undo" /> {_t("Restore presets")}
-                            </button>
-                            <button className="btn btn-sm" disabled={importing}
-                                    title={_t("Import a companion package (.zip) exported from another rexclaw install")}
-                                    onClick={() => importInputRef.current?.click()}>
-                                <i className="fa fa-upload" /> {importing ? _t("Importing…") : _t("Import")}
-                            </button>
-                            <button className="btn btn-sm btn-primary" onClick={newCompanion}>
-                                <i className="fa fa-plus" /> {_t("New companion")}
-                            </button>
-                            <input
-                                ref={importInputRef}
-                                type="file"
-                                accept=".zip,application/zip"
-                                style={{ display: "none" }}
-                                onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    e.target.value = "";
-                                    if (file) importCompanion(file);
-                                }}
-                            />
-                        </span>
-                    </h3>
+                    <h3><i className="fa fa-users" /> {_t("Companions")}</h3>
+                    <div style={{ display: "flex", alignItems: "stretch", gap: "0.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+                        <input
+                            type="text"
+                            placeholder={_t("Search companions…")}
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            style={{ flex: "1 1 14rem", minWidth: "10rem" }}
+                        />
+                        <select value={sort.sortBy} title={_t("List order")}
+                                style={{ flex: "0 0 auto", width: "auto" }}
+                                onChange={(e) => sort.setSortBy(e.target.value)}>
+                            <option value="name">{_t("Sort: name")}</option>
+                            <option value="created">{_t("Sort: created")}</option>
+                        </select>
+                        <button className="btn btn-sm" onClick={restorePresets} style={{ whiteSpace: "nowrap" }}
+                                title={_t("Re-create any deleted preset companions (Eve, Ara, Rex, Sal, Leo) with their original prompts. Existing companions are untouched.")}>
+                            <i className="fa fa-undo" /> {_t("Restore presets")}
+                        </button>
+                        <button className="btn btn-sm" disabled={importing} style={{ whiteSpace: "nowrap" }}
+                                title={_t("Import a companion package (.zip) exported from another rexclaw install")}
+                                onClick={() => importInputRef.current?.click()}>
+                            <i className="fa fa-upload" /> {importing ? _t("Importing…") : _t("Import")}
+                        </button>
+                        <button className="btn btn-sm btn-primary" style={{ whiteSpace: "nowrap" }} onClick={newCompanion}>
+                            <i className="fa fa-plus" /> {_t("New companion")}
+                        </button>
+                        <input
+                            ref={importInputRef}
+                            type="file"
+                            accept=".zip,application/zip"
+                            style={{ display: "none" }}
+                            onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                e.target.value = "";
+                                if (file) importCompanion(file);
+                            }}
+                        />
+                    </div>
                     {pastDueHb > 0 && (
                         <p className="small" style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "0.25rem 0" }}>
                             <i className={resolvingHb ? "fa fa-spinner fa-spin" : "fa fa-clock-o"} />
