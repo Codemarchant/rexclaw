@@ -351,6 +351,8 @@ class AvatarRenderer {
         this._comboGeneration = 0;        // monotonic — newest playComboGesture wins; bumped on unload so in-flight loads self-cancel
         this._comboBaseRestore = null;    // { position, quaternion } — base avatar transform to restore on combo end
         this._comboAutoFullBody = false;  // combo auto-enabled full-body framing; undo on unload
+        this._gestureAuto = false;        // current base gesture was auto-played by set_emotion (not a deliberate play_gesture)
+        this._comboPendingKey = null;     // 'combo:<enum>' of a combo still downloading — counts as running for isComboRunning
 
         // Hardcoded vowel weight multipliers, calibrated for VRoid Studio's
         // standard viseme blendshapes. Used by _applyVowels to scale lipsync.
@@ -685,7 +687,7 @@ class AvatarRenderer {
      *  (e.g. a swaying dance, a breathing-heavy stance). The loop owns the body
      *  until another gesture/emotion replaces it or the VRM is reloaded
      *  (outfit/agent swap). Default (`loop: false`) is the original one-shot. */
-    async playGesture(url, { loop = false } = {}) {
+    async playGesture(url, { loop = false, auto = false } = {}) {
         if (!this.vrm || !this.mixer || !url) return;
         // Locomotion owns the body while walking — drop body gestures rather
         // than fight the walk clip for bones (face/emotion blendshapes still
@@ -755,6 +757,7 @@ class AvatarRenderer {
             action.reset().fadeIn(FADE_IN).play();
             this._gestureAction = action;
             this._currentGestureUrl = url;
+            this._gestureAuto = auto;
             return;
         }
 
@@ -767,6 +770,7 @@ class AvatarRenderer {
         action.reset().fadeIn(FADE_IN).play();
         this._gestureAction = action;
         this._currentGestureUrl = url;
+        this._gestureAuto = auto;
 
         // On finish, crossfade gesture → idle over the same window so the two
         // truly overlap rather than the idle slamming back at full weight.
@@ -798,6 +802,26 @@ class AvatarRenderer {
         // covers them too — this additionally retires the partner character
         // and cancels a combo still downloading. No-op when none is active.
         this._unloadComboPartner();
+        this._fadeOutBaseGesture();
+    }
+
+    /** True while a DELIBERATE gesture owns the base avatar's body — a
+     *  play_gesture clip still running, or any combo. The emotion
+     *  auto-gesture (set_emotion) checks this so a "happy" never cuts a
+     *  wave or a two-character dance short; auto-played clips themselves
+     *  don't count, so emotions still replace each other freely. */
+    isGestureBusy() {
+        if (this._comboPartner || this._comboLivePeer) return true;
+        const action = this._gestureAction;
+        return !!(action && !this._gestureAuto && action.isRunning());
+    }
+
+    /** Fade the base avatar's running gesture (solo clip or combo half)
+     *  back to idle. _unloadComboPartner deliberately leaves this action
+     *  alone (playGesture/playComboGesture replace it themselves), so every
+     *  path that ENDS a combo from the peer side must call this too —
+     *  otherwise the base keeps performing its half alone. */
+    _fadeOutBaseGesture() {
         const action = this._gestureAction;
         if (!action) return;
         const FADE_OUT = 0.5;
@@ -836,8 +860,15 @@ class AvatarRenderer {
      *  the browser HTTP cache makes replays cheap without holding tens of MB
      *  of geometry between plays. */
     async playComboGesture(combo) {
-        if (!this.vrm || !this.mixer) return;
-        if (!combo?.vrma_url || !combo?.partner_vrm_url || !combo?.partner_vrma_url) return;
+        if (!this.vrm || !this.mixer) return false;
+        if (!combo?.vrma_url || !combo?.partner_vrm_url || !combo?.partner_vrma_url) return false;
+        // Already performing (or still loading) THIS combo: nothing to
+        // restage. Starting is idempotent on purpose — two companions
+        // "joining" each other's dance otherwise ping-pong: each start
+        // re-notifies the partner, who starts it again, forever.
+        const key = this._comboKey(combo);
+        if (this.isComboRunning(combo)) return false;
+        this._comboPendingKey = key;
         // Locomotion owns the body while walking — same rule as playGesture.
         if (this._moving) return;
         const { THREE, GLTFLoader, VRMLoaderPlugin, VRMUtils, VRMAnimationLoaderPlugin,
@@ -880,6 +911,7 @@ class AvatarRenderer {
             return;
         }
 
+        if (this._comboPendingKey === key) this._comboPendingKey = null;
         const partnerVrm = livePeer ? livePeer.vrm : partnerGltf?.userData?.vrm;
         // Superseded while downloading — a newer combo started, something
         // unloaded us (another gesture / 'idle' bumps _comboGeneration via
@@ -992,6 +1024,14 @@ class AvatarRenderer {
         if (!this._fullBody && !this._xrActive) {
             this._comboAutoFullBody = true;
             this.setFullBodyMode(true);
+        } else if (livePeer && !this._xrActive) {
+            // Already full-body (the usual group-call state): nothing above
+            // re-framed, so do it here — centre on the pair at their combo
+            // spots and re-anchor the follow camera, exactly as the spawned
+            // branch does via _applyCameraPreset after registering the
+            // partner. Without this the follow cam pans with the base's
+            // move to its offset and the shot sits off-centre.
+            this._applyCameraPreset();
         }
 
         // ── Actions — mirrors playGesture's crossfade choreography ───────
@@ -1034,12 +1074,14 @@ class AvatarRenderer {
         // replace-on-new-gesture path — applies to combos unmodified. The
         // synthetic URL key can't collide with a solo replay of the same file.
         this._gestureAction = baseAction;
+        this._gestureAuto = false;
         this._currentGestureUrl = `combo:${combo.gesture_enum || combo.vrma_url}`;
         if (livePeer) {
             // Registering the action as the peer's gesture keeps its
             // procedural idle suppressed for the duration; _comboPartner
             // stays null so the peers render loop remains the only ticker.
             livePeer._gestureAction = partnerAction;
+            livePeer._gestureAuto = false;
             livePeer._currentGestureUrl = this._currentGestureUrl;
             this._comboLivePeer.action = partnerAction;
             this._comboPartner = null;
@@ -1081,6 +1123,18 @@ class AvatarRenderer {
      *  (matched by avatar id when the combo references a stored avatar,
      *  falling back to the VRM url for file-upload partners). Returns the
      *  peer actor, or null → the combo spawns its own copy as before. */
+    _comboKey(combo) {
+        return `combo:${combo.gesture_enum || combo.vrma_url}`;
+    }
+
+    /** True while this exact combo is on screen or still downloading. */
+    isComboRunning(combo) {
+        if (!combo) return false;
+        const key = this._comboKey(combo);
+        if (this._comboPendingKey === key) return true;
+        return !!((this._comboPartner || this._comboLivePeer) && this._currentGestureUrl === key);
+    }
+
     _findLiveComboPartner(combo) {
         for (const peer of this._peers.values()) {
             if (!peer.vrm || !peer.mixer) continue;
@@ -1108,7 +1162,10 @@ class AvatarRenderer {
      *  playComboGesture's own replace path, which has already claimed the
      *  latest generation and must not invalidate itself. */
     _unloadComboPartner({ immediate = false, keepGeneration = false } = {}) {
-        if (!keepGeneration) this._comboGeneration++;
+        if (!keepGeneration) {
+            this._comboGeneration++;
+            this._comboPendingKey = null;
+        }
         // Base restore + camera revert are DEFERRED to the partner's dispose
         // in the fade path: snapping the base home and re-framing while the
         // partner is still fading out reads as the characters sliding
@@ -1165,6 +1222,10 @@ class AvatarRenderer {
                     }
                 }
             }
+            // Both back in the call layout — re-frame on it (the spawned
+            // branch does the same at dispose). Also re-anchors the follow
+            // camera so the base's jump home doesn't drag the shot along.
+            if (!this._xrActive) this._applyCameraPreset();
         }
         const partner = this._comboPartner;
         if (!partner) {
@@ -1383,6 +1444,7 @@ class AvatarRenderer {
         // removal and mid-combo outfit swaps (both route through here).
         if (this._comboLivePeer?.peer === peer) {
             this._unloadComboPartner({ immediate: true });
+            this._fadeOutBaseGesture();
         }
         const { VRMUtils } = this.libs || {};
         try { peer.mixer?.stopAllAction(); } catch (e) { /* non-fatal */ }
@@ -1452,7 +1514,7 @@ class AvatarRenderer {
     /** Play a VRMA gesture on a peer. Mirrors playGesture's crossfade
      *  choreography, scoped to the peer's mixer/idle action. Combos are
      *  base-avatar-only (the dispatcher falls back to the solo clip). */
-    async playPeerGesture(peerId, url, { loop = false } = {}) {
+    async playPeerGesture(peerId, url, { loop = false, auto = false } = {}) {
         const peer = this._peers.get(peerId);
         if (!peer?.vrm || !peer.mixer || !url) return;
         // This peer may currently be borrowed as a combo partner — a fresh
@@ -1460,6 +1522,7 @@ class AvatarRenderer {
         // mirroring how a new base gesture replaces a running combo.
         if (this._comboLivePeer?.peer === peer) {
             this._unloadComboPartner();
+            this._fadeOutBaseGesture();
         }
         const { THREE, GLTFLoader, VRMAnimationLoaderPlugin, createVRMAnimationClip } = this.libs;
         if (peer._gestureAction && peer._currentGestureUrl === url) {
@@ -1499,6 +1562,7 @@ class AvatarRenderer {
             action.reset().fadeIn(FADE_IN).play();
             peer._gestureAction = action;
             peer._currentGestureUrl = url;
+            peer._gestureAuto = auto;
             return;
         }
         action.setLoop(THREE.LoopOnce, 1);
@@ -1506,6 +1570,7 @@ class AvatarRenderer {
         action.reset().fadeIn(FADE_IN).play();
         peer._gestureAction = action;
         peer._currentGestureUrl = url;
+        peer._gestureAuto = auto;
         const onFinished = (ev) => {
             if (ev.action !== action) return;
             peer.mixer.removeEventListener("finished", onFinished);
@@ -1525,6 +1590,15 @@ class AvatarRenderer {
     }
 
     /** Stop a peer's gesture (incl. loops) and ease back to its idle. */
+    /** Peer-slot twin of isGestureBusy. */
+    isPeerGestureBusy(peerId) {
+        const peer = this._peers.get(peerId);
+        if (!peer) return false;
+        if (this._comboLivePeer?.peer === peer) return true;
+        const action = peer._gestureAction;
+        return !!(action && !peer._gestureAuto && action.isRunning());
+    }
+
     stopPeerGesture(peerId) {
         const peer = this._peers.get(peerId);
         if (!peer) return;
@@ -1532,6 +1606,7 @@ class AvatarRenderer {
         // characters return to their spots) — same as stopGesture on base.
         if (this._comboLivePeer?.peer === peer) {
             this._unloadComboPartner();
+            this._fadeOutBaseGesture();
             return;
         }
         const action = peer._gestureAction;

@@ -90,6 +90,13 @@ def _fmt_local(iso_utc):
     return dt.replace(tzinfo=timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M')
 
 
+def when_text(iso_utc, now):
+    """'YYYY-MM-DD HH:MM (~N ago)' for prompt timelines, or None when
+    the timestamp is missing. Shared with session_service's resume note."""
+    local = _fmt_local(iso_utc)
+    return f'{local} ({_humanize_since(iso_utc, now)})' if local else None
+
+
 def _humanize_since(iso_utc, now):
     dt = parse_dt(iso_utc)
     if not dt:
@@ -118,6 +125,11 @@ def latest_manual_session(con, agent_id):
     ).fetchone()
 
 
+# Every heartbeat user turn starts with this — how other code tells a
+# scheduled turn apart from something the user actually typed.
+CONTEXT_PREFIX = '[Scheduled heartbeat '
+
+
 def build_context_block(con, hb, agent):
     """The user-turn amble a heartbeat runs with — shared verbatim by the
     silent path and the call path (the claim endpoint hands it to the
@@ -131,9 +143,7 @@ def build_context_block(con, hb, agent):
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     def line(iso_utc, never_text):
-        if not iso_utc:
-            return never_text
-        return f'{_fmt_local(iso_utc)} ({_humanize_since(iso_utc, now)})'
+        return when_text(iso_utc, now) or never_text
 
     last = latest_manual_session(con, agent['id'])
     if not last:
@@ -146,7 +156,7 @@ def build_context_block(con, hb, agent):
         last_line = f'is still open; last active {line(last["last_active_at"], "(unknown)")}'
     name = (hb['name'] or '').strip() or 'unnamed'
     return (
-        f'[Scheduled heartbeat "{name}" — this is an autonomous scheduled '
+        f'{CONTEXT_PREFIX}"{name}" — this is an autonomous scheduled '
         f'prompt, not typed by the user; the user is not present in the '
         f'conversation right now.]\n'
         f'- Current local datetime: {now.replace(tzinfo=timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")}\n'

@@ -237,6 +237,7 @@ export default function CompanionsView({ active }) {
             enable_end_call_tool: 1,
             wake_phrase: "",
             wake_action: "resume_last",
+            time_aware_resume: 0,
             core_memory_cap: 100,
         });
     };
@@ -660,6 +661,17 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                         <option value="start_new">{_t("Start a new conversation")}</option>
                     </select>
                 </div>
+            </div>
+            <div className="rx_flags">
+                <span className="rx_check">
+                    <input id={`flag-${idScope}-time_aware_resume`} type="checkbox"
+                           checked={!!editingAgent.time_aware_resume}
+                           onChange={(ev) => setEditingAgent({ ...editingAgent, time_aware_resume: ev.target.checked ? 1 : 0 })} />
+                    <label htmlFor={`flag-${idScope}-time_aware_resume`}
+                           title={_t("When you resume a conversation, a dated note tells the companion when the two of you last spoke and how long ago that was, so it can pick up naturally after hours or days instead of mid-sentence. The note is visible in the transcript, which is why this is off by default.")}>
+                        {_t("Time-aware resume (note how long it has been)")}
+                    </label>
+                </span>
             </div>
             <label>{_t("Tools")}</label>
             <div className="rx_flags">

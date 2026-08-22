@@ -385,6 +385,8 @@ export const JA = {
   "On wake phrase": "ウェイクフレーズを聞いたとき",
   "Resume the last conversation": "前回の会話を再開",
   "Start a new conversation": "新しい会話を開始",
+  "Time-aware resume (note how long it has been)": "時間を意識した再開（経過時間をメモ）",
+  "When you resume a conversation, a dated note tells the companion when the two of you last spoke and how long ago that was, so it can pick up naturally after hours or days instead of mid-sentence. The note is visible in the transcript, which is why this is off by default.": "会話を再開すると、最後に話した日時とその経過時間を記した日付入りのメモがコンパニオンに渡され、数時間や数日の空白の後でも途中からではなく自然に再開できます。メモはトランスクリプトに表示されるため、既定ではオフです。",
   "End-call tool (hang up on request)": "通話終了ツール（頼まれたら切る）",
 
   // ── Settings: desktop app ─────────────────────────────────────────────

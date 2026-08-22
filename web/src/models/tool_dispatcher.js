@@ -72,6 +72,7 @@ export class ToolDispatcher {
             playGesture: (u, o) => avatarRenderer.playGesture?.(u, o),
             playComboGesture: (c) => avatarRenderer.playComboGesture?.(c),
             stopGesture: () => avatarRenderer.stopGesture?.(),
+            isGestureBusy: () => !!avatarRenderer.isGestureBusy?.(),
             setOutfit: (u, i) => avatarRenderer.setOutfit?.(u, i),
             setBackground: (bg) => avatarRenderer.setBackground?.(bg),
         } : null);
@@ -465,9 +466,19 @@ export class ToolDispatcher {
         this.avatarApi?.setEmotion?.(emotion);
         // Auto-play matching VRMA gesture if one exists. Fire-and-forget — we
         // don't await the load so the function_call_output round-trip stays fast.
+        // Skipped while a deliberate gesture (play_gesture clip, any combo)
+        // owns the body: the face still changes, the body keeps its beat —
+        // a "happy" must never cut a wave or a two-character dance short.
+        // The check runs after a short beat so the pair is order-independent:
+        // a play_gesture fired in the same turn wins even when the emotion
+        // call landed first (an auto-clip cut off 300ms in read as a glitch).
         const url = EMOTION_GESTURE_MAP[emotion];
         if (url) {
-            this.avatarApi?.playGesture?.(url);
+            setTimeout(() => {
+                if (this.conversationState && this.conversationState.emotion !== emotion) return;
+                if (this.avatarApi?.isGestureBusy?.()) return;
+                this.avatarApi?.playGesture?.(url, { auto: true });
+            }, 300);
         }
         if (this.conversationState) {
             this.conversationState.emotion = emotion;
@@ -502,13 +513,30 @@ export class ToolDispatcher {
             // round-trip must not wait on it.
             if (custom?.type === "combo" && custom.partner_vrm_url && custom.partner_vrma_url) {
                 if (this.avatarApi?.playComboGesture) {
-                    this.avatarApi.playComboGesture(custom);
+                    // Idempotent: a combo that's already on screen is left
+                    // running, and the result says so — re-issuing it is
+                    // how two companions end up "joining" each other's
+                    // dance in a loop.
+                    if (this.avatarApi.playComboGesture(custom) === "running") {
+                        return {
+                            ok: true, gesture,
+                            note: "That two-character gesture is already running with your partner — "
+                                + "nothing restarted. It continues until one of you plays 'idle' "
+                                + "or another gesture.",
+                        };
+                    }
                 } else if (custom.vrma_url) {
                     // Peer avatars can't stage a combo partner — play the
                     // base clip solo rather than failing the tool call.
                     this.avatarApi?.playGesture?.(custom.vrma_url, { loop: !!custom.loop });
                 }
-                return { ok: true, gesture };
+                return {
+                    ok: true, gesture,
+                    note: "Two-character gesture started — it owns both bodies "
+                        + (custom.loop ? "until one of you ends it" : "until the clip finishes")
+                        + ". Don't start another gesture on top of it (emotions are fine); "
+                        + "play_gesture 'idle' ends it for both.",
+                };
             }
             if (custom?.vrma_url) {
                 url = custom.vrma_url;

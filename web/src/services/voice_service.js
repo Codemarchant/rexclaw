@@ -1017,8 +1017,15 @@ class VoiceCallService {
                 setSpeakingIntensity: (v) => renderer()?.setSpeakingIntensity?.(v),
                 setEmotion: (e, o) => renderer()?.setEmotion?.(e, o),
                 playGesture: (u, o) => renderer()?.playGesture?.(u, o),
-                playComboGesture: (c) => renderer()?.playComboGesture?.(c),
+                playComboGesture: (c) => {
+                    const r = renderer();
+                    if (r?.isComboRunning?.(c)) return "running";
+                    r?.playComboGesture?.(c);
+                    this._notifyComboPartner(conn, c);
+                    return "started";
+                },
                 stopGesture: () => renderer()?.stopGesture?.(),
+                isGestureBusy: () => !!renderer()?.isGestureBusy?.(),
                 setOutfit: (u, i) => renderer()?.setOutfit?.(u, i),
                 resetExpression: () => renderer()?.resetExpression?.(),
                 setBackground: (bg) => renderer()?.setBackground?.(bg),
@@ -1039,13 +1046,14 @@ class VoiceCallService {
             playComboGesture: (c) => {
                 const r = renderer();
                 if (!r?.playComboGesture || !c) return;
+                if (r.isComboRunning?.(c)) return "running";
                 const baseAvatarId = r._currentAvatarPayload?.id;
                 const peerAvatarId = conn.state?.avatar?.id;
                 if (!baseAvatarId || !c.partner_avatar_id
                     || Number(c.partner_avatar_id) !== Number(baseAvatarId)) {
                     console.warn(`[voice] peer combo ${c.gesture_enum}: partner is not the base avatar — playing solo half`);
                     r.playPeerGesture?.(id, c.vrma_url, { loop: !!c.loop });
-                    return;
+                    return "solo";
                 }
                 // Placement slots: for SYMMETRIC combos (both halves play the
                 // same clip) the two authored spots are interchangeable, so
@@ -1089,12 +1097,52 @@ class VoiceCallService {
                     // live borrowed peer keeps its natural size.
                     partner_scale: 1.0,
                 });
+                this._notifyComboPartner(conn, c);
+                return "started";
             },
             stopGesture: () => renderer()?.stopPeerGesture?.(id),
+            isGestureBusy: () => !!renderer()?.isPeerGestureBusy?.(id),
             setOutfit: (u, i) => renderer()?.setPeerOutfit?.(id, u, i),
             resetExpression: () => {},
             setBackground: (bg) => renderer()?.setBackground?.(bg),
         };
+    }
+
+    /** Tell the OTHER leg of a two-character gesture that its body was
+     *  just borrowed. The renderer stages a combo silently, so without this
+     *  the partner companion has no idea it's mid-dance and casually breaks
+     *  it with a greeting wave. Stored for their next turn (no prompted
+     *  response) — the trigger keeps the floor. Resolved the same way the
+     *  renderer picks a live partner: avatar id, then VRM url. No-op when
+     *  the partner is a spawned prop rather than a call participant. */
+    _notifyComboPartner(triggerConn, combo) {
+        if (!combo) return;
+        let partner = null;
+        if (triggerConn.role === "primary") {
+            partner = [...this.connections.values()].find((c) => {
+                const av = c !== this.primary && c.state?.avatar;
+                if (!av) return false;
+                return (combo.partner_avatar_id && Number(av.id) === Number(combo.partner_avatar_id))
+                    || (combo.partner_vrm_url && av.vrm_url === combo.partner_vrm_url);
+            }) || null;
+        } else {
+            // Peer-triggered combos only stage when the partner IS the base
+            // avatar (see the role swap above), so the primary is the one.
+            partner = this.primary;
+        }
+        if (!partner) return;
+        const who = triggerConn.agentName || "Your call partner";
+        const how = combo.loop
+            ? "It loops until one of you plays 'idle' or another gesture - be conscious not to break it by accident"
+            : "It runs until the clip finishes";
+        const text = `[Avatar] ${who} just started the two-character gesture '${combo.gesture_enum}' with you — `
+            + `your body is already performing the other half. Nothing to do on your side: do NOT play this `
+            + `gesture yourself (that only restarts it). ${how}. No need to comment on it unless it comes up.`;
+        // Same delivery split as the line relay: the primary loses text
+        // items injected ahead of an audio turn, so its copy waits in the
+        // deferred queue and flushes right before its next response.
+        if (partner === this.primary) partner.queueDeferredContext(text);
+        else partner.injectContextItem(text, { promptResponse: false });
     }
 
     /** Role-dependent avatar wiring at session start. Primary keeps the

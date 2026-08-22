@@ -13,7 +13,7 @@ import mimetypes
 import re
 import threading
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from . import xai_client, affection_tools, browser_tools, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, store
 from .db import FILES_DIR, get_config, utcnow, parse_dt
@@ -45,6 +45,42 @@ def preview_voice_prompt(con, agent_row):
         + _render_prompt(agent_row)
         + _env_postamble(con, agent_row, mode='voice')
     )
+
+
+# Every time-aware resume note starts with this (see _note_resume_gap) —
+# how the transcript filter recognises the row.
+RESUME_NOTE_PREFIX = '[Conversation resumed '
+
+
+def _note_resume_gap(con, session, agent):
+    """Time-aware resume (opt-in per companion): persist a dated system row
+    saying when the conversation was last active and how long ago that was,
+    so a companion picking a thread back up after hours or days knows it.
+    Replays through every resume path (voice items, text fresh-chain replay,
+    cross-mode catch-up) like any other system row, and shows in the
+    transcript as a note. Must run BEFORE last_active_at is bumped for the
+    new surface. Anchored on the user's last real message: the companion's
+    own lines (diary entries, an unanswered greeting) and scheduled
+    heartbeat turns don't count as the user being here."""
+    if not agent['time_aware_resume']:
+        return
+    from . import heartbeat
+    last = con.execute(
+        "SELECT created_at FROM messages WHERE session_id = ?"
+        " AND role = 'user' AND content NOT LIKE ?"
+        " ORDER BY sequence DESC, id DESC LIMIT 1",
+        (session['id'], heartbeat.CONTEXT_PREFIX + '%'),
+    ).fetchone()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    then = heartbeat.when_text(last['created_at'] if last else None, now)
+    if not then:
+        return
+    now_local = datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')
+    _persist_text_message(con, session, role='system', content=(
+        f'{RESUME_NOTE_PREFIX}{now_local}. You and the user last spoke '
+        f'here {then}; any entries after that were written while they '
+        f'were away. They are back now — take the time gap into account.]'
+    ))
 
 
 def _env_preamble(config):
@@ -82,8 +118,9 @@ def _env_preamble(config):
         f"to continue?\". Known dependencies: record_screen_clip / take_selfie "
         f"return an imagine_image_id that delegate_task, local_task and "
         f"create_video consume - copy it from that result, never from memory. "
-        f"set_emotion and play_gesture replace each other's animation - never "
-        f"both in one turn.\n"
+        f"set_emotion and play_gesture are fine together in one turn: an "
+        f"emotion on its own also plays a small matching body clip, but a "
+        f"gesture you play always takes priority for the body.\n"
         f"- **Language:** Respond in the language the user speaks.\n\n"
     )
 
@@ -293,7 +330,11 @@ def _expression_section(agent_row):
             "- `play_gesture` is punctuation, not background motion: one "
             "gesture per beat, for moments worth marking. Which gestures "
             "fit, and how often, is a personality question - let your "
-            "character decide."
+            "character decide.\n"
+            "- A looping gesture (solo or with a call partner) keeps going "
+            "until you end it - `play_gesture` 'idle' stops it cleanly, and "
+            "any other gesture replaces it, so don't play one by accident "
+            "mid-loop. Emotions are fine at any time."
         )
         style = (agent_row['expression_style'] or '').strip()
         if style:
@@ -473,6 +514,39 @@ def _resolve_active_background(con, agent_row):
     return None
 
 
+def _cross_mode_token_vals(config, session, into_mode):
+    """Session token-column updates for a resume that switches surface.
+
+    The summary threshold is checked against ONE shared counter (input +
+    output tokens since the last rollup), but the two surfaces spend it at
+    very different rates: a text turn replays the whole history as input
+    every time, so a short text stint racks up hundreds of thousands of
+    tokens - nothing next to the 1M text threshold, but straight through
+    the 64k voice one, so the next call compacted on arrival.
+
+    Coming back to voice, the text stint's spend is converted into voice
+    units by the ratio of the two thresholds: the baseline moves up by the
+    forgiven part, so the voice check sees prior voice spend plus the scaled
+    text spend. Voice -> text is left alone - voice spend is small against
+    the text threshold, and scaling it UP would call a modest call a huge
+    context. `tokens_at_mode_switch` marks where the stint began; a rollup
+    mid-stint resets the baseline, so the later of the two wins."""
+    total = (session['total_input_tokens'] or 0) + (session['total_output_tokens'] or 0)
+    vals = {'tokens_at_mode_switch': total}
+    if into_mode != 'voice' or session['mode'] != 'text':
+        return vals
+    voice_thr = config['summary_threshold_tokens'] or 0
+    text_thr = config['summary_threshold_tokens_text'] or 0
+    if voice_thr <= 0 or text_thr <= 0 or voice_thr >= text_thr:
+        return vals
+    baseline = session['tokens_at_last_summary'] or 0
+    stint_start = max(session['tokens_at_mode_switch'] or 0, baseline)
+    text_spend = max(0, total - stint_start)
+    if text_spend:
+        vals['tokens_at_last_summary'] = baseline + int(text_spend * (1 - voice_thr / text_thr))
+    return vals
+
+
 # ---------------------------------------------------------------------------
 # Voice mode
 # ---------------------------------------------------------------------------
@@ -520,6 +594,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # Responses-API call_ids, which replay as opaque strings).
         if resume_session['mode'] != 'voice':
             resume_vals['mode'] = 'voice'
+            resume_vals.update(_cross_mode_token_vals(config, resume_session, 'voice'))
         # An agent invited into a call resumes its last session as the peer
         # leg (persistent memory across calls) — link it to the new call's
         # primary session. Latest call wins: the FK can only point at one
@@ -647,6 +722,9 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         audio_sample_rate=audio_sample_rate,
         manual_turn=manual_turn,
     )
+
+    if resume_session and not call_parent_session:
+        _note_resume_gap(con, session, agent)
 
     activate_vals = {'state': 'active', 'last_active_at': utcnow()}
     if not resume_session:
@@ -879,29 +957,40 @@ def _build_replay_items(con, session, config=None):
 def _transcript_rows(con, session, limit=None):
     """Rows for the UI transcript: full chronological history with NO filter
     on is_summarized_into (the user sees everything, even after compaction);
-    summary rollups themselves are skipped (backend artifact for the model).
+    summary rollups themselves are skipped (backend artifact for the model),
+    and so are the model-only prompt rows that would otherwise bloat the
+    view with boilerplate: the scheduled-heartbeat context block (the diary
+    reply it produced stays) and the time-aware resume note. Both still
+    replay to the model - this is display-only.
     Optional `limit` keeps the most-recent N. Returns (rows, truncated).
     Shared by the voice resume feed (_build_transcript_history) and the text
     resume payload (start_text_session) so both surfaces show the same
     complete conversation."""
     truncated = False
+    from . import heartbeat
+    shown = (
+        "AND is_summary_rollup = 0"
+        " AND NOT (role = 'user' AND content LIKE ?)"
+        " AND NOT (role = 'system' AND content LIKE ?)"
+    )
+    shown_params = (heartbeat.CONTEXT_PREFIX + '%', RESUME_NOTE_PREFIX + '%')
     if limit and limit > 0:
         recent = con.execute(
-            "SELECT * FROM messages WHERE session_id = ? AND is_summary_rollup = 0 "
+            f"SELECT * FROM messages WHERE session_id = ? {shown} "
             "ORDER BY sequence DESC, id DESC LIMIT ?",
-            (session['id'], limit),
+            (session['id'], *shown_params, limit),
         ).fetchall()
         if recent:
             oldest = recent[-1]
             older = con.execute(
-                "SELECT 1 FROM messages WHERE session_id = ? AND is_summary_rollup = 0 "
+                f"SELECT 1 FROM messages WHERE session_id = ? {shown} "
                 "AND (sequence < ? OR (sequence = ? AND id < ?)) LIMIT 1",
-                (session['id'], oldest['sequence'], oldest['sequence'], oldest['id']),
+                (session['id'], *shown_params, oldest['sequence'], oldest['sequence'], oldest['id']),
             ).fetchone()
             truncated = bool(older)
         rows = sorted(recent, key=lambda m: (m['sequence'], m['id']))
     else:
-        rows = store.session_messages(con, session['id'], where="AND is_summary_rollup = 0")
+        rows = store.session_messages(con, session['id'], where=shown, params=shown_params)
     return rows, truncated
 
 
@@ -1094,6 +1183,14 @@ def end_session(con, session, *, reason='client', total_input_tokens=0, total_ou
         token_updates['call_parent_session_id'] = None
     store.update_session(con, session['id'], state='ended', ended_at=ended,
                          last_active_at=ended, **token_updates)
+    # Commit the settle BEFORE summarising: the summary is a network
+    # round-trip (and first waits on _summary_lock if a background /compact
+    # is mid-flight), and holding these writes in an open transaction through
+    # it blocks every other writer meanwhile - the in-flight compact's own
+    # bookkeeping died on "database is locked", leaving needs_summary set so
+    # this call ran a SECOND summary while still holding the lock, and a
+    # resume of another companion queued behind it for minutes.
+    con.commit()
     session = store.get_session(con, session['id'])
 
     if session['needs_summary']:
@@ -1713,10 +1810,14 @@ def start_text_session(con, *, agent, resume_session=None):
         # including the voice transcript — via _replay_text_messages.
         if resume_session['mode'] != 'text':
             resume_vals['mode'] = 'text'
+            resume_vals.update(_cross_mode_token_vals(config, resume_session, 'text'))
         store.update_session(con, resume_session['id'], **resume_vals)
         session = store.get_session(con, resume_session['id'])
     else:
         session = store.create_session(con, agent_id=agent['id'], mode='text')
+
+    if resume_session:
+        _note_resume_gap(con, session, agent)
 
     activate_vals = {'state': 'active', 'last_active_at': utcnow()}
     if not resume_session:

@@ -300,7 +300,11 @@ CREATE TABLE IF NOT EXISTS agents (
     -- companion. wake_action picks what "starts" means: 'resume_last'
     -- continues the latest conversation, 'start_new' begins fresh.
     wake_phrase TEXT,
-    wake_action TEXT NOT NULL DEFAULT 'resume_last'
+    wake_action TEXT NOT NULL DEFAULT 'resume_last',
+    -- Time-aware resume: when a conversation is resumed, a dated system
+    -- note tells the companion how long it has been since the last
+    -- exchange. Opt-in: it adds a visible note to every resume.
+    time_aware_resume INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS mcp_connections (
@@ -358,6 +362,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     total_input_tokens INTEGER NOT NULL DEFAULT 0,
     total_output_tokens INTEGER NOT NULL DEFAULT 0,
     tokens_at_last_summary INTEGER NOT NULL DEFAULT 0,
+    -- Token total when the session last changed surface (voice <-> text);
+    -- lets a voice resume scale the text stint's spend into voice units.
+    tokens_at_mode_switch INTEGER NOT NULL DEFAULT 0,
     needs_summary INTEGER NOT NULL DEFAULT 0,
     -- Multi-agent voice calls: set on the sessions of agents added to an
     -- existing call, pointing at the primary session the call was started
@@ -657,6 +664,10 @@ MIGRATIONS = (
     " THEN 'fixed' ELSE 'persistent' END"
     " WHERE session_strategy = 'isolated'"
     " AND (session_id IS NOT NULL OR persist_session != 0)",
+    # Time-aware resume note (opt-in per companion).
+    "ALTER TABLE agents ADD COLUMN time_aware_resume INTEGER NOT NULL DEFAULT 0",
+    # Cross-mode token accounting (see session_service._cross_mode_token_vals).
+    "ALTER TABLE sessions ADD COLUMN tokens_at_mode_switch INTEGER NOT NULL DEFAULT 0",
 )
 
 

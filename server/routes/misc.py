@@ -60,6 +60,7 @@ _AGENT_FIELDS = (
     "enable_delegate_tool", "enable_multi_agent_delegation",
     "enable_local_tasks", "enable_minecraft",
     "enable_end_call_tool", "wake_phrase", "wake_action",
+    "time_aware_resume",
 )
 
 
