@@ -152,16 +152,18 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
     raise ValidationError(f"Unknown native tool: {tool_name}")
 
 
-def _store_session_image(con, session_id, image_data_url, *, kind, name):
-    """Shared body of the selfie/upload routes: validate the session +
-    Imagine gate, decode a data:image/... URI, persist it as an
-    imagine_images row of `kind`, and return the small library payload."""
+def _store_session_image(con, session_id, image_data_url, *, kind, name,
+                         flag="enable_grok_imagine_tools"):
+    """Shared body of the selfie/screenshot/upload routes: validate the
+    session + the agent flag that offers the tool, decode a data:image/...
+    URI, persist it as an imagine_images row of `kind`, and return the
+    small library payload."""
     session = resolve_session(con, session_id)
     if session["state"] != "active":
         raise ValidationError("Session is not active.")
     agent = store.get_agent(con, session["agent_id"])
-    if not agent["enable_grok_imagine_tools"]:
-        raise AccessError("Grok Imagine tools are disabled on this agent.")
+    if not agent[flag]:
+        raise AccessError(f"{flag[len('enable_'):].replace('_', ' ').capitalize()} are disabled on this agent.")
 
     data = image_data_url or ""
     if not isinstance(data, str) or not data.startswith("data:image/"):
@@ -209,6 +211,7 @@ def session_selfie(session_id: int, payload: dict = Body(default={}), con=Depend
     return _store_session_image(
         con, session_id, payload.get("image_data_url"),
         kind="selfie", name=f"Selfie — {agent['name']}",
+        flag="enable_capture_tools",
     )
 
 
@@ -244,6 +247,7 @@ def session_screenshot(session_id: int, payload: dict = Body(default={}), con=De
     return _store_session_image(
         con, session_id, payload.get("image_data_url"),
         kind="screenshot", name=name,
+        flag="enable_capture_tools",
     )
 
 
@@ -263,8 +267,8 @@ async def session_screen_clip(
     if session["state"] != "active":
         raise ValidationError("Session is not active.")
     agent = store.get_agent(con, session["agent_id"])
-    if not agent["enable_grok_imagine_tools"]:
-        raise AccessError("Grok Imagine tools are disabled on this agent.")
+    if not agent["enable_capture_tools"]:
+        raise AccessError("Capture tools are disabled on this agent.")
     content = await file.read()
     mimetype = file.content_type or "video/webm"
     if not content:

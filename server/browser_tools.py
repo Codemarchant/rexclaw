@@ -30,10 +30,12 @@ BROWSER_TOOLS = [
     # build_play_gesture_tool below).
 ]
 
-# Offered only when the agent has Grok Imagine tools enabled — the snapshot's
-# whole purpose is feeding create_video (source_image / reference_images).
-# Browser-side: the dispatcher captures the live WebGL canvas and uploads it
-# via /api/voice/session/<id>/selfie.
+# Offered under the agent's capture-tools flag (enable_capture_tools, shared
+# with the screen pair below) — provider-agnostic: it captures, it doesn't
+# generate. The snapshot lands in the files library where create_video
+# (source_image / reference_images) can pick it up. Browser-side: the
+# dispatcher captures the live WebGL canvas and uploads it via
+# /api/voice/session/<id>/selfie.
 SELFIE_TOOL = {
     "name": "take_selfie",
     "description": (
@@ -71,9 +73,9 @@ SELFIE_TOOL = {
 # Screen capture is armed by the USER — browser security demands a share
 # picker plus a user gesture, so the model can never see a screen nobody
 # offered. Once armed (Share-screen button in the voice view) the dispatcher
-# grabs frames from the live stream on demand. Gated with the imagine set
-# because captures land in the files library, and VOICE MODE ONLY in the
-# standalone — text mode has no browser-tool round-trip here.
+# grabs frames from the live stream on demand. Gated by the capture-tools
+# flag (captures land in the files library); text mode offers the pair too
+# via its browser-tool round-trip (session_service.TEXT_BROWSER_TOOL_NAMES).
 SCREENSHOT_TOOL = {
     "name": "take_screenshot",
     "description": (
@@ -82,9 +84,11 @@ SCREENSHOT_TOOL = {
         "have started sharing via the Share-screen button (desktop icon) in "
         "the call header — if sharing is not active this returns an error; "
         "ask them to click it, then call the tool again. You cannot see the "
-        "screenshot yourself: pass the returned imagine_image_id to "
-        "delegate_task in files to read/analyze what is on screen, or to "
-        "local_task's files to use it in on-machine work. Use when "
+        "screenshot yourself: to read what is on it, pass THIS result's "
+        "imagine_image_id to delegate_task in files on a later turn (or to "
+        "local_task's files for on-machine work) — the id only exists once "
+        "this returns, and an older capture's id shows stale content. "
+        "Use when "
         "the user asks you to look at their screen, an error message, a "
         "document or app they have open, or anything they are currently "
         "looking at."
@@ -128,8 +132,10 @@ RECORD_SCREEN_CLIP_TOOL = {
         "wants sound but has_audio came back false, ask them to re-share "
         "with the audio box ticked. During a voice call, shared system "
         "audio also captures YOUR own spoken replies. You cannot watch the "
-        "clip yourself: pass the returned imagine_image_id to delegate_task "
-        "in files to have its content analyzed. Use when the user wants to "
+        "clip yourself: to know what it shows, pass THIS result's "
+        "imagine_image_id to delegate_task in files on a later turn — the "
+        "id only exists once this returns, and an older capture's id shows "
+        "stale content. Use when the user wants to "
         "capture a sequence a screenshot can't — reproducing a bug, "
         "demonstrating a workflow, recording an animation."
     ),

@@ -32,6 +32,7 @@ _CONFIG_FIELDS = (
     "xai_files_url", "xai_images_url", "xai_images_edits_url", "xai_videos_url",
     "xai_model", "text_model", "summary_model", "director_model", "imagine_model",
     "imagine_video_model", "multi_agent_model", "multi_agent_effort",
+    "delegate_fast_model",
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
     "summary_threshold_tokens", "summary_threshold_tokens_text",
     "summary_keep_recent_messages",
@@ -49,7 +50,7 @@ _AGENT_FIELDS = (
     "reasoning_effort",
     "enable_code_execution", "enable_gesture_emotion_tools",
     "enable_lore_tool", "expression_style", "speech_tag_style",
-    "enable_web_search", "enable_x_search", "enable_grok_imagine_tools",
+    "enable_web_search", "enable_x_search", "enable_grok_imagine_tools", "enable_capture_tools",
     "enable_memory_tools", "core_memory_cap",
     "enable_affection_tool", "affection_animations",
     "affection_score", "affection_rules",
@@ -105,6 +106,7 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
 _MODEL_DEFAULT_FIELDS = (
     "xai_model", "text_model", "summary_model", "imagine_model",
     "imagine_video_model", "director_model", "multi_agent_model",
+    "delegate_fast_model",
 )
 
 

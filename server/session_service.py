@@ -76,10 +76,14 @@ def _env_preamble(config):
         f"need missing input or the action is hard to undo - then ask instead of "
         f"announcing.\n"
         f"- **Tool sequencing:** Fire independent tools in parallel in the same "
-        f"turn where they don't depend on each other. In a dependent chain, fire "
-        f"the next as soon as the prior result lands instead of pausing to ask "
-        f"\"want me to continue?\". Don't fire set_emotion and play_gesture in "
-        f"the same turn - each replaces the other's animation.\n"
+        f"turn where they don't depend on each other. A dependent tool can never "
+        f"share a turn with the one it depends on - it needs that result first; "
+        f"fire it the moment the result lands, without pausing to ask \"want me "
+        f"to continue?\". Known dependencies: take_screenshot / record_screen_clip / "
+        f"take_selfie return an imagine_image_id that delegate_task, local_task "
+        f"and create_video consume - copy it from that result, never from memory. "
+        f"set_emotion and play_gesture replace each other's animation - never "
+        f"both in one turn.\n"
         f"- **Language:** Respond in the language the user speaks.\n\n"
     )
 
@@ -592,11 +596,11 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         if remove_agent_tool is not None:
             tools.append(remove_agent_tool)
 
-    if agent['enable_grok_imagine_tools']:
-        # take_selfie is a browser tool (it captures the live canvas), but it
-        # exists to feed create_video — same feature gate as the imagine set.
-        # The screen-capture pair rides the same gate: captures land in the
-        # files library, whose upload path lives behind this flag.
+    if agent['enable_capture_tools']:
+        # Capture tools: take_selfie grabs the live canvas, the screen pair
+        # grab the user-armed share. They capture, they don't generate, so
+        # they sit behind their own provider-agnostic flag, not the imagine
+        # set (the library accepts captures regardless).
         tools.append(browser_tools.SELFIE_TOOL)
         tools.append(browser_tools.SCREENSHOT_TOOL)
         tools.append(browser_tools.RECORD_SCREEN_CLIP_TOOL)
@@ -1490,18 +1494,20 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         # source_images (uploads are ingested into the Imagine library).
         for entry in imagine_tools.build_text_tools(con, agent):
             tools.append(entry)
-    if enable_browser_tools and enable_grok_imagine_tools:
-        # The screen-capture pair round-trip through the browser (see
-        # TEXT_BROWSER_TOOL_NAMES). Same imagine gate as voice mode —
-        # captures store via the files library.
-        for shared_tool in (browser_tools.SCREENSHOT_TOOL,
-                            browser_tools.RECORD_SCREEN_CLIP_TOOL):
-            tools.append({
-                'type': 'function',
-                'name': shared_tool['name'],
-                'description': shared_tool['description'],
-                'parameters': shared_tool['parameters'],
-            })
+    if agent['enable_capture_tools']:
+        # take_selfie is native here (the avatar portrait — no canvas), so
+        # it works headless too. The screen-capture pair round-trip through
+        # the browser (see TEXT_BROWSER_TOOL_NAMES), so they need one.
+        tools.append(imagine_tools.TEXT_SELFIE_TOOL)
+        if enable_browser_tools:
+            for shared_tool in (browser_tools.SCREENSHOT_TOOL,
+                                browser_tools.RECORD_SCREEN_CLIP_TOOL):
+                tools.append({
+                    'type': 'function',
+                    'name': shared_tool['name'],
+                    'description': shared_tool['description'],
+                    'parameters': shared_tool['parameters'],
+                })
     if enable_memory_tools:
         for entry in memory_tools.MEMORY_TOOLS:
             tools.append(entry)
@@ -1862,8 +1868,12 @@ def _maybe_flag_summary_text(con, session):
     return False
 
 
+_AGENT_EFFORT = object()   # text_send_turn sentinel: use the agent's reasoning_effort
+
+
 def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
-                   extra_content_blocks=None, tool_results=None, headless=False):
+                   extra_content_blocks=None, tool_results=None, headless=False,
+                   model=None, reasoning_effort=_AGENT_EFFORT):
     """Drive one or more /v1/responses legs until the assistant returns plain
     text or needs the browser. Server-side function tools (imagine + memory +
     delegate) execute inline; TEXT_BROWSER_TOOL_NAMES calls return a
@@ -1874,7 +1884,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     they appear in the response output for diagnostics only.
     `extra_content_blocks` lets a server-side caller (delegate_task) append
     resolved input_image / input_file blocks to the first leg's user
-    content."""
+    content. `model` / `reasoning_effort` override the configured text model
+    and the agent's effort for this turn (delegate_task's fast-model path —
+    pass reasoning_effort=None for a non-reasoning model)."""
     if session['state'] != 'active':
         raise ValidationError("Session is not active.")
     if session['mode'] != 'text':
@@ -2065,11 +2077,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
             body = xai_client.create_response(
                 xai_api_key=xai_key,
                 responses_url=config['xai_responses_url'],
-                model=config['text_model'],
+                model=model or config['text_model'],
                 input_items=input_items,
                 instructions=None if chain_alive else instructions,
                 tools=tools,
-                reasoning_effort=agent['reasoning_effort'] or 'low',
+                reasoning_effort=((agent['reasoning_effort'] or 'low')
+                                  if reasoning_effort is _AGENT_EFFORT else reasoning_effort),
                 previous_response_id=previous_response_id,
                 prompt_cache_key=f'rexclaw:{agent["id"]}',
             )

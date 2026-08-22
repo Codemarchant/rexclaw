@@ -356,11 +356,12 @@ export class ToolDispatcher {
         return {
             ok: true,
             ...result,
-            note: "Screenshot captured — the user can see it in the "
-                + "transcript. You cannot see it yourself: pass the "
-                + "imagine_image_id to delegate_task in files to "
-                + "read/analyze what is on the screen, or to local_task's "
-                + "files to use it in on-machine work.",
+            note: `Screenshot captured (imagine_image_id ${result.imagine_image_id}) `
+                + "— the user can see it in the transcript. You cannot see it "
+                + "yourself: to read what is on the screen RIGHT NOW, pass "
+                + `THIS id (${result.imagine_image_id}) to delegate_task in files `
+                + "— not the id of any earlier screenshot. The same id works "
+                + "in local_task's files for on-machine work.",
         };
     }
 
@@ -426,9 +427,10 @@ export class ToolDispatcher {
                       + "when starting the share, or their platform doesn't "
                       + "support audio for the shared surface — e.g. "
                       + "whole-monitor shares carry audio on Windows only)")
-                + " — the user can play it in the transcript. You cannot "
-                + "watch it yourself: pass the imagine_image_id to "
-                + "delegate_task in files to have its content analyzed.",
+                + ` — the user can play it in the transcript. You cannot `
+                + "watch it yourself: to analyze this clip, pass THIS id "
+                + `(imagine_image_id ${meta.imagine_image_id}) to delegate_task `
+                + "in files — not the id of any earlier capture.",
         };
     }
 

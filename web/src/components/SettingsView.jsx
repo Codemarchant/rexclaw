@@ -256,6 +256,12 @@ export default function SettingsView({ active }) {
 
                 <section>
                     <h3><i className="fa fa-key" /> {_t("xAI connection")}</h3>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("Manage keys, usage and custom voices in the")}{" "}
+                        <a href="https://console.x.ai" target="_blank" rel="noreferrer">{_t("xAI console")}</a>.{" "}
+                        {_t("Model rates:")}{" "}
+                        <a href="https://docs.x.ai/docs/models" target="_blank" rel="noreferrer">{_t("xAI pricing")}</a>.
+                    </p>
                     <label>{_t("API key")} {config.has_api_key && <span className="text-muted">({_t("saved")} {config.api_key_hint || ""})</span>}</label>
                     <input
                         type="password"
@@ -323,6 +329,14 @@ export default function SettingsView({ active }) {
                                 <option value="high">{_t("High (16 agents)")}</option>
                                 <option value="xhigh">{_t("X-High (16 agents)")}</option>
                             </select>
+                        </div>
+                        <div>
+                            <label title={_t("Quicker, shallower text model that delegate_task can pick with model='fast' for looking at images, screenshots and clips or reading short documents. Empty = same as the Text model.")}>
+                                {_t("Fast text model (delegate tool)")}
+                            </label>
+                            <input type="text" value={config.delegate_fast_model || ""}
+                                   placeholder="grok-4.20-non-reasoning"
+                                   onChange={(ev) => setField("delegate_fast_model", ev.target.value)} />
                         </div>
                     </div>
                     <div className="rx_model_actions">

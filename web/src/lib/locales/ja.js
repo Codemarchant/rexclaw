@@ -593,6 +593,48 @@ export const JA = {
   "Lore stories (recall_stories)": "ロアストーリー（recall_stories）",
   "Lets the companion look up its lore stories on demand. Only offered when at least one story below is tagged with the companion's name.":
     "コンパニオンが必要に応じてロアストーリーを参照できるようにします。下のストーリーにコンパニオンの名前がタグ付けされている場合にのみ提供されます。",
+  "Built-in xAI voice names such as ara work as-is. For a custom voice, create or clone one in the xAI console (console.x.ai) and paste its voice id here.":
+    "ara などの xAI 組み込みボイス名はそのまま使えます。カスタムボイスは xAI コンソール（console.x.ai）で作成またはクローンし、そのボイス ID をここに貼り付けてください。",
+  "Fast text model (delegate tool)":
+    "高速テキストモデル（委任ツール）",
+  "Quicker, shallower text model that delegate_task can pick with model='fast' for looking at images, screenshots and clips or reading short documents. Empty = same as the Text model.":
+    "delegate_task が model='fast' で選べる、より速く浅いテキストモデルです。画像やスクリーンショット、クリップの確認、短い文書の読み取りに使います。空欄 = テキストモデルと同じ。",
+  "Manage keys, usage and custom voices in the":
+    "API キー、使用量、カスタムボイスの管理は",
+  "xAI console":
+    "xAI コンソール",
+  "Model rates:":
+    "モデル料金：",
+  "Capture tools (selfie & screen share)":
+    "キャプチャツール（自撮り＆画面共有）",
+  "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider.":
+    "頼まれたときにコンパニオンが自分の写真を撮れるようにします（take_selfie — 通話中はライブのアバター、チャットではポートレート）。また、画面共有を開始していれば、そのスクリーンショットや短いクリップを取得できます（take_screenshot、record_screen_clip）。キャプチャはファイルライブラリに保存され、トランスクリプトや他のツールから利用できます — 何も生成しないため、どのプロバイダーでも使えます。",
+  "Unlocks Grok Imagine media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Every generation is billed by xAI: images cost cents, videos are priced per second.":
+    "Grok Imagine のメディアツールを有効にします：create_image と create_video（プロンプトから、または Imagine ライブラリの画像 — 自撮り、スクリーンショット、アップロード — をリミックス）、さらに音声通話では change_background（アバターの背後に新しいシーンを生成）。生成はすべて xAI により課金されます — 画像は数セント、動画は秒単位の料金です。",
+  "xAI pricing":
+    "xAI 料金",
+  "Lets the companion animate its avatar during voice calls: play gestures (the built-in set plus the avatar's custom ones) and switch between the avatar's outfits (play_gesture, change_outfit). Facial expressions are always available regardless. Unlocks the expression-style notes below.":
+    "音声通話中にコンパニオンがアバターを動かせるようにします：ジェスチャーの再生（組み込みセットとアバター固有のカスタムジェスチャー）と、アバターの衣装の切り替え（play_gesture、change_outfit）。表情はこの設定に関係なく常に使えます。下の表現スタイル欄が有効になります。",
+  "Lets the companion bring other companions into the current voice call and send them away again (add_agent_to_call, remove_agent_from_call), e.g. when you ask to talk to someone else or want a group conversation. Voice mode only.":
+    "コンパニオンが現在の音声通話に他のコンパニオンを呼び入れたり退出させたりできるようにします（add_agent_to_call、remove_agent_from_call）— 別のコンパニオンと話したいときやグループ会話をしたいときに。ボイスモードのみ。",
+  "Gives the companion long-term memory tools (remember, recall, forget): it can save facts about you and your conversations, search them later, and delete ones you ask it to drop. Memories persist across sessions and appear in the Memories tab.":
+    "コンパニオンに長期記憶ツール（remember、recall、forget）を与えます：あなたや会話についての事実を保存し、後で検索し、頼まれたものを削除できます。メモリはセッションをまたいで保持され、メモリタブに表示されます。",
+  "Lets the companion drive the Minecraft bot set up in the Games tab from voice and text sessions: give it goals and commands, check what it's doing. The tools are only offered while the bot sidecar is connected.":
+    "ゲームタブで設定した Minecraft ボットをコンパニオンが操作できるようにします — 目標や指示を出したり状況を確認したり — ボイス／テキストの両セッションから。ツールはボットのサイドカーが接続されている間のみ提供されます。",
+  "Lets the companion end the voice call itself (end_call) when you say goodbye or ask it to hang up, instead of waiting for you to press the button. Voice mode only.":
+    "あなたが別れを告げたり切るよう頼んだりしたとき、ボタンを押すのを待たずにコンパニオン自身が通話を終了できるようにします（end_call）。ボイスモードのみ。",
+  "Lets the companion search the web for current information (news, facts, prices) in both voice and text sessions. Searches are billed by xAI per call.":
+    "コンパニオンがボイス／テキストの両セッションで最新情報（ニュース、事実、価格など）をウェブ検索できるようにします。検索は xAI により 1 回ごとに課金されます。",
+  "Lets the companion search posts on X (Twitter) in both voice and text sessions. Searches are billed by xAI per call.":
+    "コンパニオンがボイス／テキストの両セッションで X（Twitter）の投稿を検索できるようにします。検索は xAI により 1 回ごとに課金されます。",
+  "Lets the companion run Python in xAI's sandboxed code interpreter to calculate, analyse data or test snippets. Text sessions only; the voice model has no code tool.":
+    "コンパニオンが xAI のサンドボックス化されたコードインタープリタで Python を実行し、計算やデータ分析、スニペットのテストを行えるようにします。テキストセッションのみ — ボイスモデルにはコードツールがありません。",
+  "Lets the companion hand complex work (reading documents or images, research, long coding tasks) to a hidden background text session with the full tool stack, and report the result back. Works from voice calls too, where the realtime model can't see files itself. Quick looks at images and clips can run on the fast text model set in Settings. Each task is billed as extra text-model usage.":
+    "文書や画像の読み取り、リサーチ、長いコーディング作業などの複雑な仕事を、フルツール構成の非表示のバックグラウンドテキストセッションに任せ、結果を報告させられるようにします。リアルタイムモデル自身がファイルを見られない音声通話からも使えます。タスクごとにテキストモデルの追加使用量として課金されます。",
+  "Allows delegated tasks to run on xAI's multi-agent model (several coordinated agents on one task) when the companion asks for it. Noticeably more expensive per task than a plain delegation; requires Task delegation.":
+    "コンパニオンが求めた場合に、委任タスクを xAI のマルチエージェントモデル（1 つのタスクに複数のエージェントが連携）で実行できるようにします。通常の委任よりタスクあたりのコストが明らかに高くなります。タスク委任が必要です。",
+  "Lets the companion hand tasks to the xAI Grok Build CLI on THIS computer (local_task): it creates and edits real files and runs shell commands, auto-approved, in the folder it's given. Powerful, so only enable it for companions you trust with that. Requires the `grok` CLI on your PATH; never offered in Docker.":
+    "コンパニオンがこのコンピュータ上の xAI Grok Build CLI にタスクを任せられるようにします（local_task）：指定フォルダ内で実際のファイルを作成・編集し、シェルコマンドを確認なしで実行します。強力な機能です — それを任せられると信頼できるコンパニオンにのみ有効にしてください。PATH 上に `grok` CLI が必要で、Docker では提供されません。",
   "Tags (optional, comma-separated)": "タグ（任意、カンマ区切り）",
   "Optional lowercase tags, comma-separated: life periods (childhood, teens, university, twenties, career, pre-crew, lost-years, crew-era, ongoing) plus free topic tags. The companion can filter and search its story list by these, and the full tag set is listed in its tool description.":
     "任意の小文字タグをカンマ区切りで入力します：人生の時期（childhood、teens、university、twenties、career、pre-crew、lost-years、crew-era、ongoing）と自由なトピックタグ。コンパニオンはこれでストーリー一覧を絞り込み・検索でき、タグ一覧はツール説明にも記載されます。",

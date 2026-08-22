@@ -36,6 +36,7 @@ Module-level rule: this file must NOT import session_service at module level
 lazily inside the executors instead.
 """
 import logging
+import re
 
 from . import imagine_tools, store, xai_client
 from .db import get_config, utcnow
@@ -53,6 +54,14 @@ _MAX_RESULT_CHARS = 6000
 # Parent-transcript rows seeded into a fresh task session as context.
 _PARENT_CONTEXT_ROWS = 10
 _PARENT_CONTEXT_CHARS = 300
+# xAI file ids look like ``file_<uuid>`` — require the prefix, so placeholder
+# tokens the model sometimes writes instead of a value ("video_url",
+# "imagine_image_id from take_screenshot result") are rejected with a
+# helpful note before they 400 the whole task at the Files API. The literal
+# parameter names are denied even though "file_id" fits the shape.
+_FILE_ID_RE = re.compile(r'^file[_-][A-Za-z0-9._-]+$')
+_PLACEHOLDER_REFS = {'file_id', 'xai_file_id', 'imagine_image_id',
+                     'image_url', 'video_url'}
 
 DELEGATE_TOOL = {
     'type': 'function',
@@ -80,7 +89,11 @@ DELEGATE_TOOL = {
         "Takes several seconds to minutes: tell the user you're looking "
         "into it before calling. The full result is returned to you — "
         "give a natural spoken summary in your own voice; never recite "
-        "long content or code verbatim."
+        "long content or code verbatim. Pick `model`: 'fast' for looking "
+        "at images, screenshots and clips, reading a short document, or "
+        "any quick check — it answers in a fraction of the time; 'normal' "
+        "(the default) for research, coding and multi-step work that "
+        "needs depth."
     ),
     'parameters': {
         'type': 'object',
@@ -96,12 +109,14 @@ DELEGATE_TOOL = {
                 'type': 'array',
                 'items': {'type': 'string'},
                 'description': (
-                    'Optional, up to 25. Library refs (imagine_image_id or '
-                    'image_url) for ANY library file: images are shown, '
-                    'videos and documents are attached for reading. Raw '
-                    'xai_file_id values also work for fresh uploads. Prefer '
-                    'library refs — they stay valid forever (the server '
-                    're-uploads from its local copy when needed).'
+                    'Optional, up to 25. A library ref is the exact '
+                    'imagine_image_id or image_url a PRIOR tool returned '
+                    '(take_screenshot, take_selfie, an upload); pass one of '
+                    'those, never a made-up id or a description of one. To '
+                    'read something you must capture it first: call that '
+                    'tool, wait for its result, THEN call this with the id '
+                    'from it (not both in one turn). Library refs stay valid '
+                    'forever; raw xai_file_id values also work.'
                 ),
             },
             'task_session_id': {
@@ -117,6 +132,16 @@ DELEGATE_TOOL = {
                     'true = continue your most recent task instead of '
                     'starting a new one. Ignored when task_session_id is '
                     'given.'
+                ),
+            },
+            'model': {
+                'type': 'string',
+                'enum': ['normal', 'fast'],
+                'description': (
+                    "'fast' = the quick text model: vision (images, "
+                    "screenshots, clips), short reads, quick checks. "
+                    "'normal' = the full text model for deep work "
+                    "(default). Ignored with multi_agent."
                 ),
             },
             'multi_agent': {
@@ -188,8 +213,16 @@ def _resolve_file_blocks(con, refs):
                     })
                 except Exception as e:
                     errors.append(f'"{ref}" could not be attached: {e}')
-        else:
+        elif _FILE_ID_RE.match(ref) and ref.lower() not in _PLACEHOLDER_REFS:
             blocks.append({'type': 'input_file', 'file_id': ref})
+        else:
+            # Not a library row and not a file_… id — almost always a
+            # placeholder the model invented instead of a real ref. Forwarding
+            # it 400s the whole task; note it instead so the model retries with
+            # the id a prior tool actually returned.
+            errors.append(f'"{ref}" is not a valid file reference — pass the '
+                          f'imagine_image_id / image_url a prior tool returned, '
+                          f'not a description.')
     return blocks, errors
 
 
@@ -288,11 +321,18 @@ def _run_multi_agent_turn(con, svc, config, agent, task_session, task,
         svc._persist_text_message(con, task_session, role='assistant', content=text)
     # Chaining across the multi-agent model swap is untested — break it so
     # the next turn (standard or multi-agent) re-seeds from local rows.
+    _break_chain(con, task_session)
+    return text
+
+
+def _break_chain(con, task_session):
+    """Drop the task session's server-side response chain so the next turn
+    re-seeds from local rows — used around any turn that runs on a different
+    model than the chain was built with (multi-agent, fast)."""
     store.update_session(con, task_session['id'],
                          previous_response_id=None,
                          last_response_at=None,
                          chain_tail_sequence=0)
-    return text
 
 
 def execute_delegate_tool(con, session, arguments):
@@ -319,15 +359,37 @@ def execute_delegate_tool(con, session, arguments):
     if not xai_key:
         return {'error': 'xAI API key is not configured.'}
 
-    multi_agent = bool(args.get('multi_agent'))
+    # _truthy, not bool(): a model answering the string "false" would otherwise
+    # read as True and route to the priciest path (see imagine_tools._truthy).
+    multi_agent = imagine_tools._truthy(args.get('multi_agent'))
     notes = []
     if multi_agent and not agent['enable_multi_agent_delegation']:
         multi_agent = False
         notes.append('multi_agent is not enabled on this agent — ran as a '
                      'standard delegation instead.')
 
+    # Fast path: the quick text model for vision / short reads. The chain
+    # was built on the standard model, so break it on either side of the
+    # swap (same precaution as multi-agent).
+    fast_model = None
+    if not multi_agent and args.get('model') == 'fast':
+        fast_model = (config['delegate_fast_model'] or '').strip() or None
+        if not fast_model:
+            notes.append('No fast text model is configured (Settings) — ran '
+                         'on the standard text model.')
+        elif fast_model == (config['text_model'] or '').strip():
+            fast_model = None   # same model: nothing to swap
+
     file_blocks, file_errors = _resolve_file_blocks(con, args.get('files') or [])
     notes.extend(file_errors)
+    # A task that names files but resolves none would otherwise run text-only
+    # against a brief like "describe the attached screenshot" — and the model
+    # confabulates a confident answer from nothing. Refuse before any workspace
+    # or spend happens; the error names what to pass instead, and unlike a
+    # trailing note the model reliably acts on it.
+    if args.get('files') and not file_blocks:
+        detail = ' '.join(file_errors) or 'No usable file reference was given.'
+        return {'error': f'Task not run — none of its files resolved. {detail}'}
     if multi_agent and file_blocks:
         notes.append('Note: file support on the multi-agent model is '
                      'experimental — if analysis fails, retry without '
@@ -395,13 +457,22 @@ def execute_delegate_tool(con, session, arguments):
                 xai_key,
             )
         else:
+            if fast_model:
+                _break_chain(con, task_session)
+                task_session = store.get_session(con, task_session['id'])
             turn = svc.text_send_turn(
                 con, session=task_session, user_text=task,
                 extra_content_blocks=file_blocks or None,
                 # No browser is attached to a task session — a browser_tools
                 # round-trip could never be answered.
                 headless=True,
+                model=fast_model,
+                # Non-reasoning fast models reject reasoning.effort.
+                **({'reasoning_effort': None} if fast_model else {}),
             )
+            if fast_model:
+                _break_chain(con, task_session)
+                notes.append('Ran on the fast text model.')
             if turn.get('type') == 'error':
                 return {'error': turn.get('message') or 'Delegated task failed.',
                         'task_session_id': task_session['id']}

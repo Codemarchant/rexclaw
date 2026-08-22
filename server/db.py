@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS config (
     -- high/xhigh = 16.
     multi_agent_model TEXT NOT NULL DEFAULT 'grok-4.20-multi-agent',
     multi_agent_effort TEXT NOT NULL DEFAULT 'low',
+    -- Quicker, shallower text model delegate_task can pick (model='fast')
+    -- for vision and short reads — looking at images, screenshots, clips.
+    -- Empty = same as text_model.
+    delegate_fast_model TEXT NOT NULL DEFAULT 'grok-4.20-non-reasoning',
     -- Grok Imagine video generation (animated backgrounds + create_video).
     -- -1.5 is the default: it carries the current feature set (reference-to-
     -- video with reference images and preset voices, native 1080p), and the
@@ -286,6 +290,11 @@ CREATE TABLE IF NOT EXISTS agents (
     -- ("end the call", "goodnight") — the browser drains the goodbye
     -- before disconnecting.
     enable_end_call_tool INTEGER NOT NULL DEFAULT 1,
+    -- Capture tools: take_selfie (a photo of the companion) and the armed
+    -- screen-share pair (take_screenshot / record_screen_clip). Provider-
+    -- agnostic — they capture, they don't generate — so separate from the
+    -- Grok Imagine flag.
+    enable_capture_tools INTEGER NOT NULL DEFAULT 1,
     -- Voice activation: with standby listening on (config.wake_word_enabled),
     -- hearing this phrase while no call is live starts one with this
     -- companion. wake_action picks what "starts" means: 'resume_last'
@@ -614,6 +623,11 @@ MIGRATIONS = (
     "ALTER TABLE agents ADD COLUMN affection_max_score INTEGER NOT NULL DEFAULT 1000",
     "ALTER TABLE agents ADD COLUMN affection_level_count INTEGER NOT NULL DEFAULT 10",
     "ALTER TABLE agents ADD COLUMN affection_max_delta INTEGER NOT NULL DEFAULT 5",
+    # Capture tools split out of the Grok Imagine flag (they capture, they
+    # don't generate). Default on: every companion had them whenever Imagine
+    # was on, which was the shipped default.
+    "ALTER TABLE agents ADD COLUMN enable_capture_tools INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE config ADD COLUMN delegate_fast_model TEXT NOT NULL DEFAULT 'grok-4.20-non-reasoning'",
     # Severity tier: much wider clamp for rare relationship-defining events.
     "ALTER TABLE agents ADD COLUMN affection_max_delta_major INTEGER NOT NULL DEFAULT 200",
     # Sub-setting: play the heart effect on score changes (meter works

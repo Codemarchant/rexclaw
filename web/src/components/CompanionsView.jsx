@@ -100,13 +100,20 @@ const GROK_WRAPPING_TAGS =
 
 // Tools that work regardless of which LLM backend drives the companion.
 const GENERAL_FLAGS = [
-    ["enable_gesture_emotion_tools", "Avatar control tools"],
+    ["enable_gesture_emotion_tools", "Avatar control tools",
+     "Lets the companion animate its avatar during voice calls: play gestures (the built-in set plus the avatar's custom ones) and switch between the avatar's outfits (play_gesture, change_outfit). Facial expressions are always available regardless. Unlocks the expression-style notes below."],
     ["enable_lore_tool", "Lore stories (recall_stories)",
      "Lets the companion look up its lore stories on demand. Only offered when at least one story below is tagged with the companion's name."],
-    ["enable_call_agents_tool", "Call-companion tool (group calls)"],
-    ["enable_memory_tools", "Memory"],
-    ["enable_minecraft", "Minecraft bot (directs the game sidecar — see the Games tab)"],
-    ["enable_end_call_tool", "End-call tool (hang up on request)"],
+    ["enable_call_agents_tool", "Call-companion tool (group calls)",
+     "Lets the companion bring other companions into the current voice call and send them away again (add_agent_to_call, remove_agent_from_call), e.g. when you ask to talk to someone else or want a group conversation. Voice mode only."],
+    ["enable_memory_tools", "Memory",
+     "Gives the companion long-term memory tools (remember, recall, forget): it can save facts about you and your conversations, search them later, and delete ones you ask it to drop. Memories persist across sessions and appear in the Memories tab."],
+    ["enable_capture_tools", "Capture tools (selfie & screen share)",
+     "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider."],
+    ["enable_minecraft", "Minecraft bot (directs the game sidecar — see the Games tab)",
+     "Lets the companion drive the Minecraft bot set up in the Games tab from voice and text sessions: give it goals and commands, check what it's doing. The tools are only offered while the bot sidecar is connected."],
+    ["enable_end_call_tool", "End-call tool (hang up on request)",
+     "Lets the companion end the voice call itself (end_call) when you say goodbye or ask it to hang up, instead of waiting for you to press the button. Voice mode only."],
 ];
 
 // Provider-specific settings/tools, keyed by agents.provider. Only Grok
@@ -114,13 +121,20 @@ const GENERAL_FLAGS = [
 const PROVIDERS = [["grok", "Grok (xAI)"]];
 const PROVIDER_FLAGS = {
     grok: [
-        ["enable_web_search", "Web search"],
-        ["enable_x_search", "X search"],
-        ["enable_grok_imagine_tools", "Grok Imagine"],
-        ["enable_code_execution", "Code execution (text)"],
-        ["enable_delegate_tool", "Task delegation (delegate_task)"],
-        ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)"],
-        ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)"],
+        ["enable_web_search", "Web search",
+         "Lets the companion search the web for current information (news, facts, prices) in both voice and text sessions. Searches are billed by xAI per call."],
+        ["enable_x_search", "X search",
+         "Lets the companion search posts on X (Twitter) in both voice and text sessions. Searches are billed by xAI per call."],
+        ["enable_grok_imagine_tools", "Grok Imagine",
+         "Unlocks Grok Imagine media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Every generation is billed by xAI: images cost cents, videos are priced per second."],
+        ["enable_code_execution", "Code execution (text)",
+         "Lets the companion run Python in xAI's sandboxed code interpreter to calculate, analyse data or test snippets. Text sessions only; the voice model has no code tool."],
+        ["enable_delegate_tool", "Task delegation (delegate_task)",
+         "Lets the companion hand complex work (reading documents or images, research, long coding tasks) to a hidden background text session with the full tool stack, and report the result back. Works from voice calls too, where the realtime model can't see files itself. Quick looks at images and clips can run on the fast text model set in Settings. Each task is billed as extra text-model usage."],
+        ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)",
+         "Allows delegated tasks to run on xAI's multi-agent model (several coordinated agents on one task) when the companion asks for it. Noticeably more expensive per task than a plain delegation; requires Task delegation."],
+        ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)",
+         "Lets the companion hand tasks to the xAI Grok Build CLI on THIS computer (local_task): it creates and edits real files and runs shell commands, auto-approved, in the folder it's given. Powerful, so only enable it for companions you trust with that. Requires the `grok` CLI on your PATH; never offered in Docker."],
     ],
 };
 
@@ -205,6 +219,7 @@ export default function CompanionsView({ active }) {
             enable_web_search: 1,
             enable_x_search: 1,
             enable_grok_imagine_tools: 1,
+            enable_capture_tools: 1,
             enable_memory_tools: 1,
             enable_delegate_tool: 1,
             enable_multi_agent_delegation: 0,
@@ -686,7 +701,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                         </select>
                     </div>
                     <div>
-                        <label>{_t("Voice (built-in name or custom xAI voice id)")}</label>
+                        <label title={_t("Built-in xAI voice names such as ara work as-is. For a custom voice, create or clone one in the xAI console (console.x.ai) and paste its voice id here.")}>{_t("Voice (built-in name or custom xAI voice id)")}</label>
                         <input type="text" value={editingAgent.voice || ""}
                                onChange={(ev) => setEditingAgent({ ...editingAgent, voice: ev.target.value })} />
                     </div>

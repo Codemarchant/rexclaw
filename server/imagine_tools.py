@@ -301,7 +301,8 @@ _CREATE_VIDEO_TOOL = {
 
 
 # Voice mode gets background + image + video generation. Text mode drops
-# change_background (no live canvas) but adds its own take_selfie (below).
+# change_background (no live canvas). Text mode's take_selfie lives below
+# too, but the session builder offers it under the capture-tools flag.
 # Editing user uploads needs no dedicated tool: both surfaces ingest image
 # uploads into the Imagine library at upload time, so create_image's
 # source_images reaches them like any other library entry.
@@ -337,10 +338,10 @@ def video_reference_supported(config):
     return model not in _VIDEO_MODELS_WITHOUT_REFERENCE
 
 
-def build_create_video_tool(*, reference=True):
+def build_create_video_tool(*, reference=True, selfie=True):
     """create_video for a session: the static schema, plus the take_selfie
-    hint (both surfaces offer the tool — voice captures the live canvas,
-    text serves the avatar portrait), minus the Reference-to-Video
+    hint when the companion has capture tools (voice captures the live
+    canvas, text serves the avatar portrait), minus the Reference-to-Video
     parameters when the configured video model lacks them."""
     tool = copy.deepcopy(_CREATE_VIDEO_TOOL)
     if reference:
@@ -349,14 +350,15 @@ def build_create_video_tool(*, reference=True):
         tool['description'] = tool['description'].replace('  __REFERENCE_MODE__\n\n', '')
         del tool['parameters']['properties']['reference_images']
         del tool['parameters']['properties']['voice_ids']
-    tool['description'] += (
-        " When the user wants a video featuring YOU, call take_selfie "
-        "first to capture how you look and pass its image_url "
-        "here ("
-        + ("reference_images to star in a new scene, source_image to "
-           "animate the shot itself)." if reference else
-           "source_image — the clip animates the shot itself).")
-    )
+    if selfie:
+        tool['description'] += (
+            " When the user wants a video featuring YOU, call take_selfie "
+            "first to capture how you look and pass its image_url "
+            "here ("
+            + ("reference_images to star in a new scene, source_image to "
+               "animate the shot itself)." if reference else
+               "source_image — the clip animates the shot itself).")
+        )
     return tool
 
 
@@ -364,9 +366,10 @@ def build_create_video_tool(*, reference=True):
 # tool (browser_tools.SELFIE_TOOL) so create_video's hint works on both
 # surfaces, but text has no live canvas: the shot is the companion's
 # portrait — the agent's chat thumbnail override when set, else the
-# thumbnail embedded in the avatar's VRM (portraits.py). Executes fully
-# server-side (execute_take_selfie), so it needs no browser round-trip and
-# works headless.
+# avatar's portrait (portraits.py). Executes fully server-side
+# (execute_take_selfie), so it needs no browser round-trip and works
+# headless. Gated by enable_capture_tools, not the imagine flag — it only
+# stores into the library, never generates.
 TEXT_SELFIE_TOOL = {
     'type': 'function',
     'name': 'take_selfie',
@@ -394,7 +397,8 @@ def build_voice_tools(con, agent):
     return [
         _CHANGE_BACKGROUND_TOOL,
         _CREATE_IMAGE_TOOL,
-        build_create_video_tool(reference=video_reference_supported(get_config(con))),
+        build_create_video_tool(reference=video_reference_supported(get_config(con)),
+                                selfie=bool(agent['enable_capture_tools'])),
     ]
 
 
@@ -402,8 +406,8 @@ def build_text_tools(con, agent):
     """Imagine function tools for a text turn."""
     return [
         _CREATE_IMAGE_TOOL,
-        build_create_video_tool(reference=video_reference_supported(get_config(con))),
-        TEXT_SELFIE_TOOL,
+        build_create_video_tool(reference=video_reference_supported(get_config(con)),
+                                selfie=bool(agent['enable_capture_tools'])),
     ]
 
 # Tools that only make sense with a live fullscreen canvas — gated out of
@@ -526,8 +530,8 @@ def execute_take_selfie(con, session, agent):
     VRM — not the 384px list-row cache: the selfie exists to feed image/video
     generation)."""
     from . import portraits
-    if not agent['enable_grok_imagine_tools']:
-        return {'error': 'Grok Imagine tools are disabled on this agent.'}
+    if not agent['enable_capture_tools']:
+        return {'error': 'Capture tools are disabled on this agent.'}
     mimetype = raw = None
     if agent['chat_thumbnail_path']:
         src = portraits.vrm_disk_path(agent['chat_thumbnail_path'])
@@ -583,14 +587,24 @@ def _imagine_row_for_ref(con, ref):
     imagine_image_id — bare or labelled like "imagine_image_id:139", the way
     tool results print it — or an exact image_path/video_url string."""
     ref = ref.strip()
-    if ref.lower().startswith('imagine_image_id'):
-        ref = ref[len('imagine_image_id'):].lstrip(' :=')
+    for label in ('imagine_image_id', 'image_url', 'video_url', 'id'):
+        if ref.lower().startswith(label) and ref[len(label):len(label) + 1] in (':', '=', ' '):
+            ref = ref[len(label):].lstrip(' :=')
+            break
     if ref.isdigit():
         return con.execute(
             "SELECT * FROM imagine_images WHERE id = ?", (int(ref),),
         ).fetchone()
-    return con.execute(
+    row = con.execute(
         "SELECT * FROM imagine_images WHERE image_path = ?", (ref,),
+    ).fetchone()
+    if row or '/' in ref:
+        return row
+    # A bare stored filename ("imagine_<uuid>.jpg") — the tail of an image_url
+    # a tool result printed. Every library file lives under /files/, so this
+    # maps one-to-one.
+    return con.execute(
+        "SELECT * FROM imagine_images WHERE image_path = ?", (f'/files/{ref}',),
     ).fetchone()
 
 
