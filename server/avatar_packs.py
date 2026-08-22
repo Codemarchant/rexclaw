@@ -444,6 +444,20 @@ def _require_editable(pack_key):
     return pack_dir
 
 
+def pack_file_path(pack_key, filename):
+    """Resolve a bare filename inside an editable pack folder. Raises for
+    bundled/unknown packs, path components, or a file that isn't there —
+    the guard for routes that write beside a pack file (portrait sidecars)."""
+    pack_dir = _require_editable(pack_key)
+    name = Path(filename or "").name
+    if not name or name != filename:
+        raise UserError("Invalid filename.")
+    path = pack_dir / name
+    if not path.is_file():
+        raise UserError(f"{name!r} is not in this pack.")
+    return path
+
+
 def save_upload(pack_key, kind, filename, content_bytes):
     """Save an uploaded file into the pack folder, return the stored filename.
     `kind` (vrm/vrma/scene/image) gates the allowed extension."""

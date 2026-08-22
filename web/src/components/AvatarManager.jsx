@@ -8,6 +8,7 @@ import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { useListSort } from "../lib/list_sort";
 import { EditorBar } from "./UnsavedUI.jsx";
 import Portrait from "./Portrait.jsx";
+import { avatarRenderer } from "../services/avatar_renderer";
 
 /** Avatar manager — create/edit/delete avatar packs from the desktop UI.
  *  Round-trips through the manifest: uploads land in the pack folder, Save
@@ -487,6 +488,47 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
         </div>
     );
 
+    // Portrait generation: render the pack's main VRM off-screen with the
+    // renderer's face-framing preset, capture a PNG, and store it as a
+    // sidecar beside the VRM (POST /set_portrait — the VRM itself is never
+    // modified). The sidecar wins over the embedded thumbnail, so this both
+    // fills in a missing portrait (Blender/UniVRM exports) and replaces a
+    // blank or bad one. Pack-local files only — library refs are shared.
+    const [generating, setGenerating] = useState(false);
+    const canGeneratePortrait = manifest.vrm && !manifest.vrm.startsWith("/");
+    const generatePortrait = async () => {
+        if (generating) return;
+        setGenerating(true);
+        const host = document.createElement("div");
+        host.style.cssText = "position:fixed;left:-10000px;top:0;width:512px;height:512px;";
+        document.body.appendChild(host);
+        try {
+            const vrmUrl = `/avatars/${pack_key}/${manifest.vrm}`;
+            avatarRenderer.mount(host);
+            await avatarRenderer.loadVRM(vrmUrl);
+            if (manifest.vrma_idle) {
+                const idleUrl = manifest.vrma_idle.startsWith("/")
+                    ? manifest.vrma_idle
+                    : `/avatars/${pack_key}/${manifest.vrma_idle}`;
+                await avatarRenderer.loadVRMA(idleUrl).catch(() => {});
+            }
+            // Let the idle pose settle out of T-pose before the shot.
+            await new Promise((r) => setTimeout(r, 600));
+            const dataUrl = await avatarRenderer.captureSnapshot({ maxSize: 1024 });
+            if (!dataUrl) throw new Error(_t("Could not render the avatar."));
+            const r = await rpc("/api/avatars/set_portrait", {
+                pack_key, filename: manifest.vrm, image_data_url: dataUrl,
+            });
+            setEditing({ ...editing, portrait_url: r.portrait_url });
+        } catch (e) {
+            notification.add(e?.message || _t("Portrait generation failed"), { type: "danger" });
+        } finally {
+            avatarRenderer.unmount(host);
+            host.remove();
+            setGenerating(false);
+        }
+    };
+
     // Scene backgrounds carry an [x,y,z] offset; patch one axis in place.
     const setOffset = (idx, axis, val) => {
         const cur = (manifest.backgrounds[idx].offset || [0, 0, 0]).slice();
@@ -511,8 +553,19 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                     {editing.isNew ? _t("New avatar") : _t("Edit avatar")}
                     {manifest.name ? ` — ${manifest.name}` : ""}
                 </span>
-                <Portrait url={editing.portrait_url} size="lg"
-                          title={_t("Portrait — the thumbnail embedded in the main VRM. Updates when the VRM changes (after Save).")} />
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem" }}>
+                    {canGeneratePortrait && (
+                        <button className="btn btn-sm" disabled={generating}
+                                onClick={generatePortrait}
+                                title={_t("Render the avatar and save the shot as this pack's portrait (stored beside the VRM — the VRM file itself is not modified).")}>
+                            <i className={generating ? "fa fa-spinner fa-spin" : "fa fa-camera"} />{" "}
+                            {generating ? _t("Generating…")
+                                : editing.portrait_url ? _t("Regenerate portrait") : _t("Generate portrait")}
+                        </button>
+                    )}
+                    <Portrait url={editing.portrait_url} size="lg"
+                              title={_t("Portrait — generated here, or the thumbnail embedded in the main VRM. Updates when the VRM changes (after Save).")} />
+                </span>
             </h3>
             <div className="rx_row">
                 <div>

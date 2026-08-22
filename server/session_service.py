@@ -1455,6 +1455,7 @@ def director_decide(con, *, session, transcript_lines, participants, user_name=N
 # / DOM tools are gone), so the loop always resolves server-side.
 NATIVE_TOOL_NAMES_TEXT = (
     imagine_tools.IMAGINE_TOOL_NAMES
+    | {imagine_tools.TEXT_SELFIE_TOOL_NAME}
     | memory_tools.MEMORY_TOOL_NAMES
     | affection_tools.AFFECTION_TOOL_NAMES
     | lore_tools.LORE_TOOL_NAMES
@@ -2286,6 +2287,10 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 args = {}
             if name in imagine_tools.IMAGINE_TOOL_NAMES:
                 result = imagine_tools.execute_imagine_tool(con, session, name, args)
+            elif name == imagine_tools.TEXT_SELFIE_TOOL_NAME:
+                # Text mode's take_selfie is native (avatar portrait, no
+                # canvas) — voice mode's browser version never reaches here.
+                result = imagine_tools.execute_take_selfie(con, session, agent)
             elif name in memory_tools.MEMORY_TOOL_NAMES:
                 if not agent['enable_memory_tools']:
                     result = {'ok': False, 'reason': 'tool_disabled',

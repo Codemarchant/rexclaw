@@ -6,6 +6,7 @@ uploads land in the pack folder, save() writes avatar.json and re-scans, so
 the DB is always derived from the on-disk pack. Only data/avatars packs are
 editable; bundled assets/avatars packs are read-only.
 """
+import base64
 import logging
 import os
 import shutil
@@ -55,6 +56,37 @@ def portrait(vrm: str, v: str = ""):
         raise UserError("No portrait for that avatar.")
     return FileResponse(str(path), media_type="image/jpeg",
                         headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+@router.post("/set_portrait")
+def set_portrait(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Store a browser-rendered portrait PNG as a sidecar beside a user
+    pack's VRM (see portraits.sidecar_path). The VRM itself is never
+    modified — its author's modification permission stays intact — and the
+    sidecar wins over the embedded thumbnail, so this also overrides a blank
+    or bad one; re-generating simply overwrites it. Pack exports include
+    every file in the folder, so it travels with the avatar. Returns the
+    fresh portrait_url."""
+    pack_key = payload.get("pack_key")
+    filename = payload.get("filename") or ""
+    if not filename.lower().endswith(".vrm"):
+        raise UserError("Portraits belong to .vrm files.")
+    vrm = avatar_packs.pack_file_path(pack_key, filename)
+    data = payload.get("image_data_url") or ""
+    if not isinstance(data, str) or not data.startswith("data:image/png;base64,"):
+        raise UserError("image_data_url must be a data:image/png base64 URI.")
+    try:
+        png = base64.b64decode(data.split(",", 1)[1], validate=True)
+    except Exception:
+        raise UserError("image_data_url is not valid base64.")
+    if not png or len(png) > 10 * 1024 * 1024:
+        raise UserError("Image must be between 1 byte and 10 MB.")
+    side = portraits.sidecar_path(vrm)
+    tmp = side.with_suffix(".tmp")
+    tmp.write_bytes(png)
+    tmp.replace(side)
+    return {"ok": True,
+            "portrait_url": portraits.portrait_url(f"/avatars/{pack_key}/{filename}")}
 
 
 @router.post("/create")

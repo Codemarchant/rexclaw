@@ -6,9 +6,14 @@ version and cached under the data dir. No rendering involved, so it works
 headless (Docker) and stays a pure function of the main VRM: swap the file
 and the portrait follows on the next request.
 
-Files without an embedded thumbnail (hand-exported from Blender/UniVRM)
-get a negative cache marker so the list views don't re-parse them; the UI
-falls back to a generic icon.
+A generated sidecar — ``<stem>.portrait.png`` next to the VRM, written by
+the avatar editor's Generate portrait button from a browser render — takes
+precedence over the embedded thumbnail. The VRM itself is never modified
+(its author's modification permission stays intact), a blank or bad
+embedded thumbnail can be overridden, and re-generating simply overwrites
+the sidecar. Files with neither (hand-exported from Blender/UniVRM) get a
+negative cache marker so the list views don't re-parse them; the UI falls
+back to a generic icon.
 """
 import hashlib
 import io
@@ -55,6 +60,12 @@ def vrm_disk_path(web_path):
     return None
 
 
+def sidecar_path(vrm_disk):
+    """Where a generated portrait for this VRM lives: ``<stem>.portrait.png``
+    beside it (inside the pack folder, so pack exports carry it)."""
+    return vrm_disk.with_name(f"{vrm_disk.stem}.portrait.png")
+
+
 def extract_vrm_thumbnail(path):
     """(mime, bytes) of the thumbnail embedded in a .vrm/.glb, or None."""
     with open(path, "rb") as fh:
@@ -95,6 +106,33 @@ def extract_vrm_thumbnail(path):
         return image.get("mimeType") or "image/png", fh.read(bv["byteLength"])
 
 
+def _source_file(web_path):
+    """The file the portrait derives from — the sidecar when present, else
+    the VRM itself — or None when the path isn't a VRM we serve."""
+    disk = vrm_disk_path(web_path)
+    if not disk:
+        return None
+    side = sidecar_path(disk)
+    return side if side.is_file() else disk
+
+
+def portrait_source(web_path):
+    """Full-resolution (mime, bytes) of the portrait image for a served VRM
+    path — generated sidecar first, else the embedded thumbnail — or None.
+    Feeds the text-mode selfie, which wants the original pixels rather than
+    the 384px list-row cache."""
+    src = _source_file(web_path)
+    if not src:
+        return None
+    if src.suffix == ".png" and src.name.endswith(".portrait.png"):
+        return "image/png", src.read_bytes()
+    try:
+        return extract_vrm_thumbnail(src)
+    except Exception as e:
+        _logger.warning("portrait: could not read %s: %s", web_path, e)
+        return None
+
+
 def _cache_key(disk_path):
     st = disk_path.stat()
     raw = f"{disk_path}|{st.st_mtime_ns}|{st.st_size}|{PORTRAIT_SIZE}|{CACHE_VERSION}"
@@ -103,11 +141,12 @@ def _cache_key(disk_path):
 
 def portrait_file(web_path):
     """Cached portrait JPEG for a VRM web path — built on first call — or
-    None when the file has no embedded thumbnail (or isn't a VRM we serve)."""
-    disk = vrm_disk_path(web_path)
-    if not disk:
+    None when there is neither a sidecar nor an embedded thumbnail (or the
+    path isn't a VRM we serve)."""
+    src = _source_file(web_path)
+    if not src:
         return None
-    key = _cache_key(disk)
+    key = _cache_key(src)
     out = CACHE_DIR / f"{key}.jpg"
     none_marker = CACHE_DIR / f"{key}.none"
     if out.is_file():
@@ -126,14 +165,14 @@ def portrait_file(web_path):
             _logger.warning("portrait: Pillow is not installed (pip install -e . / run.sh) — portraits disabled")
         return None
     try:
-        found = extract_vrm_thumbnail(disk)
+        found = portrait_source(web_path)
         if not found:
             none_marker.touch()
             return None
         img = Image.open(io.BytesIO(found[1]))
         if img.mode in ("RGBA", "LA", "P"):
             # Flatten any transparency onto white — VRoid thumbnails are
-            # opaque, but a hand-made one may not be.
+            # opaque, but a hand-made one (or a rendered sidecar) may not be.
             bg = Image.new("RGB", img.size, (255, 255, 255))
             bg.paste(img.convert("RGBA"), mask=img.convert("RGBA").split()[-1])
             img = bg
@@ -151,8 +190,9 @@ def portrait_file(web_path):
 
 def portrait_url(web_path):
     """URL the UI can <img> for this VRM's portrait, or None. Carries the
-    file version so browsers cache aggressively yet pick up a swapped VRM."""
+    source file's version so browsers cache aggressively yet pick up a
+    swapped VRM or a regenerated sidecar."""
     if not portrait_file(web_path):
         return None
-    disk = vrm_disk_path(web_path)
-    return f"/api/avatars/portrait?vrm={quote(web_path, safe='/')}&v={disk.stat().st_mtime_ns}"
+    src = _source_file(web_path)
+    return f"/api/avatars/portrait?vrm={quote(web_path, safe='/')}&v={src.stat().st_mtime_ns}"
