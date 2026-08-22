@@ -84,14 +84,14 @@ SCREENSHOT_TOOL = {
         "have started sharing via the Share-screen button (desktop icon) in "
         "the call header — if sharing is not active this returns an error; "
         "ask them to click it, then call the tool again. You cannot see the "
-        "screenshot yourself: to read what is on it, pass THIS result's "
-        "imagine_image_id to delegate_task in files on a later turn (or to "
-        "local_task's files for on-machine work) — the id only exists once "
-        "this returns, and an older capture's id shows stale content. "
-        "Use when "
-        "the user asks you to look at their screen, an error message, a "
-        "document or app they have open, or anything they are currently "
-        "looking at."
+        "screenshot yourself; the result's imagine_image_id is what other "
+        "tools consume (local_task files, create_video sources) — on a later "
+        "turn, and always THIS result's id, since an older capture shows "
+        "stale content. "
+        "Use it when you need the raw capture itself (create_video "
+        "source material, local_task input, or the user wants the shot "
+        "saved); when they just want their screen READ, call "
+        "analyze_screen instead - it captures and analyzes in one step."
     ),
     "parameters": {
         "type": "object",
@@ -101,6 +101,41 @@ SCREENSHOT_TOOL = {
                 "description": (
                     "Optional short label for the capture, e.g. 'Invoice "
                     "error dialog'. Defaults to 'Screenshot'."
+                ),
+            },
+        },
+        "required": [],
+    },
+}
+
+# One-step screen reading: capture + vision analysis in a single tool call.
+# take_screenshot + delegate_task needs two model turns and hands the model
+# an id to shuttle between them (which it regularly fumbles); this tool does
+# the whole thing server-side on the fast text model and returns the answer
+# in the result. The frame still lands in the files library exactly like
+# take_screenshot, so nothing downstream changes.
+ANALYZE_SCREEN_TOOL = {
+    "name": "analyze_screen",
+    "description": (
+        "Look at the user's screen and get an answer in ONE step: captures "
+        "a frame from their live screen-share and reads it with a fast "
+        "vision model; the result's `analysis` field holds the answer, "
+        "ready to relay in your own voice. Requires the user to have "
+        "started sharing via the Share-screen button (desktop icon) in the "
+        "call header - if sharing is not active this returns an error; ask "
+        "them to click it, then call again. Use whenever the user asks "
+        "what is on their screen or to look at / read / check something "
+        "they have open. Prefer this over take_screenshot + delegate_task "
+        "for reading the screen - it is one call and much faster."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "question": {
+                "type": "string",
+                "description": (
+                    "What to look for or answer, e.g. 'what error is "
+                    "shown?'. Omit for a general description of the screen."
                 ),
             },
         },

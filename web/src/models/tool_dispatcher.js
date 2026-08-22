@@ -249,6 +249,8 @@ export class ToolDispatcher {
                 return this._takeSelfie(args);
             case "take_screenshot":
                 return this._takeScreenshot(args);
+            case "analyze_screen":
+                return this._analyzeScreen(args);
             case "record_screen_clip":
                 return this._recordScreenClip(args);
             case "add_agent_to_call":
@@ -358,11 +360,35 @@ export class ToolDispatcher {
             ...result,
             note: `Screenshot captured (imagine_image_id ${result.imagine_image_id}) `
                 + "— the user can see it in the transcript. You cannot see it "
-                + "yourself: to read what is on the screen RIGHT NOW, pass "
-                + `THIS id (${result.imagine_image_id}) to delegate_task in files `
-                + "— not the id of any earlier screenshot. The same id works "
-                + "in local_task's files for on-machine work.",
+                + `yourself. Pass THIS id (${result.imagine_image_id}) — never an `
+                + "older one — to local_task or create_video as needed. If the "
+                + "goal was to READ the screen, analyze_screen does capture + "
+                + "answer in one step.",
         };
+    }
+
+    /** analyze_screen: one-step screen read — grab a frame from the armed
+     *  share and have the server run it through the fast vision model in
+     *  the same round trip. The server stores the frame like
+     *  take_screenshot, so the transcript still shows the capture. */
+    async _analyzeScreen({ question } = {}) {
+        if (!this.sessionId) {
+            return { ok: false, error: "analyze_screen requires an active session." };
+        }
+        const unavailable = this._screenCaptureUnavailable();
+        if (unavailable) return unavailable;
+        const dataUrl = screenCapture.grabFrame();
+        if (!dataUrl) {
+            return {
+                ok: false,
+                error: "The shared screen has not produced a frame yet — "
+                    + "try again in a moment.",
+            };
+        }
+        return rpc(`/api/voice/session/${this.sessionId}/analyze_screen`, {
+            image_data_url: dataUrl,
+            ...(typeof question === "string" && question.trim() ? { question } : {}),
+        });
     }
 
     /** record_screen_clip: record the armed screen share for N seconds and

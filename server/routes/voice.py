@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
-from .. import affection_tools, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, session_service, store
+from .. import affection_tools, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, session_service, store, xai_client
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -249,6 +249,65 @@ def session_screenshot(session_id: int, payload: dict = Body(default={}), con=De
         kind="screenshot", name=name,
         flag="enable_capture_tools",
     )
+
+
+@router.post("/session/{session_id}/analyze_screen")
+def session_analyze_screen(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """One-step screen read for the analyze_screen tool: persist the captured
+    frame exactly like take_screenshot (kind 'screenshot' — the transcript
+    thumbnails it and create_video / local_task can reuse it), then read it
+    with the fast text model in a single tool-free, chainless, capped call.
+    One round trip instead of capture → voice turn → delegate_task."""
+    stored = _store_session_image(
+        con, session_id, payload.get("image_data_url"),
+        kind="screenshot", name="Screen analysis",
+        flag="enable_capture_tools",
+    )
+    config = get_config(con)
+    model = (config["delegate_fast_model"] or "").strip() or config["text_model"]
+    question = (payload.get("question") or "").strip() or "Describe what is on the screen."
+    try:
+        body = xai_client.create_response(
+            xai_api_key=config["xai_api_key"],
+            responses_url=config["xai_responses_url"],
+            model=model,
+            input_items=[{
+                "type": "message",
+                "role": "user",
+                "content": [
+                    {"type": "input_image", "image_url": payload.get("image_data_url")},
+                    {"type": "input_text", "text": question},
+                ],
+            }],
+            instructions=(
+                "You are reading a screenshot of the user's screen on behalf "
+                "of a voice assistant. Answer the question directly and "
+                "concisely in plain conversational prose - no headings, "
+                "bullets or markdown. Quote short on-screen text exactly "
+                "where it matters. A few sentences is ideal."
+            ),
+            reasoning_effort=None,
+            max_output_tokens=400,
+            store=False,
+        )
+    except UserError as e:
+        return {**stored, "ok": False, "error": f"Screen analysis failed: {e}"}
+    # Billed LLM usage — accrue like the director and every background call.
+    try:
+        store.accrue_usd_ticks(con, store.extract_cost_ticks(body.get("usage") or {}))
+        con.commit()
+    except Exception:
+        pass
+    analysis = (xai_client._extract_response_text(body) or "").strip()
+    if not analysis:
+        return {**stored, "ok": False, "error": "The vision model returned no text."}
+    return {
+        **stored,
+        "ok": True,
+        "analysis": analysis,
+        "note": "The user sees the screenshot in the transcript. Answer them "
+                "from `analysis` in your own voice — don't recite it verbatim.",
+    }
 
 
 @router.post("/session/{session_id}/screen_clip")

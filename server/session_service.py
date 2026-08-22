@@ -79,9 +79,9 @@ def _env_preamble(config):
         f"turn where they don't depend on each other. A dependent tool can never "
         f"share a turn with the one it depends on - it needs that result first; "
         f"fire it the moment the result lands, without pausing to ask \"want me "
-        f"to continue?\". Known dependencies: take_screenshot / record_screen_clip / "
-        f"take_selfie return an imagine_image_id that delegate_task, local_task "
-        f"and create_video consume - copy it from that result, never from memory. "
+        f"to continue?\". Known dependencies: record_screen_clip / take_selfie "
+        f"return an imagine_image_id that delegate_task, local_task and "
+        f"create_video consume - copy it from that result, never from memory. "
         f"set_emotion and play_gesture replace each other's animation - never "
         f"both in one turn.\n"
         f"- **Language:** Respond in the language the user speaks.\n\n"
@@ -603,6 +603,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # set (the library accepts captures regardless).
         tools.append(browser_tools.SELFIE_TOOL)
         tools.append(browser_tools.SCREENSHOT_TOOL)
+        tools.append(browser_tools.ANALYZE_SCREEN_TOOL)
         tools.append(browser_tools.RECORD_SCREEN_CLIP_TOOL)
 
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='voice')
@@ -1469,7 +1470,7 @@ NATIVE_TOOL_NAMES_TEXT = (
 # Browser tools that round-trip through the text client (dispatch in the
 # page's ToolDispatcher, results fed back via /tool_results). The screen
 # capture pair are the standalone's first text-mode browser tools.
-TEXT_BROWSER_TOOL_NAMES = {'take_screenshot', 'record_screen_clip'}
+TEXT_BROWSER_TOOL_NAMES = {'take_screenshot', 'analyze_screen', 'record_screen_clip'}
 
 
 def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_search,
@@ -1501,6 +1502,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         tools.append(imagine_tools.TEXT_SELFIE_TOOL)
         if enable_browser_tools:
             for shared_tool in (browser_tools.SCREENSHOT_TOOL,
+                                browser_tools.ANALYZE_SCREEN_TOOL,
                                 browser_tools.RECORD_SCREEN_CLIP_TOOL):
                 tools.append({
                     'type': 'function',
