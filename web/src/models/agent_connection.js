@@ -317,6 +317,9 @@ export class AgentConnection {
         // Affection readout seed — null when the companion's meter is off.
         this.state.affection = payload.affection || null;
         this.state.affectionPulse = null;
+        // Companion opens the call instead of waiting for the user (opt-in).
+        // Not on a compaction restart — the user is mid-call, not arriving.
+        this._speaksFirst = !!payload.speaks_first && !isCompactionRestart;
         // Last group-call roster (resume only) — the manager silently
         // re-adds these agents once the call is live (_restoreCallRoster).
         this._callPeerAgents = payload.call_peer_agents || [];
@@ -506,6 +509,14 @@ export class AgentConnection {
             // attempt failed before anyone met them".
             this._everLive = true;
             console.log(`[voice:${this.connId}] session live`, this.state.muted ? "(muted)" : "");
+            // Speaks-first: primary leg only (peers get the join ceremony).
+            // The hidden note stays out of the transcript.
+            if (this._speaksFirst && this.role === "primary") {
+                this.injectContextItem(
+                    _t("[System]: The call has just connected and the user is listening. Open the conversation in character - briefly."),
+                    { promptResponse: true },
+                );
+            }
         } catch (e) {
             console.error(`[voice:${this.connId}] _onWsOpen failed`, e);
             if (this.state.status === "connecting") {

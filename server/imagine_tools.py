@@ -62,19 +62,18 @@ _CHANGE_BACKGROUND_TOOL = {
     'name': 'change_background',
     'description': (
         "Generate a new scene background and apply it to the user's "
-        "fullscreen view immediately. Good prompts describe a setting in "
-        "one short sentence (e.g. 'a minimalist Tokyo office at dusk with "
-        "soft city bokeh'). Avoid people, busy foregrounds, and text "
-        "overlays. Set animated=true to generate a living background — a "
-        "short looping video (gentle motion: drifting clouds, rain on "
-        "glass, flickering neon) — instead of a still image; animated "
-        "takes ~30-60 seconds to render and costs a few cents, so mention "
-        "it's on the way and don't spam it. Call this ONCE per scene change "
-        "- never several calls at the same time: each one renders and bills, "
-        "and only the last to finish stays on screen. Pick the single best "
-        "description. The "
-        "result is saved to this agent's Imagine library and becomes the "
-        "user's preferred background until they pick a different one."
+        "fullscreen view immediately. Generates a still image by default. "
+        "Set animated=true ONLY when the user explicitly asks for a moving, "
+        "animated or video background - it takes 30-60 seconds to render "
+        "and interrupts the conversation, so never choose it on your own. "
+        "Good prompts describe a setting in one short sentence (e.g. 'a "
+        "minimalist Tokyo office at dusk with soft city bokeh'). Avoid "
+        "people, busy foregrounds, and text overlays. Call this ONCE per "
+        "scene change - never several calls at the same time: each one "
+        "renders and bills, and only the last to finish stays on screen. "
+        "Pick the single best description. The result is saved to this "
+        "agent's Imagine library and becomes the user's preferred "
+        "background until they pick a different one."
     ),
     'parameters': {
         'type': 'object',
@@ -86,10 +85,11 @@ _CHANGE_BACKGROUND_TOOL = {
             'animated': {
                 'type': 'boolean',
                 'description': (
-                    'Set true ONLY for a looping video background (slower, '
-                    'costs more per second). For a still image — the default '
-                    '— omit this parameter entirely rather than passing a '
-                    'value.'
+                    'Only when the user asked for a moving background: a '
+                    'short looping video with gentle motion (drifting clouds, '
+                    'rain on glass, flickering neon). Slower and costs more. '
+                    'For a still image - the default - omit this parameter '
+                    'entirely rather than passing a value.'
                 ),
             },
         },

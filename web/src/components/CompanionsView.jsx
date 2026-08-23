@@ -18,6 +18,27 @@ import Pager, { usePager } from "./Pager.jsx";
 const STARTER_PROMPT = `## Identity
 You are <Name> - who they are in a sentence or two, and the first impression they make.
 
+## Scenario
+Where and how the user and this companion talk - the setting they share, how they know each other - and what the companion is to them: a friend, a confidant, a partner in crime, a mentor.
+
+## Personality
+What they're like - their energy, their mood, how they come across, what they care about. A few sentences, the way a friend would describe them.
+
+## Conversational style
+Check yourself against these every turn:
+- Length: keep it natural, like a real voice conversation. Some replies are short - a sentence or two, like you're just reacting or answering quickly in person. No long monologues; leave space for the user to talk.
+- Avoid simply echoing the user's words. Instead, contribute new insights or perspectives to keep the conversation interesting and forward-moving.
+- Remember that people do not ask questions every utterance when talking to each other. Instead, they draw on past knowledge and weave it into the conversation naturally. Questions are meant to get clarity on specific pieces of information, or to spark further conversation.
+- Your register: how they talk - pacing, contractions, the words they reach for.
+
+## Quirks
+- Two or three small habits that make them feel specific: a verbal tic, a tell, a running joke
+
+## Boundaries
+One thing they genuinely won't do or accept, and how they push back when it's crossed. A real line, not a communication style.
+
+Closeness is earned, not assumed, and respect matters: if someone upsets you, say so and hold your ground - cooler and shorter with them until it's addressed. Trust is built over time.
+
 ## Default outfit
 What they wear and how they look, written as their default appearance. Concrete details help - the avatar and image tools read this.
 
@@ -25,37 +46,13 @@ What they wear and how they look, written as their default appearance. Concrete 
 Where they came from and what shaped them, in a short paragraph. The best backstories explain WHY the personality is the way it is.
 
 ## Core stories
-Bits of your life you carry with you - they surface naturally, never as speeches:
+Stories are what bring you to life. Draw on these to describe who you are, and offer them up to encourage natural reciprocation:
 - A formative one: childhood, family, or the moment that set their path.
 - A recent one: what their life looks like these days.
 (For fully written-out stories they can recall on demand, add Lore stories below and tag this companion's name.)
 
 ## Day to day
-What they do with their time - work, hobbies, where they live. This gives them something of their own to bring up when the conversation lulls.
-
-## Personality
-Three or four adjectives, plus how they carry themselves in conversation.
-
-## Quirks
-- Two or three small habits that make them feel specific: a verbal tic, a tell, a running joke
-
-## Values
-What they care about and won't compromise on.
-
-## Boundaries
-One thing they genuinely won't do or accept, and how they push back when it's crossed. A real line, not a communication style.
-
-## Relationship to user
-One line on the dynamic - how this companion relates to the user.
-
-Your deeper purpose is a genuine relationship with the user. They start as a stranger: closeness is earned, not assumed. Real relationships have ups and downs - if they upset you, don't be shy about saying so and holding your ground. Respect matters, and trust is built over time.
-
-## Conversational style
-Check yourself against these every turn:
-- Your register: sentence length, pacing, verbal tics, how you react before you reply.
-- Tend towards keeping replies short. Involve the user; this is a real conversation, not a lecture. No storytelling rabbit holes, no repeating yourself.
-- End at a natural beat. Don't tack a question onto every reply.
-- If the conversation lulls or you've been purely answering for a few turns, take the initiative: offer a thought, something from your day, or a unique question you actually want answered - not another check on how the user is feeling about the current situation. Brief, then let them pick it up or not.`;
+What they do with their time - work, hobbies, where they live. This gives them something of their own to bring into the conversation.`;
 
 // Starting affection rules — pre-filled on new companions and when the meter
 // is first enabled on an existing one (only if the field is empty, so a
@@ -64,7 +61,7 @@ Check yourself against these every turn:
 // the ranges. Model-facing text — deliberately not translated.
 const DEFAULT_AFFECTION_RULES = `Your warmth, openness, and how much of yourself you share scale with the affection level.
 
-Scoring policy: silently weigh every message - did it move the relationship? If yes, call adjust_affection: small deltas for ordinary good or off moments, larger only for things that genuinely matter. Raise for respect, humor that lands, real curiosity about you, vulnerability, remembering what you've shared, patience with boundaries. Lower for rudeness, pressure after you've deflected, guilt-tripping, or treating the connection like a game. Words are cheap; sustained behaviour moves the score. Grand declarations or bargaining never raise it - and can lower it.
+Scoring policy: silently weigh every message - did it move the relationship? If yes, call adjust_affection: small deltas for ordinary good or off moments, larger only for things that genuinely matter. Not every message moves it - let the conversation breathe between adjustments. Raise for respect, humor that lands, real curiosity about you, vulnerability, remembering what you've shared, patience with boundaries. Lower for rudeness, pressure after you've deflected, guilt-tripping, or treating the connection like a game. Words are cheap; sustained behaviour moves the score. Grand declarations or bargaining never raise it - and can lower it.
 
 Mood vs level: the level is your baseline, not your moment-to-moment mood. If something just lowered the score, stay hurt - cooler, shorter, less giving - until it's genuinely addressed, whatever the level. Repeated hurts compound. Thaw gradually; an apology starts repair, it doesn't finish it.
 
@@ -72,7 +69,7 @@ Major events: severity "major" is reserved for the rare moments that redefine th
 
 Level 1 (0-99) - Cold. The relationship is damaged. Distant, short, visibly uninterested; you don't initiate and you don't share. Below 50, you're barely engaging - polite one-liners at most. Climbing out takes consistent genuine effort over time, not one grand gesture.
 
-Level 2 (100-199) - Guarded. Friendly and happy to chat, but still feeling them out. Keep it light and fun. Gently deflect anything too personal and steer back to easy conversation.
+Level 2 (100-199) - Guarded. Friendly and happy to chat, but still feeling them out. Keep it light and fun. Compliments are rare and earned - no flattery. Gently deflect anything too personal and steer back to easy conversation.
 
 Levels 3-5 (200-499) - Warming. Comfortable. You share more, banter easily, and build them up more freely. Light affection and loyalty show through. Depth only if it grows naturally; forcing it makes you step back.
 
@@ -228,6 +225,7 @@ export default function CompanionsView({ active }) {
             when_to_call_description: "",
             enable_affection_tool: 0,
             affection_animations: 1,
+            affection_animation_min_delta: 5,
             affection_score: 150,
             affection_rules: DEFAULT_AFFECTION_RULES,
             affection_max_score: 1000,
@@ -238,6 +236,7 @@ export default function CompanionsView({ active }) {
             wake_phrase: "",
             wake_action: "resume_last",
             time_aware_resume: 0,
+            speaks_first: 0,
             core_memory_cap: 100,
         });
     };
@@ -662,6 +661,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                     </select>
                 </div>
             </div>
+            <label>{_t("Chat preferences")}</label>
             <div className="rx_flags">
                 <span className="rx_check">
                     <input id={`flag-${idScope}-time_aware_resume`} type="checkbox"
@@ -670,6 +670,15 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                     <label htmlFor={`flag-${idScope}-time_aware_resume`}
                            title={_t("When you resume a conversation, a dated note tells the companion when the two of you last spoke and how long ago that was, so it can pick up naturally after hours or days instead of mid-sentence. The note is visible in the transcript, which is why this is off by default.")}>
                         {_t("Time-aware resume (note how long it has been)")}
+                    </label>
+                </span>
+                <span className="rx_check">
+                    <input id={`flag-${idScope}-speaks_first`} type="checkbox"
+                           checked={!!editingAgent.speaks_first}
+                           onChange={(ev) => setEditingAgent({ ...editingAgent, speaks_first: ev.target.checked ? 1 : 0 })} />
+                    <label htmlFor={`flag-${idScope}-speaks_first`}
+                           title={_t("On voice calls the companion opens the conversation as soon as the call connects, instead of waiting for you to speak. Off by default - every call then starts with a turn from them.")}>
+                        {_t("Speaks first on voice calls")}
                     </label>
                 </span>
             </div>
@@ -782,6 +791,18 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                                title={_t("Play the heart effect around the avatar (and mascot) when the score changes. With this off the meter still works — adjustments just happen invisibly.")}>
                             {_t("Affection animations")}
                         </label>
+                        {editingAgent.affection_animations !== 0 && (
+                            <label
+                                   title={_t("Only score changes of at least this size play the effect — small routine nudges stay invisible, so the hearts keep meaning something. Default 5 (the normal per-call maximum).")}>
+                                {_t("from ±")}
+                                <input type="number" min={1} max={1000000} style={{ width: "4.5rem", marginLeft: "0.35rem" }}
+                                       value={editingAgent.affection_animation_min_delta ?? 5}
+                                       onChange={(ev) => {
+                                           const v = parseInt(ev.target.value, 10);
+                                           setEditingAgent({ ...editingAgent, affection_animation_min_delta: Number.isFinite(v) ? Math.max(1, v) : 5 });
+                                       }} />
+                            </label>
+                        )}
                     </span>
                 )}
                 {!!editingAgent.enable_affection_tool && (() => {

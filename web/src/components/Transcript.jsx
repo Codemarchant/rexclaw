@@ -104,6 +104,11 @@ function toolRow(base) {
  *  history persisted before call ids existed) fall back to claiming the
  *  nearest following unclaimed id-less result with a matching tool name,
  *  bounded by the next spoken turn. */
+// Tool rows that persist (the model needs the result on resume) but are
+// noise in the transcript: the score change is a silent background
+// mechanic the companion is told never to mention.
+const HIDDEN_TOOLS = new Set(["adjust_affection"]);
+
 function buildDisplayRows(messages) {
     const rows = [];
     const msgs = messages || [];
@@ -121,6 +126,7 @@ function buildDisplayRows(messages) {
         // Summary rollups are a backend artifact — the user's visible
         // transcript shows the full conversation.
         if (m.is_summary_rollup) continue;
+        if ((m.role === "tool_call" || m.role === "tool_result") && HIDDEN_TOOLS.has(m.tool_name)) continue;
         if (m.role === "tool_call") {
             let ri = m.xai_call_id ? resultIdxByCallId.get(m.xai_call_id) : undefined;
             if (ri !== undefined && claimed.has(ri)) ri = undefined; // duplicate call rows

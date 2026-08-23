@@ -380,7 +380,7 @@ function useUploader(packKey) {
  *  `library` (optional): shared-asset records — matching-kind entries render
  *  as a "Library…" picker so one file in data/assets/ serves every avatar
  *  without a duplicate upload (the manifest stores its absolute web path). */
-function FileField({ label, kind, packKey, value, accept, onUploaded, library }) {
+function FileField({ label, kind, packKey, value, accept, onUploaded, onClear, library }) {
     const ref = useRef(null);
     const { upload, uploading } = useUploader(packKey);
     const libraryOptions = (library || []).filter((f) => f.kind === kind);
@@ -418,6 +418,12 @@ function FileField({ label, kind, packKey, value, accept, onUploaded, library })
                       style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {value || _t("(none)")}
                 </span>
+                {value && onClear && (
+                    <button className="btn btn-sm btn-link p-0" title={_t("Clear (back to default)")}
+                            onClick={onClear}>
+                        <i className="fa fa-times" />
+                    </button>
+                )}
                 <input ref={ref} type="file" accept={accept} style={{ display: "none" }} onChange={pick} />
             </div>
         </div>
@@ -578,7 +584,8 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                            onUploaded={(fn) => setM({ vrm: fn })} />
                 <FileField library={library} label={_t("Idle animation VRMA (optional)")} kind="vrma" packKey={pack_key}
                            value={manifest.vrma_idle} accept=".vrma"
-                           onUploaded={(fn) => setM({ vrma_idle: fn })} />
+                           onUploaded={(fn) => setM({ vrma_idle: fn })}
+                           onClear={() => setM({ vrma_idle: "" })} />
             </div>
             <label className="rx_check"
                    title={_t("Emotions the companion sets fade back toward neutral after a few seconds. Turn off to hold each expression until the next one.")}>

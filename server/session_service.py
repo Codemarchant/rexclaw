@@ -87,7 +87,9 @@ def _env_preamble(config):
     """Static environmental context prepended to every agent's system prompt.
 
     Small, static, foundational: the app surface, the user's local datetime
-    (for resolving relative date phrases), and general tool-use guidance. The
+    (for resolving relative date phrases), and the reply language. General
+    tool-use rules live in the postamble (TOOL_USE_SECTION) so the persona
+    opens the prompt. The
     user's display name is gated by config.include_user_name_in_prompt so the
     name is never sent to xAI without explicit opt-in.
     """
@@ -104,25 +106,34 @@ def _env_preamble(config):
         f"{identity_line}"
         f"- **Current datetime (user local):** {now_str}\n"
         f"  Resolve relative date/time phrases (\"today\", \"tomorrow\", "
-        f"\"this week\", \"in 2 hours\") against this clock.\n\n"
-        f"- **Tool use - hard rule, never announce without acting:** If your words say or "
-        f"imply you're doing something, the tool call MUST go out in that same "
-        f"response. A stated intent with no call is a failure, not a finished "
-        f"turn. The only reason to announce without calling is when you genuinely "
-        f"need missing input or the action is hard to undo - then ask instead of "
-        f"announcing.\n"
-        f"- **Tool sequencing:** Fire independent tools in parallel in the same "
-        f"turn where they don't depend on each other. A dependent tool can never "
-        f"share a turn with the one it depends on - it needs that result first; "
-        f"fire it the moment the result lands, without pausing to ask \"want me "
-        f"to continue?\". Known dependencies: record_screen_clip / take_selfie "
-        f"return an imagine_image_id that delegate_task, local_task and "
-        f"create_video consume - copy it from that result, never from memory. "
-        f"set_emotion and play_gesture are fine together in one turn: an "
-        f"emotion on its own also plays a small matching body clip, but a "
-        f"gesture you play always takes priority for the body.\n"
+        f"\"this week\", \"in 2 hours\") against this clock.\n"
         f"- **Language:** Respond in the language the user speaks.\n\n"
     )
+
+
+# General tool-use rules. Lives in the POSTAMBLE (first section) rather than
+# the preamble so the persona opens the prompt: a voice model reads the first
+# lines as "who am I", and opening with assistant mechanics primes
+# answer-and-yield replies before the character has been established.
+TOOL_USE_SECTION = (
+    "## Tool use\n"
+    "- **Hard rule, never announce without acting:** If your words say or "
+    "imply you're doing something, the tool call MUST go out in that same "
+    "response. A stated intent with no call is a failure, not a finished "
+    "turn. The only reason to announce without calling is when you genuinely "
+    "need missing input or the action is hard to undo - then ask instead of "
+    "announcing.\n"
+    "- **Sequencing:** Fire independent tools in parallel in the same "
+    "turn where they don't depend on each other. A dependent tool can never "
+    "share a turn with the one it depends on - it needs that result first; "
+    "fire it the moment the result lands, without pausing to ask \"want me "
+    "to continue?\". Known dependencies: record_screen_clip / take_selfie "
+    "return an imagine_image_id that delegate_task, local_task and "
+    "create_video consume - copy it from that result, never from memory. "
+    "set_emotion and play_gesture are fine together in one turn: an "
+    "emotion on its own also plays a small matching body clip, but a "
+    "gesture you play always takes priority for the body."
+)
 
 
 def _group_call_note(agent_row, group_peers, manual_turn):
@@ -182,7 +193,7 @@ def _env_postamble(con, agent_row, mode='voice'):
     The text-mode disclaimer overrides voice-tool references the system_prompt
     may contain, placed AFTER what it overrides.
     """
-    sections = []
+    sections = [TOOL_USE_SECTION]
     if mode == 'text':
         sections.append(
             "## Surface\n"
@@ -231,11 +242,40 @@ def _env_postamble(con, agent_row, mode='voice'):
         lore = lore_tools.prompt_section(con, agent_row)
         if lore:
             sections.append(lore)
+    first_meeting = _first_meeting_section(con, agent_row)
+    if first_meeting:
+        sections.append(first_meeting)
     if agent_row['enable_memory_tools']:
         sections.append(_memory_section(con, agent_row))
     if not sections:
         return ''
     return '\n\n' + '\n\n'.join(sections)
+
+
+def _first_meeting_section(con, agent_row):
+    """One-off note for a companion that has never heard from the user:
+    their first words are a first meeting, not a continuation. State, not
+    persona (it disappears as soon as a real exchange exists), in the
+    spirit of Sesame's Maya first-call block. Scheduled heartbeat turns
+    don't count as the user being here."""
+    from . import heartbeat
+    row = con.execute(
+        "SELECT 1 FROM messages m JOIN sessions s ON s.id = m.session_id"
+        " WHERE s.agent_id = ? AND m.role = 'user' AND m.content NOT LIKE ?"
+        " LIMIT 1",
+        (agent_row['id'], heartbeat.CONTEXT_PREFIX + '%'),
+    ).fetchone()
+    if row:
+        return None
+    return (
+        "## First meeting\n"
+        "You and the user have never spoken before - this is the first time. "
+        "Treat their first words as a first meeting, not a continuation: "
+        "introduce yourself and share a bit about who you are, try to learn "
+        "a little about them without being intrusive, and get their name at "
+        "some natural point. Keep the greeting short, and never ask more "
+        "than one question in it."
+    )
 
 
 def _affection_section(agent_row):
@@ -328,9 +368,9 @@ def _expression_section(agent_row):
             "to `neutral` when the moment passes. Which emotion, how "
             "strongly and how often is your character's call.\n"
             "- `play_gesture` is punctuation, not background motion: one "
-            "gesture per beat, for moments worth marking. Which gestures "
-            "fit, and how often, is a personality question - let your "
-            "character decide.\n"
+            "gesture per beat, for moments worth marking - the same gesture "
+            "turn after turn feels unnatural. Which gestures fit, and how "
+            "often, is a personality question - let your character decide.\n"
             "- A looping gesture (solo or with a call partner) keeps going "
             "until you end it - `play_gesture` 'idle' stops it cleanly, and "
             "any other gesture replaces it, so don't play one by accident "
@@ -351,7 +391,8 @@ def _tool_habits_section(agent_row):
         lines.append(
             "- When the conversation moves to a described location or scene, "
             "redecorate with `change_background` to match - no need to say "
-            "you're doing it, just make the scenery follow the roleplay. One "
+            "you're doing it, just make the scenery follow the roleplay. "
+            "Still images; animated only when the user asks for one. One "
             "call per scene change: never fire several at once - each renders "
             "and bills, and only one can be on screen.\n"
         )
@@ -759,6 +800,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
             # Rides the session payload (not the tool result) so it never
             # pollutes what the model reads back from its own calls.
             'animations': bool(agent['affection_animations']),
+            'animation_min_delta': max(1, int(agent['affection_animation_min_delta'] or 1)),
         }
 
     # Group-call roster from the LAST call on this session: peer legs still
@@ -796,6 +838,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         'avatar': avatar,
         'active_background': active_background,
         'affection': affection_payload,
+        'speaks_first': bool(agent['speaks_first']),
         'replay_items': replay_items,
         'transcript_history': transcript_history,
         'transcript_truncated': transcript_truncated,

@@ -52,7 +52,7 @@ _AGENT_FIELDS = (
     "enable_lore_tool", "expression_style", "speech_tag_style",
     "enable_web_search", "enable_x_search", "enable_grok_imagine_tools", "enable_capture_tools",
     "enable_memory_tools", "core_memory_cap",
-    "enable_affection_tool", "affection_animations",
+    "enable_affection_tool", "affection_animations", "affection_animation_min_delta",
     "affection_score", "affection_rules",
     "affection_max_score", "affection_level_count", "affection_max_delta",
     "affection_max_delta_major",
@@ -60,7 +60,7 @@ _AGENT_FIELDS = (
     "enable_delegate_tool", "enable_multi_agent_delegation",
     "enable_local_tasks", "enable_minecraft",
     "enable_end_call_tool", "wake_phrase", "wake_action",
-    "time_aware_resume",
+    "time_aware_resume", "speaks_first",
 )
 
 

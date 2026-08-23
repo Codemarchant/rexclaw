@@ -198,14 +198,19 @@ export class ToolDispatcher {
         // seed (a UI concern — the tool result the model reads back stays
         // clean of it), so carry it forward through every readout update.
         const animations = this.conversationState.affection?.animations !== false;
+        const minDelta = this.conversationState.affection?.animation_min_delta || 1;
         this.conversationState.affection = {
             score: result.score,
             level: result.level,
             max_score: result.max_score,
             max_level: result.max_level,
             animations,
+            animation_min_delta: minDelta,
         };
-        if (!result.delta_applied || !animations) return;
+        // Small nudges stay invisible — only a change of at least the
+        // configured size is worth a heart burst (major-severity calls
+        // clear it by construction).
+        if (!result.delta_applied || !animations || Math.abs(result.delta_applied) < minDelta) return;
         // In a group call each leg has its own conversation state, but the
         // full view and mascot only watch the primary/shared one — stamp
         // the pulse there so a PEER companion's adjustment animates too.

@@ -116,8 +116,12 @@ const BACKGROUND_PRESETS = {
 //   not a swaying drunk.
 const BLINK_INTERVAL_MIN = 3.0;
 const BLINK_INTERVAL_MAX = 6.0;
-const BLINK_CLOSE_DURATION = 0.08;
-const BLINK_OPEN_DURATION = 0.10;
+// Lids snap shut and ease open (easeOut on the close, easeIn on the open,
+// per airi's Live2D blink), and the reopen time is re-rolled per blink so
+// no two blinks are identical.
+const BLINK_CLOSE_DURATION = 0.075;
+const BLINK_OPEN_MIN = 0.15;
+const BLINK_OPEN_MAX = 0.30;
 const BREATH_AMPLITUDE = 0.012;
 const BREATH_FREQUENCY_HZ = 0.27;
 
@@ -2932,6 +2936,7 @@ class AvatarRenderer {
     _scheduleNextBlink(actor) {
         const span = BLINK_INTERVAL_MAX - BLINK_INTERVAL_MIN;
         actor._nextBlinkAt = (this.clock?.elapsedTime || 0) + BLINK_INTERVAL_MIN + Math.random() * span;
+        actor._blinkOpenDur = BLINK_OPEN_MIN + Math.random() * (BLINK_OPEN_MAX - BLINK_OPEN_MIN);
     }
 
     _applyBlink(actor, now) {
@@ -2942,11 +2947,13 @@ class AvatarRenderer {
         if (ge && (ge.has("blink") || ge.has("blinkLeft") || ge.has("blinkRight"))) return;
         if (now >= actor._nextBlinkAt) {
             const t = now - actor._nextBlinkAt;
+            const openDur = actor._blinkOpenDur || BLINK_OPEN_MIN;
             if (t < BLINK_CLOSE_DURATION) {
-                actor.vrm.expressionManager.setValue("blink", t / BLINK_CLOSE_DURATION);
-            } else if (t < BLINK_CLOSE_DURATION + BLINK_OPEN_DURATION) {
-                const phase = (t - BLINK_CLOSE_DURATION) / BLINK_OPEN_DURATION;
-                actor.vrm.expressionManager.setValue("blink", 1 - phase);
+                const u = t / BLINK_CLOSE_DURATION;
+                actor.vrm.expressionManager.setValue("blink", 1 - (1 - u) * (1 - u));   // easeOutQuad
+            } else if (t < BLINK_CLOSE_DURATION + openDur) {
+                const u = (t - BLINK_CLOSE_DURATION) / openDur;
+                actor.vrm.expressionManager.setValue("blink", 1 - u * u);               // easeInQuad
             } else {
                 actor.vrm.expressionManager.setValue("blink", 0);
                 this._scheduleNextBlink(actor);

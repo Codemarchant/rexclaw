@@ -260,6 +260,9 @@ CREATE TABLE IF NOT EXISTS agents (
     -- above the level-1 Cold zone in both directions.
     enable_affection_tool INTEGER NOT NULL DEFAULT 0,
     affection_animations INTEGER NOT NULL DEFAULT 1,
+    -- Only score changes of at least this size play the heart effect, so
+    -- routine +1/+2 nudges stay invisible. Default = the normal max delta.
+    affection_animation_min_delta INTEGER NOT NULL DEFAULT 5,
     affection_score INTEGER NOT NULL DEFAULT 150,
     affection_rules TEXT,
     affection_max_score INTEGER NOT NULL DEFAULT 1000,
@@ -304,7 +307,10 @@ CREATE TABLE IF NOT EXISTS agents (
     -- Time-aware resume: when a conversation is resumed, a dated system
     -- note tells the companion how long it has been since the last
     -- exchange. Opt-in: it adds a visible note to every resume.
-    time_aware_resume INTEGER NOT NULL DEFAULT 0
+    time_aware_resume INTEGER NOT NULL DEFAULT 0,
+    -- Voice calls: the companion opens the conversation as soon as the call
+    -- connects instead of waiting for the user to speak. Opt-in.
+    speaks_first INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS mcp_connections (
@@ -640,6 +646,8 @@ MIGRATIONS = (
     # Sub-setting: play the heart effect on score changes (meter works
     # invisibly with this off).
     "ALTER TABLE agents ADD COLUMN affection_animations INTEGER NOT NULL DEFAULT 1",
+    # Sub-setting: minimum |delta| that plays the heart effect.
+    "ALTER TABLE agents ADD COLUMN affection_animation_min_delta INTEGER NOT NULL DEFAULT 5",
     # Start bump 100 -> 150 (mid-Guarded). One-shot in practice: only rows
     # whose meter was never enabled still sit at the old untouched default.
     "UPDATE agents SET affection_score = 150 "
@@ -668,6 +676,8 @@ MIGRATIONS = (
     "ALTER TABLE agents ADD COLUMN time_aware_resume INTEGER NOT NULL DEFAULT 0",
     # Cross-mode token accounting (see session_service._cross_mode_token_vals).
     "ALTER TABLE sessions ADD COLUMN tokens_at_mode_switch INTEGER NOT NULL DEFAULT 0",
+    # Companion speaks first on voice calls (opt-in per companion).
+    "ALTER TABLE agents ADD COLUMN speaks_first INTEGER NOT NULL DEFAULT 0",
 )
 
 
