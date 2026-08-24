@@ -113,9 +113,16 @@ _CREATE_IMAGE_TOOL = {
         "This is also how you EDIT images the user uploaded: their "
         "attachments are saved to the library and the imagine_image_id "
         "refs appear in the conversation next to the upload. "
-        "When a source is an avatar selfie, match its art style in the "
-        "prompt — stylized anime/cel-shaded 3D, NOT photorealistic — "
-        "unless the user asks for a different style. "
+        "To put YOURSELF in the picture, set include_self=true - your "
+        "likeness is added automatically as <IMAGE_0> (any source_images "
+        "follow as <IMAGE_1>, <IMAGE_2>, ...). On a voice call that is a "
+        "live snapshot of you as you appear on screen - current outfit, "
+        "the scene backdrop behind you, and anyone else in the call; in "
+        "text chat it is your full-body portrait on a transparent "
+        "background. Describe the scene, pose or moment in the prompt "
+        "(on a call, say so if the backdrop should change). That is the "
+        "whole answer to 'send me a picture of you'; no other tool call "
+        "is needed. "
         "Does NOT change the avatar background — use change_background "
         "for that when the user wants a new scene behind the avatar."
     ),
@@ -126,7 +133,11 @@ _CREATE_IMAGE_TOOL = {
                 'type': 'string',
                 'description': (
                     'Description of the image to generate — or, with '
-                    'source_images, the edit/remix instruction.'
+                    'source_images / include_self, the edit/remix '
+                    'instruction. Refer to the sources positionally as '
+                    '<IMAGE_0>, <IMAGE_1>, ... in the order passed '
+                    '(include_self is always <IMAGE_0>) — e.g. "<IMAGE_0> '
+                    'sitting on a pier at sunset", not "me on a pier".'
                 ),
             },
             'source_images': {
@@ -138,6 +149,19 @@ _CREATE_IMAGE_TOOL = {
                     'restyle or combine into the new image. Omit this '
                     'parameter entirely when generating from the prompt '
                     'alone — never pass a placeholder value.'
+                ),
+            },
+            'include_self': {
+                'type': 'boolean',
+                'description': (
+                    'true = the image features you: your likeness is added '
+                    'as <IMAGE_0> - on a voice call a live snapshot of you '
+                    'on screen (outfit, scene backdrop, call peers), in '
+                    'text chat your full-body portrait on a transparent '
+                    'background. Keep your art style - stylized '
+                    'anime/cel-shaded 3D, NOT photorealistic - unless the '
+                    'user asks for a different style. Omit when the picture '
+                    'is not of you.'
                 ),
             },
         },
@@ -339,75 +363,99 @@ def video_reference_supported(config):
 
 
 def build_create_video_tool(*, reference=True, selfie=True):
-    """create_video for a session: the static schema, plus the take_selfie
-    hint when the companion has capture tools (voice captures the live
-    canvas, text serves the avatar portrait), minus the Reference-to-Video
-    parameters when the configured video model lacks them."""
+    """create_video for a session. With Reference-to-Video support the
+    schema gains include_self (the companion's likeness as the first
+    reference image); without it the reference parameters are pruned and,
+    when `selfie` is set (voice mode — a live canvas exists to capture),
+    the description falls back to the take_selfie → source_image route.
+    Text mode passes selfie=False: it has no canvas, and include_self
+    covers it wherever the model supports references."""
     tool = copy.deepcopy(_CREATE_VIDEO_TOOL)
     if reference:
         tool['description'] = tool['description'].replace('__REFERENCE_MODE__', _REFERENCE_MODE_BLOCK)
+        tool['parameters']['properties']['include_self'] = {
+            'type': 'boolean',
+            'description': (
+                'true = the clip features you: your likeness is added as '
+                'the first reference image (<IMAGE_0>; any reference_images '
+                'follow as <IMAGE_1>, ...) - on a voice call a live '
+                'snapshot of you on screen (outfit, scene backdrop, call '
+                'peers), in text chat your full-body portrait on a '
+                'transparent background. Reference-to-Video only - not '
+                'with source_image / extend_video / edit_video. Keep your '
+                'art style unless the user asks otherwise.'
+            ),
+        }
+        tool['description'] += (
+            " When the user wants a video featuring YOU, set "
+            "include_self=true - no other call is needed - and keep your "
+            "art style in the prompt: stylized anime/cel-shaded 3D, NOT "
+            "photorealistic, unless the user asks for a different style."
+        )
     else:
         tool['description'] = tool['description'].replace('  __REFERENCE_MODE__\n\n', '')
         del tool['parameters']['properties']['reference_images']
         del tool['parameters']['properties']['voice_ids']
-    if selfie:
+    if not reference and selfie:
         tool['description'] += (
             " When the user wants a video featuring YOU, call take_selfie "
-            "first to capture how you look and pass its image_url "
-            "here ("
-            + ("reference_images to star in a new scene, source_image to "
-               "animate the shot itself)." if reference else
-               "source_image — the clip animates the shot itself).")
+            "first to capture how you look and pass its image_url here as "
+            "source_image — the clip animates the shot itself."
         )
     return tool
 
 
-# Text mode's take_selfie. Same name and contract as the voice-mode browser
-# tool (browser_tools.SELFIE_TOOL) so create_video's hint works on both
-# surfaces, but text has no live canvas: the shot is the companion's
-# portrait — the agent's chat thumbnail override when set, else the
-# avatar's portrait (portraits.py). Executes fully server-side
-# (execute_take_selfie), so it needs no browser round-trip and works
-# headless. Gated by enable_capture_tools, not the imagine flag — it only
-# stores into the library, never generates.
-TEXT_SELFIE_TOOL = {
-    'type': 'function',
-    'name': 'take_selfie',
-    'description': (
-        "Share a photo of yourself — your portrait headshot. Use ONLY when "
-        "the user asks for a selfie or photo of you, or as source material "
-        "for an image/video the user has explicitly requested that features "
-        "you (create_video reference_images / source_image, create_image "
-        "source_images). NEVER send one spontaneously — not for roleplay "
-        "moments, emotional beats, or to commemorate something; if a moment "
-        "feels selfie-worthy, suggest it and wait for a yes. The image is "
-        "saved to the Imagine library and returned as image_url + "
-        "imagine_image_id. When generating from a selfie, match the "
-        "avatar's art style as captured — stylized anime/cel-shaded 3D, NOT "
-        "photorealistic — unless the user explicitly asks for a different "
-        "style."
-    ),
-    'parameters': {'type': 'object', 'properties': {}, 'required': []},
-}
-TEXT_SELFIE_TOOL_NAME = TEXT_SELFIE_TOOL['name']
+# The main VRM's look, as an `outfit` choice — same wording change_outfit
+# uses for id 0, so the two tools agree.
+DEFAULT_OUTFIT_NAME = 'Default outfit'
+
+
+def _with_outfit_param(tool, outfits):
+    """Add the include_self companion parameter `outfit` (enum of the
+    avatar's outfit names) when the wardrobe has any. The likeness then
+    comes from that outfit's portrait (full-body when generated) instead of
+    the default: in text mode the default is the main portrait, in voice
+    mode it is the live on-screen avatar — so on a call, naming an outfit
+    swaps the live snapshot for a portrait without changing what is on
+    screen. In place; returns the tool for chaining."""
+    names = [o['name'] for o in outfits or () if o.get('name')]
+    if names and 'include_self' in tool['parameters']['properties']:
+        tool['parameters']['properties']['outfit'] = {
+            'type': 'string',
+            'enum': [DEFAULT_OUTFIT_NAME] + names,
+            'description': (
+                f'With include_self: which of your outfits to appear in. '
+                f'"{DEFAULT_OUTFIT_NAME}" is the look described in your '
+                f'system prompt. Omit for how you look right now.'
+            ),
+        }
+    return tool
 
 
 def build_voice_tools(con, agent):
     """Imagine function tools for a voice session."""
+    outfits = store.agent_outfit_dicts(con, agent)
     return [
         _CHANGE_BACKGROUND_TOOL,
-        _CREATE_IMAGE_TOOL,
-        build_create_video_tool(reference=video_reference_supported(get_config(con)),
-                                selfie=bool(agent['enable_capture_tools'])),
+        _with_outfit_param(copy.deepcopy(_CREATE_IMAGE_TOOL), outfits),
+        _with_outfit_param(
+            build_create_video_tool(reference=video_reference_supported(get_config(con)),
+                                    selfie=bool(agent['enable_capture_tools'])),
+            outfits),
     ]
 
 
 def build_text_tools(con, agent):
-    """Imagine function tools for a text turn."""
+    """Imagine function tools for a text turn. No take_selfie hint: text has
+    no live canvas, so include_self is the only way to feature the
+    companion."""
+    outfits = store.agent_outfit_dicts(con, agent)
     return [
-        _CREATE_IMAGE_TOOL,
-        build_create_video_tool(reference=video_reference_supported(get_config(con)),
-                                selfie=bool(agent['enable_capture_tools'])),
+        _with_outfit_param(copy.deepcopy(_CREATE_IMAGE_TOOL), outfits),
+        _with_outfit_param(
+            build_create_video_tool(reference=video_reference_supported(get_config(con)),
+                                    selfie=False),
+            outfits),
     ]
 
 # Tools that only make sense with a live fullscreen canvas — gated out of
@@ -469,9 +517,19 @@ def execute_imagine_tool(con, session, tool_name, arguments):
     # data URIs (restyle/remix/combine). Works in both modes and reaches
     # everything in the Imagine library (generated images, selfies, uploads).
     source_refs = _library_ref_list((arguments or {}).get('source_images'))
-    if tool_name == 'create_image' and source_refs:
+    include_self = tool_name == 'create_image' and _truthy((arguments or {}).get('include_self'))
+    if tool_name == 'create_image' and (source_refs or include_self):
         source_uris = []
-        for ref in source_refs:
+        self_note = None
+        if include_self:
+            # The companion's likeness goes first so it is <IMAGE_0>, as the
+            # schema promises; explicit sources follow in the order passed.
+            uri, err, self_note = _portrait_data_uri(
+                con, agent, (arguments or {}).get('outfit'))
+            if err:
+                return {'error': err}
+            source_uris.append(uri)
+        for ref in source_refs or ():
             uri, err = _library_image_data_uri(con, ref)
             if err:
                 return {'error': f'source_images: {err}'}
@@ -493,6 +551,8 @@ def execute_imagine_tool(con, session, tool_name, arguments):
         result = _persist_imagine_result(con, session, agent, config, body, prompt, kind='edit')
         if 'error' not in result:
             result['source_image_count'] = len(source_uris)
+            if self_note:
+                result['note'] = self_note
         return result
 
     # change_background (still) / create_image branch.
@@ -521,50 +581,68 @@ _PORTRAIT_MIMETYPES = {
 }
 
 
-def execute_take_selfie(con, session, agent):
-    """Text-mode take_selfie (see TEXT_SELFIE_TOOL): copy the companion's
-    portrait into the files library as a normal 'selfie' row, so
-    create_image/create_video reach it exactly like a voice-captured one.
-    Source: the agent's chat thumbnail override when set, else the avatar's
-    full-res portrait (generated sidecar, else the thumbnail embedded in the
-    VRM — not the 384px list-row cache: the selfie exists to feed image/video
-    generation)."""
+def _vrm_likeness(web_path):
+    """(mimetype, bytes) for one VRM: its full-body portrait when generated
+    (shows the outfit), else its face portrait (sidecar or embedded
+    thumbnail), else None."""
     from . import portraits
-    if not agent['enable_capture_tools']:
-        return {'error': 'Capture tools are disabled on this agent.'}
-    mimetype = raw = None
-    if agent['chat_thumbnail_path']:
-        src = portraits.vrm_disk_path(agent['chat_thumbnail_path'])
-        if src:
-            mimetype = _PORTRAIT_MIMETYPES.get(src.suffix.lower())
-            raw = src.read_bytes() if mimetype else None
-    if raw is None and agent['avatar_id']:
+    found = portraits.fullbody_source(web_path) or portraits.portrait_source(web_path)
+    return found if found and found[0] in _EXT_BY_MIME else None
+
+
+def _portrait_bytes(con, agent, outfit=None):
+    """The companion's likeness as (mimetype, bytes, outfit_matched), or
+    None. With `outfit`, that outfit's VRM is tried first (full-body, then
+    face); otherwise — or when it has no portrait — the main avatar:
+    full-body sidecar, else the agent's chat thumbnail override, else the
+    face portrait (sidecar or the thumbnail embedded in the VRM). Full-res
+    sources throughout — this feeds image/video generation, not list rows."""
+    from . import portraits
+    # "Default outfit" names the main avatar explicitly — it IS the
+    # fallback, so it always counts as matched (no "used instead" note).
+    wants_default = bool(outfit) and outfit.strip().lower() == DEFAULT_OUTFIT_NAME.lower()
+    if outfit and not wants_default and agent['avatar_id']:
+        row = con.execute(
+            "SELECT vrm_path FROM avatar_outfits WHERE avatar_id = ?"
+            " AND lower(name) = lower(?) ORDER BY sequence, id LIMIT 1",
+            (agent['avatar_id'], outfit.strip()),
+        ).fetchone()
+        found = _vrm_likeness(row['vrm_path']) if row and row['vrm_path'] else None
+        if found:
+            return found[0], found[1], True
+    main_vrm = None
+    if agent['avatar_id']:
         av = con.execute("SELECT vrm_path FROM avatars WHERE id = ?",
                          (agent['avatar_id'],)).fetchone()
-        found = portraits.portrait_source(av['vrm_path']) if av else None
-        if found and found[0] in _EXT_BY_MIME:
-            mimetype, raw = found
-    if raw is None:
-        return {'error': "No portrait available — this companion's avatar "
-                         "has no embedded thumbnail to photograph."}
-    fname = f"imagine_{uuid.uuid4().hex}{_EXT_BY_MIME[mimetype]}"
-    (FILES_DIR / fname).write_bytes(raw)
-    image_path = f"/files/{fname}"
-    name = f"Selfie — {agent['name']}"
-    cur = con.execute(
-        """INSERT INTO imagine_images
-               (name, agent_id, session_id, kind, prompt, image_path, mimetype, xai_model, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (name, agent['id'], session['id'], 'selfie', name, image_path,
-         mimetype, None, utcnow()),
-    )
-    con.commit()
-    return {
-        'imagine_image_id': cur.lastrowid,
-        'kind': 'selfie',
-        'image_url': image_path,
-        'name': name,
-    }
+        main_vrm = av['vrm_path'] if av else None
+    found = portraits.fullbody_source(main_vrm) if main_vrm else None
+    if not found and agent['chat_thumbnail_path']:
+        src = portraits.vrm_disk_path(agent['chat_thumbnail_path'])
+        mimetype = _PORTRAIT_MIMETYPES.get(src.suffix.lower()) if src else None
+        if mimetype:
+            found = (mimetype, src.read_bytes())
+    if not found and main_vrm:
+        found = portraits.portrait_source(main_vrm)
+    if not found or found[0] not in _EXT_BY_MIME:
+        return None
+    return found[0], found[1], wants_default
+
+
+def _portrait_data_uri(con, agent, outfit=None):
+    """include_self: the companion's likeness as a data URI. Returns
+    (data_uri, error, note): error when no likeness exists at all; note
+    when an outfit was asked for but the main avatar had to stand in, so
+    the companion can say so instead of claiming the outfit."""
+    found = _portrait_bytes(con, agent, outfit)
+    if not found:
+        return None, ("include_self: no portrait available — this companion's "
+                      "avatar has no embedded thumbnail."), None
+    mimetype, raw, matched = found
+    note = None
+    if outfit and not matched:
+        note = (f'No portrait exists for the "{outfit}" outfit, so your '
+                f'default look was used instead.')
+    return f'data:{mimetype};base64,{base64.b64encode(raw).decode()}', None, note
 
 
 def _web_path_to_file(web_path):
@@ -749,6 +827,7 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
     video_data_uri = None
     aspect_ratio = None
     resolution = _VIDEO_DEFAULT_RESOLUTION
+    self_note = None
     if tool_name == 'change_background':
         kind = 'background_video'
         duration = _BACKGROUND_VIDEO_SECONDS
@@ -763,9 +842,10 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
 
         source_ref = _library_ref(arguments.get('source_image'))
         reference_refs = _library_ref_list(arguments.get('reference_images'))
+        include_self = _truthy(arguments.get('include_self'))
         # Schema-pruned for these models (see build_create_video_tool);
         # refuse here too so a stale or injected call can't slip through.
-        if (reference_refs or reference_voice_ids) and not video_reference_supported(config):
+        if (reference_refs or reference_voice_ids or include_self) and not video_reference_supported(config):
             return {'error': (
                 f'reference_images / voice_ids are not supported by the configured '
                 f'video model ({config["imagine_video_model"]}).'
@@ -774,7 +854,7 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         edit_ref = _library_ref(arguments.get('edit_video'))
         picked = [name for name, value in (
             ('source_image', source_ref),
-            ('reference_images', reference_refs),
+            ('reference_images', reference_refs or include_self),
             ('extend_video', extend_ref),
             ('edit_video', edit_ref),
         ) if value]
@@ -804,11 +884,15 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             image_data_uri, err = _library_image_data_uri(con, source_ref)
             if err:
                 return {'error': f'source_image: {err}'}
-        elif reference_refs:
-            if not isinstance(reference_refs, list):
-                reference_refs = [reference_refs]
+        elif reference_refs or include_self:
             reference_data_uris = []
-            for ref in reference_refs:
+            if include_self:
+                # Likeness first → <IMAGE_0>, as the schema promises.
+                uri, err, self_note = _portrait_data_uri(con, agent, arguments.get('outfit'))
+                if err:
+                    return {'error': err}
+                reference_data_uris.append(uri)
+            for ref in reference_refs or ():
                 uri, err = _library_image_data_uri(con, ref)
                 if err:
                     return {'error': f'reference_images: {err}'}
@@ -890,7 +974,7 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             if kind == 'background_video' else
             'The clip is already visible in the transcript — do not say '
             'or write the URL or file name, just react to it.'
-        ),
+        ) + (f' {self_note}' if self_note else ''),
     }
 
 

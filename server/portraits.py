@@ -66,6 +66,38 @@ def sidecar_path(vrm_disk):
     return vrm_disk.with_name(f"{vrm_disk.stem}.portrait.png")
 
 
+def fullbody_sidecar_path(vrm_disk):
+    """Where a generated full-body portrait lives: ``<stem>.fullbody.png``
+    beside the VRM — the face portrait's sibling. Sidecar only: VRMs embed
+    no full-body image, so there is no fallback and no thumbnail cache."""
+    return vrm_disk.with_name(f"{vrm_disk.stem}.fullbody.png")
+
+
+def fullbody_file(web_path):
+    """The full-body sidecar PNG for a served VRM path, or None."""
+    disk = vrm_disk_path(web_path)
+    if not disk:
+        return None
+    side = fullbody_sidecar_path(disk)
+    return side if side.is_file() else None
+
+
+def fullbody_source(web_path):
+    """Full-resolution (mime, bytes) of the full-body portrait, or None.
+    Preferred likeness for text-mode include_self — it shows the outfit."""
+    side = fullbody_file(web_path)
+    return ("image/png", side.read_bytes()) if side else None
+
+
+def fullbody_url(web_path):
+    """URL the UI can <img> for this VRM's full-body portrait, or None.
+    Versioned by the sidecar's mtime like portrait_url."""
+    side = fullbody_file(web_path)
+    if not side:
+        return None
+    return f"/api/avatars/fullbody?vrm={quote(web_path, safe='/')}&v={side.stat().st_mtime_ns}"
+
+
 def extract_vrm_thumbnail(path):
     """(mime, bytes) of the thumbnail embedded in a .vrm/.glb, or None."""
     with open(path, "rb") as fh:

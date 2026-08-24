@@ -239,6 +239,7 @@ export class ToolDispatcher {
             if (!this.sessionId) {
                 throw new Error("Native tool dispatch requires sessionId.");
             }
+            args = await this._resolveIncludeSelf(name, args);
             return await rpc(`/api/voice/session/${this.sessionId}/tool_call`, {
                 tool_name: name,
                 arguments: args,
@@ -270,6 +271,29 @@ export class ToolDispatcher {
         }
     }
 
+    /** create_image / create_video `include_self` on the voice surface: the
+     *  companion's likeness is the LIVE avatar (outfit, scene, call
+     *  peers), so snapshot the canvas here and pass it as the first source
+     *  (<IMAGE_0>), dropping the flag so the server doesn't add the static
+     *  portrait on top. If there is no canvas to capture, the flag goes
+     *  through untouched and the server falls back to the portrait. A named
+     *  `outfit` also goes through untouched: the user asked for a different
+     *  look, so the server's outfit portrait is the likeness — nothing on
+     *  screen changes. */
+    async _resolveIncludeSelf(name, args) {
+        if (!args?.include_self) return args;
+        if (name !== "create_image" && name !== "create_video") return args;
+        if (args.outfit) return args;
+        const shot = await this._takeSelfie({ include_background: true });
+        const ref = shot?.imagine_image_id || shot?.image_url;
+        if (!shot?.ok || !ref) return args;
+        const { include_self, ...rest } = args;
+        void include_self;
+        const key = name === "create_image" ? "source_images" : "reference_images";
+        const existing = Array.isArray(rest[key]) ? rest[key] : (rest[key] ? [rest[key]] : []);
+        return { ...rest, [key]: [ref, ...existing] };
+    }
+
     /** take_selfie: snapshot the live canvas and persist it server-side as
      *  an Imagine-library image the model can feed straight into
      *  create_video. Awaited (not fire-and-forget) — the whole point is
@@ -278,8 +302,10 @@ export class ToolDispatcher {
         if (!this.sessionId) {
             return { ok: false, error: "take_selfie requires an active session." };
         }
+        // Backdrop in frame unless explicitly declined — the scene is the
+        // reason to take a live selfie rather than create_image include_self.
         const dataUrl = await avatarRenderer.captureSnapshot?.({
-            includeBackground: !!include_background,
+            includeBackground: include_background !== false,
         });
         if (!dataUrl) {
             return { ok: false, error: "No live avatar canvas to capture." };

@@ -105,11 +105,13 @@ def avatar_payload(con, avatar_id):
         (avatar_id,),
     ).fetchall()
 
+    from . import portraits
     outfits = [{
         'id': 0,
         'name': 'Default Outfit',
         'vrm_url': av['vrm_path'],
         'is_default': True,
+        'portrait_url': portraits.portrait_url(av['vrm_path']),
     }]
     for o in outfit_rows:
         if not o['vrm_path']:
@@ -119,6 +121,7 @@ def avatar_payload(con, avatar_id):
             'name': o['name'],
             'vrm_url': o['vrm_path'],
             'is_default': False,
+            'portrait_url': portraits.portrait_url(o['vrm_path']),
         })
     backgrounds = [background_payload(b) for b in bg_rows]
     default_bg = next((b for b in bg_rows if b['is_default']), None)

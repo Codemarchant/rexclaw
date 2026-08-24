@@ -203,6 +203,12 @@ def _env_postamble(con, agent_row, mode='voice'):
             "`set_emotion`, `play_gesture`, an avatar, or vocal delivery "
             "through speech expression tags. Respond in text only.\n"
         )
+    else:
+        sections.append(
+            "## Surface\n"
+            "- **Voice call:** This is a live spoken conversation - the user "
+            "hears you and sees you as your 3D avatar on screen.\n"
+        )
     if (agent_row['provider'] == 'grok'
             and agent_row['enable_grok_imagine_tools'] and agent_row['voice']
             and imagine_tools.video_reference_supported(get_config(con))):
@@ -271,8 +277,9 @@ def _first_meeting_section(con, agent_row):
         "## First meeting\n"
         "You and the user have never spoken before - this is the first time. "
         "Treat their first words as a first meeting, not a continuation: "
-        "introduce yourself and share a bit about who you are, try to learn "
-        "a little about them without being intrusive, and get their name at "
+        "introduce yourself - who you are and, if your prompt describes a "
+        "setting, where this is and what you do here - try to learn a "
+        "little about them without being intrusive, and get their name at "
         "some natural point. Keep the greeting short, and never ask more "
         "than one question in it."
     )
@@ -1600,7 +1607,6 @@ def director_decide(con, *, session, transcript_lines, participants, user_name=N
 # / DOM tools are gone), so the loop always resolves server-side.
 NATIVE_TOOL_NAMES_TEXT = (
     imagine_tools.IMAGINE_TOOL_NAMES
-    | {imagine_tools.TEXT_SELFIE_TOOL_NAME}
     | memory_tools.MEMORY_TOOL_NAMES
     | affection_tools.AFFECTION_TOOL_NAMES
     | lore_tools.LORE_TOOL_NAMES
@@ -1636,10 +1642,10 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         for entry in imagine_tools.build_text_tools(con, agent):
             tools.append(entry)
     if agent['enable_capture_tools']:
-        # take_selfie is native here (the avatar portrait — no canvas), so
-        # it works headless too. The screen-capture pair round-trip through
-        # the browser (see TEXT_BROWSER_TOOL_NAMES), so they need one.
-        tools.append(imagine_tools.TEXT_SELFIE_TOOL)
+        # No take_selfie in text mode: there is no canvas, and the portrait
+        # it used to serve now rides create_image/create_video include_self.
+        # The screen-capture pair round-trip through the browser (see
+        # TEXT_BROWSER_TOOL_NAMES), so they need one.
         if enable_browser_tools:
             for shared_tool in (browser_tools.SCREENSHOT_TOOL,
                                 browser_tools.ANALYZE_SCREEN_TOOL,
@@ -2446,10 +2452,6 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 args = {}
             if name in imagine_tools.IMAGINE_TOOL_NAMES:
                 result = imagine_tools.execute_imagine_tool(con, session, name, args)
-            elif name == imagine_tools.TEXT_SELFIE_TOOL_NAME:
-                # Text mode's take_selfie is native (avatar portrait, no
-                # canvas) — voice mode's browser version never reaches here.
-                result = imagine_tools.execute_take_selfie(con, session, agent)
             elif name in memory_tools.MEMORY_TOOL_NAMES:
                 if not agent['enable_memory_tools']:
                     result = {'ok': False, 'reason': 'tool_disabled',

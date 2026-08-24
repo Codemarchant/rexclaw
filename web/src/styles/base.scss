@@ -256,7 +256,34 @@ body {
     }
     .rx_portrait--sm { width: 2.6rem; height: 2.6rem; font-size: 1.2rem; }
     .rx_portrait--lg { width: 5.25rem; height: 5.25rem; font-size: 2.3rem; }
+    // Full-body portrait: 3:5 box, whole figure contained (transparent
+    // render on the same neutral ground as the face portraits).
+    .rx_portrait--tall {
+        width: 4.5rem; height: 7.5rem; font-size: 2.3rem; border-radius: 14%;
+        img { object-fit: contain; }
+    }
     .rx_memory_row--portrait { align-items: center; }
+    // Small dropdown menu on a button (native <details>, no JS state).
+    .rx_menu {
+        position: relative;
+        display: inline-block;
+        > summary { list-style: none; cursor: pointer; }
+        > summary::-webkit-details-marker { display: none; }
+        .rx_menu_items {
+            position: absolute; right: 0; top: 100%; z-index: 20;
+            min-width: 15rem; margin-top: 0.25rem; padding: 0.25rem;
+            display: flex; flex-direction: column;
+            background: #fff; border: 1px solid #cbd5e1; border-radius: 0.5rem;
+            box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+            button {
+                text-align: left; background: none; border: 0; color: inherit;
+                padding: 0.4rem 0.6rem; border-radius: 0.35rem; cursor: pointer;
+                font-size: 0.875rem; white-space: nowrap;
+                &:hover { background: #f1f5f9; }
+                &:disabled { opacity: 0.5; cursor: default; }
+            }
+        }
+    }
     // Companion editor: portrait sits beside the avatar dropdown.
     .rx_avatar_pick {
         display: grid;

@@ -290,6 +290,16 @@ def add_pack_to_zip(zf, pack_key, prefix=""):
         zf.write(path, f"{prefix}{name}", compress_type=_compress_type(name))
         inlined[ref] = name
         container[key] = name
+        # A shared VRM's portrait sidecars live beside it; carry them along
+        # under the (possibly renamed) stem so they still pair up after
+        # import. Pack-local sidecars ride the folder copy below.
+        if path.suffix.lower() == ".vrm":
+            new_stem = Path(name).stem
+            for side in (portraits.sidecar_path(path), portraits.fullbody_sidecar_path(path)):
+                if side.is_file():
+                    side_name = side.name.replace(path.stem, new_stem, 1)
+                    taken.add(side_name)
+                    zf.write(side, f"{prefix}{side_name}", compress_type=_compress_type(side_name))
 
     for f in sorted(src.iterdir()):
         if f.is_file() and f.name != "avatar.json":

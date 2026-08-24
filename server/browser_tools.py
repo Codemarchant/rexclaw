@@ -39,21 +39,20 @@ BROWSER_TOOLS = [
 SELFIE_TOOL = {
     "name": "take_selfie",
     "description": (
-        "Capture a snapshot of yourself exactly as you appear right now — "
-        "avatar, outfit, and anyone else in the call. Use ONLY when "
-        "the user asks for a selfie or photo of you, or as source material "
-        "for an image/video/background the user has explicitly requested "
-        "that features you (create_video reference_images / source_image, "
-        "create_image source_images). NEVER take one spontaneously — not "
-        "for roleplay moments, emotional beats, or to commemorate "
-        "something; if a moment feels selfie-worthy, suggest it and wait "
-        "for a yes. By default the shot has a transparent background (just "
-        "the characters); set include_background=true to keep the current "
-        "scene backdrop in frame. The image is saved to the Imagine "
-        "library and returned as image_url + imagine_image_id. When "
-        "generating from a selfie, match the avatar's art style as "
-        "captured — stylized anime/cel-shaded 3D, NOT photorealistic — "
-        "unless the user explicitly asks for a different style."
+        "Capture a snapshot of yourself as you appear on screen — your "
+        "avatar and current outfit, the scene behind you, and anyone else "
+        "in the call — saved to the Imagine library as a photo. Use when "
+        "the user asks for a selfie or photo of you as you are right now, "
+        "with nothing generated. For a generated picture or video of you, use "
+        "create_image / create_video with include_self=true instead — they "
+        "take this same snapshot automatically. NEVER take one "
+        "spontaneously — not for roleplay moments, emotional beats, or to "
+        "commemorate something; if a moment feels selfie-worthy, suggest "
+        "it and wait for a yes. The scene backdrop is in frame by default; "
+        "set include_background=false for a transparent background "
+        "(characters only). Returned as image_url + imagine_image_id, "
+        "usable as create_image source_images or create_video "
+        "source_image."
     ),
     "parameters": {
         "type": "object",
@@ -61,8 +60,9 @@ SELFIE_TOOL = {
             "include_background": {
                 "type": "boolean",
                 "description": (
-                    "true = include the current scene backdrop in the shot; "
-                    "false/omitted = transparent background (default)."
+                    "false = transparent background (characters only); "
+                    "true/omitted = the current scene backdrop stays in "
+                    "the shot (default)."
                 ),
             },
         },
@@ -80,7 +80,8 @@ SCREENSHOT_TOOL = {
     "name": "take_screenshot",
     "description": (
         "Capture a screenshot of the user's screen from their live "
-        "screen-share and post it to the transcript. Requires the user to "
+        "screen-share and post it to the transcript - what they are looking "
+        "at right now, not an image you make up. Requires the user to "
         "have started sharing via the Share-screen button (desktop icon) in "
         "the call header — if sharing is not active this returns an error; "
         "ask them to click it, then call the tool again. You cannot see the "
@@ -152,7 +153,8 @@ RECORD_SCREEN_CLIP_TOOL = {
     "name": "record_screen_clip",
     "description": (
         "Record the user's screen (their live screen-share) for a set number "
-        "of seconds and post the clip to the transcript as a playable video. "
+        "of seconds and post the clip to the transcript as a playable video - "
+        "what they are looking at right now, not a video you make up. "
         "Requires the user to have started sharing via the Share-screen "
         "button (desktop icon) in the call header — if sharing is not "
         "active this returns an error; ask them to click it. IMPORTANT: if "

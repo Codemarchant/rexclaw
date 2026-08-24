@@ -393,26 +393,31 @@ LEO_EXPRESSION_STYLE = """Gestures sparingly: `thinking` while a tool call resol
 AGENT_SEEDS = [
     {"name": "Eve", "voice": "eve", "sequence": 10, "prompt": EVE_PROMPT, "pack": "Eve",
      "wake": "hey eve",
+     "speaks_first": True,
      "speech_tag_style": EVE_SPEECH_TAG_STYLE, "expression_style": EVE_EXPRESSION_STYLE,
      "when_to_call": "Junior research assistant - enthusiastic digging, quick lookups, "
                      "brainstorming energy, and general high-caffeine company."},
     {"name": "Ara", "voice": "ara", "sequence": 20, "prompt": ARA_PROMPT, "pack": "Ara",
      "wake": "hey ara",
+     "speaks_first": True,
      "speech_tag_style": ARA_SPEECH_TAG_STYLE, "expression_style": ARA_EXPRESSION_STYLE,
      "when_to_call": "Warm, patient guide - call them when the user needs calm support, "
                      "step-by-step explanations, or a steady voice on a stressful day."},
     {"name": "Rex", "voice": "rex", "sequence": 30, "prompt": REX_PROMPT, "pack": "Rex",
      "wake": "hey rex",
+     "speaks_first": True,
      "speech_tag_style": REX_SPEECH_TAG_STYLE, "expression_style": REX_EXPRESSION_STYLE,
      "when_to_call": "Quartermaster with mission-control comms - terse status reports, "
                      "logistics, keeping a plan on track under pressure."},
     {"name": "Sal", "voice": "sal", "sequence": 40, "prompt": SAL_PROMPT, "pack": "Sal",
      "wake": "hey sal",
+     "speaks_first": True,
      "speech_tag_style": SAL_SPEECH_TAG_STYLE, "expression_style": SAL_EXPRESSION_STYLE,
      "when_to_call": "Thoughtful, even-keeled analyst - careful reasoning, second opinions, "
                      "and questions that deserve a slow, watchful answer."},
     {"name": "Leo", "voice": "leo", "sequence": 50, "prompt": LEO_PROMPT, "pack": "Leo",
      "wake": "hey leo",
+     "speaks_first": True,
      "speech_tag_style": LEO_SPEECH_TAG_STYLE, "expression_style": LEO_EXPRESSION_STYLE,
      "when_to_call": "Senior stage manager - running an agenda, calling cues, keeping a "
                      "session or event moving with dignified authority."},
@@ -447,6 +452,9 @@ def seed_columns(con, seed):
         "wake_phrase": seed.get("wake"),
         "speech_tag_style": seed.get("speech_tag_style"),
         "expression_style": seed.get("expression_style"),
+        # The crew open their calls (they have a world to open with);
+        # user-created companions default off.
+        "speaks_first": 1 if seed.get("speaks_first") else 0,
     }
 
 

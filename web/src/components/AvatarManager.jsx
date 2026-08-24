@@ -99,6 +99,8 @@ export default function AvatarManager({ onChange, active = true }) {
                 files: r.files,
                 isNew: false,
                 portrait_url: a.portrait_url,   // from the saved main VRM
+                fullbody_url: a.fullbody_url,
+                outfit_portraits: r.outfit_portraits || {},   // {vrm ref: {face, fullbody}}
             });
         } catch (e) {
             notification.add(e?.message || _t("Could not open avatar"), { type: "danger" });
@@ -500,18 +502,28 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     // modified). The sidecar wins over the embedded thumbnail, so this both
     // fills in a missing portrait (Blender/UniVRM exports) and replaces a
     // blank or bad one. Pack-local files only — library refs are shared.
-    const [generating, setGenerating] = useState(false);
+    // `generating` holds the filename being rendered (main VRM or an
+    // outfit's) so each button shows its own spinner; "*" while a
+    // generate-all run walks the whole pack.
+    const [generating, setGenerating] = useState(null);
     const canGeneratePortrait = manifest.vrm && !manifest.vrm.startsWith("/");
-    const generatePortrait = async () => {
-        if (generating) return;
-        setGenerating(true);
+    const isPackFile = (ref) => ref && !ref.startsWith("/");
+    // Two portrait kinds per VRM, both sidecars beside it (POST
+    // /set_portrait): "face" is the framed headshot the lists use,
+    // "fullbody" frames the whole figure — the one that shows an outfit,
+    // and the likeness text-mode include_self prefers. The renderer is a
+    // singleton shared with the live views, so face framing is restored
+    // in `finally` whatever happens.
+    const renderPortrait = async (filename, kind) => {
+        const fullBody = kind === "fullbody";
         const host = document.createElement("div");
         host.style.cssText = "position:fixed;left:-10000px;top:0;width:512px;height:512px;";
         document.body.appendChild(host);
         try {
-            const vrmUrl = `/avatars/${pack_key}/${manifest.vrm}`;
+            const vrmUrl = `/avatars/${pack_key}/${filename}`;
             avatarRenderer.mount(host);
             await avatarRenderer.loadVRM(vrmUrl);
+            avatarRenderer.setFullBodyMode?.(fullBody);
             if (manifest.vrma_idle) {
                 const idleUrl = manifest.vrma_idle.startsWith("/")
                     ? manifest.vrma_idle
@@ -522,18 +534,74 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
             await new Promise((r) => setTimeout(r, 600));
             const dataUrl = await avatarRenderer.captureSnapshot({ maxSize: 1024 });
             if (!dataUrl) throw new Error(_t("Could not render the avatar."));
-            const r = await rpc("/api/avatars/set_portrait", {
-                pack_key, filename: manifest.vrm, image_data_url: dataUrl,
+            return await rpc("/api/avatars/set_portrait", {
+                pack_key, filename, kind, image_data_url: dataUrl,
             });
-            setEditing({ ...editing, portrait_url: r.portrait_url });
+        } finally {
+            if (fullBody) avatarRenderer.setFullBodyMode?.(false);
+            avatarRenderer.unmount(host);
+            host.remove();
+        }
+    };
+    // Fold one set_portrait result into the editor state: main VRM → the
+    // header portraits, outfit VRM → its entry in outfit_portraits.
+    const applyPortraitResult = (state, filename, r) => {
+        if (filename === manifest.vrm) {
+            return { ...state, portrait_url: r.portrait_url, fullbody_url: r.fullbody_url };
+        }
+        return { ...state, outfit_portraits: {
+            ...(state.outfit_portraits || {}),
+            [filename]: { face: r.portrait_url, fullbody: r.fullbody_url },
+        } };
+    };
+    const generateOne = async (filename, kind) => {
+        if (generating) return;
+        setGenerating(filename);
+        try {
+            const r = await renderPortrait(filename, kind);
+            setEditing((prev) => applyPortraitResult(prev, filename, r));
         } catch (e) {
             notification.add(e?.message || _t("Portrait generation failed"), { type: "danger" });
         } finally {
-            avatarRenderer.unmount(host);
-            host.remove();
-            setGenerating(false);
+            setGenerating(null);
         }
     };
+    // Both kinds for the main VRM and every pack-local outfit, in one go —
+    // how a pack gets fully portraited before it is exported or shipped.
+    const generateAll = async () => {
+        if (generating) return;
+        setGenerating("*");
+        const files = [manifest.vrm, ...(manifest.outfits || []).map((o) => o.vrm)].filter(isPackFile);
+        try {
+            for (const filename of files) {
+                for (const kind of ["face", "fullbody"]) {
+                    const r = await renderPortrait(filename, kind);
+                    setEditing((prev) => applyPortraitResult(prev, filename, r));
+                }
+            }
+        } catch (e) {
+            notification.add(e?.message || _t("Portrait generation failed"), { type: "danger" });
+        } finally {
+            setGenerating(null);
+        }
+    };
+    // Dropdown on the Generate button: which portrait to (re)render.
+    const PortraitMenu = ({ filename, busy, items, title }) => (
+        <details className="rx_menu">
+            <summary className="btn btn-sm" title={title}>
+                <i className={busy ? "fa fa-spinner fa-spin" : "fa fa-camera"} />{" "}
+                {busy ? _t("Rendering…") : _t("Generate portrait")} <i className="fa fa-caret-down" />
+            </summary>
+            <div className="rx_menu_items">
+                {items.map(([label, run]) => (
+                    <button key={label} type="button" disabled={!!generating}
+                            onClick={(ev) => { ev.currentTarget.closest("details")?.removeAttribute("open"); run(); }}>
+                        {label}
+                    </button>
+                ))}
+            </div>
+        </details>
+    );
 
     // Scene backgrounds carry an [x,y,z] offset; patch one axis in place.
     const setOffset = (idx, axis, val) => {
@@ -561,16 +629,19 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                 </span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem" }}>
                     {canGeneratePortrait && (
-                        <button className="btn btn-sm" disabled={generating}
-                                onClick={generatePortrait}
-                                title={_t("Render the avatar and save the shot as this pack's portrait (stored beside the VRM — the VRM file itself is not modified).")}>
-                            <i className={generating ? "fa fa-spinner fa-spin" : "fa fa-camera"} />{" "}
-                            {generating ? _t("Generating…")
-                                : editing.portrait_url ? _t("Regenerate portrait") : _t("Generate portrait")}
-                        </button>
+                        <PortraitMenu filename={manifest.vrm}
+                                      busy={generating === manifest.vrm || generating === "*"}
+                                      title={_t("Render the avatar and save the shot beside the VRM (the VRM file itself is not modified). Face portraits are used in lists; full-body ones show the outfit and are what the companion uses for pictures of themselves in text chat.")}
+                                      items={[
+                                          [_t("Face portrait"), () => generateOne(manifest.vrm, "face")],
+                                          [_t("Full-body portrait"), () => generateOne(manifest.vrm, "fullbody")],
+                                          [_t("All — face + full body, main and every outfit"), generateAll],
+                                      ]} />
                     )}
                     <Portrait url={editing.portrait_url} size="lg"
                               title={_t("Portrait — generated here, or the thumbnail embedded in the main VRM. Updates when the VRM changes (after Save).")} />
+                    <Portrait url={editing.fullbody_url} size="tall"
+                              title={_t("Full-body portrait — generated here; none yet if empty.")} />
                 </span>
             </h3>
             <div className="rx_row">
@@ -603,6 +674,9 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                 <i className="fa fa-book" /> {_t("Shared files: drop them into")}{" "}
                 <code>data/assets/</code> — {_t("every upload field's Library picker can then reference the same file from any avatar, no duplicate uploads.")}
             </p>
+            <p className="text-muted small rx_pack_path">
+                <i className="fa fa-camera" /> {_t("Full-body portraits (Generate portrait ▾) are what the companion uses as their likeness for pictures of themselves in text chat. Generate one for the main look and each outfit.")}
+            </p>
             </section>
 
             {/* Outfits */}
@@ -623,10 +697,26 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                                 <i className="fa fa-trash-o" />
                             </button>
                         </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.5rem" }}>
+                            <Portrait url={editing.outfit_portraits?.[o.vrm]?.face} size="lg"
+                                      title={_t("Face portrait")} />
+                            <Portrait url={editing.outfit_portraits?.[o.vrm]?.fullbody} size="tall"
+                                      title={_t("Full-body portrait — what the companion looks like in this outfit for pictures of themselves in text chat")} />
+                            {isPackFile(o.vrm) && (
+                                <PortraitMenu filename={o.vrm}
+                                              busy={generating === o.vrm || generating === "*"}
+                                              title={_t("Render this outfit and save the shot beside its VRM (the VRM file itself is not modified).")}
+                                              items={[
+                                                  [_t("Face portrait"), () => generateOne(o.vrm, "face")],
+                                                  [_t("Full-body portrait"), () => generateOne(o.vrm, "fullbody")],
+                                              ]} />
+                            )}
+                        </div>
                         {rowButtons}
                     </div>
                 ) : (
-                    <div key={i} className="rx_memory_row">
+                    <div key={i} className="rx_memory_row rx_memory_row--portrait">
+                        <Portrait url={editing.outfit_portraits?.[o.vrm]?.face} size="sm" />
                         <strong>{o.name || _t("(unnamed)")}</strong>
                         <span className="rx_memory_content text-muted small">
                             {o.vrm || _t("(none)")}{o.description ? ` · ${o.description}` : ""}

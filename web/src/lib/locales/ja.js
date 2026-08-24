@@ -744,6 +744,17 @@ export const JA = {
   "Shared files: drop them into": "共有ファイル：次の場所に置くと",
   "every upload field's Library picker can then reference the same file from any avatar, no duplicate uploads.":
     "各アップロード欄の「ライブラリ」から、どのアバターでも同じファイルを参照できます。重複アップロードは不要です。",
+  "Full-body portraits (Generate portrait ▾) are what the companion uses as their likeness for pictures of themselves in text chat. Generate one for the main look and each outfit.":
+    "全身ポートレート（「ポートレートを生成 ▾」）は、テキストチャットでコンパニオンが自分の写真を作るときの見た目として使われます。メインの姿と各衣装ごとに生成しておきましょう。",
+  "Generate portrait": "ポートレートを生成",
+  "Face portrait": "顔ポートレート",
+  "Full-body portrait": "全身ポートレート",
+  "All — face + full body, main and every outfit": "すべて — 顔と全身、メインと全衣装",
+  "Rendering…": "レンダリング中…",
+  "Full-body portrait — generated here; none yet if empty.": "全身ポートレート — ここで生成します。空欄ならまだ未生成です。",
+  "Full-body portrait — what the companion looks like in this outfit for pictures of themselves in text chat":
+    "全身ポートレート — テキストチャットで自分の写真を作るときの、この衣装での見た目です",
+  "Outfit portrait": "衣装ポートレート",
   "Emotions the companion sets fade back toward neutral after a few seconds. Turn off to hold each expression until the next one.":
     "コンパニオンが設定した表情は数秒後に自然な表情へ戻ります。オフにすると次の表情まで保持されます。",
   "Pack folder:": "パックフォルダ：",
