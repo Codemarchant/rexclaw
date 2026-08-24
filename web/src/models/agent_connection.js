@@ -219,7 +219,7 @@ export class AgentConnection {
         this._wsReady = false;
     }
 
-    async start(agentId = null, resumeSessionId = null, isCompactionRestart = false) {
+    async start(agentId = null, resumeSessionId = null, isCompactionRestart = false, { speaksFirst = true } = {}) {
         if (this.state.status !== "idle" && this.state.status !== "ended" && this.state.status !== "error") {
             // Already running. Surface a notification so the user understands
             // why nothing happened.
@@ -318,8 +318,11 @@ export class AgentConnection {
         this.state.affection = payload.affection || null;
         this.state.affectionPulse = null;
         // Companion opens the call instead of waiting for the user (opt-in).
-        // Not on a compaction restart — the user is mid-call, not arriving.
-        this._speaksFirst = !!payload.speaks_first && !isCompactionRestart;
+        // Not on a compaction restart — the user is mid-call, not arriving —
+        // and not when the caller supplies the opening itself (a heartbeat
+        // call injects its own prompt; a second kickoff would speak twice
+        // and greet a user the heartbeat says is absent).
+        this._speaksFirst = !!payload.speaks_first && !isCompactionRestart && speaksFirst;
         // Last group-call roster (resume only) — the manager silently
         // re-adds these agents once the call is live (_restoreCallRoster).
         this._callPeerAgents = payload.call_peer_agents || [];

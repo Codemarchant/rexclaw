@@ -147,7 +147,10 @@ class HeartbeatCallService {
             wakeState.lastTrigger = {
                 agentId: claim.agent_id, agentName: hb.agent_name, at: Date.now(),
             };
-            const ok = await voice.start(claim.agent_id, claim.session_id || null);
+            // The heartbeat block below is the opening — suppress the
+            // companion's own speaks-first kickoff so it doesn't greet a
+            // user the block says is absent, then speak again.
+            const ok = await voice.start(claim.agent_id, claim.session_id || null, { speaksFirst: false });
             if (ok === false) {
                 console.warn("[heartbeat] call start refused — tick lost until next slot");
                 return;

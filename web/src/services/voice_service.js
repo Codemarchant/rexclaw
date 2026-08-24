@@ -507,12 +507,14 @@ class VoiceCallService {
         } catch (e) { /* private mode — in-memory fallback covers this page */ }
     }
 
-    async start(agentId = null, resumeSessionId = null) {
+    async start(agentId = null, resumeSessionId = null, { speaksFirst = true } = {}) {
         this.noteActivity();
         // Stale end reasons must not outlive the call they described — the
         // mascot's flash badge reads it on the NEXT end transition.
         this.state.endReason = null;
-        const ok = await this.primary.start(agentId, resumeSessionId, false);
+        // speaksFirst=false: the caller brings its own opening (heartbeat
+        // calls) — the companion's speaks-first kickoff must not also fire.
+        const ok = await this.primary.start(agentId, resumeSessionId, false, { speaksFirst });
         // Fire-and-forget: rebuild the group-call roster the resumed
         // session last ended with (the server sends it on resume). Covers
         // both manual "Resume last" and window handoffs (mascot pop-out),
