@@ -6,6 +6,12 @@ import { confirmAsk } from "../lib/confirm";
 import Pager, { usePager } from "./Pager.jsx";
 import { uiState } from "../lib/ui_state";
 import Transcript from "./Transcript.jsx";
+import { useUnsavedGuard } from "../lib/unsaved_guard";
+import { EditorBar } from "./UnsavedUI.jsx";
+
+// Summaries longer than this get the 2-line clamp plus a More/Less toggle;
+// shorter ones fit the clamp anyway, so no toggle is shown.
+const SUMMARY_CLAMP_CHARS = 180;
 
 /** Sessions tab — the full conversation archive (voice + text), mirroring the
  *  Memories tab pattern: search + filters, expandable read-only transcripts,
@@ -22,6 +28,9 @@ export default function SessionsView({ active }) {
     const [transcripts, setTranscripts] = useState({});     // id → {mode, messages}
     const [renamingId, setRenamingId] = useState(null);
     const [renameDraft, setRenameDraft] = useState("");
+    const [summaryOpen, setSummaryOpen] = useState(() => new Set());  // ids showing the full summary
+    const [summaryEdit, setSummaryEdit] = useState(null);   // null | {id, text, baseline}
+    const [savingSummary, setSavingSummary] = useState(false);
 
     const load = async () => {
         setLoading(true);
@@ -85,6 +94,41 @@ export default function SessionsView({ active }) {
             notification.add(e?.message || _t("Rename failed"), { type: "danger" });
         }
     };
+
+    const toggleSummary = (id) =>
+        setSummaryOpen((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+
+    const startSummaryEdit = (s) =>
+        setSummaryEdit({ id: s.id, text: s.summary || "", baseline: s.summary || "" });
+
+    const summaryDirty = !!summaryEdit && summaryEdit.text !== summaryEdit.baseline;
+
+    const saveSummary = async () => {
+        if (!summaryEdit) return;
+        const { id } = summaryEdit;
+        const summary = summaryEdit.text.trim();
+        if (!summary) {
+            notification.add(_t("Summary cannot be empty."), { type: "warning" });
+            return;
+        }
+        setSavingSummary(true);
+        try {
+            await rpc("/api/sessions/summary", { id, summary });
+            setSessions((list) => list.map((s) => (s.id === id ? { ...s, summary } : s)));
+            setSummaryEdit(null);
+        } catch (e) {
+            notification.add(e?.message || _t("Could not save the summary"), { type: "danger" });
+        } finally {
+            setSavingSummary(false);
+        }
+    };
+
+    // Leaving the tab mid-edit prompts Save / Discard like the other editors.
+    useUnsavedGuard(active, summaryDirty, saveSummary, () => setSummaryEdit(null));
 
     /** Hand off to the Voice/Chat tab, which owns the live-session plumbing.
      *  The target view picks pendingResume up in an effect once active. */
@@ -190,9 +234,13 @@ export default function SessionsView({ active }) {
                         const isOpen = expanded.has(s.id);
                         const t = transcripts[s.id];
                         const hasPeers = (childrenOf.get(s.id) || []).length > 0;
+                        const summary = s.summary || "";
+                        const summaryLong = summary.length > SUMMARY_CLAMP_CHARS || summary.split("\n").length > 2;
+                        const summaryShown = summaryOpen.has(s.id);
+                        const editingSummary = summaryEdit?.id === s.id;
                         return (
                             <div key={s.id} className={"rx_sess_item" + (child ? " rx_sess_item--child" : "")}>
-                                <div className="rx_memory_row">
+                                <div className="rx_sess_head">
                                     <i className={"fa " + (s.mode === "text" ? "fa-comments" : "fa-microphone")}
                                        title={s.mode === "text" ? _t("Chat") : _t("Voice")} />
                                     {child && <i className="fa fa-level-up fa-rotate-90 rx_sess_child_mark"
@@ -210,35 +258,73 @@ export default function SessionsView({ active }) {
                                             }}
                                         />
                                     ) : (
-                                        <strong>{s.name}</strong>
+                                        <strong className="rx_sess_title" title={s.name}>{s.name}</strong>
                                     )}
-                                    <span className="rx_memory_content text-muted small" title={s.summary || ""}>
-                                        {s.summary || ""}
-                                    </span>
-                                    <span className="rx_memory_meta">
+                                    <span className="rx_sess_meta">
                                         {s.agent_name || "?"} · {s.message_count} {_t("messages")}
                                         {" · "}{fmtDate(s.last_active_at)}
                                         {s.state === "active" ? ` · ${_t("active")}` : ""}
                                     </span>
-                                    <button className="btn btn-sm btn-link p-0"
-                                            title={isOpen ? _t("Hide transcript") : _t("Read transcript")}
-                                            onClick={() => toggleExpand(s.id)}>
-                                        <i className={"fa " + (isOpen ? "fa-chevron-up" : "fa-book")} />
-                                    </button>
-                                    <button className="btn btn-sm btn-link p-0" title={_t("Resume this session")}
-                                            onClick={() => resume(s)}>
-                                        <i className="fa fa-play-circle-o" />
-                                    </button>
-                                    <button className="btn btn-sm btn-link p-0" title={_t("Rename")}
-                                            onClick={() => startRename(s)}>
-                                        <i className="fa fa-pencil" />
-                                    </button>
-                                    <button className="btn btn-sm btn-link p-0" title={_t("Delete session")}
-                                            disabled={s.state === "active"}
-                                            onClick={() => deleteSession(s, hasPeers)}>
-                                        <i className="fa fa-trash-o" />
-                                    </button>
+                                    <span className="rx_sess_actions">
+                                        <button className="btn btn-sm btn-link p-0"
+                                                title={isOpen ? _t("Hide transcript") : _t("Read transcript")}
+                                                onClick={() => toggleExpand(s.id)}>
+                                            <i className={"fa " + (isOpen ? "fa-chevron-up" : "fa-book")} />
+                                        </button>
+                                        <button className="btn btn-sm btn-link p-0" title={_t("Resume this session")}
+                                                onClick={() => resume(s)}>
+                                            <i className="fa fa-play-circle-o" />
+                                        </button>
+                                        <button className="btn btn-sm btn-link p-0" title={_t("Rename")}
+                                                onClick={() => startRename(s)}>
+                                            <i className="fa fa-pencil" />
+                                        </button>
+                                        <button className="btn btn-sm btn-link p-0" title={_t("Delete session")}
+                                                disabled={s.state === "active"}
+                                                onClick={() => deleteSession(s, hasPeers)}>
+                                            <i className="fa fa-trash-o" />
+                                        </button>
+                                    </span>
                                 </div>
+                                {editingSummary ? (
+                                    <div className="rx_sess_summary_editor">
+                                        <label>{_t("Conversation summary")}</label>
+                                        <textarea
+                                            autoFocus
+                                            value={summaryEdit.text}
+                                            onChange={(e) => setSummaryEdit({ ...summaryEdit, text: e.target.value })}
+                                            onKeyDown={(e) => { if (e.key === "Escape") setSummaryEdit(null); }}
+                                        />
+                                        <p className="text-muted small">
+                                            {_t("This is what the companion remembers of the conversation when it is resumed — edit it to correct or reshape that memory.")}
+                                        </p>
+                                        <EditorBar
+                                            dirty={summaryDirty}
+                                            saving={savingSummary}
+                                            onSave={saveSummary}
+                                            onCancel={() => setSummaryEdit(null)}
+                                        />
+                                    </div>
+                                ) : summary ? (
+                                    <div className="rx_sess_summary">
+                                        <p className={"rx_sess_summary_text" + (summaryLong && !summaryShown ? " is-clamped" : "")}>
+                                            {summary}
+                                        </p>
+                                        <div className="rx_sess_summary_tools">
+                                            {summaryLong && (
+                                                <button type="button" className="btn btn-link p-0"
+                                                        onClick={() => toggleSummary(s.id)}>
+                                                    {summaryShown ? _t("Show less") : _t("Show more")}
+                                                </button>
+                                            )}
+                                            <button type="button" className="btn btn-link p-0"
+                                                    title={_t("Edit summary")}
+                                                    onClick={() => startSummaryEdit(s)}>
+                                                <i className="fa fa-pencil-square-o" /> {_t("Edit summary")}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : null}
                                 {isOpen && (
                                     <div className="rx_sess_transcript">
                                         {!t && <p className="text-muted small" style={{ padding: "0.5rem" }}>{_t("Loading…")}</p>}

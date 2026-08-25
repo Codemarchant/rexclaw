@@ -717,17 +717,100 @@ body {
     }
 
 // ── Sessions tab ────────────────────────────────────────────────────────
+// Sessions tab — each session is a title line (mode icon, name, meta,
+// actions) over a clamped summary line; the summary expands in place or
+// swaps for an inline editor.
+.rx_sess_item {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 0.875rem;
+}
 .rx_sess_item--child {
     margin-left: 1.6rem;
+}
+.rx_sess_head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+
+    > .fa { flex: 0 0 auto; color: #64748b; }
+}
+.rx_sess_title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.rx_sess_meta {
+    flex: 0 0 auto;
+    color: #94a3b8;
+    font-size: 0.75rem;
+}
+.rx_sess_actions {
+    display: inline-flex;
+    gap: 0.5rem;
+    flex: 0 0 auto;
 }
 .rx_sess_child_mark {
     color: #94a3b8;
     font-size: 0.8rem;
 }
 .rx_sess_rename {
-    flex: 0 1 260px;
+    flex: 1 1 260px;
+    min-width: 0;
     font-size: 0.9rem;
     padding: 0.15rem 0.4rem;
+}
+// Summary block indents under the title, past the mode icon.
+.rx_sess_summary {
+    margin: 0.2rem 0 0 1.55rem;
+    color: #64748b;
+    font-size: 0.8rem;
+}
+.rx_sess_summary_text {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+
+    &.is-clamped {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        white-space: normal;
+    }
+}
+.rx_sess_summary_tools {
+    display: flex;
+    gap: 0.9rem;
+    margin-top: 0.15rem;
+
+    .btn { font-size: 0.75rem; }
+}
+.rx_sess_summary_editor {
+    margin: 0.35rem 0 0.25rem 1.55rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    background: #f8fafc;
+
+    label { display: block; font-weight: 600; margin-bottom: 0.35rem; }
+    textarea {
+        width: 100%;
+        min-height: 9rem;
+        font-size: 0.85rem;
+        line-height: 1.45;
+        resize: vertical;
+    }
+    p { margin: 0.35rem 0 0; }
+    .rx_savebar { margin-top: 0.5rem; padding: 0.5rem 0 0; box-shadow: none; background: transparent; }
+}
+@media (max-width: 560px) {
+    .rx_sess_head { flex-wrap: wrap; }
+    .rx_sess_title { flex-basis: 100%; }
 }
 .rx_sess_transcript {
     border: 1px solid #e2e8f0;

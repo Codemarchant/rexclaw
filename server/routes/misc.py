@@ -586,6 +586,29 @@ def sessions_rename(payload: dict = Body(default={}), con=Depends(db_con)):
     return {"ok": True}
 
 
+@router.post("/sessions/summary")
+def sessions_summary(payload: dict = Body(default={}), con=Depends(db_con)):
+    """User-edited conversation summary. sessions.summary is the display
+    copy; what a resume actually replays to the model is the live rollup
+    message (is_summary_rollup=1, not yet absorbed by a newer rollup), so
+    both are updated — otherwise the edit would never reach the companion.
+    The next compaction folds the edited text in as its [Prior summary]."""
+    from .common import resolve_session
+    session = resolve_session(con, payload.get("id"))
+    summary = str(payload.get("summary") or "").strip()
+    if not summary:
+        raise UserError("Summary cannot be empty.")
+    con.execute("UPDATE sessions SET summary = ? WHERE id = ?", (summary, session["id"]))
+    con.execute(
+        "UPDATE messages SET content = ? WHERE id = ("
+        "  SELECT id FROM messages WHERE session_id = ? AND is_summary_rollup = 1"
+        "  AND is_summarized_into IS NULL ORDER BY sequence DESC, id DESC LIMIT 1)",
+        (summary, session["id"]),
+    )
+    con.commit()
+    return {"ok": True}
+
+
 @router.post("/sessions/delete")
 def sessions_delete(payload: dict = Body(default={}), con=Depends(db_con)):
     """Delete a session and its messages (FK cascade). Linked rows survive

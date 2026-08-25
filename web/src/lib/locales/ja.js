@@ -287,6 +287,9 @@ export const JA = {
     "コンパニオンが一度に把握できる会話量には限りがあるため、長い会話は進行に合わせて圧縮されます。前回の要約以降、会話が要約しきい値のトークン数を超えると、古い部分は短い要約にまとめられてその代わりに引き継がれ、直近のやり取りはそのままの言葉で保持されます。これにより、コンパニオンはそれまでの流れの要点を保ちつつ、目の前の話題を鮮明に把握できます。通話中は会話の自然な区切りで実行されるため、話の邪魔になることはありません。長期記憶と全文の記録はいずれの場合もアクセス可能です — 圧縮された会話はエピソードとして保存され、コンパニオンは recall ツールで再び参照できます。",
   "How many of the newest messages are left out of the recap and carried forward word for word.":
     "要約に含めず、そのままの言葉で引き継ぐ直近メッセージの件数です。",
+  "Transcript messages shown on resume": "再開時に表示するメッセージ数",
+  "Most-recent messages loaded into the transcript when a conversation is resumed; 0 shows everything. Older messages stay stored — this only affects what is painted on screen, not what the companion remembers.":
+    "会話を再開したときにトランスクリプトへ読み込む直近メッセージの件数です。0 ですべて表示します。古いメッセージも保存されたままで、画面に描画される範囲だけが変わり、コンパニオンの記憶には影響しません。",
 
   // ── Settings: cost optimization ───────────────────────────────────────
   "Cost optimization": "コスト最適化",
@@ -818,6 +821,14 @@ export const JA = {
     "セッション「%s」を削除しますか？ メッセージは完全に削除されます。リンクされた他コンパニオンのグループ通話セッションは残ります（トップレベルに移動します）。",
   "This session has no messages.": "このセッションにはメッセージがありません。",
   "Joined this group call": "このグループ通話に参加",
+  "Show more": "もっと見る",
+  "Show less": "折りたたむ",
+  "Edit summary": "要約を編集",
+  "Conversation summary": "会話の要約",
+  "This is what the companion remembers of the conversation when it is resumed — edit it to correct or reshape that memory.":
+    "再開時にコンパニオンがこの会話について覚えている内容です — 記憶を訂正したり整えたりするには、ここを編集してください。",
+  "Summary cannot be empty.": "要約を空にすることはできません。",
+  "Could not save the summary": "要約を保存できませんでした",
   "active": "アクティブ",
   "Immersive view — press Esc or H to exit.": "没入ビュー — Esc または H で終了します。",
 

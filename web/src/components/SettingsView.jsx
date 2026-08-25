@@ -395,6 +395,16 @@ export default function SettingsView({ active }) {
                             <input type="number" min="0" value={config.summary_keep_recent_messages ?? 2}
                                    onChange={(ev) => setField("summary_keep_recent_messages", parseInt(ev.target.value, 10) || 0)} />
                         </div>
+                        <div>
+                            <label title={_t("Most-recent messages loaded into the transcript when a "
+                                             + "conversation is resumed; 0 shows everything. Older messages "
+                                             + "stay stored — this only affects what is painted on screen, "
+                                             + "not what the companion remembers.")}>
+                                {_t("Transcript messages shown on resume")}
+                            </label>
+                            <input type="number" min="0" value={config.transcript_display_limit ?? 200}
+                                   onChange={(ev) => setField("transcript_display_limit", parseInt(ev.target.value, 10) || 0)} />
+                        </div>
                     </div>
                 </section>
 
