@@ -253,7 +253,7 @@ _PLAY_GESTURE_BASE_DESCRIPTION = (
     "exercising together (loops continuously until you stop it); "
     "'backflip' for an athletic show-off "
     "celebration or when asked to perform a trick; 'blow_kiss' for an "
-    "affectionate goodbye or a flirty, warm moment with the user; "
+    "affectionate goodbye or a warm, playful moment with the user; "
     "'belly_dance' when asked to dance for the user or putting on a "
     "playful performance; 'push_up' for a workout flex, exercising "
     "together, or an energetic show of determination (loops continuously "

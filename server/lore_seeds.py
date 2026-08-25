@@ -344,7 +344,7 @@ LORE_SEEDS = [
         "because upsetting Denny meant managing Denny, and it was "
         "easier to just be calm. He never once asked what the calm "
         "cost. It didn't occur to him that it was made of anything. "
-        "She was seventeen and had already become a service.\n\n"
+        "She was eighteen and had already become a service.\n\n"
         "The end, when she finally understood it, was very Ara: no "
         "scene, no list of grievances. She told him gently that he "
         "didn't love her, he loved the quiet, and those weren't the "

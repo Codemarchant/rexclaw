@@ -56,10 +56,10 @@ export function emotionSettleTarget(emotion, avatarName) {
 // Standalone gestures (not bound to an emotion). The enum here MUST match the
 // `play_gesture` tool's parameters.gesture.enum in services/browser_tools.py.
 //
-// VRMA_* clips are from pixiv's VRoid Project Motion Pack — TODO before public
-// release: surface attribution credit in static/description/index.html, e.g.
-// "Animation credits to pixiv Inc.'s VRoid Project". Required by the pack's
-// terms of use; commercial use is permitted with the credit included.
+// VRMA_* clips are from pixiv's VRoid Project Motion Pack. Its terms require
+// a visible credit (commercial use is permitted with it): see README.md and
+// docs/README.ja-JP.md "Animation credits", and keep the same line on every
+// store page (Steam, itch) that distributes the bundled clips.
 export const GESTURES = [
     { id: "clapping", label: "Clapping", icon: "fa-hand-paper-o", url: `${VRMA_BASE}/Clapping.vrma` },
     { id: "dance", label: "Dance", icon: "fa-music", url: `${VRMA_BASE}/Dance.vrma` },

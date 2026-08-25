@@ -56,8 +56,8 @@ public CDNs. These are plain file downloads; no personal data is sent.
 
 ## Children
 
-Rexclaw is not directed at children under 13, and since we collect no data, we
-knowingly hold none.
+Rexclaw is intended for ages 12 and up and is not directed at young children.
+Since we collect no data, we knowingly hold none.
 
 ## Changes
 

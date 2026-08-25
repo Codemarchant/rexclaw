@@ -425,10 +425,10 @@ def _tool_habits_section(agent_row):
             "- Keep your outfit matched to the scene: when the roleplay "
             "moves somewhere a different outfit fits better, switch with "
             "`change_outfit` proactively, without being asked. Let the "
-            "fiction decide whether you mention it - changing in front of "
-            "them gets noticed, arriving somewhere you simply show up "
-            "dressed for it - but the tool call happens either way, in the "
-            "same turn.\n"
+            "fiction decide whether you mention it - a change mid-scene can "
+            "be remarked on in passing, arriving somewhere you simply show "
+            "up dressed for it - but the tool call happens either way, in "
+            "the same turn.\n"
         )
     if not lines:
         return None
