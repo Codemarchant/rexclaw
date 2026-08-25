@@ -77,6 +77,7 @@ class TextService {
             (payload.total_input_tokens + payload.total_output_tokens) - (payload.tokens_at_last_summary || 0),
         );
         this.state.tokenCapWarningShown = false;
+        this.state.promptStale = !!payload.prompt_stale;
 
         // Hydrate transcript from the server's resume payload. Mode = 'text'
         // ensures transcript.js renders with the chat thumbnail beside
@@ -167,6 +168,21 @@ class TextService {
 
     /** Send the user's typed message. Returns true once the assistant turn
      *  resolves (either via plain text or after a browser-tool round-trip). */
+    /** Break the xAI response chain so the next message re-sends the whole
+     *  conversation with the current prompt / persona / memories. */
+    async refreshPrompt() {
+        if (!this.state.sessionId) return false;
+        try {
+            const r = await rpc(`/api/text/session/${this.state.sessionId}/refresh_prompt`, {});
+            this.state.promptStale = !!r?.prompt_stale;
+            return true;
+        } catch (e) {
+            this.env.services.notification?.add?.(
+                e?.message || _t("Could not refresh the prompt"), { type: "danger" });
+            return false;
+        }
+    }
+
     async sendText(userText) {
         if (this._sending) return false;
         if (!this.state.sessionId) {
@@ -289,6 +305,9 @@ class TextService {
                     sequence: this._nextSeq(),
                 });
             }
+            if (typeof current.prompt_stale === "boolean") {
+                this.state.promptStale = current.prompt_stale;
+            }
             // Append any assistant text the server already streamed back.
             const assistantText = current.assistant_text || "";
             if (assistantText) {
@@ -297,6 +316,10 @@ class TextService {
                     content: assistantText,
                     sequence: this._nextSeq(),
                     incomplete_reason: current.incomplete_reason || null,
+                    // Arrived live (not replayed on resume): the transcript
+                    // paces a multi-bubble `[next]` reply instead of
+                    // painting every bubble at once.
+                    fresh: true,
                 });
             }
             // Persist tool_call rows + results for visibility, even though

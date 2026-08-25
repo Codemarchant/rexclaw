@@ -678,6 +678,10 @@ MIGRATIONS = (
     "ALTER TABLE sessions ADD COLUMN tokens_at_mode_switch INTEGER NOT NULL DEFAULT 0",
     # Companion speaks first on voice calls (opt-in per companion).
     "ALTER TABLE agents ADD COLUMN speaks_first INTEGER NOT NULL DEFAULT 0",
+    # Hash of the system prompt the live text Responses chain was opened
+    # with — lets the chat show "prompt changed, refresh?" (see
+    # session_service.text_prompt_stale).
+    "ALTER TABLE sessions ADD COLUMN chain_instructions_hash TEXT",
 )
 
 

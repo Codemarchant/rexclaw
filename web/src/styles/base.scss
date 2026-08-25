@@ -905,6 +905,9 @@ body {
     color: #111827;
     border-radius: 0.75rem;
     padding: 1.25rem 1.35rem;
+
+    // Multi-paragraph confirm messages keep their blank lines.
+    p { white-space: pre-line; }
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
 
     h4 { margin: 0 0 0.5rem; font-size: 1.05rem; }

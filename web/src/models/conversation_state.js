@@ -57,6 +57,10 @@ export function makeConversationState() {
         // shown" note at the top. Older messages live on in the DB; only
         // the UI payload is sliced.
         transcriptTruncated: false,
+        // Text mode: the live response chain carries an older system prompt
+        // than a fresh one would (persona/prompt/memory changed since it
+        // opened) — offers the "refresh prompt" action. Server-computed.
+        promptStale: false,
 
         // Mouth shape state (lipsync writes here, avatar canvas reads)
         vowels: { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 },

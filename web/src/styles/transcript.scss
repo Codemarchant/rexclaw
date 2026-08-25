@@ -38,6 +38,10 @@
         line-height: 1.35;
         max-width: 85%;
 
+        // Follow-up bubbles of one `[next]`-split reply sit tighter than
+        // separate turns, reading as consecutive texts from the same sender.
+        &--cont { margin-top: -0.2rem; }
+
         .o_voice_msg_role {
             font-size: 0.65rem;
             text-transform: uppercase;

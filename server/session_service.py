@@ -83,7 +83,7 @@ def _note_resume_gap(con, session, agent):
     ))
 
 
-def _env_preamble(config):
+def _env_preamble(config, stable=False):
     """Static environmental context prepended to every agent's system prompt.
 
     Small, static, foundational: the app surface, the user's local datetime
@@ -92,9 +92,13 @@ def _env_preamble(config):
     opens the prompt. The
     user's display name is gated by config.include_user_name_in_prompt so the
     name is never sent to xAI without explicit opt-in.
+
+    `stable=True` masks the clock — the render used for prompt-change
+    detection (text_prompt_stale), where a ticking value would make every
+    render differ.
     """
     now_local = datetime.now().astimezone()
-    now_str = now_local.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')
+    now_str = '<now>' if stable else now_local.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')
     identity_line = ""
     if config['include_user_name_in_prompt'] and config['user_display_name']:
         identity_line = f"- **User name:** {config['user_display_name']!r}.\n"
@@ -184,7 +188,7 @@ def _group_call_note(agent_row, group_peers, manual_turn):
     return ''.join(lines)
 
 
-def _env_postamble(con, agent_row, mode='voice'):
+def _env_postamble(con, agent_row, mode='voice', stable=False):
     """Dynamic context appended AFTER the agent's system prompt.
 
     Memory grows over time and benefits from recency bias - sitting
@@ -202,6 +206,14 @@ def _env_postamble(con, agent_row, mode='voice'):
             "on this surface - ignore any instructions above that mention "
             "`set_emotion`, `play_gesture`, an avatar, or vocal delivery "
             "through speech expression tags. Respond in text only.\n"
+            "- **Texting rhythm:** You're texting, so you don't have to fit "
+            "everything into one message. When it feels natural, send a few "
+            "short messages in a row: put `[next]` on its own line between "
+            "them and each one lands as its own bubble - a quick reaction "
+            "first, then the thought, for example. Sometimes one short line "
+            "is the whole reply. Anything structured - a list, code, a full "
+            "explanation - stays a single message with no `[next]`. Don't do "
+            "it every turn; let it follow the mood.\n"
         )
     else:
         sections.append(
@@ -242,7 +254,7 @@ def _env_postamble(con, agent_row, mode='voice'):
         if habits:
             sections.append(habits)
     if agent_row['enable_affection_tool']:
-        sections.append(_affection_section(agent_row))
+        sections.append(_affection_section(agent_row, stable=stable))
     # Flag-gated + self-gating on tagged stories existing; surface-agnostic.
     if agent_row['enable_lore_tool']:
         lore = lore_tools.prompt_section(con, agent_row)
@@ -285,7 +297,7 @@ def _first_meeting_section(con, agent_row):
     )
 
 
-def _affection_section(agent_row):
+def _affection_section(agent_row, stable=False):
     """Render the current affection standing + the author-configured rules.
 
     Policy-free by design: this frame states the mechanics (current standing,
@@ -298,6 +310,11 @@ def _affection_section(agent_row):
     score = agent_row['affection_score'] or 0
     cfg = affection_tools.config_for(agent_row)
     level = affection_tools.level_for(score, cfg)
+    if stable:
+        # Prompt-change detection: the score is a snapshot the tool results
+        # supersede anyway (see the text below), so it must not count as a
+        # prompt change.
+        score, level = '<score>', '<level>'
     rules = (agent_row['affection_rules'] or '').strip()
     if not rules:
         rules = (
@@ -860,6 +877,18 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     }
 
 
+def _strip_next_tags(text):
+    """Text-mode replies may carry `[next]` bubble breaks on their own lines
+    (see the text Surface prompt). Off the text surface — voice replay, the
+    history block — the model would read or imitate them aloud, so fold
+    them into paragraph breaks. Text-mode replay keeps them on purpose."""
+    import re
+    if not text or '[next]' not in text.lower():
+        return text
+    out = re.sub(r'^[ \t]*\[next\][ \t]*$', '', text, flags=re.IGNORECASE | re.MULTILINE)
+    return re.sub(r'\n{3,}', '\n\n', out).strip()
+
+
 def _replay_item_for(m, own_name):
     """One message row → its conversation.item.create payload, or None for
     rows that cannot replay (tool rows without an xai_call_id - xAI rejects
@@ -871,6 +900,7 @@ def _replay_item_for(m, own_name):
             'content': [{'type': 'input_text', 'text': m['content'] or ''}],
         }
     if m['role'] == 'assistant':
+        content = _strip_next_tags(m['content']) or ''
         if m['speaker'] and m['speaker'] != own_name:
             # Spoken by ANOTHER participant of a group call and mirrored
             # into this session. Replay it the way it entered this leg's
@@ -880,12 +910,12 @@ def _replay_item_for(m, own_name):
                 'type': 'message',
                 'role': 'user',
                 'content': [{'type': 'input_text',
-                             'text': f'[{m["speaker"]}]: {m["content"] or ""}'}],
+                             'text': f'[{m["speaker"]}]: {content}'}],
             }
         return {
             'type': 'message',
             'role': 'assistant',
-            'content': [{'type': 'text', 'text': m['content'] or ''}],
+            'content': [{'type': 'text', 'text': content}],
         }
     if m['role'] == 'system':
         sys_item = {
@@ -930,6 +960,7 @@ def _render_history_block(msgs, own_name):
                 lines.append(f'User: {text}')
         elif role == 'assistant':
             speaker = m['speaker'] if (m['speaker'] and m['speaker'] != own_name) else own_name
+            text = _strip_next_tags(text)
             if text:
                 lines.append(f'{speaker or "Assistant"}: {text}')
         elif role == 'system':
@@ -1834,7 +1865,18 @@ def _mark_chain_tail(con, session):
                          chain_tail_sequence=row['sequence'] if row else 0)
 
 
-def _agent_thumbnail_url(agent):
+def _agent_thumbnail_url(con, agent):
+    """Picture beside the companion's chat bubbles: the avatar's portrait
+    (portrait system), else the legacy per-companion chat thumbnail upload,
+    else None (the UI falls back to an initial)."""
+    if agent['avatar_id']:
+        av = con.execute("SELECT vrm_path FROM avatars WHERE id = ?",
+                         (agent['avatar_id'],)).fetchone()
+        if av and av['vrm_path']:
+            from . import portraits
+            url = portraits.portrait_url(av['vrm_path'])
+            if url:
+                return url
     return agent['chat_thumbnail_path'] or None
 
 
@@ -1921,11 +1963,12 @@ def start_text_session(con, *, agent, resume_session=None):
     return {
         'session_id': session['id'],
         'mode': 'text',
+        'prompt_stale': text_prompt_stale(con, session, agent),
         'agent': {
             'id': agent['id'],
             'name': agent['name'],
             'reasoning_effort': agent['reasoning_effort'],
-            'chat_thumbnail_url': _agent_thumbnail_url(agent),
+            'chat_thumbnail_url': _agent_thumbnail_url(con, agent),
         },
         'instructions': instructions,
         'tools': _build_text_tools(
@@ -2023,6 +2066,41 @@ def _maybe_flag_summary_text(con, session):
 _AGENT_EFFORT = object()   # text_send_turn sentinel: use the agent's reasoning_effort
 
 
+def _text_instructions(con, config, agent, stable=False):
+    """The system prompt a text turn sends when it opens a response chain.
+    `stable=True` renders the change-detection variant: identical text with
+    the volatile bits (clock, affection snapshot) masked."""
+    return (
+        _env_preamble(config, stable=stable)
+        + _render_prompt(agent)
+        + _env_postamble(con, agent, mode='text', stable=stable)
+    )
+
+
+def _instructions_hash(con, config, agent):
+    """Fingerprint of the prompt a fresh text chain would carry, over the
+    stable render so only real changes (persona, prompt text, core
+    memories, settings) move it."""
+    import hashlib
+    stable = _text_instructions(con, config, agent, stable=True)
+    return hashlib.sha256(stable.encode('utf-8')).hexdigest()
+
+
+def text_prompt_stale(con, session, agent, config=None):
+    """True when the session rides a live Responses chain whose system
+    prompt no longer matches what a fresh chain would send — persona or
+    prompt edits, new memories. xAI carries the chain's original
+    instructions forward (they can't be re-sent alongside
+    previous_response_id), so the chat won't see the change until the
+    chain breaks; the UI offers a manual refresh instead of breaking it
+    automatically, which would pay full-replay tokens on every memory
+    write. A chain with no recorded hash (pre-feature) counts as stale."""
+    if not session['previous_response_id']:
+        return False
+    config = config if config is not None else get_config(con)
+    return session['chain_instructions_hash'] != _instructions_hash(con, config, agent)
+
+
 def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                    extra_content_blocks=None, tool_results=None, headless=False,
                    model=None, reasoning_effort=_AGENT_EFFORT):
@@ -2105,11 +2183,8 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         # a browser_tools round-trip — don't offer the screen tools there.
         enable_browser_tools=not headless,
     )
-    instructions = (
-        _env_preamble(config)
-        + _render_prompt(agent)
-        + _env_postamble(con, agent, mode='text')
-    )
+    instructions = _text_instructions(con, config, agent)
+    instructions_hash = _instructions_hash(con, config, agent)
 
     pending_outputs = []
     if tool_results is not None:
@@ -2317,9 +2392,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         _accrue_text_usage(con, session, usage)
 
         if response_id:
-            store.update_session(con, session['id'],
-                                 previous_response_id=response_id,
-                                 last_response_at=utcnow())
+            vals = {'previous_response_id': response_id, 'last_response_at': utcnow()}
+            if not chain_alive:
+                # This leg opened the chain, so `instructions` is the prompt
+                # xAI will carry forward on it.
+                vals['chain_instructions_hash'] = instructions_hash
+            store.update_session(con, session['id'], **vals)
             previous_response_id = response_id
 
         output = body.get('output') or []
@@ -2414,6 +2492,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 'native_results': accumulated_native_echo,
                 'incomplete_reason': incomplete_reason,
                 'usage': usage,
+                # Recomputed after the turn: a memory the model just wrote
+                # changes the prompt a fresh chain would carry.
+                'prompt_stale': text_prompt_stale(con, fresh, agent, config),
                 'cap_warning': False,
                 'cap_exceeded': False,
                 'needs_compaction': bool(fresh['needs_summary']),

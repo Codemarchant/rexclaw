@@ -5,6 +5,7 @@ import { text } from "../services";
 import { uiState } from "../lib/ui_state";
 import { useReactive as useReactiveUi } from "../lib/reactive";
 import { notification } from "../lib/notification";
+import { confirmAsk } from "../lib/confirm";
 import Transcript from "./Transcript.jsx";
 import { _t } from "../lib/i18n";
 import { useFileDrop } from "../lib/use_file_drop";
@@ -137,6 +138,19 @@ export default function TextView({ active = true }) {
         loadHistory();
     };
 
+    // Offered only while the live response chain carries an older prompt
+    // than a fresh one would (st.promptStale, server-computed).
+    const refreshPrompt = async () => {
+        const ok = await confirmAsk(_t(
+            "The companion's prompt, persona or memories have changed since this "
+            + "conversation's context was set up, and the ongoing chat is still "
+            + "using the older version.\n\nRefresh it? Your next message will "
+            + "re-send the full conversation once (extra tokens for that one "
+            + "turn), and every reply after that uses the latest version."));
+        if (!ok) return;
+        await text.refreshPrompt();
+    };
+
     const resumeSession = async (sess) => {
         const ok = await text.start(selectedAgentId, sess.id);
         if (ok === false) return;
@@ -217,6 +231,9 @@ export default function TextView({ active = true }) {
 
     const currentAgent = agents.find((a) => a.id === Number(selectedAgentId));
     const agentInitial = ((st.agentName || currentAgent?.name || "").trim()[0] || "•").toUpperCase();
+    // Portrait follows the dropdown selection (the agents list carries each
+    // companion's thumbnail); the live session's copy is the fallback.
+    const agentThumbnailUrl = currentAgent?.chat_thumbnail_url || text.agentThumbnailUrl || null;
     const pendingFiles = text.pendingFiles || [];
 
     const tokenBudgetLabel = st.tokenLimit > 0
@@ -264,8 +281,8 @@ export default function TextView({ active = true }) {
                 <div className="o_text_full_header">
                     <div className="o_text_full_header_inner">
                         <div className="o_text_full_agent_picker">
-                            {text.agentThumbnailUrl ? (
-                                <img className="o_text_agent_thumb" src={text.agentThumbnailUrl} alt="agent" />
+                            {agentThumbnailUrl ? (
+                                <img className="o_text_agent_thumb" src={agentThumbnailUrl} alt="agent" />
                             ) : (
                                 <div className="o_text_agent_thumb o_text_agent_thumb--placeholder">{agentInitial}</div>
                             )}
@@ -324,6 +341,12 @@ export default function TextView({ active = true }) {
                                 <i className="fa fa-comments" /> {_t(lastResumableSession ? "New chat" : "Start chat")}
                             </button>
                         )}
+                        {isLive && st.promptStale && (
+                            <button className="btn btn-light o_text_prompt_stale" onClick={refreshPrompt}
+                                    title={_t("The companion's prompt, persona or memories changed — refresh this conversation to use the latest version")}>
+                                <i className="fa fa-refresh" />
+                            </button>
+                        )}
                         {(isLive || isConnecting) && (
                             <button className="btn btn-danger" onClick={endSession}>
                                 <i className="fa fa-stop" /> {_t("End")}
@@ -343,7 +366,7 @@ export default function TextView({ active = true }) {
 
                 <div className="o_text_full_transcript">
                     <Transcript messages={st.messages} isLive={isLive} thinking={st.thinking}
-                                mode="text" agentThumbnailUrl={text.agentThumbnailUrl || false}
+                                mode="text" agentThumbnailUrl={agentThumbnailUrl || false}
                                 agentInitial={agentInitial} />
                 </div>
 

@@ -87,6 +87,11 @@ export const JA = {
   // ── Voice view ────────────────────────────────────────────────────────
   "No previous sessions yet.": "まだセッション履歴はありません。",
   "Hide history": "履歴を隠す",
+  "The companion's prompt, persona or memories changed — refresh this conversation to use the latest version":
+    "コンパニオンのプロンプト・人格・記憶が変更されました — この会話を更新して最新版を使う",
+  "The companion's prompt, persona or memories have changed since this conversation's context was set up, and the ongoing chat is still using the older version.\n\nRefresh it? Your next message will re-send the full conversation once (extra tokens for that one turn), and every reply after that uses the latest version.":
+    "この会話のコンテキストが設定されて以降、コンパニオンのプロンプト・人格・記憶が変更されましたが、進行中のチャットはまだ古い版を使っています。\n\n更新しますか？ 次のメッセージで会話全体が一度だけ再送信され（そのターンのみトークンが追加でかかります）、以降の返答はすべて最新版を使います。",
+  "Could not refresh the prompt": "プロンプトを更新できませんでした",
   "Show history": "履歴を表示",
   "Switch to face view": "顔アップ表示に切り替え",
   "Switch to full body (drag to rotate, scroll to zoom)":

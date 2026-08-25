@@ -51,6 +51,23 @@ function markdownToSafeHtml(text) {
     return s;
 }
 
+/** Text mode lets the model send several "texts" in one reply by putting
+ *  `[next]` on its own line between them (see the text-mode Surface prompt
+ *  in session_service). The reply is stored as ONE row with the tags in it —
+ *  the model sees its own format on resume — and is split into bubbles only
+ *  here. A reply without the tag is one bubble. */
+const NEXT_TAG_RE = /^[ \t]*\[next\][ \t]*$/im;
+function splitBubbles(content) {
+    const parts = (content || "").split(NEXT_TAG_RE).map((p) => p.trim()).filter(Boolean);
+    return parts.length ? parts : [content || ""];
+}
+
+// Pause before each follow-up bubble, scaled by its length like someone
+// typing it, bounded so long texts don't stall the conversation.
+function revealDelayMs(chunk) {
+    return Math.min(2200, 450 + chunk.length * 18);
+}
+
 function classFor(role) {
     switch (role) {
         case "user": return "o_voice_msg o_voice_msg--user";
@@ -192,14 +209,47 @@ export default function Transcript({
 }) {
     const scrollRef = useRef(null);
     const [expanded, setExpanded] = useState({});
-    const lastCount = useRef(0);
+    const lastCount = useRef("");
     const isTextMode = mode === "text";
+    const rows = buildDisplayRows(messages);
+
+    // Paced reveal of `[next]`-split replies: row.key → bubbles shown so far.
+    // Only a reply that arrived live (msg.fresh, set by text_service) is
+    // paced; history, resume and the Sessions tab show every bubble at once.
+    const [revealed, setRevealed] = useState({});
+    const isMdAssistantRow = (row) => row.kind !== "tool" && isTextMode && row.msg.role === "assistant";
+    useEffect(() => {
+        const updates = {};
+        for (const row of rows) {
+            if (!isMdAssistantRow(row) || revealed[row.key] !== undefined) continue;
+            const n = splitBubbles(row.msg.content).length;
+            updates[row.key] = isLive && row.msg.fresh ? 1 : n;
+        }
+        if (Object.keys(updates).length) setRevealed((r) => ({ ...r, ...updates }));
+    });
+    const pendingRow = rows.find((row) =>
+        isMdAssistantRow(row) && revealed[row.key] !== undefined
+        && revealed[row.key] < splitBubbles(row.msg.content).length);
+    const pendingKey = pendingRow?.key || null;
+    const pendingShown = pendingKey ? revealed[pendingKey] : 0;
+    useEffect(() => {
+        if (!pendingKey) return undefined;
+        const chunks = splitBubbles(pendingRow.msg.content);
+        const t = setTimeout(
+            () => setRevealed((r) => ({ ...r, [pendingKey]: (r[pendingKey] || 0) + 1 })),
+            revealDelayMs(chunks[pendingShown] || ""),
+        );
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pendingKey, pendingShown]);
+    const revealTick = Object.values(revealed).reduce((a, b) => a + b, 0);
 
     // Auto-scroll to the latest message when new ones arrive (or on mount
-    // with existing history). Walk up to the nearest scrollable ancestor —
-    // in text mode the scroll is hoisted to the parent.
+    // with existing history, or as a paced bubble lands). Walk up to the
+    // nearest scrollable ancestor — in text mode the scroll is hoisted to
+    // the parent.
     useEffect(() => {
-        const count = (messages || []).length;
+        const count = `${(messages || []).length}/${revealTick}`;
         if (count === lastCount.current) return;
         lastCount.current = count;
         const el = scrollRef.current;
@@ -212,7 +262,19 @@ export default function Transcript({
     });
 
     const toggleRow = (key) => setExpanded((e) => ({ ...e, [key]: !e[key] }));
-    const rows = buildDisplayRows(messages);
+    const renderAttachments = (msg) => msg.attachments && msg.attachments.length > 0 && (
+        <div className="o_voice_msg_attachments">
+            {msg.attachments.map((att, attIdx) => (
+                <span
+                    key={`${att.xai_file_id}-${attIdx}`}
+                    className="o_voice_msg_attachment_chip"
+                    title={att.filename + (att.size_bytes ? ` (${att.size_bytes} bytes)` : "")}
+                >
+                    <i className="fa fa-paperclip" /> <span>{att.filename}</span>
+                </span>
+            ))}
+        </div>
+    );
 
     return (
         <div
@@ -298,11 +360,17 @@ export default function Transcript({
                     );
                 }
                 const msg = row.msg;
-                const isMdAssistant = isTextMode && msg.role === "assistant";
-                return (
-                    <div key={row.key} className={classFor(msg.role)}>
-                        {isMdAssistant ? (
-                            <>
+                if (isMdAssistantRow(row)) {
+                    // One stored reply → one bubble per `[next]` segment, each
+                    // with the portrait; truncation notice and attachments on
+                    // the last.
+                    const chunks = splitBubbles(msg.content);
+                    const shown = Math.min(chunks.length, revealed[row.key] ?? chunks.length);
+                    return chunks.slice(0, shown).map((chunk, i) => {
+                        const last = i === chunks.length - 1;
+                        return (
+                            <div key={`${row.key}-${i}`}
+                                 className={classFor("assistant") + (i ? " o_voice_msg--cont" : "")}>
                                 <div className="o_voice_msg_assistant_layout">
                                     {agentThumbnailUrl ? (
                                         <img className="o_voice_msg_thumb" src={agentThumbnailUrl} alt="agent" />
@@ -313,10 +381,10 @@ export default function Transcript({
                                     )}
                                     <div
                                         className="o_voice_msg_content o_voice_msg_content--md"
-                                        dangerouslySetInnerHTML={{ __html: markdownToSafeHtml(msg.content || "") }}
+                                        dangerouslySetInnerHTML={{ __html: markdownToSafeHtml(chunk) }}
                                     />
                                 </div>
-                                {msg.incomplete_reason && (
+                                {last && msg.incomplete_reason && (
                                     <div
                                         className="o_voice_msg_incomplete"
                                         title={_t("Reply was truncated by xAI: %s", msg.incomplete_reason)}
@@ -324,33 +392,28 @@ export default function Transcript({
                                         <i className="fa fa-warning" /> {msg.incomplete_reason}
                                     </div>
                                 )}
-                            </>
-                        ) : (
-                            <>
-                                {/* Group calls stamp assistant rows with the speaking
-                                    agent's name — show it instead of the generic role
-                                    so three-way exchanges read clearly. */}
-                                <div className="o_voice_msg_role">{msg.speaker || msg.role}</div>
-                                <div className="o_voice_msg_content">{msg.content || ""}</div>
-                            </>
-                        )}
-                        {msg.attachments && msg.attachments.length > 0 && (
-                            <div className="o_voice_msg_attachments">
-                                {msg.attachments.map((att, attIdx) => (
-                                    <span
-                                        key={`${att.xai_file_id}-${attIdx}`}
-                                        className="o_voice_msg_attachment_chip"
-                                        title={att.filename + (att.size_bytes ? ` (${att.size_bytes} bytes)` : "")}
-                                    >
-                                        <i className="fa fa-paperclip" /> <span>{att.filename}</span>
-                                    </span>
-                                ))}
+                                {last && renderAttachments(msg)}
                             </div>
-                        )}
+                        );
+                    });
+                }
+                // Voice-surface rendering. A text-mode reply resumed into a
+                // voice session still carries `[next]` breaks — split it the
+                // same way (no pacing), role label on the first bubble only.
+                const chunks = msg.role === "assistant" ? splitBubbles(msg.content) : [msg.content || ""];
+                return chunks.map((chunk, i) => (
+                    <div key={`${row.key}-${i}`}
+                         className={classFor(msg.role) + (i ? " o_voice_msg--cont" : "")}>
+                        {/* Group calls stamp assistant rows with the speaking
+                            agent's name — show it instead of the generic role
+                            so three-way exchanges read clearly. */}
+                        {!i && <div className="o_voice_msg_role">{msg.speaker || msg.role}</div>}
+                        <div className="o_voice_msg_content">{chunk}</div>
+                        {i === chunks.length - 1 && renderAttachments(msg)}
                     </div>
-                );
+                ));
             })}
-            {thinking && (
+            {(thinking || !!pendingKey) && (
                 <div className="o_voice_transcript_thinking" aria-label="Assistant is thinking">
                     <span /><span /><span />
                 </div>

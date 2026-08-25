@@ -228,6 +228,14 @@
 
         &:hover { background: #e2e8f0; filter: none; }
         &.active { background: #dbeafe; border-color: #93c5fd; color: #1d4ed8; }
+        // "Prompt changed — refresh?" only appears when there's something
+        // to pick up, so it's tinted to stand out from the idle icons.
+        &.o_text_prompt_stale {
+            background: #dcfce7;
+            border-color: #86efac;
+            color: #15803d;
+            &:hover { background: #bbf7d0; }
+        }
     }
 }
 

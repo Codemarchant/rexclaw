@@ -73,6 +73,24 @@ def session_compact(session_id: int, payload: dict = Body(default={}), con=Depen
     return session_service.text_compact(con, session)
 
 
+@router.post("/session/{session_id}/refresh_prompt")
+def session_refresh_prompt(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """Make the next turn use freshly assembled instructions. xAI's chained
+    Responses (previous_response_id) carry the system prompt forward from
+    the call that opened the chain, and `instructions` can't ride along —
+    so persona/prompt/memory edits don't reach a live chat until the chain
+    breaks (compaction, or 29 days). This breaks it on demand: the next
+    send re-seeds via the full local replay path, which sends the current
+    instructions. Deliberately manual — auto-breaking on every memory
+    write would pay the full-replay tokens constantly."""
+    session = resolve_session(con, session_id)
+    store.update_session(con, session["id"],
+                         previous_response_id=None, last_response_at=None,
+                         chain_tail_sequence=0, chain_instructions_hash=None)
+    con.commit()
+    return {"ok": True, "prompt_stale": False}
+
+
 @router.post("/session/{session_id}/end")
 def session_end(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
     session = resolve_session(con, session_id)
@@ -173,7 +191,7 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
             "id": a["id"],
             "name": a["name"],
             "reasoning_effort": a["reasoning_effort"],
-            "chat_thumbnail_url": a["chat_thumbnail_path"] or None,
+            "chat_thumbnail_url": session_service._agent_thumbnail_url(con, a),
             "last_resumable_session": (
                 {
                     "id": sess["id"],
