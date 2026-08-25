@@ -14,12 +14,22 @@ body {
     font-size: 14px;
     color: #1f2937;
     background: #0f172a;
+    // The app shell is exactly one viewport tall and every view scrolls
+    // internally, so the document itself must never scroll: on iPad Safari
+    // the inner scroll otherwise chains into the page and drags the header
+    // off the top.
+    overflow: hidden;
+    overscroll-behavior: none;
 }
 
 .rx_app {
     display: flex;
     flex-direction: column;
+    // 100vh is the *large* viewport on iOS/iPadOS Safari (toolbar retracted),
+    // taller than what's visible while the toolbar is shown — the header gets
+    // clipped. dvh tracks the real visible height; vh stays as the fallback.
     height: 100vh;
+    height: 100dvh;
 }
 
 .rx_tabbar {

@@ -511,7 +511,14 @@ EXAMPLE_HEARTBEATS = (
             "inside them, just log 'sleeping'. The purpose is to record "
             "your life outside the user's calls, so when they call back you "
             "know what you've been up to and how long it has been. Write "
-            "as yourself, then stop — the user is not present."
+            "as yourself, then stop — the user is not present.\n\n"
+            "Diary entry style:\n"
+            "Give complete, thorough entries\n"
+            "• Do not summarize or cut short\n"
+            "• Expand on reasoning, context, and nuance\n"
+            "• Use natural paragraph length and full emotional / "
+            "descriptive range where it fits\n"
+            "• Prefer depth over brevity"
         ),
     },
 )
