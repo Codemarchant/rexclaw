@@ -357,13 +357,21 @@ def _expression_section(agent_row):
     which tags fit) is the author-editable *_style field's territory - each
     renders as a named style sub-section under its block; left empty, the generic
     guidance stands alone. Returns None when nothing applies."""
+    # Each block also says which kind of expression it OWNS (sounds -> tags,
+    # feelings -> set_emotion, performable motion -> play_gesture, the rest
+    # -> narration). Without that the model shows everything the cheapest
+    # way - prose ("I giggle") - and the tags and avatar tools go unused.
     parts = []
     if agent_row['provider'] == 'grok':
         block = (
             "## Speech expression tags\n"
             "You can mark up speech with tags that shape how a line is rendered. "
-            "Use them where they make a line feel alive - not in every sentence - "
-            "and let your personality decide which tags fit and how often.\n\n"
+            "Use them where they make a line feel alive, and let your "
+            "personality decide which tags fit and how often. "
+            "Anything the user would hear - a laugh, a giggle, a sigh, a "
+            "whisper, a breath - belongs in a tag inside the line "
+            "(`[giggle] okay, that's actually wild`), never narrated as an "
+            "action (\"I giggle\").\n\n"
             "Inline tags (drop into a sentence at the point where the sound "
             "should happen): `[laugh]`, `[giggle]`, `[chuckle]`, `[cry]`, "
             "`[sigh]`, `[pause]`, `[long-pause]`, `[hum-tune]`, `[tongue-click]`, "
@@ -373,6 +381,11 @@ def _expression_section(agent_row):
             "`<decrease-intensity>`, `<higher-pitch>`, `<lower-pitch>`, `<slow>`, "
             "`<fast>`, `<sing-song>`, `<singing>`, `<laugh-speak>`, `<emphasis>`. "
             "Tags can be mixed and nested.\n\n"
+            "To sing, wrap the lyrics themselves in `<singing>` - "
+            "`<singing>blackbird singing in the dead of night</singing>` - "
+            "and keep the whole song inside it, line after line. "
+            "`<sing-song>` is lilting speech, not singing; `[hum-tune]` is a "
+            "wordless hum at that spot, so words after it come out spoken.\n\n"
             "Format example (an inline tag sits exactly where the sound "
             "happens; a wrapping tag encloses the words it changes): "
             "`[pause] all right, here is the part that "
@@ -386,15 +399,30 @@ def _expression_section(agent_row):
     if agent_row['enable_gesture_emotion_tools']:
         block = (
             "## Avatar expression\n"
+            "The same emotion or gesture repeated turn after turn reads as a "
+            "tic - vary it, or let it rest.\n"
             "- Your face should track your voice in real time - call "
             "`set_emotion` proactively whenever the emotional tone shifts, "
             "without waiting for permission or commenting on it, and return "
-            "to `neutral` when the moment passes. Which emotion, how "
-            "strongly and how often is your character's call.\n"
+            "to `neutral` when the moment passes. Each emotion plays a short "
+            "animation, so it marks a change of feeling rather than every "
+            "line: when the feeling changes, the call goes in "
+            "that turn, and a feeling you'd put into words (\"it does make "
+            "me happy\") is exactly the moment for it. Once played, let it "
+            "stand - more of the same feeling over the next few turns "
+            "doesn't need another call. Call it again only when it clearly "
+            "rises again (a new reason, a bigger moment) or after you've "
+            "returned to `neutral`. Which emotion and how strongly is your "
+            "character's call.\n"
             "- `play_gesture` is punctuation, not background motion: one "
-            "gesture per beat, for moments worth marking - the same gesture "
-            "turn after turn feels unnatural. Which gestures fit, and how "
-            "often, is a personality question - let your character decide.\n"
+            "gesture per beat, for moments worth marking. When you narrate something the "
+            "avatar can perform (a wave, a nod, a spin), the call goes in "
+            "that same turn - saying \"I wave\" without it is announcing "
+            "without acting. Which gestures fit, and how often, is a "
+            "personality question - let your character decide.\n"
+            "- Narrate in words only the physical beats the avatar can't "
+            "perform: touching the user, moving through the space, handling "
+            "things, leading them somewhere.\n"
             "- A looping gesture (solo or with a call partner) keeps going "
             "until you end it - `play_gesture` 'idle' stops it cleanly, and "
             "any other gesture replaces it, so don't play one by accident "
@@ -418,7 +446,9 @@ def _tool_habits_section(agent_row):
             "you're doing it, just make the scenery follow the roleplay. "
             "Still images; animated only when the user asks for one. One "
             "call per scene change: never fire several at once - each renders "
-            "and bills, and only one can be on screen.\n"
+            "and bills, and only one can be on screen. Don't fall into "
+            "calling it every message as a tic - only when the scene "
+            "actually changes.\n"
         )
     if agent_row['enable_gesture_emotion_tools']:
         lines.append(

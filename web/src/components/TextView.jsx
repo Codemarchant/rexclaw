@@ -180,6 +180,42 @@ export default function TextView({ active = true }) {
         text.preferredAgentId = id;
     };
 
+    // While no chat is live, the transcript previews where the selected
+    // companion's last conversation left off (read-only — Resume last is
+    // still the explicit step, so peeking never stamps a resume note into
+    // the session). Without this an ended chat stayed on screen when the
+    // dropdown changed, showing the previous companion's messages under the
+    // new companion's portrait.
+    const previewSessionIdRef = useRef(null);
+    useEffect(() => {
+        if (isLive || isConnecting || st.status === "ending") return;
+        const sess = lastResumableSession;
+        // The session that just ended is still on screen in full — keep it.
+        if (sess && text.state.sessionId === sess.id) return;
+        if ((sess?.id || null) === previewSessionIdRef.current) return;
+        let cancelled = false;
+        (async () => {
+            let messages = [];
+            if (sess) {
+                try {
+                    const data = await rpc("/api/sessions/messages", { id: sess.id, recent: true });
+                    messages = (data.messages || []).map((m) => ({ ...m, replayed: true }));
+                } catch (e) { /* preview only — leave the transcript empty */ }
+            }
+            if (cancelled) return;
+            const status = text.state.status;
+            if (status === "live" || status === "connecting") return;
+            previewSessionIdRef.current = sess?.id || null;
+            text.state.messages = messages;
+            text.state.sessionId = null;
+            text.state.agentName = null;
+            text.state.tokenUsage = 0;
+            text.state.tokenLimit = 0;
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLive, isConnecting, st.status, lastResumableSession?.id]);
+
     const pickFile = () => fileInputRef.current?.click();
 
     const addFiles = async (files) => {

@@ -27,7 +27,7 @@ from .errors import UserError
 _logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 30
-RETRY_BACKOFF = (0.5, 1.0, 2.0)  # seconds
+RETRY_BACKOFF = (0.5, 1.0)  # seconds — one attempt per entry
 
 NO_KEY_MSG = "xAI API key is not configured. Set it in Settings."
 
@@ -783,7 +783,11 @@ def generate_summary(*, xai_api_key, responses_url, summary_model, transcript,
         tools=None,
         reasoning_effort=reasoning_effort,
         store=False,
-        timeout=120,
+        # A big rollup (long prior summary + a text-mode block) can take
+        # well over a minute to write; at 120s the call timed out, retried
+        # three times and 500'd — leaving needs_summary set so every turn
+        # re-ran the same 6-minute failure.
+        timeout=300,
     )
     text = _extract_response_text(body)
     if not text:

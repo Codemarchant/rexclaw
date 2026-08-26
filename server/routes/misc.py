@@ -536,14 +536,26 @@ def sessions_list(payload: dict = Body(default={}), con=Depends(db_con)):
 def sessions_messages(payload: dict = Body(default={}), con=Depends(db_con)):
     """Read-only transcript of one session, in the shape the Transcript
     component renders (state.messages rows). Unlike resume, this never
-    reactivates the session or touches xAI."""
+    reactivates the session or touches xAI.
+
+    `recent: true` returns what a resume would display instead of the full
+    audit view: the same model-only prompt rows hidden, capped at the
+    configured transcript display limit. The chat view uses it to preview
+    a companion's last conversation before the user resumes it."""
     from .common import resolve_session
     session = resolve_session(con, payload.get("id"))
-    rows = con.execute(
-        "SELECT * FROM messages WHERE session_id = ? AND is_summary_rollup = 0"
-        " ORDER BY sequence ASC, id ASC",
-        (session["id"],),
-    ).fetchall()
+    if payload.get("recent"):
+        from ..db import get_config
+        from ..session_service import _transcript_rows
+        rows, _truncated = _transcript_rows(
+            con, session, limit=get_config(con)["transcript_display_limit"] or 0,
+        )
+    else:
+        rows = con.execute(
+            "SELECT * FROM messages WHERE session_id = ? AND is_summary_rollup = 0"
+            " ORDER BY sequence ASC, id ASC",
+            (session["id"],),
+        ).fetchall()
     out = []
     for m in rows:
         entry = {
