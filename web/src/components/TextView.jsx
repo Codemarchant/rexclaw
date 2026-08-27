@@ -270,6 +270,12 @@ export default function TextView({ active = true }) {
     // Portrait follows the dropdown selection (the agents list carries each
     // companion's thumbnail); the live session's copy is the fallback.
     const agentThumbnailUrl = currentAgent?.chat_thumbnail_url || text.agentThumbnailUrl || null;
+    // Group-call rows are stamped with the speaking companion's name; map
+    // names to portraits so each line shows who actually said it.
+    const speakerThumbnails = useMemo(
+        () => Object.fromEntries(agents.map((a) => [a.name, a.chat_thumbnail_url || null])),
+        [agents],
+    );
     const pendingFiles = text.pendingFiles || [];
 
     const tokenBudgetLabel = st.tokenLimit > 0
@@ -403,7 +409,7 @@ export default function TextView({ active = true }) {
                 <div className="o_text_full_transcript">
                     <Transcript messages={st.messages} isLive={isLive} thinking={st.thinking}
                                 mode="text" agentThumbnailUrl={agentThumbnailUrl || false}
-                                agentInitial={agentInitial} />
+                                agentInitial={agentInitial} speakerThumbnails={speakerThumbnails} />
                 </div>
 
                 {isLive && (

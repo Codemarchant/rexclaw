@@ -205,6 +205,10 @@ export default function Transcript({
     mode = "voice",
     agentThumbnailUrl = null,
     agentInitial = "•",
+    // Group calls: companion name → chat thumbnail URL. Assistant rows that
+    // carry a `speaker` (voice group-call turns) draw that companion's
+    // portrait instead of the session owner's.
+    speakerThumbnails = null,
     truncated = false,
 }) {
     const scrollRef = useRef(null);
@@ -366,17 +370,26 @@ export default function Transcript({
                     // the last.
                     const chunks = splitBubbles(msg.content);
                     const shown = Math.min(chunks.length, revealed[row.key] ?? chunks.length);
+                    // Speaker-stamped rows (group calls) use that companion's
+                    // portrait; unstamped rows belong to the session's agent.
+                    const speaker = msg.speaker || null;
+                    const thumbUrl = speaker ? (speakerThumbnails?.[speaker] ?? null) : agentThumbnailUrl;
+                    const initial = speaker
+                        ? (speaker.trim()[0] || "•").toUpperCase()
+                        : (agentInitial || "•");
                     return chunks.slice(0, shown).map((chunk, i) => {
                         const last = i === chunks.length - 1;
                         return (
                             <div key={`${row.key}-${i}`}
                                  className={classFor("assistant") + (i ? " o_voice_msg--cont" : "")}>
                                 <div className="o_voice_msg_assistant_layout">
-                                    {agentThumbnailUrl ? (
-                                        <img className="o_voice_msg_thumb" src={agentThumbnailUrl} alt="agent" />
+                                    {thumbUrl ? (
+                                        <img className="o_voice_msg_thumb" src={thumbUrl}
+                                             alt={speaker || "agent"} title={speaker || undefined} />
                                     ) : (
-                                        <div className="o_voice_msg_thumb o_voice_msg_thumb--placeholder">
-                                            {agentInitial || "•"}
+                                        <div className="o_voice_msg_thumb o_voice_msg_thumb--placeholder"
+                                             title={speaker || undefined}>
+                                            {initial}
                                         </div>
                                     )}
                                     <div

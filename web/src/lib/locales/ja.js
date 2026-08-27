@@ -540,18 +540,18 @@ export const JA = {
   "Avatar control tools": "アバター操作ツール",
 
   // Expression style fields
-  "Avatar expression style (optional)": "アバター表現スタイル（任意）",
-  "Appended to the built-in avatar-expression instructions every voice session gets. Describe how THIS companion should use gestures: which ones fit the character, when, and how often. Leave empty and the generic guidance stands alone.":
-    "毎ボイスセッションに注入される組み込みのアバター表現指示に追記されます。このコンパニオンがジェスチャーをどう使うべきか（どれがキャラクターに合うか、いつ、どのくらいの頻度か）を記述してください。空欄の場合は汎用の指示のみになります。",
+  "Signature gestures (optional)": "特徴的なジェスチャー（任意）",
+  "Appended to the built-in avatar-expression instructions every voice session gets, under a 'Your signature gestures' heading. Name the gestures that are characteristically THIS companion's and the moments that call for them. The general mechanics are already covered - leave empty and the generic guidance stands alone.":
+    "毎ボイスセッションに注入される組み込みのアバター表現指示に、「Your signature gestures」見出しの下で追記されます。このコンパニオンならではのジェスチャーと、それを使う場面を記述してください。一般的な仕組みは既に説明済みです。空欄の場合は汎用の指示のみになります。",
   "Gestures for reference: %s, plus any custom gestures on the avatar.":
     "参考までに利用できるジェスチャー：%s（アバターのカスタムジェスチャーも追加されます）。",
-  "e.g. 'thinking while a tool runs; dance only for the biggest wins.'":
-    "例：「ツール実行中は thinking、dance は最大の勝利のときだけ。」",
-  "Speech expression tag style (optional)": "スピーチ表現タグのスタイル（任意）",
-  "Appended to the built-in speech-tag instructions every Grok voice session gets. Describe which tags THIS companion should favour and when; a few example lines in their voice work well. Leave empty and the generic guidance stands alone.":
-    "毎 Grok ボイスセッションに注入される組み込みのスピーチタグ指示に追記されます。このコンパニオンがどのタグをいつ好んで使うべきかを記述してください。その口調での例文をいくつか入れると効果的です。空欄の場合は汎用の指示のみになります。",
-  "Grok voice renders expression tags in speech. Inline: %s. Wrapping: %s. Tags can be mixed and nested; all of them are always available.":
-    "Grok ボイスは音声に表現タグを反映します。インライン：%s。ラッピング：%s。タグは組み合わせや入れ子が可能で、すべて常に利用できます。",
+  "e.g. 'spin for a playful twirl on a real success; shoot as a terse copy-that.'":
+    "例：「本当の成功には spin で軽やかに一回転、shoot は短い『了解』の合図。」",
+  "Signature speech tags (optional)": "特徴的なスピーチタグ（任意）",
+  "Appended to the built-in speech-tag instructions every Grok voice session gets, under a 'Your signature tags' heading. Name the tags that are characteristically THIS companion's and the moments that call for them; two or three example lines in their voice work well. The general mechanics are already covered - leave empty and the generic guidance stands alone.":
+    "毎 Grok ボイスセッションに注入される組み込みのスピーチタグ指示に、「Your signature tags」見出しの下で追記されます。このコンパニオンならではのタグと、それを使う場面を記述してください。その口調での例文を2〜3行入れると効果的です。一般的な仕組みは既に説明済みです。空欄の場合は汎用の指示のみになります。",
+  "Grok voice renders expression tags in speech. Inline: %s. Wrapping: %s. All of them are always available.":
+    "Grok ボイスは音声に表現タグを反映します。インライン：%s。ラッピング：%s。すべて常に利用できます。",
   "e.g. 'Favour [pause] and <slow> for weight; [chuckle] for dry humor.'":
     "例：「重みを出すときは [pause] と <slow> を、乾いたユーモアには [chuckle] を好んで使う。」",
   "Call-companion tool (group calls)": "コンパニオン呼び出しツール（グループ通話）",

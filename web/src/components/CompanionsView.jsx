@@ -95,7 +95,7 @@ const GROK_INLINE_TAGS =
 const GROK_WRAPPING_TAGS =
     "<soft> <whisper> <loud> <build-intensity> <decrease-intensity> " +
     "<higher-pitch> <lower-pitch> <slow> <fast> <sing-song> <singing> " +
-    "<laugh-speak> <emphasis>";
+    "<emphasis>";
 
 // Tools that work regardless of which LLM backend drives the companion.
 const GENERAL_FLAGS = [
@@ -697,14 +697,14 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
             </div>
             {!!editingAgent.enable_gesture_emotion_tools && (
                 <>
-                    <label title={_t("Appended to the built-in avatar-expression instructions every voice session gets. Describe how THIS companion should use gestures: which ones fit the character, when, and how often. Leave empty and the generic guidance stands alone.")}>
-                        {_t("Avatar expression style (optional)")}
+                    <label title={_t("Appended to the built-in avatar-expression instructions every voice session gets, under a 'Your signature gestures' heading. Name the gestures that are characteristically THIS companion's and the moments that call for them. The general mechanics are already covered - leave empty and the generic guidance stands alone.")}>
+                        {_t("Signature gestures (optional)")}
                     </label>
                     <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
                         {_t("Gestures for reference: %s, plus any custom gestures on the avatar.", BUILTIN_GESTURES)}
                     </p>
                     <textarea rows={4} value={editingAgent.expression_style || ""}
-                              placeholder={_t("e.g. 'thinking while a tool runs; dance only for the biggest wins.'")}
+                              placeholder={_t("e.g. 'spin for a playful twirl on a real success; shoot as a terse copy-that.'")}
                               onChange={(ev) => setEditingAgent({ ...editingAgent, expression_style: ev.target.value })} />
                 </>
             )}
@@ -752,11 +752,11 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 </div>
                 {(editingAgent.provider || "grok") === "grok" && (
                     <>
-                        <label title={_t("Appended to the built-in speech-tag instructions every Grok voice session gets. Describe which tags THIS companion should favour and when; a few example lines in their voice work well. Leave empty and the generic guidance stands alone.")}>
-                            {_t("Speech expression tag style (optional)")}
+                        <label title={_t("Appended to the built-in speech-tag instructions every Grok voice session gets, under a 'Your signature tags' heading. Name the tags that are characteristically THIS companion's and the moments that call for them; two or three example lines in their voice work well. The general mechanics are already covered - leave empty and the generic guidance stands alone.")}>
+                            {_t("Signature speech tags (optional)")}
                         </label>
                         <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
-                            {_t("Grok voice renders expression tags in speech. Inline: %s. Wrapping: %s. Tags can be mixed and nested; all of them are always available.", GROK_INLINE_TAGS, GROK_WRAPPING_TAGS)}
+                            {_t("Grok voice renders expression tags in speech. Inline: %s. Wrapping: %s. All of them are always available.", GROK_INLINE_TAGS, GROK_WRAPPING_TAGS)}
                         </p>
                         <textarea rows={4} value={editingAgent.speech_tag_style || ""}
                                   placeholder={_t("e.g. 'Favour [pause] and <slow> for weight; [chuckle] for dry humor.'")}

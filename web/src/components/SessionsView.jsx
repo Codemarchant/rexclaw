@@ -26,6 +26,9 @@ export default function SessionsView({ active }) {
     const [agentFilter, setAgentFilter] = useState("all");  // all | <agent name>
     const [expanded, setExpanded] = useState(() => new Set());
     const [transcripts, setTranscripts] = useState({});     // id → {mode, messages}
+    // Companion name → chat thumbnail URL, so text transcripts draw the
+    // portrait beside each reply (per speaker in group calls).
+    const [thumbnails, setThumbnails] = useState({});
     const [renamingId, setRenamingId] = useState(null);
     const [renameDraft, setRenameDraft] = useState("");
     const [summaryOpen, setSummaryOpen] = useState(() => new Set());  // ids showing the full summary
@@ -41,6 +44,12 @@ export default function SessionsView({ active }) {
         } finally {
             setLoading(false);
         }
+        try {
+            const data = await rpc("/api/text/agents", {});
+            setThumbnails(Object.fromEntries(
+                (data.agents || []).map((a) => [a.name, a.chat_thumbnail_url || null]),
+            ));
+        } catch (e) { /* silent — transcripts fall back to initials */ }
     };
 
     useEffect(() => {
@@ -337,6 +346,8 @@ export default function SessionsView({ active }) {
                                                 isLive={false}
                                                 mode={t.mode === "text" ? "text" : "voice"}
                                                 agentInitial={(t.agent_name || "•").trim()[0]?.toUpperCase() || "•"}
+                                                agentThumbnailUrl={thumbnails[t.agent_name] || null}
+                                                speakerThumbnails={thumbnails}
                                             />
                                         )}
                                     </div>

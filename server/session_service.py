@@ -372,29 +372,55 @@ def _expression_section(agent_row):
             "whisper, a breath - belongs in a tag inside the line "
             "(`[giggle] okay, that's actually wild`), never narrated as an "
             "action (\"I giggle\").\n\n"
-            "Inline tags (drop into a sentence at the point where the sound "
-            "should happen): `[laugh]`, `[giggle]`, `[chuckle]`, `[cry]`, "
-            "`[sigh]`, `[pause]`, `[long-pause]`, `[hum-tune]`, `[tongue-click]`, "
-            "`[lip-smack]`, `[tsk]`, `[breath]`, `[inhale]`, `[exhale]`.\n\n"
-            "Wrapping tags (wrap one or more words to change their delivery): "
-            "`<soft>`, `<whisper>`, `<loud>`, `<build-intensity>`, "
-            "`<decrease-intensity>`, `<higher-pitch>`, `<lower-pitch>`, `<slow>`, "
-            "`<fast>`, `<sing-song>`, `<singing>`, `<laugh-speak>`, `<emphasis>`. "
-            "Tags can be mixed and nested.\n\n"
+            "There are two kinds of tag.\n\n"
+            "**Inline tags** - placed at the point in the text where the "
+            "vocal expression should occur, like a laugh or a pause. "
+            "Available inline tags (this exact list):\n"
+            "- Pauses: `[pause]`, `[long-pause]`, `[hum-tune]`\n"
+            "- Laughter and crying: `[laugh]`, `[chuckle]`, `[giggle]`, `[cry]`\n"
+            "- Mouth sounds: `[tsk]`, `[tongue-click]`, `[lip-smack]`\n"
+            "- Breathing: `[breath]`, `[inhale]`, `[exhale]`, `[sigh]`\n\n"
+            "**Wrapping tags** - wrap a section of text to change how it is "
+            "delivered, like whispering or singing; use an opening tag and a "
+            "matching closing tag: `<whisper>It is a secret.</whisper>`. "
+            "Available wrapping tags (this exact list):\n"
+            "- Volume and intensity: `<soft>`, `<whisper>`, `<loud>`, "
+            "`<build-intensity>`, `<decrease-intensity>`\n"
+            "- Pitch and speed: `<higher-pitch>`, `<lower-pitch>`, `<slow>`, "
+            "`<fast>`\n"
+            "- Vocal style: `<sing-song>`, `<singing>`, `<emphasis>`\n\n"
+            "Tips:\n"
+            "- Place inline tags where the expression would naturally occur "
+            "in conversation.\n"
+            "- Combine tags with punctuation - `Really? [laugh] That's "
+            "incredible!` reads more naturally than stacking tags.\n"
+            "- `[pause]` or `[long-pause]` adds dramatic timing or lets a "
+            "thought land.\n"
+            "- Wrapping tags work best around complete phrases - "
+            "`<whisper>It is a secret.</whisper>` reads more naturally than "
+            "wrapping individual words.\n"
+            "- Combine styles for effect - "
+            "`<slow><soft>Goodnight, sleep well.</soft></slow>`.\n\n"
             "To sing, wrap the lyrics themselves in `<singing>` - "
             "`<singing>blackbird singing in the dead of night</singing>` - "
             "and keep the whole song inside it, line after line. "
-            "`<sing-song>` is lilting speech, not singing; `[hum-tune]` is a "
-            "wordless hum at that spot, so words after it come out spoken.\n\n"
-            "Format example (an inline tag sits exactly where the sound "
-            "happens; a wrapping tag encloses the words it changes): "
-            "`[pause] all right, here is the part that "
-            "<emphasis>actually</emphasis> matters. [breath] <slow>let me "
-            "walk you through it.</slow>`"
+            "`<sing-song>` gives a phrase a lilting, melodic cadence - the "
+            "tune of teasing, a playful aside, a taunt - while `<singing>` is "
+            "the one for actual lyrics; `[hum-tune]` is a wordless hum at "
+            "that spot, so words after it come out spoken.\n\n"
+            "When the user asks for a delivery - whisper this, slow down, "
+            "say it softer, sing it - the tag is how you do it: the words go "
+            "inside `<whisper>…</whisper>` (or `<slow>`, `<soft>`, "
+            "`<singing>`), not a description of whispering."
         )
         style = (agent_row['speech_tag_style'] or '').strip()
         if style:
-            block += f"\n\n### Speech expression tag style\n{style}"
+            block += (
+                "\n\n### Your signature tags\n"
+                "On top of the general guidance above, these are the tags "
+                "that mark your particular voice, and the moments that call "
+                f"for them:\n{style}"
+            )
         parts.append(block)
     if agent_row['enable_gesture_emotion_tools']:
         block = (
@@ -430,7 +456,12 @@ def _expression_section(agent_row):
         )
         style = (agent_row['expression_style'] or '').strip()
         if style:
-            block += f"\n\n### Avatar expression style\n{style}"
+            block += (
+                "\n\n### Your signature gestures\n"
+                "On top of the general guidance above, these are the "
+                "gestures that are characteristically yours, and the moments "
+                f"that call for them:\n{style}"
+            )
         parts.append(block)
     return '\n\n'.join(parts) or None
 

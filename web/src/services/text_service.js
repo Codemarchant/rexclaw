@@ -88,6 +88,9 @@ class TextService {
                 content: m.content || "",
                 sequence: m.sequence,
                 replayed: true,
+                // Group-call attribution (voice turns resumed here) — the
+                // transcript picks the speaker's own thumbnail from it.
+                speaker: m.speaker || null,
                 tool_name: m.tool_name,
                 tool_arguments_json: m.tool_arguments_json,
                 tool_result_json: m.tool_result_json,
