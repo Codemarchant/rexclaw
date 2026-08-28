@@ -9,8 +9,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emoji-mart/data": "^1.2.1",
+    "@emoji-mart/react": "^1.1.1",
     "@pixiv/three-vrm": "^3.5.3",
     "@pixiv/three-vrm-animation": "^3.5.3",
+    "emoji-mart": "^5.6.0",
     "jolt-physics": "^1.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

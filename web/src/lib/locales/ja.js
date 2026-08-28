@@ -192,6 +192,7 @@ export const JA = {
   "Light theme": "ライトテーマ",
   "Dark theme": "ダークテーマ",
   "Attach a file": "ファイルを添付",
+  "Emoji": "絵文字",
   "Tokens used since the last summary rollup.": "前回の要約以降に使用したトークン数。",
   "No active chat session.": "アクティブなチャットセッションがありません。",
   "End the current chat before starting a new one.":

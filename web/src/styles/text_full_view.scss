@@ -321,6 +321,23 @@
             padding: 0.5rem 0.75rem;
             border-radius: 0.5rem;
         }
+
+        .o_emoji_picker_wrap {
+            position: relative;
+
+            .o_emoji_picker_popover {
+                position: absolute;
+                bottom: calc(100% + 0.4rem);
+                left: 0;
+                z-index: 20;
+                // em-emoji-picker (the picker's own web component) sizes off
+                // its own defaults; wrapping it just clips the corners so it
+                // doesn't overhang the input bar's edges on narrow windows.
+                border-radius: 0.5rem;
+                overflow: hidden;
+                box-shadow: 0 0.4rem 1.2rem rgba(0, 0, 0, 0.18);
+            }
+        }
     }
 
     .o_text_input_hint {

@@ -7,6 +7,7 @@ import { useReactive as useReactiveUi } from "../lib/reactive";
 import { notification } from "../lib/notification";
 import { confirmAsk } from "../lib/confirm";
 import Transcript from "./Transcript.jsx";
+import EmojiPickerButton from "./EmojiPickerButton.jsx";
 import { _t } from "../lib/i18n";
 import { useFileDrop } from "../lib/use_file_drop";
 import { screenCapture } from "../lib/screen_capture";
@@ -260,6 +261,24 @@ export default function TextView({ active = true }) {
         }
     };
 
+    /** Insert at the caret rather than always appending, so picking an
+     *  emoji mid-sentence lands where you were actually typing. */
+    const insertEmoji = (native) => {
+        const el = textInputRef.current;
+        if (!el) {
+            setDraftText((t) => t + native);
+            return;
+        }
+        const start = el.selectionStart ?? draftText.length;
+        const end = el.selectionEnd ?? draftText.length;
+        setDraftText(draftText.slice(0, start) + native + draftText.slice(end));
+        requestAnimationFrame(() => {
+            el.focus();
+            const pos = start + native.length;
+            el.setSelectionRange(pos, pos);
+        });
+    };
+
     const dismissError = () => {
         text.state.errorMessage = null;
         if (text.state.status === "error") text.state.status = "idle";
@@ -434,6 +453,7 @@ export default function TextView({ active = true }) {
                             </button>
                             <input type="file" multiple style={{ display: "none" }}
                                    ref={fileInputRef} onChange={onFileSelected} />
+                            <EmojiPickerButton onSelect={insertEmoji} dark={dark} />
                             <textarea rows={1}
                                       ref={textInputRef}
                                       placeholder={st.compacting ? _t("Compacting context…") : _t("Type a message…")}

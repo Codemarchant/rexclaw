@@ -214,6 +214,8 @@ def _env_postamble(con, agent_row, mode='voice', stable=False):
             "is the whole reply. Anything structured - a list, code, a full "
             "explanation - stays a single message with no `[next]`. Don't do "
             "it every turn; let it follow the mood.\n"
+            "- **Texting emoji:** Fine here and there if it fits the "
+            "moment, but don't overdo it; most messages need none at all.\n"
         )
     else:
         sections.append(
