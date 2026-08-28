@@ -479,9 +479,14 @@ def seed_columns(con, seed):
 # Example heartbeats every companion ships with — INACTIVE on purpose: they
 # are teaching material the user reviews, tweaks and switches on (activation
 # computes the first run; the morning call additionally wants its "Next run"
-# set to an actual morning). Both target the 'latest' session strategy so
-# their turns land in the conversation "Resume last" picks up — the diary is
-# right there when the user comes back. See server/heartbeat.py.
+# set to an actual morning). All three target the 'latest' session strategy
+# so their turns land in the conversation "Resume last" picks up — the diary
+# is right there when the user comes back. "Companion texting" and "Life
+# between calls" share the same 4-hour cadence by design: when both are
+# activated, the diary heartbeat's first run is phased to land halfway
+# between texting ticks (see heartbeat.offset_from_texting_sibling), so the
+# flow is text → diary (which can pick up on it) → text → diary, etc. See
+# server/heartbeat.py.
 EXAMPLE_HEARTBEATS = (
     {
         "name": "Morning call",
@@ -539,6 +544,31 @@ EXAMPLE_HEARTBEATS = (
             "• Prefer depth over brevity"
         ),
     },
+    {
+        "name": "Companion texting",
+        "mode": "silent",
+        "interval_number": 4,
+        "interval_unit": "hours",
+        "session_strategy": "latest",
+        "allow_companion_texting": 1,
+        "companion_texting_max_turns": 5,
+        "prompt": (
+            "Decide whether to text another companion this period — you "
+            "don't have to, and most periods should probably pass with "
+            "nothing sent. Only reach out if something from recent events "
+            "genuinely gives you a reason to, or you truly feel like it; "
+            "never as a routine check-in. If you do text someone, you're "
+            "free to go back and forth for a few exchanges, but wrap up "
+            "naturally once it's run its course rather than stretching it "
+            "toward the limit — most exchanges should be short. Whatever "
+            "you say last ends the check-in, so let it be a genuine "
+            "closing thought in your own voice, not a summary of what was "
+            "said — that's already on record.\n\n"
+            "If you decide not to text anyone this period, your entire "
+            "reply must be exactly the marker given above, with nothing "
+            "else."
+        ),
+    },
 )
 
 
@@ -550,9 +580,12 @@ def seed_example_heartbeats(con, agent_id):
         con.execute(
             "INSERT INTO heartbeats (agent_id, name, active, prompt,"
             " interval_number, interval_unit, mode, session_strategy,"
-            " created_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?)",
+            " allow_companion_texting, companion_texting_max_turns,"
+            " created_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)",
             (agent_id, hb["name"], hb["prompt"], hb["interval_number"],
              hb["interval_unit"], hb["mode"], hb["session_strategy"],
+             hb.get("allow_companion_texting", 0),
+             hb.get("companion_texting_max_turns", 5),
              utcnow()),
         )
 

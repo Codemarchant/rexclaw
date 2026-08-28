@@ -27,7 +27,13 @@ const EMPTY_HEARTBEAT = {
     session_strategy: "latest",
     session_id: null,
     next_run_at: null,
+    allow_companion_texting: 0,
+    companion_texting_max_turns: 5,
 };
+
+// Keeps a tick comfortably inside the shared per-turn model-call budget —
+// mirrors server/routes/heartbeats.py's _MAX_COMPANION_TEXTING_TURNS.
+const MAX_COMPANION_TEXTING_TURNS = 6;
 
 const UNIT_LABELS = { minutes: "minutes", hours: "hours", days: "days" };
 const STRATEGY_LABELS = {
@@ -305,6 +311,30 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                     {_t("Active")}
                 </label>
             </span>
+            <span className="rx_check" style={{ marginTop: "0.25rem" }}>
+                <input id={`hb-texting-${agentId}`} type="checkbox"
+                       checked={!!editing.allow_companion_texting}
+                       onChange={(ev) => set("allow_companion_texting", ev.target.checked ? 1 : 0)} />
+                <label htmlFor={`hb-texting-${agentId}`}
+                       title={_t("Lets this heartbeat's own tick text another companion (text_companion) and get their reply back, up to the exchange limit below. Off by default — a diary-style heartbeat, for example, usually doesn't need it.")}>
+                    {_t("Allow companion texting during this heartbeat")}
+                </label>
+            </span>
+            {!!editing.allow_companion_texting && (
+                <div style={{ marginTop: "0.25rem" }}>
+                    <label title={_t("The most exchanges this tick may have with another companion. The companion decides whether to use any of it at all, and doesn't have to reach the limit.")}>
+                        {_t("Exchange limit")}
+                    </label>
+                    <input type="number" min={1} max={MAX_COMPANION_TEXTING_TURNS} step={1}
+                           style={{ width: "5rem" }}
+                           value={editing.companion_texting_max_turns}
+                           onChange={(ev) => {
+                               const v = parseInt(ev.target.value, 10);
+                               set("companion_texting_max_turns",
+                                   Number.isNaN(v) ? 5 : Math.max(1, Math.min(MAX_COMPANION_TEXTING_TURNS, v)));
+                           }} />
+                </div>
+            )}
             <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
                 <button className="btn btn-sm" onClick={save}
                         disabled={busy || !editing.prompt.trim()
@@ -373,6 +403,9 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                         {hb.mode === "call" ? _t("calls you") : _t("silent")}
                         {" · "}
                         {_t(STRATEGY_LABELS[hb.session_strategy] || "own session per run")}
+                        {!!hb.allow_companion_texting && (
+                            <> · {_t("texting up to %s", hb.companion_texting_max_turns || 5)}</>
+                        )}
                     </span>
                     <span className="rx_memory_meta" title={hb.last_error ? `${_t("Last run failed:")} ${hb.last_error}` : undefined}>
                         {hb.last_error ? <i className="fa fa-exclamation-triangle" style={{ marginRight: "0.25rem" }} /> : null}
@@ -412,6 +445,8 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                                 mode: hb.mode,
                                 session_strategy: hb.session_strategy || "isolated",
                                 session_id: hb.session_id,
+                                allow_companion_texting: hb.allow_companion_texting || 0,
+                                companion_texting_max_turns: hb.companion_texting_max_turns || 5,
                                 // Always populated: rows that never got a
                                 // date (created inactive) show a truthful
                                 // now + interval that tracks interval edits.

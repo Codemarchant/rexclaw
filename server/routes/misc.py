@@ -57,6 +57,7 @@ _AGENT_FIELDS = (
     "affection_max_score", "affection_level_count", "affection_max_delta",
     "affection_max_delta_major",
     "enable_call_agents_tool", "when_to_call_description",
+    "enable_companion_texting",
     "enable_delegate_tool", "enable_multi_agent_delegation",
     "enable_local_tasks", "enable_minecraft",
     "enable_end_call_tool", "wake_phrase", "wake_action",

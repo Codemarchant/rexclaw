@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
-from .. import affection_tools, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, session_service, store, xai_client
+from .. import affection_tools, companion_texting, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, session_service, store, xai_client
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -149,6 +149,11 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         if tool_name == minecraft_tools.MINECRAFT_COMMAND_TOOL_NAME:
             return minecraft_tools.execute_minecraft_command(con, session, agent, arguments)
         return minecraft_tools.execute_minecraft_status(con, session, agent, arguments)
+    if tool_name == companion_texting.TEXT_COMPANION_TOOL_NAME:
+        # Flag check lives in the executor (same {'error': ...} contract).
+        result = companion_texting.execute_text_companion_tool(con, session, arguments)
+        con.commit()
+        return result
     raise ValidationError(f"Unknown native tool: {tool_name}")
 
 

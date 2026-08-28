@@ -56,6 +56,10 @@ const NATIVE_TOOL_NAMES = new Set([
     // progress comes back through the voice service's event pump.
     "minecraft_command",
     "minecraft_status",
+    // Companion texting: the server injects into the target companion's own
+    // session and runs a headless turn there. Same slow server-side shape as
+    // delegate_task/local_task.
+    "text_companion",
 ]);
 
 export class ToolDispatcher {

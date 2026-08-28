@@ -15,7 +15,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, store
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, store
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -831,6 +831,14 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     # only while the bot sidecar is connected to /ws/minecraft.
     if bool(agent['enable_minecraft']) and minecraft_tools.connected():
         native_function_tools.extend(minecraft_tools.build_tools())
+    if agent['enable_companion_texting']:
+        # Voice sessions are never origin='delegated' or mid-incoming-text,
+        # so no recursion carve-out is needed here (the text-mode builder
+        # handles both).
+        text_tool = companion_texting.build_text_companion_tool(
+            agent, [a for a in store.list_agents(con) if a['id'] != agent['id']])
+        if text_tool is not None:
+            native_function_tools.append(text_tool)
 
     session_update = xai_client.build_session_update(
         voice=effective_voice,
@@ -1704,6 +1712,7 @@ NATIVE_TOOL_NAMES_TEXT = (
     | lore_tools.LORE_TOOL_NAMES
     | {delegate_tools.DELEGATE_TOOL_NAME}
     | {local_tools.LOCAL_TASK_TOOL_NAME}
+    | {companion_texting.TEXT_COMPANION_TOOL_NAME}
 )
 # Browser tools that round-trip through the text client (dispatch in the
 # page's ToolDispatcher, results fed back via /tool_results). The screen
@@ -1719,6 +1728,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                       enable_delegate_tool=False,
                       enable_local_tasks=False,
                       enable_minecraft=False,
+                      enable_companion_texting=False,
                       enable_browser_tools=False):
     """Assemble the tools list for /v1/responses calls in text mode.
     enable_browser_tools is False for headless turns (delegated task
@@ -1763,6 +1773,11 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         tools.append(local_tools.LOCAL_TASK_TOOL)
     if enable_minecraft and minecraft_tools.connected():
         tools.extend(minecraft_tools.build_tools())
+    if enable_companion_texting:
+        text_tool = companion_texting.build_text_companion_tool(
+            agent, [a for a in store.list_agents(con) if a['id'] != agent['id']])
+        if text_tool is not None:
+            tools.append(text_tool)
     if enable_web_search:
         tools.append({'type': 'web_search'})
     if enable_x_search:
@@ -2047,6 +2062,8 @@ def start_text_session(con, *, agent, resume_session=None):
             enable_local_tasks=bool(agent['enable_local_tasks']),
             enable_minecraft=(bool(agent['enable_minecraft'])
                               and session['origin'] != 'delegated'),
+            enable_companion_texting=(bool(agent['enable_companion_texting'])
+                                      and session['origin'] != 'delegated'),
         ),
         'model': config['text_model'],
         'previous_response_id': session['previous_response_id'] or None,
@@ -2164,6 +2181,7 @@ def text_prompt_stale(con, session, agent, config=None):
 
 def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                    extra_content_blocks=None, tool_results=None, headless=False,
+                   suppress_companion_text=False, companion_text_max_calls=None,
                    model=None, reasoning_effort=_AGENT_EFFORT):
     """Drive one or more /v1/responses legs until the assistant returns plain
     text or needs the browser. Server-side function tools (imagine + memory +
@@ -2177,7 +2195,16 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     resolved input_image / input_file blocks to the first leg's user
     content. `model` / `reasoning_effort` override the configured text model
     and the agent's effort for this turn (delegate_task's fast-model path —
-    pass reasoning_effort=None for a non-reasoning model)."""
+    pass reasoning_effort=None for a non-reasoning model).
+    `suppress_companion_text` is companion_texting's recursion guard: set
+    for the one turn where this session is replying to an incoming
+    companion text, so it can never itself initiate one back — this is
+    what actually bounds a text_companion exchange, independent of the
+    count below. `companion_text_max_calls` bounds how many text_companion
+    calls THIS turn may make in total (None = unlimited, the default for
+    live calls/chats — sending several different companions a message in
+    one turn is fine; heartbeat.py passes an explicit per-row cap, or 0 to
+    disable the tool entirely for a turn that doesn't allow it)."""
     if session['state'] != 'active':
         raise ValidationError("Session is not active.")
     if session['mode'] != 'text':
@@ -2240,6 +2267,17 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         # is the companion's own job (same spirit as the delegate guard).
         enable_minecraft=(bool(agent['enable_minecraft'])
                           and session['origin'] != 'delegated'),
+        # Recursion guard: a companion replying to an incoming companion
+        # text must not immediately text back — see companion_texting.
+        # companion_text_max_calls == 0 fully disables it for a turn that
+        # doesn't allow it at all (e.g. a heartbeat with the row-level
+        # toggle off); the actual per-call counting happens in the
+        # dispatch loop below, since this tool list is fixed for every
+        # leg of this call.
+        enable_companion_texting=(bool(agent['enable_companion_texting'])
+                                  and session['origin'] != 'delegated'
+                                  and not suppress_companion_text
+                                  and companion_text_max_calls != 0),
         # Headless turns (delegate task sessions) have no browser to answer
         # a browser_tools round-trip — don't offer the screen tools there.
         enable_browser_tools=not headless,
@@ -2282,6 +2320,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     accumulated_native_echo = []
     accumulated_mcp_results_echo = []
     mcp_dropped = False
+    # companion_text_max_calls enforcement: `tools` above is fixed for
+    # every leg of this call, so nothing else stops the model calling
+    # text_companion repeatedly across legs/in parallel within one turn.
+    # Live calls/chats pass None (unlimited) here and are unaffected;
+    # heartbeat.py is the caller that passes a real number.
+    companion_texts_sent = 0
 
     while max_iterations > 0:
         max_iterations -= 1
@@ -2627,6 +2671,22 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 else:
                     result = minecraft_tools.execute_minecraft_status(
                         con, session, agent, args)
+            elif name == companion_texting.TEXT_COMPANION_TOOL_NAME:
+                # Flag + recursion checks live in the executor; it returns
+                # {'error': ...} so the model gets a structured failure.
+                # companion_text_max_calls enforcement (see
+                # companion_texts_sent above): the tool stays offered for
+                # the rest of THIS turn regardless of how many times it's
+                # already been called, so enforce the ceiling here instead.
+                if (companion_text_max_calls is not None
+                        and companion_texts_sent >= companion_text_max_calls):
+                    result = {'error': f'Reached the texting limit for this '
+                                       f'heartbeat ({companion_text_max_calls} '
+                                       f'exchange(s)) — wrap up for now.'}
+                else:
+                    result = companion_texting.execute_text_companion_tool(con, session, args)
+                    if result.get('ok'):
+                        companion_texts_sent += 1
             else:
                 result = {'error': f'Unknown tool: {name}'}
             output_str = json.dumps(result, default=str)

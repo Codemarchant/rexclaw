@@ -555,6 +555,7 @@ export const JA = {
   "e.g. 'Favour [pause] and <slow> for weight; [chuckle] for dry humor.'":
     "例：「重みを出すときは [pause] と <slow> を、乾いたユーモアには [chuckle] を好んで使う。」",
   "Call-companion tool (group calls)": "コンパニオン呼び出しツール（グループ通話）",
+  "Companion texting (text_companion)": "コンパニオンテキスト（text_companion）",
   "Web search": "Web 検索",
   "X search": "X 検索",
   "Grok Imagine": "Grok Imagine",
@@ -627,6 +628,8 @@ export const JA = {
     "音声通話中にコンパニオンがアバターを動かせるようにします：ジェスチャーの再生（組み込みセットとアバター固有のカスタムジェスチャー）と、アバターの衣装の切り替え（play_gesture、change_outfit）。表情はこの設定に関係なく常に使えます。下の表現スタイル欄が有効になります。",
   "Lets the companion bring other companions into the current voice call and send them away again (add_agent_to_call, remove_agent_from_call), e.g. when you ask to talk to someone else or want a group conversation. Voice mode only.":
     "コンパニオンが現在の音声通話に他のコンパニオンを呼び入れたり退出させたりできるようにします（add_agent_to_call、remove_agent_from_call）— 別のコンパニオンと話したいときやグループ会話をしたいときに。ボイスモードのみ。",
+  "Lets the companion send an async text to another companion and get their reply back, mid voice call or chat — e.g. checking in on someone or passing along news. The message lands in the other companion's own conversation, clearly marked as coming from a companion rather than you. One reply per text; it doesn't turn into an unsupervised back-and-forth.":
+    "コンパニオンが、音声通話やチャットの最中に別のコンパニオンへ非同期でテキストを送り、返信を受け取れるようにします — 例えば様子を伺ったり近況を伝えたりする用途です。メッセージは相手コンパニオン自身の会話に届き、あなたではなくコンパニオンからのものだと明確に分かるようになっています。返信は1通のみで、際限のない自動応酬にはなりません。",
   "Gives the companion long-term memory tools (remember, recall, forget): it can save facts about you and your conversations, search them later, and delete ones you ask it to drop. Memories persist across sessions and appear in the Memories tab.":
     "コンパニオンに長期記憶ツール（remember、recall、forget）を与えます：あなたや会話についての事実を保存し、後で検索し、頼まれたものを削除できます。メモリはセッションをまたいで保持され、メモリタブに表示されます。",
   "Lets the companion drive the Minecraft bot set up in the Games tab from voice and text sessions: give it goals and commands, check what it's doing. The tools are only offered while the bot sidecar is connected.":
@@ -1023,6 +1026,13 @@ export const JA = {
   "Session": "セッション",
   "The heartbeat only fires while active: at the 'Next run' date, then every interval.":
     "ハートビートは有効な間だけ発火します：「次回実行」の日時に、以降は間隔ごとに。",
+  "Allow companion texting during this heartbeat": "このハートビート中のコンパニオンテキストを許可",
+  "Lets this heartbeat's own tick text another companion (text_companion) and get their reply back, up to the exchange limit below. Off by default — a diary-style heartbeat, for example, usually doesn't need it.":
+    "このハートビートの実行中に、別のコンパニオンにテキストを送って返信を受け取れるようにします（text_companion）。回数は下のやり取りの上限まで。デフォルトはオフ — 例えば日記のようなハートビートには通常不要です。",
+  "Exchange limit": "やり取りの上限",
+  "The most exchanges this tick may have with another companion. The companion decides whether to use any of it at all, and doesn't have to reach the limit.":
+    "この実行が別のコンパニオンと行える最大のやり取り回数です。使うかどうかはコンパニオン自身が判断し、上限まで使う必要はありません。",
+  "texting up to %s": "テキスト上限%s回",
   "own session per run": "実行ごとに専用セッション",
   "latest conversation": "最新の会話",
   "chosen session": "選んだセッション",

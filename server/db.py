@@ -289,6 +289,11 @@ CREATE TABLE IF NOT EXISTS agents (
     -- this companion into a live call.
     enable_call_agents_tool INTEGER NOT NULL DEFAULT 1,
     when_to_call_description TEXT,
+    -- Companion texting: text_companion lets this agent send an async text
+    -- to another companion's own latest conversation and get their reply
+    -- back — the cross-session counterpart to enable_call_agents_tool's
+    -- live same-call join. On by default.
+    enable_companion_texting INTEGER NOT NULL DEFAULT 1,
     -- end_call: lets the companion hang up when the user asks it to
     -- ("end the call", "goodnight") — the browser drains the goodbye
     -- before disconnecting.
@@ -510,6 +515,12 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     last_run_at TEXT,
     past_due INTEGER NOT NULL DEFAULT 0,     -- pending user decision; scheduler skips
     last_error TEXT,                         -- last failed tick, cleared on success
+    -- Companion texting during this heartbeat's own tick (off by default —
+    -- e.g. a diary heartbeat leaves this off). When on, the tick may use
+    -- text_companion up to companion_texting_max_turns times; see
+    -- heartbeat.build_context_block / run_heartbeat.
+    allow_companion_texting INTEGER NOT NULL DEFAULT 0,
+    companion_texting_max_turns INTEGER NOT NULL DEFAULT 5,
     created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_heartbeats_due ON heartbeats (active, past_due, next_run_at);
@@ -682,6 +693,14 @@ MIGRATIONS = (
     # with — lets the chat show "prompt changed, refresh?" (see
     # session_service.text_prompt_stale).
     "ALTER TABLE sessions ADD COLUMN chain_instructions_hash TEXT",
+    # Companion texting (text_companion): async cross-session messaging
+    # between companions, landing in the target's own latest conversation.
+    "ALTER TABLE agents ADD COLUMN enable_companion_texting INTEGER NOT NULL DEFAULT 1",
+    # Per-heartbeat companion texting (off by default per row, unlike the
+    # agent-level master switch above): lets one heartbeat's own tick use
+    # text_companion, bounded to a configurable number of exchanges.
+    "ALTER TABLE heartbeats ADD COLUMN allow_companion_texting INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE heartbeats ADD COLUMN companion_texting_max_turns INTEGER NOT NULL DEFAULT 5",
 )
 
 

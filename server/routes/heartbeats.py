@@ -26,7 +26,13 @@ router = APIRouter(prefix="/api")
 _HEARTBEAT_FIELDS = (
     "agent_id", "name", "active", "prompt", "interval_number",
     "interval_unit", "mode", "session_strategy", "session_id",
+    "allow_companion_texting", "companion_texting_max_turns",
 )
+
+# Keeps a heartbeat's own tick comfortably inside text_send_turn's shared
+# per-turn leg budget (max_iterations = 8): each exchange is at least one
+# leg, plus headroom for the model's reasoning/wrap-up.
+_MAX_COMPANION_TEXTING_TURNS = 6
 
 
 def _row_out(r):
@@ -71,6 +77,13 @@ def heartbeats_save(payload: dict = Body(default={}), con=Depends(db_con)):
             updates["interval_number"] = max(1, int(updates["interval_number"]))
         except (TypeError, ValueError):
             raise UserError("interval_number must be a positive integer.")
+    if "companion_texting_max_turns" in updates:
+        try:
+            updates["companion_texting_max_turns"] = max(
+                1, min(_MAX_COMPANION_TEXTING_TURNS,
+                      int(updates["companion_texting_max_turns"])))
+        except (TypeError, ValueError):
+            raise UserError("companion_texting_max_turns must be an integer.")
     if updates.get("session_strategy") == "fixed" and not (
             updates.get("session_id")
             or (hb_id and _get(con, hb_id)["session_id"])):
@@ -137,9 +150,13 @@ def heartbeats_save(payload: dict = Body(default={}), con=Depends(db_con)):
     elif row["active"]:
         nxt = parse_dt(row["next_run_at"])
         if not nxt or nxt <= now:
+            # A non-texting heartbeat with an active companion-texting
+            # sibling phases in halfway between its ticks instead of an
+            # arbitrary now-anchored slot — see offset_from_texting_sibling.
             con.execute(
                 "UPDATE heartbeats SET next_run_at = ?, past_due = 0 WHERE id = ?",
-                (heartbeat.compute_next_run(row, now), hb_id),
+                (heartbeat.offset_from_texting_sibling(con, row, now)
+                 or heartbeat.compute_next_run(row, now), hb_id),
             )
     if not row["active"] and old and old["active"]:
         con.execute("UPDATE heartbeats SET past_due = 0 WHERE id = ?", (hb_id,))
@@ -217,15 +234,23 @@ def heartbeats_resolve_all(payload: dict = Body(default={}), con=Depends(db_con)
     action = payload.get("action")
     if action not in ("execute", "defer"):
         raise UserError("action must be execute or defer.")
+    # Texting heartbeats resolve before others (same agent) — this is where
+    # it actually matters: after the app was off a while, a diary-style
+    # heartbeat and its companion-texting sibling can both go past due
+    # together, and running texting first lets the diary (once it runs)
+    # pick up on that tick's exchange. ORDER BY id is the tiebreak for
+    # everything else, same as before.
     agent_id = payload.get("agent_id")
     if agent_id:
         rows = con.execute(
-            "SELECT * FROM heartbeats WHERE past_due = 1 AND agent_id = ? ORDER BY id",
+            "SELECT * FROM heartbeats WHERE past_due = 1 AND agent_id = ?"
+            " ORDER BY allow_companion_texting DESC, id",
             (agent_id,),
         ).fetchall()
     else:
         rows = con.execute(
-            "SELECT * FROM heartbeats WHERE past_due = 1 ORDER BY id",
+            "SELECT * FROM heartbeats WHERE past_due = 1"
+            " ORDER BY agent_id, allow_companion_texting DESC, id",
         ).fetchall()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     resolved = 0

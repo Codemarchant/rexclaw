@@ -77,6 +77,32 @@ def defer_next_run(hb, now):
     return nxt.isoformat(timespec='seconds')
 
 
+def offset_from_texting_sibling(con, row, now):
+    """When a NON-texting heartbeat activates fresh (its next_run_at is
+    missing or already past), phase it to land halfway between an active
+    companion-texting sibling's own ticks (same agent) instead of an
+    arbitrary now-anchored slot — so e.g. a diary heartbeat naturally lands
+    after a texting exchange and can reference it, then the next texting
+    tick lands after that, indefinitely (both keep ticking on their own
+    fixed interval afterward, which preserves the phase relationship).
+    Returns None (caller falls back to compute_next_run) when this row IS
+    a texting heartbeat, or no such sibling is active yet."""
+    if row['allow_companion_texting']:
+        return None
+    sibling = con.execute(
+        "SELECT * FROM heartbeats WHERE agent_id = ? AND id != ? AND active = 1"
+        " AND allow_companion_texting = 1 AND next_run_at IS NOT NULL"
+        " ORDER BY id LIMIT 1",
+        (row['agent_id'], row['id']),
+    ).fetchone()
+    if not sibling:
+        return None
+    nxt = parse_dt(sibling['next_run_at'])
+    if not nxt:
+        return None
+    return (nxt + interval_delta(sibling) / 2).isoformat(timespec='seconds')
+
+
 # ---------------------------------------------------------------------------
 # Prompt context
 # ---------------------------------------------------------------------------
@@ -129,6 +155,12 @@ def latest_manual_session(con, agent_id):
 # scheduled turn apart from something the user actually typed.
 CONTEXT_PREFIX = '[Scheduled heartbeat '
 
+# The exact reply a heartbeat gives when it decides NOT to text anyone this
+# period (see build_context_block / run_heartbeat). An exact match on the
+# assistant's whole reply deletes that tick's rows so a stream of "nothing
+# happened" ticks doesn't clutter the transcript — see run_heartbeat.
+NO_TEXT_SENTINEL = '<no text sent by heartbeat>'
+
 
 def build_context_block(con, hb, agent):
     """The user-turn amble a heartbeat runs with — shared verbatim by the
@@ -155,6 +187,15 @@ def build_context_block(con, hb, agent):
         # last activity.
         last_line = f'is still open; last active {line(last["last_active_at"], "(unknown)")}'
     name = (hb['name'] or '').strip() or 'unnamed'
+    texting_line = ''
+    if hb['allow_companion_texting']:
+        cap = hb['companion_texting_max_turns'] or 5
+        texting_line = (
+            f'- Companion texting is available this period: up to {cap} '
+            f'back-and-forth exchange(s) with another companion, if you '
+            f'have real reason to. If you decide not to text anyone, your '
+            f'entire reply must be exactly: {NO_TEXT_SENTINEL}\n'
+        )
     return (
         f'{CONTEXT_PREFIX}"{name}" — this is an autonomous scheduled '
         f'prompt, not typed by the user; the user is not present in the '
@@ -162,6 +203,7 @@ def build_context_block(con, hb, agent):
         f'- Current local datetime: {now.replace(tzinfo=timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")}\n'
         f'- This heartbeat last ran: {line(hb["last_run_at"], "never")}\n'
         f'- Your last real conversation with the user {last_line}\n'
+        f'{texting_line}'
         f'Instructions:\n'
         f'{(hb["prompt"] or "").strip()}'
     )
@@ -203,12 +245,14 @@ def _voice_session_live(con, session, now):
     return bool(md and md > cutoff)
 
 
-def _resume_for_text(con, session, now):
+def resume_for_text(con, session, now):
     """Prepare a reused conversation for a headless text turn — the same
     thing a manual text-mode resume does: reactivate if ended/errored and
     flip a voice-surface session to text (mode tracks the CURRENT surface;
     a later voice resume flips it back). A session live in a call is never
-    touched — the tick retries after the call."""
+    touched — the caller retries later (see SessionBusy). Shared with
+    companion_texting, which resolves the same "latest conversation" target
+    for an incoming companion text."""
     if _voice_session_live(con, session, now):
         raise SessionBusy(f'session {session["id"]} is in a live call')
     vals = {}
@@ -238,13 +282,13 @@ def resolve_session(con, hb, agent, *, mode='text'):
             # write elsewhere; surface it via last_error instead.
             raise RuntimeError('the chosen session no longer exists — '
                                'pick another in the heartbeat settings')
-        return (_resume_for_text(con, session, now) if mode == 'text'
+        return (resume_for_text(con, session, now) if mode == 'text'
                 else session), False
 
     if strategy == 'latest':
         session = latest_manual_session(con, agent['id'])
         if session:
-            return (_resume_for_text(con, session, now) if mode == 'text'
+            return (resume_for_text(con, session, now) if mode == 'text'
                     else session), False
         # No conversation exists yet — fall back to an isolated tick rather
         # than inventing a "latest" thread the user never started.
@@ -258,7 +302,7 @@ def resolve_session(con, hb, agent, *, mode='text'):
             "SELECT * FROM sessions WHERE id = ?", (hb['session_id'],),
         ).fetchone()
         if session:
-            return (_resume_for_text(con, session, now) if mode == 'text'
+            return (resume_for_text(con, session, now) if mode == 'text'
                     else session), False
         # Workspace was deleted — fall through and create a new one.
     session = store.create_session(con, agent_id=agent['id'], mode=mode,
@@ -314,13 +358,41 @@ def run_heartbeat(con, hb, *, source='scheduler'):
                 _logger.exception('heartbeat %s: compaction failed for session %s',
                                   hb['id'], session['id'])
 
+        # Rows this tick adds start after this id — lets a "nothing to
+        # text about" tick clean up after itself below.
+        before_id = con.execute(
+            "SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?",
+            (session['id'],),
+        ).fetchone()[0]
+
         turn = svc.text_send_turn(
             con, session=session,
             user_text=build_context_block(con, hb, agent),
             headless=True,  # no browser is attached to a heartbeat turn
+            companion_text_max_calls=(hb['companion_texting_max_turns']
+                                      if hb['allow_companion_texting'] else 0),
         )
         if turn.get('type') == 'error':
             raise RuntimeError(turn.get('message') or 'heartbeat turn failed')
+        if turn.get('incomplete_reason') == 'tool_loop_cap':
+            # Ran out of the turn's shared model-call budget before the
+            # model produced a closing message (type is 'complete', not
+            # 'error', so this needs its own check) — surface it as a
+            # failure rather than silently leaving tool_call/tool_result
+            # rows with no wrap-up text. Lower this heartbeat's exchange
+            # cap if it recurs.
+            raise RuntimeError('ran out of model turns before finishing — '
+                               'try a lower companion-texting exchange cap')
+
+        if (hb['allow_companion_texting']
+                and (turn.get('assistant_text') or '').strip() == NO_TEXT_SENTINEL):
+            # Decided not to text anyone — drop this tick's rows (the
+            # injected context line + the sentinel reply) so a string of
+            # "nothing happened" ticks doesn't clutter the transcript. Safe
+            # to delete locally: the xAI response chain lives on the
+            # session's previous_response_id, not on these local rows.
+            con.execute("DELETE FROM messages WHERE session_id = ? AND id > ?",
+                        (session['id'], before_id))
 
         store.update_session(con, session['id'], last_active_at=utcnow())
         if isolated:
@@ -404,7 +476,11 @@ def _tick(con, now):
     due = con.execute(
         "SELECT * FROM heartbeats WHERE active = 1 AND past_due = 0"
         " AND mode = 'silent' AND next_run_at IS NOT NULL AND next_run_at <= ?"
-        " ORDER BY next_run_at, id",
+        # Texting heartbeats first on a tie (rare in steady-state — they're
+        # deliberately phased apart — but common right after a bulk past-due
+        # catch-up): so a diary-style heartbeat due at the same moment sees
+        # that tick's exchange when it runs.
+        " ORDER BY next_run_at, allow_companion_texting DESC, id",
         (now.isoformat(timespec='seconds'),),
     ).fetchall()
     for hb in due:
