@@ -302,6 +302,11 @@ export const JA = {
   "UI language — stored in this browser. Companions follow the language you speak regardless.":
     "UI の言語 — このブラウザに保存されます。コンパニオンは設定に関わらず、あなたが話す言語に合わせます。",
   "Include my name in the system prompt": "システムプロンプトに自分の名前を含める",
+  "Your photo (optional)": "あなたの写真（任意）",
+  "If set, any companion with Grok Imagine enabled can feature you in a generated image or video, using this photo as reference. Only upload one you're comfortable being used that way.":
+    "設定すると、Grok Imagine が有効なコンパニオンは誰でも、この写真を参照としてあなたを生成画像・動画に登場させられるようになります。この用途で使われても構わないと思える写真だけをアップロードしてください。",
+  "Your photo": "あなたの写真",
+  "Could not remove photo": "写真を削除できませんでした",
 
   // ── Settings: context management ──────────────────────────────────────
   "Context management": "コンテキスト管理",

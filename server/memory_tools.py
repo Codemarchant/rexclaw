@@ -459,9 +459,14 @@ def _impl_remember(con, session, arguments):
     # react to (forget something, then retry) instead of a hard failure.
     # oldest_id is a candidate, not a directive — age alone doesn't mean
     # unimportant (a name or other foundational fact can be the very first
-    # thing stored), so the message below deliberately doesn't tell the
-    # model to forget it; the full core list is already in its own system
-    # prompt to choose from.
+    # thing stored). The "scan for redundant entries" advice lives ONLY in
+    # this message, not the tool's static description above (visible on
+    # EVERY call, blocked or not) — that's what generalized into standing
+    # housekeeping duty last time and produced placeholder-content remember/
+    # forget spam even when nothing was actually blocked. This message only
+    # ever fires at the real blocked moment, so it can afford to be more
+    # detailed; the explicit tool-call budget below is the guard against a
+    # NEW loop starting here instead.
     if scope == 'core' and agent_id:
         agent = store.get_agent(con, agent_id)
         cap = agent['core_memory_cap'] or DEFAULT_CORE_CAP
@@ -478,19 +483,17 @@ def _impl_remember(con, session, arguments):
                 'oldest_id': existing_core[0]['id'],
                 'oldest_content': existing_core[0]['content'],
                 'message': (
-                    f'Core memory cap of {cap} reached. First scan the core '
-                    f'memory list in your system prompt for anything '
-                    f'redundant or near-duplicate of another entry there — '
-                    f'forgetting one of those is the best use of a slot '
+                    f'Core memory cap of {cap} reached. Check the core list '
+                    f'in your system prompt for anything redundant or '
+                    f'near-duplicate of another entry there and forget that '
                     f'(exact-content duplicates are already deduped '
                     f'automatically; this is for ones that merely overlap). '
-                    f'Otherwise use your own judgement about which existing '
-                    f'core memory matters least now and call `forget` on '
-                    f'that one, then retry — it does not have to be the '
-                    f'oldest (oldest_id={existing_core[0]["id"]} is only '
-                    f'supplied as a fallback candidate). Never forget '
-                    f'something foundational, like the user\'s name or other '
-                    f'critical facts, just because it is old. Or use '
+                    f'Otherwise forget whichever existing core memory '
+                    f'matters least now — oldest_id={existing_core[0]["id"]} '
+                    f'is only a fallback candidate, not a rule: don\'t '
+                    f'forget it (or anything else) just because it\'s old '
+                    f'if it still matters, like the user\'s name. Tool '
+                    f'calls this turn are limited (around 8 total); or use '
                     f'scope="recall" instead if this new fact does not need '
                     f'to stay pinned.'
                 ),
@@ -784,12 +787,9 @@ MEMORY_TOOLS = [
             '"remember this" too minor for core. '
             'On exact-content duplicates the existing memory is returned (created=false). '
             'When core scope hits the per-agent cap, returns {ok:false, reason:"core_full", '
-            'oldest_id} as a fallback suggestion, not a directive — first check the core '
-            'list already in your system prompt for anything redundant or near-duplicate '
-            'of another entry and forget one of those; otherwise weigh them and forget '
-            'whichever one genuinely matters least now (never something foundational, like '
-            'the user\'s name, just because it is old), then retry. Or use scope="recall" '
-            'instead.'
+            'oldest_id} — call `forget` on an existing core memory, then retry (oldest_id is '
+            'a fallback candidate, not a rule: don\'t forget it just because it\'s old if it '
+            'still matters, like the user\'s name). Or use scope="recall" instead.'
         ),
         'parameters': {
             'type': 'object',

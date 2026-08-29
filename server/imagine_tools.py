@@ -487,21 +487,44 @@ def _with_companion_param(tool, con, agent, other_agents, *, include_voice_roste
     return tool
 
 
+def _with_user_param(tool, config):
+    """Add include_user (a plain boolean, no outfit/wardrobe concept — it's
+    a real photo, not a VRM) when the user has uploaded their own likeness
+    in Settings. No separate toggle: the photo's presence IS the gate. In
+    place; returns the tool for chaining."""
+    if not config['user_photo_path']:
+        return tool
+    if 'include_self' in tool['parameters']['properties']:
+        tool['parameters']['properties']['include_user'] = {
+            'type': 'boolean',
+            'description': (
+                'true = feature the USER (the person you are talking to), '
+                'using the photo they uploaded of themselves in Settings. '
+                'Lands after your own likeness and any include_companion, '
+                'before other source/reference images. Only set this when '
+                'the user has actually asked to be in the picture/clip '
+                'themselves - never add them on your own initiative.'
+            ),
+        }
+    return tool
+
+
 def build_voice_tools(con, agent):
     """Imagine function tools for a voice session."""
     outfits = store.agent_outfit_dicts(con, agent)
     other_agents = [a for a in store.list_agents(con) if a['id'] != agent['id']]
+    config = get_config(con)
     return [
         _CHANGE_BACKGROUND_TOOL,
-        _with_companion_param(
+        _with_user_param(_with_companion_param(
             _with_outfit_param(copy.deepcopy(_CREATE_IMAGE_TOOL), outfits),
-            con, agent, other_agents, include_voice_roster=False),
-        _with_companion_param(
+            con, agent, other_agents, include_voice_roster=False), config),
+        _with_user_param(_with_companion_param(
             _with_outfit_param(
-                build_create_video_tool(reference=video_reference_supported(get_config(con)),
+                build_create_video_tool(reference=video_reference_supported(config),
                                         selfie=bool(agent['enable_capture_tools'])),
                 outfits),
-            con, agent, other_agents, include_voice_roster=True),
+            con, agent, other_agents, include_voice_roster=True), config),
     ]
 
 
@@ -511,16 +534,17 @@ def build_text_tools(con, agent):
     companion."""
     outfits = store.agent_outfit_dicts(con, agent)
     other_agents = [a for a in store.list_agents(con) if a['id'] != agent['id']]
+    config = get_config(con)
     return [
-        _with_companion_param(
+        _with_user_param(_with_companion_param(
             _with_outfit_param(copy.deepcopy(_CREATE_IMAGE_TOOL), outfits),
-            con, agent, other_agents, include_voice_roster=False),
-        _with_companion_param(
+            con, agent, other_agents, include_voice_roster=False), config),
+        _with_user_param(_with_companion_param(
             _with_outfit_param(
-                build_create_video_tool(reference=video_reference_supported(get_config(con)),
+                build_create_video_tool(reference=video_reference_supported(config),
                                         selfie=False),
                 outfits),
-            con, agent, other_agents, include_voice_roster=True),
+            con, agent, other_agents, include_voice_roster=True), config),
     ]
 
 # Tools that only make sense with a live fullscreen canvas — gated out of
@@ -584,7 +608,8 @@ def execute_imagine_tool(con, session, tool_name, arguments):
     source_refs = _library_ref_list((arguments or {}).get('source_images'))
     include_self = tool_name == 'create_image' and _truthy((arguments or {}).get('include_self'))
     include_companion = tool_name == 'create_image' and _library_ref((arguments or {}).get('include_companion'))
-    if tool_name == 'create_image' and (source_refs or include_self or include_companion):
+    include_user = tool_name == 'create_image' and _truthy((arguments or {}).get('include_user'))
+    if tool_name == 'create_image' and (source_refs or include_self or include_companion or include_user):
         source_uris = []
         self_note = None
         companion_note = None
@@ -603,6 +628,11 @@ def execute_imagine_tool(con, session, tool_name, arguments):
             uri, err, companion_note = _portrait_data_uri(con, target, target_outfit)
             if err:
                 return {'error': f'include_companion: {err}'}
+            source_uris.append(uri)
+        if include_user:
+            uri, err = _user_photo_data_uri(config)
+            if err:
+                return {'error': f'include_user: {err}'}
             source_uris.append(uri)
         for ref in source_refs or ():
             uri, err = _library_image_data_uri(con, ref)
@@ -758,6 +788,22 @@ def _web_path_to_file(web_path):
     if str(candidate).startswith(str(FILES_DIR.resolve())):
         return candidate
     return None
+
+
+def _user_photo_data_uri(config):
+    """include_user: the user's own Settings-uploaded photo as a data URI,
+    or an error. No outfit/wardrobe concept — it's a real photo, not a VRM,
+    so there's only ever one source to resolve."""
+    path = config['user_photo_path']
+    if not path:
+        return None, 'no user photo has been uploaded in Settings.'
+    f = _web_path_to_file(path)
+    if not f or not f.is_file():
+        return None, 'the uploaded user photo could not be found on disk.'
+    mimetype = _PORTRAIT_MIMETYPES.get(f.suffix.lower())
+    if not mimetype:
+        return None, 'the uploaded user photo has an unsupported file type.'
+    return f'data:{mimetype};base64,{base64.b64encode(f.read_bytes()).decode()}', None
 
 
 def _imagine_row_for_ref(con, ref):
@@ -945,9 +991,10 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         reference_refs = _library_ref_list(arguments.get('reference_images'))
         include_self = _truthy(arguments.get('include_self'))
         include_companion = _library_ref(arguments.get('include_companion'))
+        include_user = _truthy(arguments.get('include_user'))
         # Schema-pruned for these models (see build_create_video_tool);
         # refuse here too so a stale or injected call can't slip through.
-        if ((reference_refs or reference_voice_ids or include_self or include_companion)
+        if ((reference_refs or reference_voice_ids or include_self or include_companion or include_user)
                 and not video_reference_supported(config)):
             return {'error': (
                 f'reference_images / voice_ids are not supported by the configured '
@@ -957,7 +1004,7 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         edit_ref = _library_ref(arguments.get('edit_video'))
         picked = [name for name, value in (
             ('source_image', source_ref),
-            ('reference_images', reference_refs or include_self or include_companion),
+            ('reference_images', reference_refs or include_self or include_companion or include_user),
             ('extend_video', extend_ref),
             ('edit_video', edit_ref),
         ) if value]
@@ -987,7 +1034,7 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             image_data_uri, err = _library_image_data_uri(con, source_ref)
             if err:
                 return {'error': f'source_image: {err}'}
-        elif reference_refs or include_self or include_companion:
+        elif reference_refs or include_self or include_companion or include_user:
             reference_data_uris = []
             if include_self:
                 # Likeness first → <IMAGE_0>, as the schema promises.
@@ -1002,6 +1049,11 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
                 uri, err, companion_note = _portrait_data_uri(con, target, target_outfit)
                 if err:
                     return {'error': f'include_companion: {err}'}
+                reference_data_uris.append(uri)
+            if include_user:
+                uri, err = _user_photo_data_uri(config)
+                if err:
+                    return {'error': f'include_user: {err}'}
                 reference_data_uris.append(uri)
             for ref in reference_refs or ():
                 uri, err = _library_image_data_uri(con, ref)

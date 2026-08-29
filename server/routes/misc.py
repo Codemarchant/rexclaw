@@ -1,5 +1,6 @@
 # Copyright 2026 Codemarchant
 """Settings + memories + agent management routes for the standalone UI."""
+import base64
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ import shutil
 import tarfile
 import tempfile
 import threading
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -76,6 +78,7 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     )
     out["spend_today_usd"] = row["spend_today_usd"]
     out["spend_lifetime_usd"] = row["spend_lifetime_usd"]
+    out["user_photo_url"] = row["user_photo_path"] or None
     # Live PATH lookup (not persisted): lets the settings UI show whether
     # local_task can actually be offered on this machine.
     out["local_task_cli_path"] = local_tools.grok_binary()
@@ -100,6 +103,63 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
         con.execute(f"UPDATE config SET {cols} WHERE id = 1", tuple(updates.values()))
         con.commit()
     return {"ok": True, "updated": sorted(updates.keys())}
+
+
+_PHOTO_MIMETYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+
+
+def _delete_files_web_path(web_path):
+    """Best-effort delete of a /files/... path — used to clean up the
+    previous user photo on re-upload/clear. Never raises: an orphaned file
+    is a minor annoyance, a crashed request over it is not acceptable."""
+    if not web_path or not web_path.startswith("/files/"):
+        return
+    try:
+        candidate = (FILES_DIR / web_path[len("/files/"):]).resolve()
+        if str(candidate).startswith(str(FILES_DIR.resolve())) and candidate.is_file():
+            candidate.unlink()
+    except Exception:
+        _logger.exception("Could not delete old file %s", web_path)
+
+
+@router.post("/config/user_photo")
+def config_set_user_photo(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Upload the user's OWN likeness — a single global photo (this is a
+    single-user app), referenced by create_image/create_video's
+    include_user wherever Grok Imagine is enabled. Same data:image/... decode
+    rules as the selfie/upload_image routes. Replacing an existing photo
+    deletes the old file."""
+    data = payload.get("image_data_url") or ""
+    if not isinstance(data, str) or not data.startswith("data:image/"):
+        raise UserError("image_data_url must be a data:image/... URI.")
+    header, _, b64 = data.partition(",")
+    mimetype = header[len("data:"):].split(";", 1)[0]
+    if mimetype not in _PHOTO_MIMETYPES:
+        raise UserError(f"Unsupported image mimetype {mimetype!r}.")
+    try:
+        raw = base64.b64decode(b64 or "", validate=True)
+    except Exception:
+        raise UserError("image_data_url is not valid base64.")
+    if not raw or len(raw) > 10 * 1024 * 1024:
+        raise UserError("Image must be between 1 byte and 10 MB.")
+
+    old = con.execute("SELECT user_photo_path FROM config WHERE id = 1").fetchone()["user_photo_path"]
+    fname = f"user_photo_{uuid.uuid4().hex}{_PHOTO_MIMETYPES[mimetype]}"
+    (FILES_DIR / fname).write_bytes(raw)
+    photo_path = f"/files/{fname}"
+    con.execute("UPDATE config SET user_photo_path = ? WHERE id = 1", (photo_path,))
+    con.commit()
+    _delete_files_web_path(old)
+    return {"user_photo_url": photo_path}
+
+
+@router.post("/config/user_photo/clear")
+def config_clear_user_photo(con=Depends(db_con)):
+    old = con.execute("SELECT user_photo_path FROM config WHERE id = 1").fetchone()["user_photo_path"]
+    con.execute("UPDATE config SET user_photo_path = NULL WHERE id = 1")
+    con.commit()
+    _delete_files_web_path(old)
+    return {"ok": True}
 
 
 # Model fields whose shipped defaults "Restore suggested models" puts back.

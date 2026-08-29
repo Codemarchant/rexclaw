@@ -38,6 +38,39 @@ export default function SettingsView({ active }) {
     const [dirty, setDirty] = useState(false);
     const dirtyRef = useRef(false);
     const markDirty = (v) => { dirtyRef.current = v; setDirty(v); };
+    // User photo: uploads immediately (its own endpoint, not part of the
+    // draft/Save flow) — no separate on/off toggle, its presence is what
+    // gates create_image/create_video's include_user.
+    const [photoUploading, setPhotoUploading] = useState(false);
+    const photoInputRef = useRef(null);
+    const onUserPhotoSelected = async (ev) => {
+        const file = ev.target.files?.[0];
+        ev.target.value = "";
+        if (!file) return;
+        setPhotoUploading(true);
+        try {
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error);
+                reader.readAsDataURL(file);
+            });
+            const res = await rpc("/api/config/user_photo", { image_data_url: dataUrl });
+            setConfig((c) => ({ ...c, user_photo_url: res.user_photo_url }));
+        } catch (e) {
+            notification.add(e?.message || _t("Upload failed"), { type: "danger" });
+        } finally {
+            setPhotoUploading(false);
+        }
+    };
+    const clearUserPhoto = async () => {
+        try {
+            await rpc("/api/config/user_photo/clear", {});
+            setConfig((c) => ({ ...c, user_photo_url: null }));
+        } catch (e) {
+            notification.add(e?.message || _t("Could not remove photo"), { type: "danger" });
+        }
+    };
 
     const load = async () => {
         try {
@@ -208,6 +241,30 @@ export default function SettingsView({ active }) {
                         <label htmlFor="rx_include_name">
                             {_t("Include my name in the system prompt")}
                         </label>
+                    </div>
+                    <div className="rx_user_photo" style={{ marginTop: "0.75rem" }}>
+                        <label>{_t("Your photo (optional)")}</label>
+                        <p className="text-muted small" style={{ margin: "0 0 0.4rem" }}>
+                            {_t("If set, any companion with Grok Imagine enabled can feature you in a generated image or video, using this photo as reference. Only upload one you're comfortable being used that way.")}
+                        </p>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                            {config.user_photo_url && (
+                                <img src={config.user_photo_url} alt={_t("Your photo")}
+                                     style={{ width: "3.5rem", height: "3.5rem", objectFit: "cover", borderRadius: "0.4rem" }} />
+                            )}
+                            <button type="button" className="btn btn-sm" disabled={photoUploading}
+                                    onClick={() => photoInputRef.current?.click()}>
+                                <i className={photoUploading ? "fa fa-spinner fa-spin" : "fa fa-upload"} />{" "}
+                                {config.user_photo_url ? _t("Replace") : _t("Upload")}
+                            </button>
+                            {config.user_photo_url && (
+                                <button type="button" className="btn btn-sm btn-link" onClick={clearUserPhoto}>
+                                    {_t("Remove")}
+                                </button>
+                            )}
+                            <input ref={photoInputRef} type="file" accept="image/png,image/jpeg,image/webp"
+                                   style={{ display: "none" }} onChange={onUserPhotoSelected} />
+                        </div>
                     </div>
                 </section>
 

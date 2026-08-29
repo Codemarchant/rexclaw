@@ -77,6 +77,10 @@ CREATE TABLE IF NOT EXISTS config (
     default_agent_id INTEGER,
     user_display_name TEXT,
     include_user_name_in_prompt INTEGER NOT NULL DEFAULT 0,
+    -- The user's own likeness, uploaded once in Settings. No separate
+    -- on/off toggle: create_image/create_video's include_user is only
+    -- ever offered when this is actually set (see imagine_tools.py).
+    user_photo_path TEXT,
     summary_threshold_tokens INTEGER NOT NULL DEFAULT 64000,
     summary_threshold_tokens_text INTEGER NOT NULL DEFAULT 1000000,
     summary_keep_recent_messages INTEGER NOT NULL DEFAULT 2,
@@ -738,6 +742,9 @@ MIGRATIONS = (
     # separate opt-in from enable_companion_texting (see the agents schema
     # comment above).
     "ALTER TABLE agents ADD COLUMN enable_cross_companion_imagine INTEGER NOT NULL DEFAULT 1",
+    # The user's own uploaded likeness (Settings tab) — create_image/
+    # create_video's include_user.
+    "ALTER TABLE config ADD COLUMN user_photo_path TEXT",
 )
 
 
