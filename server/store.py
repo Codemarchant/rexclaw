@@ -31,6 +31,11 @@ def background_payload(row):
             'scene_scale': row['scene_scale'] or 1.0,
             'scene_offset': [row['scene_offset_x'], row['scene_offset_y'], row['scene_offset_z']],
             'scene_rotation_y': row['scene_rotation_y'] or 0.0,
+            # Authored default companion spawn (walk mode) — rexclaw-only,
+            # no Odoo-module counterpart yet.
+            'default_pos_x': row['default_pos_x'] or 0.0,
+            'default_pos_z': row['default_pos_z'] or 0.0,
+            'default_yaw': row['default_yaw'] or 0.0,
         })
     return payload
 
@@ -408,6 +413,43 @@ def latest_imagine_video_background(con, agent_id):
         (agent_id,),
     ).fetchone()
     return row
+
+
+def get_scene_placement(con, agent_id, scene_url):
+    """This companion's last hand-placed spot in one GLB scene, or None."""
+    if not agent_id or not scene_url:
+        return None
+    row = con.execute(
+        "SELECT pos_x, pos_z, yaw FROM scene_placements WHERE agent_id = ? AND scene_url = ?",
+        (agent_id, scene_url),
+    ).fetchone()
+    return {'x': row['pos_x'], 'z': row['pos_z'], 'yaw': row['yaw']} if row else None
+
+
+def save_scene_placement(con, agent_id, scene_url, x, z, yaw):
+    con.execute(
+        "INSERT INTO scene_placements (agent_id, scene_url, pos_x, pos_z, yaw, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(agent_id, scene_url) DO UPDATE SET "
+        "pos_x = excluded.pos_x, pos_z = excluded.pos_z, yaw = excluded.yaw, "
+        "updated_at = excluded.updated_at",
+        (agent_id, scene_url, x, z, yaw, utcnow()),
+    )
+
+
+def set_background_default_placement(con, background_id, x, z, yaw):
+    """Overwrite a scene background's AUTHORED default spawn (degrees for
+    yaw, matching the Avatars-tab fields) — the live view's "set as
+    default" action. Distinct from save_scene_placement, which is the
+    per-agent override that tracks live as someone walks their companion
+    around; this is the static fallback everyone else starts from.
+    Returns False when there's no scene background with that id."""
+    cur = con.execute(
+        "UPDATE avatar_backgrounds SET default_pos_x = ?, default_pos_z = ?, default_yaw = ? "
+        "WHERE id = ? AND type = 'scene'",
+        (x, z, yaw, background_id),
+    )
+    return cur.rowcount > 0
 
 
 # ---------------------------------------------------------------------------

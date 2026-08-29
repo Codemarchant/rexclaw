@@ -210,7 +210,28 @@ CREATE TABLE IF NOT EXISTS avatar_backgrounds (
     scene_offset_y REAL NOT NULL DEFAULT 0,
     scene_offset_z REAL NOT NULL DEFAULT 0,
     scene_rotation_y REAL NOT NULL DEFAULT 0,
-    is_default INTEGER NOT NULL DEFAULT 0
+    is_default INTEGER NOT NULL DEFAULT 0,
+    -- Where the companion spawns in this scene (walk mode, metres/degrees)
+    -- before anyone has hand-placed one and saved it (see scene_placements).
+    default_pos_x REAL NOT NULL DEFAULT 0,
+    default_pos_z REAL NOT NULL DEFAULT 0,
+    default_yaw REAL NOT NULL DEFAULT 0
+);
+
+-- Where a companion was last hand-placed (walk mode) inside one specific
+-- GLB scene background, so re-entering that scene restores it instead of
+-- always spawning at the origin. Keyed by (agent, scene url) rather than
+-- the avatar_backgrounds row: the same GLB can be reused across agents,
+-- and each companion's placement in it is independent.
+CREATE TABLE IF NOT EXISTS scene_placements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    scene_url TEXT NOT NULL,
+    pos_x REAL NOT NULL DEFAULT 0,
+    pos_z REAL NOT NULL DEFAULT 0,
+    yaw REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    UNIQUE(agent_id, scene_url)
 );
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -701,6 +722,12 @@ MIGRATIONS = (
     # text_companion, bounded to a configurable number of exchanges.
     "ALTER TABLE heartbeats ADD COLUMN allow_companion_texting INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE heartbeats ADD COLUMN companion_texting_max_turns INTEGER NOT NULL DEFAULT 5",
+    # Authored default spawn placement for a GLB scene background (walk
+    # mode's "reset to default position" and the fallback before any
+    # scene_placements row exists for an agent).
+    "ALTER TABLE avatar_backgrounds ADD COLUMN default_pos_x REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_backgrounds ADD COLUMN default_pos_z REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE avatar_backgrounds ADD COLUMN default_yaw REAL NOT NULL DEFAULT 0",
 )
 
 

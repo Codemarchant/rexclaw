@@ -942,8 +942,16 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                         </button>
                         {/* Direct grid child pinned to the controls column — gets its
                             own grid line under the file controls (see rx_subrow--bg). */}
+                        {/* Two DIFFERENT things get positioned here, easy to
+                            conflate since both are scale/offset/rotation-shaped
+                            numbers: the ROOM (the GLB model itself — aligning an
+                            arbitrarily-exported scene so its floor/scale/facing
+                            are sane) vs the CHARACTER (where the companion spawns
+                            inside that room). Labelled inline, not just in the
+                            tooltip, so the two rows read as clearly separate. */}
                         {b.type === "scene" && (
-                            <span className="rx_scene_xform" title={_t("Placement of the GLB scene, in metres (avatar ≈ 1.5 m tall). Scale, X/Y/Z offset, and Y-axis rotation in degrees.")}>
+                            <span className="rx_scene_xform" title={_t("Placement of the GLB scene ITSELF, in metres (avatar ≈ 1.5 m tall) — aligning an arbitrarily-exported room so its floor/scale/facing line up. Scale, X/Y/Z offset, and Y-axis rotation in degrees.")}>
+                                <strong className="rx_scene_xform_label">{_t("Room")}</strong>
                                 <label>scale<NumField step="0.1" value={b.scale ?? 1}
                                        onCommit={(n) => setList("backgrounds", i, { scale: n })} /></label>
                                 <label>x<NumField step="0.1" value={(b.offset || [0, 0, 0])[0]}
@@ -954,6 +962,22 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                                        onCommit={(n) => setOffset(i, 2, n)} /></label>
                                 <label>y°<NumField step="1" value={b.rotation_y ?? 0}
                                        onCommit={(n) => setList("backgrounds", i, { rotation_y: n })} /></label>
+                            </span>
+                        )}
+                        {/* Where the COMPANION spawns in this scene, not the room
+                            itself — the fallback before anyone hand-places it in
+                            walk mode. Read these off walk mode's live position
+                            readout (or click "Set as default" there), then enter
+                            them here as the shipped default. */}
+                        {b.type === "scene" && (
+                            <span className="rx_scene_xform" title={_t("Where the COMPANION spawns in this scene by default (in metres/degrees), before anyone has hand-placed it in walk mode. Tip: use walk mode's live position readout to find good numbers (or its \"Set as default\" button), then enter them here.")}>
+                                <strong className="rx_scene_xform_label">{_t("Character spawn")}</strong>
+                                <label>x<NumField step="0.1" value={b.default_x ?? 0}
+                                       onCommit={(n) => setList("backgrounds", i, { default_x: n })} /></label>
+                                <label>z<NumField step="0.1" value={b.default_z ?? 0}
+                                       onCommit={(n) => setList("backgrounds", i, { default_z: n })} /></label>
+                                <label>facing°<NumField step="1" value={b.default_yaw ?? 0}
+                                       onCommit={(n) => setList("backgrounds", i, { default_yaw: n })} /></label>
                             </span>
                         )}
                     </div>

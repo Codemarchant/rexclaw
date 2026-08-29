@@ -396,6 +396,51 @@ def session_end(session_id: int, payload: dict = Body(default={}), con=Depends(d
     )
 
 
+@router.post("/placement/get")
+def placement_get(payload: dict = Body(default={}), con=Depends(db_con)):
+    """This companion's last hand-placed spot (walk mode) in one GLB scene
+    background, or {placement: null} when it's never been positioned there."""
+    agent = resolve_agent(con, payload.get("agent_id"))
+    scene_url = (payload.get("scene_url") or "").strip()
+    if not scene_url:
+        raise ValidationError("scene_url is required.")
+    return {"placement": store.get_scene_placement(con, agent["id"], scene_url)}
+
+
+@router.post("/placement/save")
+def placement_save(payload: dict = Body(default={}), con=Depends(db_con)):
+    agent = resolve_agent(con, payload.get("agent_id"))
+    scene_url = (payload.get("scene_url") or "").strip()
+    if not scene_url:
+        raise ValidationError("scene_url is required.")
+    store.save_scene_placement(
+        con, agent["id"], scene_url,
+        float(payload.get("x") or 0), float(payload.get("z") or 0), float(payload.get("yaw") or 0),
+    )
+    con.commit()
+    return {"ok": True}
+
+
+@router.post("/background/set_default_placement")
+def background_set_default_placement(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Live-view "set as default" action: overwrite one scene background's
+    authored default spawn with the given position, in one lightweight
+    UPDATE — distinct from the heavier full-manifest avatar save
+    (avatar_packs.write_manifest), which would delete and recreate every
+    background/outfit/gesture row just to change three numbers."""
+    background_id = payload.get("background_id")
+    if not isinstance(background_id, int):
+        raise ValidationError("background_id is required.")
+    ok = store.set_background_default_placement(
+        con, background_id,
+        float(payload.get("x") or 0), float(payload.get("z") or 0), float(payload.get("yaw") or 0),
+    )
+    if not ok:
+        raise ValidationError(f"No 3D scene background with id {background_id}.")
+    con.commit()
+    return {"ok": True}
+
+
 @router.post("/director/decide")
 def director_decide(payload: dict = Body(default={}), con=Depends(db_con)):
     """Group-call turn director: given the recent speaker-labelled transcript

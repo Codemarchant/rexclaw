@@ -99,6 +99,25 @@ export const JA = {
   "Disable walk mode": "歩行モードを無効化",
   "Enable walk mode (WASD / arrow keys — number keys pick which character to move in a group call)":
     "歩行モードを有効化（WASD／矢印キー — グループ通話中は数字キーで操作キャラを選択）",
+  "Hide walk mode settings": "歩行モード設定を隠す",
+  "Walk mode settings (mode, reset, position)": "歩行モード設定（モード・リセット・位置）",
+  "Walk": "歩行",
+  "No snap-back": "スナップバックなし",
+  "Moves the companion; faces you again on stop":
+    "コンパニオンを移動させます。停止するとあなたの方を向き直します",
+  "Same, but leaves it facing however it stopped — for posing":
+    "同様ですが、停止した向きのままにします — ポーズ付けに便利です",
+  "Camera": "カメラ",
+  "Flies the camera itself; companions untouched":
+    "カメラ自体を移動させます。コンパニオンには影響しません",
+  "Reset to this scene's default position (discards any hand-placed spot) and its default camera framing":
+    "このシーンのデフォルト位置（手動配置は破棄されます）とデフォルトのカメラアングルにリセットします",
+  "Reset to default": "デフォルトにリセット",
+  "Make the CURRENT position/facing this scene's new default spawn point for everyone":
+    "現在の位置・向きを、このシーンの新しいデフォルトスポーン地点として全員に適用します",
+  "Set as default": "デフォルトとして設定",
+  "facing": "向き",
+  "Could not save the default position.": "デフォルト位置を保存できませんでした。",
   "Enter MR/VR — passthrough mixed reality (toggle Virtual/Passthrough on the in-headset panel)":
     "MR/VR に入る — パススルー複合現実（ヘッドセット内パネルでバーチャル／パススルーを切替）",
   "Enter VR — stand with your companion in a headset (passthrough MR unavailable on this browser)":
@@ -803,8 +822,12 @@ export const JA = {
   "Preset": "プリセット",
   "Image": "画像",
   "3D scene (GLB)": "3D シーン（GLB）",
-  "Placement of the GLB scene, in metres (avatar ≈ 1.5 m tall). Scale, X/Y/Z offset, and Y-axis rotation in degrees.":
-    "GLB シーンの配置（メートル単位、アバターは約 1.5 m）。スケール、X/Y/Z オフセット、Y 軸回転（度）。",
+  "Placement of the GLB scene ITSELF, in metres (avatar ≈ 1.5 m tall) — aligning an arbitrarily-exported room so its floor/scale/facing line up. Scale, X/Y/Z offset, and Y-axis rotation in degrees.":
+    "GLB シーン自体の配置（メートル単位、アバターは約 1.5 m）— 任意の形式でエクスポートされたルームの床・スケール・向きを合わせるためのものです。スケール、X/Y/Z オフセット、Y 軸回転（度）。",
+  "Room": "ルーム",
+  "Where the COMPANION spawns in this scene by default (in metres/degrees), before anyone has hand-placed it in walk mode. Tip: use walk mode's live position readout to find good numbers (or its \"Set as default\" button), then enter them here.":
+    "コンパニオンが誰にも手動配置される前に、このシーンでデフォルトでスポーンする位置です（メートル／度）。ヒント：歩行モードのライブ位置表示（または「デフォルトとして設定」ボタン）で良い数値を見つけて、ここに入力してください。",
+  "Character spawn": "キャラクタースポーン",
   "default": "デフォルト",
   "Save avatar": "アバターを保存",
 

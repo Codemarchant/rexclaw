@@ -257,6 +257,9 @@ const MOVE_ARRIVAL_THRESHOLD = 0.12;  // m — walkTo() stop distance
 // sits at r=80 and the camera far plane at 100 — past ~35 m the floor's light
 // pool is gone and there's nothing to walk to anyway.
 const MOVE_BOUNDS_RADIUS = 35;
+// Camera-mode fly speed: unclamped free-look, so pitched faster than a
+// walking companion — surveying a whole scene at MOVE_SPEED would drag.
+const CAMERA_FLY_SPEED = 4.5;
 const WALK_FADE_IN = 0.25;            // s — idle/gesture → walk crossfade
 const WALK_FADE_OUT = 0.35;           // s — walk → idle settle
 // Camera follow smoothing: per-frame lerp factor 1 - exp(-RATE·dt). 5 settles
@@ -324,14 +327,26 @@ class AvatarRenderer {
         this._room = null;                // optional GLB environment behind the avatar (see loadRoom)
         this._loadedRoomUrl = null;       // url of the currently-loaded room — idempotency for repeated applies
         this._roomLoadGeneration = 0;     // monotonic — newest loadRoom/clearRoom wins; superseded in-flight loads self-dispose
+        this._sceneDefaultPlacement = null; // {x, z, yaw} authored spawn for the current scene, or null (no scene / none set)
         this._bgVideoEl = null;           // looping <video> backdrop for 'imagine_video' backgrounds
         this._bgVideoUrl = null;          // its url — idempotency for repeated applies/reparents
 
         // Locomotion state (see the MOVE_* constants above).
         this._moveMode = false;           // manual (WASD) input enabled by the full view toggle
+        // 'walk' (drives the actor, eases back to face the camera on stop),
+        // 'walk-no-snap' (same, but skips the return-facing ease — for
+        // posing companions in a scene without them turning back around),
+        // or 'camera' (WASD flies the camera + orbit target instead;
+        // companions are untouched). Only meaningful while _moveMode is on.
+        this._moveKind = "walk";
         this._moveActorId = "base";       // which character WASD drives: "base" or a peer id (number keys)
         this._moveInput = { x: 0, z: 0 }; // camera-relative manual direction (x = strafe right, z = forward)
         this._moveTarget = null;          // THREE.Vector3 — walkTo() destination, or null
+        // Callbacks a caller (VoiceView) registers for scene/placement
+        // persistence — this class does no networking itself. See
+        // addRoomLoadedCallback / addBasePlacementSettledCallback.
+        this._roomLoadedCallbacks = new Set();
+        this._placementSettledCallbacks = new Set();
         this._moving = false;             // walk clip + slide currently active
         this._walkAction = null;          // looping walk action, bound to the current VRM's mixer
         this._baseQuat = null;            // vrm.scene orientation as normalised at load (see _setMoveYaw)
@@ -1690,6 +1705,82 @@ class AvatarRenderer {
         }
     }
 
+    /** Switch what WASD input does without a full on/off toggle — see the
+     *  _moveKind field comment for the three behaviours. Settling any actor
+     *  mid-walk first so switching into camera mode never leaves a
+     *  companion frozen mid-stride (camera mode drives no actor at all).
+     *  Switching INTO an actor-driving mode (walk / walk-no-snap) resets the
+     *  camera framing back to its default preset — camera mode can fly it
+     *  arbitrarily far away, and coming back to "normal" walking shouldn't
+     *  leave you stuck controlling a companion you can't see. */
+    setMoveKind(kind) {
+        if (kind !== "walk" && kind !== "walk-no-snap" && kind !== "camera") return;
+        if (kind === this._moveKind) return;
+        if (kind === "camera") this.stopMoving();
+        else this._applyCameraPreset();
+        this._moveKind = kind;
+    }
+
+    /** Current position + facing of the base companion — for placement
+     *  persistence. This class does no saving itself; see
+     *  addBasePlacementSettledCallback / addRoomLoadedCallback. */
+    getBasePlacement() {
+        if (!this.vrm) return null;
+        const p = this.vrm.scene.position;
+        return { x: p.x, z: p.z, yaw: this._moveYaw || 0 };
+    }
+
+    /** Instantly place the base companion (no walk animation) — used to
+     *  restore a saved placement once a scene has loaded. Re-anchors the
+     *  follow camera on the new spot so it doesn't dolly to "catch up". */
+    setBasePlacement({ x, z, yaw } = {}) {
+        if (!this.vrm) return;
+        this.vrm.scene.position.x = x || 0;
+        this.vrm.scene.position.z = z || 0;
+        this._setMoveYaw(this, yaw || 0);
+        this._camFollowPos = null;
+    }
+
+    /** Register a callback fired with {x, z, yaw} whenever manual WASD
+     *  walking settles the BASE companion to a stop ('walk' or
+     *  'walk-no-snap' — camera mode drives no actor so never fires this).
+     *  Returns an unsubscribe fn. */
+    addBasePlacementSettledCallback(cb) {
+        this._placementSettledCallbacks.add(cb);
+        return () => this._placementSettledCallbacks.delete(cb);
+    }
+
+    /** Snap the base companion back to this scene's authored default spawn
+     *  (or the origin, if the background sets none) — discarding wherever
+     *  it was hand-placed — and persist that as the new saved placement via
+     *  the same settled-placement callback a manual walk stop uses, so the
+     *  reset sticks on the next visit too. Also resets the camera framing
+     *  back to its default preset, the same as entering the scene fresh. */
+    resetBaseToDefaultPlacement() {
+        if (!this.vrm) return;
+        const d = this._sceneDefaultPlacement;
+        this.setBasePlacement({ x: d?.x || 0, z: d?.z || 0, yaw: d?.yaw || 0 });
+        this._applyCameraPreset();
+        this._notifyBasePlacementSettled();
+    }
+
+    /** Update the CURRENT scene's authored default in place (VoiceView calls
+     *  this right after persisting a "set as default" to the server) — so a
+     *  later "reset to default" this same session picks up the new value
+     *  without needing the scene to reload. */
+    setSceneDefaultPlacement(placement) {
+        this._sceneDefaultPlacement = placement || null;
+    }
+
+    /** Current camera position — the other half of the position stats
+     *  readout (scene authoring: judging room offset/scale against a fixed
+     *  camera vantage). Not persisted anywhere; read-only. */
+    getCameraPosition() {
+        if (!this.camera) return null;
+        const p = this.camera.position;
+        return { x: p.x, y: p.y, z: p.z };
+    }
+
     /** The actor manual walk input currently steers: the base avatar or a
      *  live peer. Number keys in walk mode switch the selection
      *  (setMoveActor). Falls back to the base avatar if the selected peer
@@ -1903,8 +1994,10 @@ class AvatarRenderer {
         if (actor.idleClipAction) actor.idleClipAction.reset().fadeIn(WALK_FADE_OUT).play();
         // A companion turns to face you when she stops — not frozen
         // mid-stride aimed at a wall. Eased per-frame in _applyReturnFacing.
-        // In XR "you" is the headset, not the flat camera.
-        if (actor.vrm) {
+        // In XR "you" is the headset, not the flat camera. Skipped entirely
+        // in walk-no-snap mode: the whole point there is posing a companion
+        // without it turning back around on its own.
+        if (actor.vrm && !(this._moveMode && this._moveKind === "walk-no-snap")) {
             const p = actor.vrm.scene.position;
             let cx = null, cz = null;
             if (this._xrActive && this.renderer?.xr?.getCamera && this.libs) {
@@ -1918,29 +2011,69 @@ class AvatarRenderer {
         }
     }
 
+    /** Camera-relative direction from manual WASD input (x = strafe right, z
+     *  = forward, away from the camera), normalized — or null with no input
+     *  or no meaningful camera facing. Shared by actor-driven walk and the
+     *  decoupled camera-fly mode; only what consumes the vector differs. */
+    _cameraRelativeMoveDir() {
+        if (!this._moveInput.x && !this._moveInput.z) return null;
+        if (!this.camera || !this.libs) return null;
+        const { THREE } = this.libs;
+        const fwd = new THREE.Vector3();
+        this.camera.getWorldDirection(fwd);
+        fwd.y = 0;
+        if (fwd.lengthSq() < 1e-6) return null;
+        fwd.normalize();
+        const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+        const dir = new THREE.Vector3()
+            .addScaledVector(fwd, this._moveInput.z)
+            .addScaledVector(right, this._moveInput.x);
+        return dir.lengthSq() > 1e-6 ? dir.normalize() : null;
+    }
+
+    /** Camera-mode locomotion: WASD flies the camera (and the orbit target,
+     *  if attached) directly — composing a shot without moving any actor,
+     *  so companions stay exactly where they were left. */
+    _updateCameraFly(delta) {
+        const dir = this._cameraRelativeMoveDir();
+        if (!dir || !this.camera) return;
+        dir.multiplyScalar(CAMERA_FLY_SPEED * delta);
+        this.camera.position.add(dir);
+        if (this._orbitControls) {
+            this._orbitControls.target.add(dir);
+            this._orbitControls.update?.();
+        }
+    }
+
+    /** Notify placement-persistence listeners with the BASE companion's
+     *  current spot, the instant manual walking stops. Only ever the base —
+     *  peers are laid out by _layoutCallAvatars, not hand-placed. */
+    _notifyBasePlacementSettled() {
+        if (!this.vrm || !this._placementSettledCallbacks.size) return;
+        const p = this.vrm.scene.position;
+        const placement = { x: p.x, z: p.z, yaw: this._moveYaw || 0 };
+        for (const cb of this._placementSettledCallbacks) {
+            try { cb(placement); } catch (e) { /* non-fatal */ }
+        }
+    }
+
     /** Per-frame locomotion. Manual input wins over a walkTo target. Steering
      *  is kinematic: rotate toward the travel direction at
      *  MOVE_TURN_SPEED while advancing at MOVE_SPEED — the walk clip plays in
-     *  place; THIS is what moves the avatar. */
+     *  place; THIS is what moves the avatar. Camera mode is an entirely
+     *  separate path (_updateCameraFly) since it drives no actor at all. */
     _updateMovement(delta) {
+        if (this._moveMode && this._moveKind === "camera") {
+            this._updateCameraFly(delta);
+            return;
+        }
         const actor = this._moveActor();
         if (!actor.vrm || !this.libs) return;
         const { THREE } = this.libs;
         let dir = null;
 
         if (this._moveMode && (this._moveInput.x || this._moveInput.z)) {
-            // Camera-relative axes: W walks away from the camera.
-            const fwd = new THREE.Vector3();
-            this.camera.getWorldDirection(fwd);
-            fwd.y = 0;
-            if (fwd.lengthSq() > 1e-6) {
-                fwd.normalize();
-                const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
-                dir = new THREE.Vector3()
-                    .addScaledVector(fwd, this._moveInput.z)
-                    .addScaledVector(right, this._moveInput.x);
-                dir = dir.lengthSq() > 1e-6 ? dir.normalize() : null;
-            }
+            dir = this._cameraRelativeMoveDir();
             this._moveTarget = null;  // live input overrides a queued walkTo
         } else if (this._moveTarget) {
             const d = new THREE.Vector3().subVectors(this._moveTarget, actor.vrm.scene.position);
@@ -1953,7 +2086,10 @@ class AvatarRenderer {
         }
 
         if (!dir) {
-            if (actor._moving) this._stopWalkAnim(actor);  // keys released mid-walk
+            if (actor._moving) {
+                this._stopWalkAnim(actor);  // keys released mid-walk
+                if (actor === this) this._notifyBasePlacementSettled();
+            }
             this._applyReturnFacing(actor, delta);
             return;
         }
@@ -2045,10 +2181,32 @@ class AvatarRenderer {
         this._camFollowPos.z += dz;
     }
 
-    /** Return the avatar (and framing) to the origin spawn. Used when the
-     *  scene background is switched away — a flat backdrop has no "place", so
-     *  a wandered-off avatar would otherwise be standing somewhere arbitrary
-     *  relative to the freshly reset camera. */
+    /** Settle the base companion for a background change — either direction
+     *  (leaving a scene, or entering a genuinely new one): a group call's
+     *  row layout offsets the base by design, so home-resetting it there
+     *  would stack it onto a peer; re-assert the row instead (idempotent
+     *  when nobody walked). Solo, just go home. Shared by
+     *  _applyBackgroundToActiveHost (leaving) and loadRoom (entering). */
+    _settleAvatarForBackgroundChange() {
+        const inCallLayout = [...(this._peers?.values() || [])].some((p) => p.vrm);
+        if (inCallLayout) {
+            this._moveTarget = null;
+            this._moveInput.x = 0;
+            this._moveInput.z = 0;
+            this._returnFacingY = null;
+            if (this._moving) this._stopWalkAnim(this);
+            this._layoutCallAvatars();
+        } else {
+            this._resetAvatarHome();
+        }
+    }
+
+    /** Return the avatar (and framing) to its spawn — the current scene's
+     *  authored default placement (_sceneDefaultPlacement), or the origin
+     *  when there's no scene / none was set. Used when the scene background
+     *  is switched away (a flat backdrop has no "place", so a wandered-off
+     *  avatar would otherwise be standing somewhere arbitrary relative to
+     *  the freshly reset camera) and when entering a fresh scene. */
     _resetAvatarHome() {
         if (!this.vrm) return;
         this._moveTarget = null;
@@ -2057,8 +2215,9 @@ class AvatarRenderer {
         this._returnFacingY = null;
         if (this._moving) this._stopWalkAnim(this);
         this._returnFacingY = null;  // _stopWalkAnim queues one — home needs none
-        this.vrm.scene.position.set(0, 0, 0);
-        this._setMoveYaw(this, 0);  // base orientation = facing the default camera
+        const d = this._sceneDefaultPlacement;
+        this.vrm.scene.position.set(d?.x || 0, 0, d?.z || 0);
+        this._setMoveYaw(this, d?.yaw || 0);  // yaw 0 = facing the default camera
         this._applyCameraPreset();
     }
 
@@ -2146,10 +2305,15 @@ class AvatarRenderer {
      *  simultaneous applies don't both fetch and stack two rooms.
      *
      *  @param {string} url
-     *  @param {{position?: number[], rotation?: number[], scale?: number|number[]}} [opts]
+     *  @param {{position?: number[], rotation?: number[], scale?: number|number[],
+     *           avatarDefault?: {x: number, z: number, yaw: number}}} [opts]
      */
-    async loadRoom(url, { position = [0, 0, 0], rotation = [0, 0, 0], scale = 1 } = {}) {
+    async loadRoom(url, { position = [0, 0, 0], rotation = [0, 0, 0], scale = 1, avatarDefault = null } = {}) {
         if (!url) return;
+        // The authored spawn rides along even on the idempotent fast path
+        // (a resize/reparent re-applying the SAME scene) — a background save
+        // changing just the default shouldn't need a scene reload to take.
+        this._sceneDefaultPlacement = avatarDefault;
         if (this._loadedRoomUrl === url && this._room) return;  // already loaded — idempotent
         // Stake a generation up front. clearRoom() and any newer loadRoom() bump
         // it, so if the background/agent changes while this (often multi-MB) GLB
@@ -2217,6 +2381,27 @@ class AvatarRenderer {
         this.scene.add(model);
         this._room = model;
         console.log("[voice] room loaded:", url);
+
+        // A genuinely NEW scene (not a same-url reparent/resize no-op, which
+        // returns before this point): settle the companion first — a scene
+        // switch shouldn't carry over wherever it wandered off to in the
+        // PREVIOUS one — then let listeners restore a saved placement for
+        // THIS scene, if any. A no-op mid-combo, same as the leave-scene
+        // side: an active combo owns everyone's placement.
+        if (!this._comboPartner && !this._comboLivePeer) this._settleAvatarForBackgroundChange();
+        for (const cb of this._roomLoadedCallbacks) {
+            try { cb(url); } catch (e) { /* non-fatal */ }
+        }
+    }
+
+    /** Register a callback fired with the scene url whenever loadRoom
+     *  finishes loading a genuinely new room (the base companion has
+     *  already been reset to the default spawn by the time this fires).
+     *  VoiceView uses it to look up and apply a saved placement. Returns an
+     *  unsubscribe fn. */
+    addRoomLoadedCallback(cb) {
+        this._roomLoadedCallbacks.add(cb);
+        return () => this._roomLoadedCallbacks.delete(cb);
     }
 
     /** Clear the current GLB room AND cancel any in-flight load. Bumping the
@@ -2347,6 +2532,11 @@ class AvatarRenderer {
                     position: bg.scene_offset || [0, 0, 0],
                     rotation: [0, (bg.scene_rotation_y || 0) * Math.PI / 180, 0],
                     scale: bg.scene_scale ?? 1,
+                    avatarDefault: {
+                        x: bg.default_pos_x || 0,
+                        z: bg.default_pos_z || 0,
+                        yaw: (bg.default_yaw || 0) * Math.PI / 180,
+                    },
                 }).catch((e) => console.error("[voice] scene background load failed", e));
             } else {
                 // Mini host (or missing url) — no 3D room here.
@@ -2355,6 +2545,7 @@ class AvatarRenderer {
             return;  // scene leaves the CSS backdrop transparent
         }
         this.clearRoom();
+        this._sceneDefaultPlacement = null;  // no scene, no authored spawn to fall back on
         // Leaving a 3D scene: the avatar may have walked off-origin. A flat
         // backdrop has no notion of "place", so bring her home and re-frame.
         // Cheap no-op in the common case (already at the origin, not moving).
@@ -2366,17 +2557,7 @@ class AvatarRenderer {
         if (this._comboPartner || this._comboLivePeer) {
             // mid-combo placements are the combo's business
         } else if (this.vrm && (this._moving || this.vrm.scene.position.lengthSq() > 1e-6)) {
-            const inCallLayout = [...(this._peers?.values() || [])].some((p) => p.vrm);
-            if (inCallLayout) {
-                this._moveTarget = null;
-                this._moveInput.x = 0;
-                this._moveInput.z = 0;
-                this._returnFacingY = null;
-                if (this._moving) this._stopWalkAnim(this);
-                this._layoutCallAvatars();
-            } else {
-                this._resetAvatarHome();
-            }
+            this._settleAvatarForBackgroundChange();
         }
 
         // 'imagine_video' (change_background with animated=true) — a muted

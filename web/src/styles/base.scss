@@ -711,6 +711,15 @@ body {
         input { width: 3.6rem; }
     }
 
+    // Leading caption on a .rx_scene_xform row ("Room" vs "Character spawn")
+    // — visible, not just in the hover tooltip, since the two rows are
+    // otherwise easy to mistake for one another (both scale/offset-shaped).
+    .rx_scene_xform_label {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: #334155;
+    }
+
     .rx_pack_path {
         margin: 0.5rem 0 0;
         code { background: #e2e8f0; padding: 0.05rem 0.3rem; border-radius: 0.25rem; }

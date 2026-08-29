@@ -83,6 +83,16 @@ export default function VoiceView({ active = true }) {
     const [showControls, setShowControls] = useState(true);
     const [fullBody, setFullBody] = useState(false);
     const [moveMode, setMoveMode] = useState(false);
+    // "walk" (default, eases back to face the camera on stop), "walk-no-snap"
+    // (same locomotion, skips that — for posing companions in a scene), or
+    // "camera" (WASD flies the camera instead; companions untouched).
+    const [moveKind, setMoveKindState] = useState("walk");
+    // Walk mode's settings panel — collapsed by default (minimal UI once
+    // you've set what you want); the little arrow button next to the
+    // gamepad toggle opens it. The live position readout just lives inside
+    // it, no separate toggle.
+    const [showWalkPanel, setShowWalkPanel] = useState(false);
+    const [positionStats, setPositionStats] = useState(null);
     const [currentEmotion, setCurrentEmotion] = useState("neutral");
     const [draftText, setDraftText] = useState("");
     const [xrSupported, setXrSupported] = useState(false);   // headset/browser can present immersive VR
@@ -170,6 +180,7 @@ export default function VoiceView({ active = true }) {
             vrManagerRef.current = null;
             // Drop walk mode + full-body framing when the view unmounts.
             avatarRenderer.setMoveMode?.(false);
+            avatarRenderer.setMoveKind?.("walk");
             avatarRenderer.setFullBodyMode?.(false);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -334,10 +345,100 @@ export default function VoiceView({ active = true }) {
                 setFullBody(true);
                 avatarRenderer.setFullBodyMode?.(true);
             }
-            if (!on) clearMoveInput();
+            if (!on) {
+                clearMoveInput();
+                setShowWalkPanel(false);  // start collapsed again next time
+            }
             return on;
         });
     }, [fullBody, clearMoveInput]);
+
+    /** Switch what WASD does while walk mode is on — walk / walk-no-snap /
+     *  camera (see the moveKind state comment). */
+    const setMoveKindOn = useCallback((kind) => {
+        avatarRenderer.setMoveKind?.(kind);
+        setMoveKindState(kind);
+    }, []);
+
+    // Placement persistence: remember where a companion was last hand-placed
+    // (walk / walk-no-snap) in each GLB scene, per agent, so re-entering that
+    // scene restores it instead of always respawning at the origin. Read the
+    // reactive state directly (not the destructured `sv`) so these
+    // long-lived callbacks always see the CURRENT agent/background rather
+    // than whatever was active when the effect ran.
+    useEffect(() => {
+        const unsubLoaded = avatarRenderer.addRoomLoadedCallback?.(async (sceneUrl) => {
+            const agentId = voice.state.agentId;
+            if (!agentId) return;
+            try {
+                const res = await rpc("/api/voice/placement/get", { agent_id: agentId, scene_url: sceneUrl });
+                if (res?.placement) avatarRenderer.setBasePlacement?.(res.placement);
+            } catch (e) { /* best-effort — keep the default spawn */ }
+        });
+        const unsubSettled = avatarRenderer.addBasePlacementSettledCallback?.((placement) => {
+            const agentId = voice.state.agentId;
+            const sceneUrl = voice.state.activeBackground?.scene_url;
+            if (!agentId || !sceneUrl) return;
+            rpc("/api/voice/placement/save", { agent_id: agentId, scene_url: sceneUrl, ...placement })
+                .catch(() => { /* best-effort */ });
+        });
+        return () => {
+            unsubLoaded?.();
+            unsubSettled?.();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Position stats readout: polled rather than driven by the render loop —
+    // it's a scene-authoring aid, not something that needs frame-perfect
+    // timing, and a poll keeps this out of the hot per-frame tick path.
+    // Lives entirely inside the walk panel, so it tracks the panel's own
+    // visibility rather than a separate toggle.
+    useEffect(() => {
+        if (!showWalkPanel) {
+            setPositionStats(null);
+            return;
+        }
+        const tick = () => setPositionStats({
+            avatar: avatarRenderer.getBasePlacement?.() || null,
+            camera: avatarRenderer.getCameraPosition?.() || null,
+        });
+        tick();
+        const id = setInterval(tick, 150);
+        return () => clearInterval(id);
+    }, [showWalkPanel]);
+
+    const resetToDefaultPlacement = useCallback(() => {
+        avatarRenderer.resetBaseToDefaultPlacement?.();
+    }, []);
+
+    /** Overwrite the CURRENT scene's authored default spawn with wherever
+     *  the companion is standing/facing right now — the scene-authoring
+     *  counterpart to the position stats readout, without hand-copying
+     *  numbers into the Avatars tab. Only meaningful for a curated
+     *  (avatar_backgrounds-backed) scene background, which always carries
+     *  an id; an Imagine background never reaches here (walk mode requires
+     *  type "scene", which Imagine images/videos never are). */
+    const setAsDefaultPlacement = useCallback(async () => {
+        const placement = avatarRenderer.getBasePlacement?.();
+        const bg = voice.state.activeBackground;
+        if (!placement || !bg?.id) return;
+        const yawDeg = Math.round(placement.yaw * 180 / Math.PI);
+        try {
+            await rpc("/api/voice/background/set_default_placement", {
+                background_id: bg.id, x: placement.x, z: placement.z, yaw: yawDeg,
+            });
+            // Keep the in-memory payload + live renderer in sync so a later
+            // "reset to default" this same session uses the new value
+            // without needing the scene to reload.
+            bg.default_pos_x = placement.x;
+            bg.default_pos_z = placement.z;
+            bg.default_yaw = yawDeg;
+            avatarRenderer.setSceneDefaultPlacement?.(placement);
+        } catch (e) {
+            notification.add(e?.message || _t("Could not save the default position."), { type: "danger" });
+        }
+    }, []);
 
     useEffect(() => {
         if (!moveMode) return;
@@ -1124,6 +1225,13 @@ export default function VoiceView({ active = true }) {
                                 <i className="fa fa-gamepad" />
                             </button>
                         )}
+                        {canMoveMode && moveMode && (
+                            <button className="btn btn-light o_voice_walk_panel_toggle"
+                                    onClick={() => setShowWalkPanel((v) => !v)}
+                                    title={showWalkPanel ? _t("Hide walk mode settings") : _t("Walk mode settings (mode, reset, position)")}>
+                                <i className={showWalkPanel ? "fa fa-caret-up" : "fa fa-caret-down"} />
+                            </button>
+                        )}
                         <button className={"btn btn-light" + (showSettings ? " active" : "")}
                                 onClick={() => setShowSettings(!showSettings)}
                                 title={showSettings ? _t("Hide manual triggers") : _t("Show manual emotion/gesture triggers")}>
@@ -1209,6 +1317,48 @@ export default function VoiceView({ active = true }) {
                                 </div>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {!ui.immersive && moveMode && showWalkPanel && (
+                    <div className="o_voice_full_settings o_voice_walk_settings">
+                        <div className="o_voice_full_settings_section">
+                            <strong>{_t("Movement mode")}</strong>
+                            <div className="o_voice_full_settings_grid">
+                                {[
+                                    ["walk", _t("Walk"), _t("Moves the companion; faces you again on stop")],
+                                    ["walk-no-snap", _t("No snap-back"), _t("Same, but leaves it facing however it stopped — for posing")],
+                                    ["camera", _t("Camera"), _t("Flies the camera itself; companions untouched")],
+                                ].map(([id, label, hint]) => (
+                                    <button key={id}
+                                            className={"btn btn-sm " + (moveKind === id ? "btn-primary" : "btn-outline-light")}
+                                            onClick={() => setMoveKindOn(id)}
+                                            title={hint}>
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="o_voice_full_settings_grid">
+                                <button className="btn btn-sm btn-outline-light" onClick={resetToDefaultPlacement}
+                                        title={_t("Reset to this scene's default position (discards any hand-placed spot) and its default camera framing")}>
+                                    <i className="fa fa-undo" /> <span className="ms-1">{_t("Reset to default")}</span>
+                                </button>
+                                <button className="btn btn-sm btn-outline-light" onClick={setAsDefaultPlacement}
+                                        title={_t("Make the CURRENT position/facing this scene's new default spawn point for everyone")}>
+                                    <i className="fa fa-thumb-tack" /> <span className="ms-1">{_t("Set as default")}</span>
+                                </button>
+                            </div>
+                            {positionStats && (
+                                <div className="o_voice_walk_position_readout">
+                                    {positionStats.avatar && (
+                                        <div>{_t("Avatar")}: x {positionStats.avatar.x.toFixed(2)}, z {positionStats.avatar.z.toFixed(2)}, {_t("facing")} {Math.round(positionStats.avatar.yaw * 180 / Math.PI)}°</div>
+                                    )}
+                                    {positionStats.camera && (
+                                        <div>{_t("Camera")}: x {positionStats.camera.x.toFixed(2)}, y {positionStats.camera.y.toFixed(2)}, z {positionStats.camera.z.toFixed(2)}</div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
 
