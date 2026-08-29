@@ -268,6 +268,12 @@ CREATE TABLE IF NOT EXISTS agents (
     enable_web_search INTEGER NOT NULL DEFAULT 1,
     enable_x_search INTEGER NOT NULL DEFAULT 1,
     enable_grok_imagine_tools INTEGER NOT NULL DEFAULT 1,
+    -- Lets create_image/create_video feature ANOTHER companion by name (its
+    -- own portrait/outfit as a reference image, its voice id for a spoken
+    -- clip) — separate from enable_companion_texting on purpose: a
+    -- companion can be messageable without being depicted, or vice versa.
+    -- On by default.
+    enable_cross_companion_imagine INTEGER NOT NULL DEFAULT 1,
     enable_memory_tools INTEGER NOT NULL DEFAULT 1,
     core_memory_cap INTEGER NOT NULL DEFAULT 100,
     -- Affection meter: a persistent score the companion nudges in small
@@ -728,6 +734,10 @@ MIGRATIONS = (
     "ALTER TABLE avatar_backgrounds ADD COLUMN default_pos_x REAL NOT NULL DEFAULT 0",
     "ALTER TABLE avatar_backgrounds ADD COLUMN default_pos_z REAL NOT NULL DEFAULT 0",
     "ALTER TABLE avatar_backgrounds ADD COLUMN default_yaw REAL NOT NULL DEFAULT 0",
+    # create_image/create_video featuring ANOTHER companion by name — a
+    # separate opt-in from enable_companion_texting (see the agents schema
+    # comment above).
+    "ALTER TABLE agents ADD COLUMN enable_cross_companion_imagine INTEGER NOT NULL DEFAULT 1",
 )
 
 

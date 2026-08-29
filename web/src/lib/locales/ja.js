@@ -645,6 +645,9 @@ export const JA = {
     "頼まれたときにコンパニオンが自分の写真を撮れるようにします（take_selfie — 通話中はライブのアバター、チャットではポートレート）。また、画面共有を開始していれば、そのスクリーンショットや短いクリップを取得できます（take_screenshot、record_screen_clip）。キャプチャはファイルライブラリに保存され、トランスクリプトや他のツールから利用できます — 何も生成しないため、どのプロバイダーでも使えます。",
   "Unlocks Grok Imagine media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Every generation is billed by xAI: images cost cents, videos are priced per second.":
     "Grok Imagine のメディアツールを有効にします：create_image と create_video（プロンプトから、または Imagine ライブラリの画像 — 自撮り、スクリーンショット、アップロード — をリミックス）、さらに音声通話では change_background（アバターの背後に新しいシーンを生成）。生成はすべて xAI により課金されます — 画像は数セント、動画は秒単位の料金です。",
+  "Cross-companion Imagine reference": "コンパニオン間 Imagine 参照",
+  "Lets create_image/create_video feature ANOTHER companion by name (and outfit) — their own portrait as a reference image, and (create_video) their own voice id so a clip can have them speak in their actual voice too. Separate from Companion texting on purpose: a companion can be messageable without being depicted this way, or vice versa. Requires Grok Imagine.":
+    "create_image／create_video で、名前（と衣装）を指定して「別の」コンパニオンを登場させられるようにします — 参照画像としてその人自身のポートレート、そして（create_video では）実際の声で話させるためのその人自身のボイス ID も使えます。「コンパニオンテキスト」とは意図的に別設定です：テキストは送れても、この形で登場させたくない（またはその逆の）コンパニオンがいてもよいためです。Grok Imagine が必要です。",
   "xAI pricing":
     "xAI 料金",
   "Lets the companion animate its avatar during voice calls: play gestures (the built-in set plus the avatar's custom ones) and switch between the avatar's outfits (play_gesture, change_outfit). Facial expressions are always available regardless. Unlocks the expression-style notes below.":

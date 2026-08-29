@@ -51,6 +51,7 @@ _AGENT_FIELDS = (
     "enable_code_execution", "enable_gesture_emotion_tools",
     "enable_lore_tool", "expression_style", "speech_tag_style",
     "enable_web_search", "enable_x_search", "enable_grok_imagine_tools", "enable_capture_tools",
+    "enable_cross_companion_imagine",
     "enable_memory_tools", "core_memory_cap",
     "enable_affection_tool", "affection_animations", "affection_animation_min_delta",
     "affection_score", "affection_rules",
