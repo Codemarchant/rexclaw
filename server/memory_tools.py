@@ -271,20 +271,28 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None,
     return hits, len(scored) > limit
 
 
+def _find_duplicate(con, agent_id, content):
+    """Exact-content match, case-insensitive, any scope. Shared by
+    remember_or_get and _impl_remember's cap pre-flight — re-saving a fact
+    that's already stored is always a no-op, so callers must check for a
+    duplicate before treating a remember() as something that needs the core
+    cap enforced (a duplicate never grows the count)."""
+    if agent_id:
+        return con.execute(
+            "SELECT * FROM memories WHERE agent_id = ? AND LOWER(content) = LOWER(?) LIMIT 1",
+            (agent_id, content),
+        ).fetchone()
+    return con.execute(
+        "SELECT * FROM memories WHERE agent_id IS NULL AND LOWER(content) = LOWER(?) LIMIT 1",
+        (content,),
+    ).fetchone()
+
+
 def remember_or_get(con, agent_id, content, scope, tags, source):
     """Create a memory, or return the existing one if (agent, content) already
     matches case-insensitively. Returns (row, created_bool)."""
     content = (content or '').strip()
-    if agent_id:
-        existing = con.execute(
-            "SELECT * FROM memories WHERE agent_id = ? AND LOWER(content) = LOWER(?) LIMIT 1",
-            (agent_id, content),
-        ).fetchone()
-    else:
-        existing = con.execute(
-            "SELECT * FROM memories WHERE agent_id IS NULL AND LOWER(content) = LOWER(?) LIMIT 1",
-            (content,),
-        ).fetchone()
+    existing = _find_duplicate(con, agent_id, content)
     if existing:
         return existing, False
     cur = con.execute(
@@ -432,8 +440,28 @@ def _impl_remember(con, session, arguments):
 
     agent_id = session['agent_id'] if session else None
 
+    # An exact-content duplicate is always a no-op, whatever the cap says —
+    # check for one before the cap pre-flight below so re-affirming a fact
+    # already stored can never force forgetting something to make room it
+    # doesn't actually need (was driving a destructive forget-then-recreate
+    # loop whenever the model re-saved something it already had at cap).
+    existing = _find_duplicate(con, agent_id, content)
+    if existing:
+        return {
+            'ok': True,
+            'id': existing['id'],
+            'scope': existing['scope'],
+            'created': False,
+            'duplicate_of': existing['id'],
+        }
+
     # Pre-flight the core cap so the agent gets a structured response it can
-    # react to (forget oldest, then retry) instead of a hard failure.
+    # react to (forget something, then retry) instead of a hard failure.
+    # oldest_id is a candidate, not a directive — age alone doesn't mean
+    # unimportant (a name or other foundational fact can be the very first
+    # thing stored), so the message below deliberately doesn't tell the
+    # model to forget it; the full core list is already in its own system
+    # prompt to choose from.
     if scope == 'core' and agent_id:
         agent = store.get_agent(con, agent_id)
         cap = agent['core_memory_cap'] or DEFAULT_CORE_CAP
@@ -450,9 +478,21 @@ def _impl_remember(con, session, arguments):
                 'oldest_id': existing_core[0]['id'],
                 'oldest_content': existing_core[0]['content'],
                 'message': (
-                    f'Core memory cap of {cap} reached. Call `forget` on an '
-                    f'existing core memory (oldest id={existing_core[0]["id"]}) '
-                    f'or use scope="recall" instead.'
+                    f'Core memory cap of {cap} reached. First scan the core '
+                    f'memory list in your system prompt for anything '
+                    f'redundant or near-duplicate of another entry there — '
+                    f'forgetting one of those is the best use of a slot '
+                    f'(exact-content duplicates are already deduped '
+                    f'automatically; this is for ones that merely overlap). '
+                    f'Otherwise use your own judgement about which existing '
+                    f'core memory matters least now and call `forget` on '
+                    f'that one, then retry — it does not have to be the '
+                    f'oldest (oldest_id={existing_core[0]["id"]} is only '
+                    f'supplied as a fallback candidate). Never forget '
+                    f'something foundational, like the user\'s name or other '
+                    f'critical facts, just because it is old. Or use '
+                    f'scope="recall" instead if this new fact does not need '
+                    f'to stay pinned.'
                 ),
             }
 
@@ -744,7 +784,12 @@ MEMORY_TOOLS = [
             '"remember this" too minor for core. '
             'On exact-content duplicates the existing memory is returned (created=false). '
             'When core scope hits the per-agent cap, returns {ok:false, reason:"core_full", '
-            'oldest_id} — call `forget(oldest_id)` then retry, or use scope="recall".'
+            'oldest_id} as a fallback suggestion, not a directive — first check the core '
+            'list already in your system prompt for anything redundant or near-duplicate '
+            'of another entry and forget one of those; otherwise weigh them and forget '
+            'whichever one genuinely matters least now (never something foundational, like '
+            'the user\'s name, just because it is old), then retry. Or use scope="recall" '
+            'instead.'
         ),
         'parameters': {
             'type': 'object',

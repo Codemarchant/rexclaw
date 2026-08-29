@@ -5,6 +5,7 @@ import { _t } from "../lib/i18n";
 import Pager, { usePager } from "./Pager.jsx";
 import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { EditorBar } from "./UnsavedUI.jsx";
+import { fmtLocal } from "./HeartbeatsPanel.jsx";
 
 /** Dedicated Memories tab — the durable facts and conversation episodes the
  *  companions have stored across sessions. Lives on its own tab (not buried in
@@ -367,6 +368,7 @@ export default function MemoriesView({ active }) {
                                     </span>
                                     <span className="rx_memory_meta">
                                         {m.agent_name || _t("all companions")}{m.tags ? ` · ${m.tags}` : ""}
+                                        {m.created_at ? ` · ${fmtLocal(m.created_at)}` : ""}
                                     </span>
                                     <button
                                         className="btn btn-sm btn-link p-0"

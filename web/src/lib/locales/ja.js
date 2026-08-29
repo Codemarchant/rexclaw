@@ -561,6 +561,9 @@ export const JA = {
   "X search": "X 検索",
   "Grok Imagine": "Grok Imagine",
   "Memory": "メモリ",
+  "Core memory cap": "コア記憶の上限",
+  "Maximum number of \"core\" memories (name, preferences, ongoing projects, and the like) pinned verbatim into every session prompt. Recall memories, searched on demand, aren't affected. Raise it for a longer pinned profile at the cost of prompt tokens; lower it to keep sessions lean. When the cap is hit, the companion is nudged to use its own judgement about what to forget — not simply the oldest core memory.":
+    "「コア」記憶（名前、好み、進行中のプロジェクトなど）として、毎セッションのプロンプトにそのまま常時挿入される件数の上限です。必要に応じて検索されるリコール記憶には影響しません。上限を上げるとプロフィールをより長く固定できますが、プロンプトのトークン消費が増えます。下げるとセッションを軽量に保てます。上限に達すると、単に一番古いコア記憶を忘れるのではなく、何を忘れるべきかコンパニオン自身の判断で考えるよう促されます。",
   "Code execution (text)": "コード実行（テキスト）",
 
   // History tab

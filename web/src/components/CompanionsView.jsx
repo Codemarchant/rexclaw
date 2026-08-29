@@ -700,6 +700,21 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                     </span>
                 ))}
             </div>
+            {!!editingAgent.enable_memory_tools && (
+                <div className="rx_row">
+                    <div>
+                        <label title={_t("Maximum number of \"core\" memories (name, preferences, ongoing projects, and the like) pinned verbatim into every session prompt. Recall memories, searched on demand, aren't affected. Raise it for a longer pinned profile at the cost of prompt tokens; lower it to keep sessions lean. When the cap is hit, the companion is nudged to use its own judgement about what to forget — not simply the oldest core memory.")}>
+                            {_t("Core memory cap")}
+                        </label>
+                        <input type="number" min={1} step={1}
+                               value={editingAgent.core_memory_cap ?? 100}
+                               onChange={(ev) => {
+                                   const v = parseInt(ev.target.value, 10);
+                                   setEditingAgent({ ...editingAgent, core_memory_cap: Number.isFinite(v) ? Math.max(1, v) : 100 });
+                               }} />
+                    </div>
+                </div>
+            )}
             {!!editingAgent.enable_gesture_emotion_tools && (
                 <>
                     <label title={_t("Appended to the built-in avatar-expression instructions every voice session gets, under a 'Your signature gestures' heading. Name the gestures that are characteristically THIS companion's and the moments that call for them. The general mechanics are already covered - leave empty and the generic guidance stands alone.")}>

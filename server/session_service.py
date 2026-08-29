@@ -214,8 +214,11 @@ def _env_postamble(con, agent_row, mode='voice', stable=False):
             "is the whole reply. Anything structured - a list, code, a full "
             "explanation - stays a single message with no `[next]`. Don't do "
             "it every turn; let it follow the mood.\n"
-            "- **Texting emoji:** Fine here and there if it fits the "
-            "moment, but don't overdo it; most messages need none at all.\n"
+            "- **Texting emoji:** A natural bit of texting flavor, not "
+            "something to avoid - a single one landing at the end of a "
+            "message to punctuate the tone is common and needs no special "
+            "reason (😊 😅 🙄). Keep it light: one is usually plenty, and "
+            "plenty of messages carry none at all.\n"
         )
     else:
         sections.append(
@@ -2321,6 +2324,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     max_iterations = 8
     accumulated_native_echo = []
     accumulated_mcp_results_echo = []
+    # Legs that spoke: a tool-calling turn can say something BEFORE or
+    # BETWEEN tool calls, not just in the final leg — accumulate so the
+    # value this function returns reflects everything actually said this
+    # turn, not just the last leg (which is often silent once its only
+    # job was to react to a tool result).
+    accumulated_assistant_text_parts = []
     mcp_dropped = False
     # companion_text_max_calls enforcement: `tools` above is fixed for
     # every leg of this call, so nothing else stops the model calling
@@ -2576,6 +2585,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
             fresh = store.get_session(con, session['id'])
             if not fresh['title_generated']:
                 maybe_generate_session_title(con, fresh)
+            accumulated_assistant_text_parts.append(assistant_text)
+        # From here on `assistant_text` is what this call reports back for
+        # the WHOLE turn so far, not just this leg — a later leg that only
+        # reacts to a tool result (and says nothing further) must not erase
+        # words an earlier leg already said.
+        assistant_text = '\n\n'.join(accumulated_assistant_text_parts)
 
         # Everything persisted so far (input we sent + this response's own
         # message/MCP rows) is now carried by the stored chain — advance the
@@ -2750,7 +2765,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     return {
         'type': 'complete',
         'response_id': previous_response_id,
-        'assistant_text': '',
+        'assistant_text': '\n\n'.join(accumulated_assistant_text_parts),
         'mcp_results': accumulated_mcp_results_echo,
         'native_results': accumulated_native_echo,
         'incomplete_reason': 'tool_loop_cap',
