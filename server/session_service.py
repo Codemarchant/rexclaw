@@ -88,7 +88,7 @@ def _env_preamble(config, stable=False):
 
     Small, static, foundational: the app surface, the user's local datetime
     (for resolving relative date phrases), and the reply language. General
-    tool-use rules live in the postamble (TOOL_USE_SECTION) so the persona
+    tool-use rules live in the postamble (_tool_use_section) so the persona
     opens the prompt. The
     user's display name is gated by config.include_user_name_in_prompt so the
     name is never sent to xAI without explicit opt-in.
@@ -115,29 +115,51 @@ def _env_preamble(config, stable=False):
     )
 
 
-# General tool-use rules. Lives in the POSTAMBLE (first section) rather than
-# the preamble so the persona opens the prompt: a voice model reads the first
-# lines as "who am I", and opening with assistant mechanics primes
-# answer-and-yield replies before the character has been established.
-TOOL_USE_SECTION = (
-    "## Tool use\n"
-    "- **Hard rule, never announce without acting:** If your words say or "
-    "imply you're doing something, the tool call MUST go out in that same "
-    "response. A stated intent with no call is a failure, not a finished "
-    "turn. The only reason to announce without calling is when you genuinely "
-    "need missing input or the action is hard to undo - then ask instead of "
-    "announcing.\n"
-    "- **Sequencing:** Fire independent tools in parallel in the same "
-    "turn where they don't depend on each other. A dependent tool can never "
-    "share a turn with the one it depends on - it needs that result first; "
-    "fire it the moment the result lands, without pausing to ask \"want me "
-    "to continue?\". Known dependencies: record_screen_clip / take_selfie "
-    "return an imagine_image_id that delegate_task, local_task and "
-    "create_video consume - copy it from that result, never from memory. "
-    "set_emotion and play_gesture are fine together in one turn: an "
-    "emotion on its own also plays a small matching body clip, but a "
-    "gesture you play always takes priority for the body."
-)
+def _tool_use_section(agent_row, mode):
+    """General tool-use rules. Lives in the POSTAMBLE (first section) rather
+    than the preamble so the persona opens the prompt: a voice model reads
+    the first lines as "who am I", and opening with assistant mechanics
+    primes answer-and-yield replies before the character has been
+    established.
+
+    Names only tools this session actually carries - the model follows
+    instructions closely, so a tool mentioned here but absent from the
+    tools list degrades the response (xAI prompting guide)."""
+    text = (
+        "## Tool use\n"
+        "- **Hard rule, never announce without acting:** If your words say or "
+        "imply you're doing something, the tool call MUST go out in that same "
+        "response. A stated intent with no call is a failure, not a finished "
+        "turn. The only reason to announce without calling is when you genuinely "
+        "need missing input or the action is hard to undo - then ask instead of "
+        "announcing.\n"
+        "- **Sequencing:** Fire independent tools in parallel in the same "
+        "turn where they don't depend on each other. A dependent tool can never "
+        "share a turn with the one it depends on - it needs that result first; "
+        "fire it the moment the result lands, without pausing to ask \"want me "
+        "to continue?\"."
+    )
+    consumers = []
+    if agent_row['enable_delegate_tool']:
+        consumers.append('delegate_task')
+    if agent_row['enable_local_tasks'] and local_tools.grok_available():
+        consumers.append('local_task')
+    if agent_row['provider'] == 'grok' and agent_row['enable_grok_imagine_tools']:
+        consumers.append('create_video')
+    if agent_row['enable_capture_tools'] and consumers:
+        listed = ' and '.join(filter(None, [', '.join(consumers[:-1]), consumers[-1]]))
+        text += (
+            " Known dependencies: record_screen_clip / take_selfie return an "
+            f"imagine_image_id that {listed} consume{'s' if len(consumers) == 1 else ''} "
+            "- copy it from that result, never from memory."
+        )
+    if mode == 'voice' and agent_row['enable_gesture_emotion_tools']:
+        text += (
+            " set_emotion and play_gesture are fine together in one turn: an "
+            "emotion on its own also plays a small matching body clip, but a "
+            "gesture you play always takes priority for the body."
+        )
+    return text
 
 
 def _group_call_note(agent_row, group_peers, manual_turn):
@@ -197,7 +219,7 @@ def _env_postamble(con, agent_row, mode='voice', stable=False):
     The text-mode disclaimer overrides voice-tool references the system_prompt
     may contain, placed AFTER what it overrides.
     """
-    sections = [TOOL_USE_SECTION]
+    sections = [_tool_use_section(agent_row, mode)]
     if mode == 'text':
         sections.append(
             "## Surface\n"
@@ -252,7 +274,7 @@ def _env_postamble(con, agent_row, mode='voice', stable=False):
         expression = _expression_section(agent_row)
         if expression:
             sections.append(expression)
-        habits = _tool_habits_section(agent_row)
+        habits = _tool_habits_section(con, agent_row)
         if habits:
             sections.append(habits)
     if agent_row['enable_affection_tool']:
@@ -468,7 +490,7 @@ def _expression_section(agent_row):
     return '\n\n'.join(parts) or None
 
 
-def _tool_habits_section(agent_row):
+def _tool_habits_section(con, agent_row):
     """Behavioral nudges for tools the companion actually has. Returns None
     when nothing applies."""
     lines = []
@@ -483,7 +505,9 @@ def _tool_habits_section(agent_row):
             "calling it every message as a tic - only when the scene "
             "actually changes.\n"
         )
-    if agent_row['enable_gesture_emotion_tools']:
+    # change_outfit only exists when the avatar has a wardrobe (same gate as
+    # start_session's build_change_outfit_tool) - never name it otherwise.
+    if agent_row['enable_gesture_emotion_tools'] and store.agent_outfit_dicts(con, agent_row):
         lines.append(
             "- Keep your outfit matched to the scene: when the roleplay "
             "moves somewhere a different outfit fits better, switch with "

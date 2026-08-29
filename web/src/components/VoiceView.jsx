@@ -514,6 +514,49 @@ export default function VoiceView({ active = true }) {
         voice.preferredAgentId = id;
     };
 
+    // While no call is live, the transcript previews where the selected
+    // companion's last conversation left off (read-only — Resume last is
+    // still the explicit step, so peeking never stamps a resume note into
+    // the session). Mirrors TextView's preview: without it an ended call
+    // stayed on screen when the dropdown changed, showing the previous
+    // companion's messages under the new companion's avatar.
+    const previewSessionIdRef = useRef(null);
+    useEffect(() => {
+        if (isLive || isConnecting || sv.status === "ending" || sv.compacting) return;
+        const sess = lastResumableSession;
+        // The call that just ended is still on screen in full — keep it.
+        // Matched on the companion too, not only the session id, so a
+        // history refresh that hasn't landed yet can't swap the transcript
+        // for an older session of the same companion.
+        if (voice.state.sessionId
+            && (sess?.id === voice.state.sessionId
+                || Number(voice.state.agentId) === Number(selectedAgentId))) {
+            return;
+        }
+        if ((sess?.id || null) === previewSessionIdRef.current) return;
+        let cancelled = false;
+        (async () => {
+            let messages = [];
+            if (sess) {
+                try {
+                    const data = await rpc("/api/sessions/messages", { id: sess.id, recent: true });
+                    messages = (data.messages || []).map((m) => ({ ...m, replayed: true }));
+                } catch (e) { /* preview only — leave the transcript empty */ }
+            }
+            if (cancelled) return;
+            const status = voice.state.status;
+            if (status === "live" || status === "connecting" || status === "ending") return;
+            previewSessionIdRef.current = sess?.id || null;
+            voice.state.messages = messages;
+            voice.state.sessionId = null;
+            voice.state.agentName = null;
+            voice.state.tokenUsage = 0;
+            voice.state.tokenLimit = 0;
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLive, isConnecting, sv.status, sv.compacting, selectedAgentId, lastResumableSession?.id]);
+
     const toggleFullBody = () => {
         setFullBody((prev) => {
             avatarRenderer.setFullBodyMode?.(!prev);

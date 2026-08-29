@@ -103,6 +103,12 @@
         border-radius: 0.75rem;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
         max-width: 360px;
+        // Cap to the space below the topbar (the `top` offset plus a bottom
+        // margin) and scroll only when the content actually overflows — a
+        // long custom-gesture list otherwise runs off the bottom of the view.
+        max-height: calc(100% - 6.5rem - 1rem);
+        overflow-y: auto;
+        overscroll-behavior: contain;  // wheel at the end of the list must not reach the canvas behind
 
         .o_voice_full_settings_section {
             & + .o_voice_full_settings_section { margin-top: 0.75rem; }
