@@ -125,6 +125,34 @@
             .o_voice_full_settings_grid + .o_voice_full_settings_grid { margin-top: 0.35rem; }
         }
 
+        // Look section: a labelled select / checkbox per row, styled like the
+        // dark overlay controls rather than the light form defaults.
+        .o_voice_full_settings_row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+
+            & + .o_voice_full_settings_row { margin-top: 0.4rem; }
+
+            label { margin: 0; cursor: pointer; }
+
+            select {
+                flex: 1;
+                min-width: 0;
+                background: rgba(255, 255, 255, 0.1);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 0.4rem;
+                padding: 0.25rem 0.5rem;
+                font-size: 0.8rem;
+
+                option { background: #1e293b; color: white; }
+            }
+
+            input[type="checkbox"] { margin: 0; }
+        }
+
         .o_voice_walk_position_readout {
             margin-top: 0.5rem;
             font-size: 0.75rem;

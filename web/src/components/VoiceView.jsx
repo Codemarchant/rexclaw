@@ -16,6 +16,7 @@ import { downscaleImageFile, attachmentNote } from "../lib/attachments";
 import { useFileDrop } from "../lib/use_file_drop";
 import { screenCapture } from "../lib/screen_capture";
 import { storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
+import { LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 
 // WASD + arrows → camera-relative movement axes for the manual walk toggle.
 const MOVE_KEY_MAP = {
@@ -79,6 +80,9 @@ export default function VoiceView({ active = true }) {
     const [selectedAgentId, setSelectedAgentId] = useState(null);
     const [showHistory, setShowHistory] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
+    // Look prefs (lighting preset, cursor touch physics) — per-browser,
+    // shared with the mascot; the renderer applies them itself.
+    const [renderPrefs, updateRenderPrefs] = useRenderPrefs();
     const [showTranscript, setShowTranscript] = useState(true);
     const [showControls, setShowControls] = useState(true);
     const [fullBody, setFullBody] = useState(false);
@@ -1325,6 +1329,26 @@ export default function VoiceView({ active = true }) {
 
                 {!ui.immersive && showSettings && (
                     <div className="o_voice_full_settings">
+                        <div className="o_voice_full_settings_section">
+                            <strong>{_t("Look")}</strong>
+                            <div className="o_voice_full_settings_row">
+                                <label htmlFor="rx_fv_lighting">{_t("Lighting")}</label>
+                                <select id="rx_fv_lighting" value={renderPrefs.lighting}
+                                        onChange={(ev) => updateRenderPrefs({ lighting: ev.target.value })}>
+                                    {LIGHTING_PRESET_OPTIONS.map(([id, label]) => (
+                                        <option key={id} value={id}>{_t(label)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="o_voice_full_settings_row">
+                                <input id="rx_fv_touch" type="checkbox" checked={!!renderPrefs.touch}
+                                       onChange={(ev) => updateRenderPrefs({ touch: ev.target.checked })} />
+                                <label htmlFor="rx_fv_touch"
+                                       title={_t("Hair, skirts and other swinging parts move out of the cursor's way, ruffle with quick mouse sweeps, and bounce when clicked.")}>
+                                    {_t("Touch physics")}
+                                </label>
+                            </div>
+                        </div>
                         <div className="o_voice_full_settings_section">
                             <strong>{_t("Emotions")}</strong>
                             <div className="o_voice_full_settings_grid">

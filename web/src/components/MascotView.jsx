@@ -306,6 +306,10 @@ export default function MascotView() {
             if (disposed || !c) return;
             if (wantFollow) avatarRenderer.setCursorFollow?.(c);
             if (!wantGhost) return;
+            // A click-through window gets no native pointer events, so the
+            // touch physics ride the global stream here (AvatarCanvas
+            // handles the non-ghost case from the host's own events).
+            avatarRenderer.touchCursor?.(c.inside ? c : null);
             // Mirror :hover for the island reveal — a click-through window
             // gets no native hover on platforms without event forwarding.
             rootRef.current?.classList.toggle("is-cursor-inside", !!c.inside);

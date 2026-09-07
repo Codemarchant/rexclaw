@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { _t } from "../lib/i18n";
 import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES } from "../lib/mascot_link";
+import { LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 import { EMOTIONS, GESTURES } from "../models/avatar_catalog";
 
 /** Mascot settings window (/#mascot-settings) — the mascot's full control
@@ -35,6 +36,10 @@ export default function MascotSettingsView() {
     // This window's own "always on top" pin (null = shell without the
     // feature — button hidden).
     const [onTop, setOnTop] = useState(null);
+    // Look prefs are per-browser localStorage, not overlay state: this
+    // window writes them directly and the overlay (same origin) picks the
+    // change up through the storage event — so they work with it closed too.
+    const [renderPrefs, updateRenderPrefs] = useRenderPrefs();
     const chRef = useRef(null);
 
     useEffect(() => { document.title = _t("Mascot settings"); }, []);
@@ -353,6 +358,26 @@ export default function MascotSettingsView() {
                                 </button>
                             </div>
                         </fieldset>
+                    </section>
+
+                    <section>
+                        <h3><i className="fa fa-lightbulb-o" /> {_t("Look")}</h3>
+                        <div className="rx_mascot_set_item">
+                            <label htmlFor="rx_ms_lighting">{_t("Lighting")}</label>
+                            <select id="rx_ms_lighting" value={renderPrefs.lighting}
+                                    onChange={(ev) => updateRenderPrefs({ lighting: ev.target.value })}>
+                                {LIGHTING_PRESET_OPTIONS.map(([id, label]) => (
+                                    <option key={id} value={id}>{_t(label)}</option>
+                                ))}
+                            </select>
+                            <p className="rx_mascot_set_desc rx_mascot_set_desc--flush">
+                                {_t("Pre-set light rigs — a key light, a coloured rim from behind and, on most of them, a soft shadow under the feet. Also applies to the full-screen view.")}
+                            </p>
+                        </div>
+                        {check("rx_ms_touch", _t("Touch physics"),
+                            _t("Hair, skirts and other swinging parts move out of the cursor's way, ruffle with quick mouse sweeps, and bounce when clicked."),
+                            renderPrefs.touch,
+                            (v) => updateRenderPrefs({ touch: v }))}
                     </section>
 
                     <section>

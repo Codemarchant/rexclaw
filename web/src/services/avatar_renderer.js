@@ -17,6 +17,7 @@
 // block third-party scripts (Brave shields, strict tracking protection).
 // Bundling also makes the avatar work fully offline.
 import * as THREE_NS from "three";
+import { loadRenderPrefs, onRenderPrefsChange } from "../lib/render_prefs";
 import {
     VRMLoaderPlugin,
     VRMUtils,
@@ -162,6 +163,166 @@ const CURSOR_FOLLOW_NDC_MAX = 2.5;      // clamp for cursors far outside the win
 const CURSOR_FOLLOW_HEAD_SHARE = 0.5;   // fraction of the deflection the head takes
 const CURSOR_FOLLOW_HEAD_YAW = 0.22;    // head clamp, radians
 const CURSOR_FOLLOW_HEAD_PITCH = 0.12;
+
+// Cursor touch physics (all surfaces, opt-out via render prefs). The mouse
+// becomes a spring-bone collider — hair, skirts, sleeves and the bust are
+// the VRM's own spring chains, so hovering physically pushes them aside —
+// plus a "wind" from cursor speed that ruffles chains near the cursor even
+// without contact, and a radial impulse on click. Modelled on Animates'
+// cursor collider driver (a MagicaCloth sphere + wind zone that follow a
+// cursor projected onto a camera-facing plane through the character); the
+// VRM spring-bone equivalent is coarser (bone chains, not mesh cloth) but
+// needs no physics engine. Tunables live on one object so they can be
+// tweaked from the console (`__voiceRenderer._touchTuning`).
+//
+// Sizing follows what the avatars themselves author (VRoid exports): the
+// hand colliders a VRM ships for its own hair are 0.027 m, hit radii are
+// 0.01-0.02 m, and the bust chains carry NO collider groups at all — two
+// stiff joints with heavy skin weights distort the mesh when pushed, so
+// VRoid never lets them collide. Same conclusion as VRChat's PhysBone
+// guidance ("radius only as large as the part it must cover", limit the
+// angle rather than collide when rotation is the problem). So: a
+// finger-sized sphere that grows in over a beat instead of popping into
+// the hair, no collision on the bust (wind and taps still reach it, scaled
+// down, for the jiggle), gentle wind.
+const TOUCH_TUNING = {
+    radius: 0.035,        // collider sphere radius (m) — a fingertip, not a fist
+    radiusRamp: 0.25,     // seconds for the sphere to grow to full size after landing on the avatar
+    planeOffset: 0.06,    // cursor plane pushed toward the camera from the body axis (m)
+    ndcMax: 1.15,         // samples further outside the canvas than this drop the collider
+    followRate: 28,       // collider ease toward the projected cursor, k = 1 - exp(-rate * dt)
+    velSmoothRate: 12,    // cursor velocity smoothing
+    windGain: 0.12,       // cursor speed (m/s) → gravity power added to nearby joints
+    windMax: 0.3,         // clamp on that power
+    windRadius: 0.35,     // gaussian falloff distance from the cursor (m)
+    windAttack: 10,       // wind rise rate
+    windRelease: 4,       // wind decay rate when the cursor slows / leaves
+    tapPower: 0.9,        // click impulse peak gravity power
+    tapRadius: 0.28,      // joints closer than this to the click point get pushed (m)
+    tapDuration: 0.16,    // impulse envelope (s), linear fade
+    bustScale: 0.35,      // wind / tap strength on bust chains (never collided, see above)
+};
+const TOUCH_NO_COLLIDE_RE = /bust/i;   // spring chains the cursor sphere passes through
+
+// Lighting presets. Each is a key light (the only shadow caster), an
+// optional low fill, a hemisphere sky/ground pair, a flat ambient and an
+// optional coloured RIM. Positions are offsets from the base avatar (metres;
+// +Z is toward the default camera), so the rig follows a character that
+// walks around a scene. `shadow` also turns on the soft contact shadow under
+// the avatar (a shadow-catcher plane when no 3D room is loaded; rooms
+// receive it on their own floors).
+//
+// Two MToon facts shape the numbers. (1) Toon shading is a step, not a
+// cosine: every light that clears the shade threshold adds its FULL
+// intensity to the lit colour, so the front-facing lights (key + fill +
+// ambient + hemi) must sum to roughly what "default" has always used
+// (~1.9 white) or the texture clips to a flat blob. (2) A backlight is NOT a
+// rim on a toon shader — with no fresnel it floods half the silhouette
+// side. The rim is therefore MToon's own view-dependent parametric rim,
+// written into the avatar's materials (see _applyAvatarLook), the same
+// mechanism VRoid Studio's rim-light setting and VMagicMirror's rim effect
+// use. Colour choices follow Animates' per-time-of-day rigs (white key with
+// a cyan or amber accent).
+const LIGHTING_PRESETS = {
+    default: {
+        ambient: { color: 0xffffff, intensity: 0.7 },
+        key: { color: 0xffffff, intensity: 1.2, pos: [0.5, 1.5, 1] },
+        fill: null, hemi: null, rim: null, shadow: false,
+    },
+    // Front-light budgets below all land near default's 1.9 (see above).
+    studio: {
+        ambient: { color: 0xffffff, intensity: 0.45 },
+        key: { color: 0xffffff, intensity: 1.1, pos: [0.9, 2.2, 1.6] },
+        fill: { color: 0xffe9d6, intensity: 0.2, pos: [-1.6, 1.0, 1.4] },
+        hemi: { sky: 0xdfe8ff, ground: 0x5a544e, intensity: 0.25 },
+        rim: { color: 0xffffff, strength: 0.2 },
+        shadow: true,
+    },
+    sunny: {
+        ambient: { color: 0xfff4e0, intensity: 0.35 },
+        key: { color: 0xfff1d6, intensity: 1.2, pos: [1.3, 2.6, 1.1] },
+        fill: { color: 0xd8e8ff, intensity: 0.15, pos: [-1.5, 1.2, 1.5] },
+        hemi: { sky: 0xbcd8ff, ground: 0xa89372, intensity: 0.3 },
+        rim: { color: 0xffd08a, strength: 0.3 },
+        shadow: true,
+    },
+    golden: {
+        ambient: { color: 0xffd9b0, intensity: 0.35 },
+        key: { color: 0xffb56e, intensity: 1.15, pos: [1.9, 1.0, 1.3] },
+        fill: { color: 0x8fa8d8, intensity: 0.2, pos: [-1.8, 1.2, 1.2] },
+        hemi: { sky: 0xffcf9e, ground: 0x4a3324, intensity: 0.3 },
+        rim: { color: 0xffe2b8, strength: 0.45 },
+        shadow: true,
+    },
+    night: {
+        ambient: { color: 0x2a3560, intensity: 0.4 },
+        key: { color: 0x9fb4ff, intensity: 0.7, pos: [0.8, 2.2, 1.4] },
+        fill: { color: 0xff5fd6, intensity: 0.15, pos: [1.7, 0.8, 1.3] },
+        hemi: { sky: 0x3a4a8a, ground: 0x0c0c14, intensity: 0.25 },
+        rim: { color: 0x3fd0ff, strength: 0.7 },
+        shadow: true,
+    },
+    flat: {
+        ambient: { color: 0xffffff, intensity: 0.95 },
+        key: { color: 0xffffff, intensity: 0.7, pos: [0, 1.5, 2] },
+        fill: null, hemi: null, rim: null, shadow: false,
+    },
+    // Soft daylight through cloud: dim, high, colourless key; no rim.
+    overcast: {
+        ambient: { color: 0xe8ecf2, intensity: 0.7 },
+        key: { color: 0xf4f6fa, intensity: 0.8, pos: [0.3, 3.0, 0.8] },
+        fill: { color: 0xdfe6f0, intensity: 0.15, pos: [-1.5, 1.2, 1.3] },
+        hemi: { sky: 0xd8e0ea, ground: 0x8a8f96, intensity: 0.3 },
+        rim: null,
+        shadow: true,
+    },
+    // Cool silver key from steep above, deep blue shade, pale rim.
+    moonlight: {
+        ambient: { color: 0x1e2a48, intensity: 0.45 },
+        key: { color: 0xb8c8ff, intensity: 0.8, pos: [0.6, 2.8, 0.9] },
+        fill: { color: 0x6a7fb0, intensity: 0.15, pos: [-1.5, 1.0, 1.3] },
+        hemi: { sky: 0x2c3d6e, ground: 0x05060c, intensity: 0.3 },
+        rim: { color: 0xdfe8ff, strength: 0.5 },
+        shadow: true,
+    },
+    // Low warm key from the front-side, ember fill, dark warm shade.
+    candlelight: {
+        ambient: { color: 0x3a2412, intensity: 0.5 },
+        key: { color: 0xffb060, intensity: 1.0, pos: [0.9, 0.7, 1.3] },
+        fill: { color: 0xff8040, intensity: 0.2, pos: [-1.2, 0.4, 1.0] },
+        hemi: { sky: 0x6b3d1e, ground: 0x120806, intensity: 0.25 },
+        rim: { color: 0xffc890, strength: 0.35 },
+        shadow: true,
+    },
+    // Stage: one hard white key from high above, everything else black.
+    spotlight: {
+        ambient: { color: 0x101014, intensity: 0.35 },
+        key: { color: 0xffffff, intensity: 1.5, pos: [0.2, 3.2, 1.2] },
+        fill: null, hemi: null,
+        rim: { color: 0xffffff, strength: 0.3 },
+        shadow: true,
+    },
+    // Backlit: soft front, the rim does the work — silhouette glow.
+    backlit: {
+        ambient: { color: 0xffffff, intensity: 0.55 },
+        key: { color: 0xffffff, intensity: 0.85, pos: [0.5, 1.8, 1.4] },
+        fill: null,
+        hemi: { sky: 0xcfd8ff, ground: 0x555555, intensity: 0.25 },
+        rim: { color: 0xfff4dc, strength: 0.9 },
+        shadow: true,
+    },
+};
+// Parametric rim shape. VRoid exports ship NO rim (black, fresnel 100) and
+// get their hair sheen from a matcap instead, so a rim that is too wide or
+// too bright reads as "shine" on every hair card. Steep falloff, half the
+// strength on hair materials, and half of it modulated by the scene light
+// (rimLightingMix) so it sits in the shading rather than glowing on top.
+const RIM_FRESNEL_POWER = 6;
+const RIM_LIGHTING_MIX = 0.5;
+const RIM_HAIR_SCALE = 0.5;
+const RIM_HAIR_RE = /hair/i;
+const SHADOW_CATCHER_OPACITY = 0.32;
+const SHADOW_MAP_SIZE = 2048;
 
 // Smooth start/stop easing for emotion cross-fades (ported from airi's
 // expression.ts). Reads more natural than a flat linear ramp.
@@ -384,6 +545,14 @@ class AvatarRenderer {
         this._xrSessionListeners = new Set(); // VR add-ons notified on session start/end (vr_manager)
         this._preVRMUpdateCallbacks = new Set(); // run after animation poses bones, before vrm.update (ragdoll write-back)
         this._xrHandColliderGroup = null; // runtime spring-bone collider group for the VR hands (see attachSpringBoneColliders)
+        // Look prefs (lib/render_prefs.js): lighting rig + cursor touch physics.
+        this._lights = null;              // { ambient, key, rim, fill, hemi } built in _buildLightRig
+        this._lightingPreset = "default"; // LIGHTING_PRESETS key in effect
+        this._shadowCatcher = null;       // ShadowMaterial plane under the avatar (shadow presets, no room)
+        this._touchEnabled = true;
+        this._touch = null;               // cursor collider state, built lazily by _ensureTouch
+        this._touchTuning = TOUCH_TUNING;
+        this._touchBase = new WeakMap();  // joint → its authored gravity, restored when the wind dies
         this._headWorldScratch = null;    // reused Vector3 for getHeadWorldPosition
         this._eyeScratch = null;          // reused Vector3 for the XR eye-contact base
     }
@@ -416,11 +585,16 @@ class AvatarRenderer {
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
         this.scene = new THREE.Scene();
-        // Soft fill light + key light from camera direction.
-        const ambient = new THREE.AmbientLight(0xffffff, 0.7);
-        const key = new THREE.DirectionalLight(0xffffff, 1.2);
-        key.position.set(0.5, 1.5, 1);
-        this.scene.add(ambient, key);
+        this._buildLightRig();
+        // Look prefs apply now and follow edits from any window (the mascot
+        // settings window and the full view write the same localStorage key).
+        const prefs = loadRenderPrefs();
+        this.setLightingPreset(prefs.lighting);
+        this.setTouchPhysics(prefs.touch);
+        onRenderPrefsChange((p) => {
+            this.setLightingPreset(p.lighting);
+            this.setTouchPhysics(p.touch);
+        });
 
         this.camera = new THREE.PerspectiveCamera(FACE_FOV, 1, 0.1, 100);
 
@@ -534,6 +708,7 @@ class AvatarRenderer {
         vrm.scene.traverse((obj) => {
             if (obj.isMesh) obj.frustumCulled = false;
         });
+        this._applyAvatarLook(vrm.scene);
         // Orient the model to face our +Z camera. Instead of hardcoding a
         // per-metaVersion flip (VRM 0.x ships facing +Z, VRM 1.0 facing -Z —
         // but non-standard Blender exports don't always honour that), derive
@@ -1225,6 +1400,7 @@ class AvatarRenderer {
             partnerVrm.scene.traverse((obj) => {
                 if (obj.isMesh) obj.frustumCulled = false;
             });
+            this._applyAvatarLook(partnerVrm.scene);
             // Normalise facing exactly like the base avatar (VRM 0.x vs 1.0),
             // then compose the configured rotation + placement on top.
             const faceFront = partnerVrm.lookAt?.faceFront;
@@ -1625,6 +1801,7 @@ class AvatarRenderer {
         vrm.scene.traverse((obj) => {
             if (obj.isMesh) obj.frustumCulled = false;
         });
+        this._applyAvatarLook(vrm.scene);
         // Normalise facing exactly like the base avatar (VRM 0.x vs 1.0).
         const faceFront = vrm.lookAt?.faceFront;
         if (faceFront) {
@@ -4101,6 +4278,11 @@ class AvatarRenderer {
         // requests) happen here: the bones hold the clip's final frame, and
         // the idle takes over cleanly on the next update.
         this._flushReleases(this);
+        // Cursor collider + wind, and the light rig / contact shadow that
+        // track the base avatar — before any vrm.update so this frame's
+        // spring-bone step sees the new collider position and gravity.
+        this._updateCursorTouch(delta);
+        this._updateLightRig();
         // Combo partner ticks with the same delta as the base mixer, so the
         // two clips stay in sync; vrm.update drives its spring bones (hair /
         // clothes) — the partner gets no blink/lipsync/gaze, only animation.
@@ -4493,6 +4675,389 @@ class AvatarRenderer {
         return out;
     }
 
+    // ── Lighting presets ─────────────────────────────────────────────────
+    // See LIGHTING_PRESETS. One rig is built once; presets only retune it.
+
+    _buildLightRig() {
+        const { THREE } = this.libs;
+        const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+        const key = new THREE.DirectionalLight(0xffffff, 1.2);
+        key.position.set(0.5, 1.5, 1);
+        key.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+        // Ortho shadow frustum sized to one standing character; the light is
+        // re-aimed at the avatar every frame (_updateLightRig) so this box
+        // never has to cover a whole room.
+        const cam = key.shadow.camera;
+        cam.near = 0.1; cam.far = 12;
+        cam.left = -1.8; cam.right = 1.8; cam.top = 2.2; cam.bottom = -1.8;
+        key.shadow.bias = -0.0004;
+        key.shadow.normalBias = 0.02;
+        const fill = new THREE.DirectionalLight(0xffffff, 0);
+        fill.visible = false;
+        const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0);
+        hemi.visible = false;
+        // Directional lights aim at their .target — added to the scene so
+        // their world matrices update when we move them with the avatar.
+        this.scene.add(ambient, key, key.target, fill, fill.target, hemi);
+
+        // Contact shadow on flat / transparent backdrops: a shadow-only plane
+        // at the avatar's feet (the mascot's transparent window included —
+        // Animates does the same with its ShadowPlane). Hidden while a 3D
+        // room is loaded, whose own floor receives the shadow instead.
+        const catcher = new THREE.Mesh(
+            new THREE.PlaneGeometry(8, 8),
+            new THREE.ShadowMaterial({ opacity: SHADOW_CATCHER_OPACITY, transparent: true, depthWrite: false }),
+        );
+        catcher.name = "shadow-catcher";
+        catcher.rotation.x = -Math.PI / 2;
+        catcher.receiveShadow = true;
+        catcher.visible = false;
+        this.scene.add(catcher);
+
+        this._lights = { ambient, key, fill, hemi };
+        this._shadowCatcher = catcher;
+    }
+
+    /** Switch the light rig to a LIGHTING_PRESETS entry (unknown → default).
+     *  Safe before the renderer exists — the id is remembered and applied
+     *  by _initRenderer. */
+    setLightingPreset(id) {
+        const preset = LIGHTING_PRESETS[id] || LIGHTING_PRESETS.default;
+        this._lightingPreset = LIGHTING_PRESETS[id] ? id : "default";
+        if (!this._lights || !this.renderer) return;
+        const { THREE } = this.libs;
+        const { ambient, key, fill, hemi } = this._lights;
+        const setDir = (light, spec) => {
+            if (!spec) { light.visible = false; light.intensity = 0; return; }
+            light.visible = true;
+            light.color.set(spec.color);
+            light.intensity = spec.intensity;
+        };
+        ambient.color.set(preset.ambient.color);
+        ambient.intensity = preset.ambient.intensity;
+        setDir(key, preset.key);
+        setDir(fill, preset.fill);
+        if (preset.hemi) {
+            hemi.visible = true;
+            hemi.color.set(preset.hemi.sky);
+            hemi.groundColor.set(preset.hemi.ground);
+            hemi.intensity = preset.hemi.intensity;
+        } else {
+            hemi.visible = false;
+            hemi.intensity = 0;
+        }
+        const shadows = !!preset.shadow;
+        key.castShadow = shadows;
+        if (this.renderer.shadowMap.enabled !== shadows) {
+            this.renderer.shadowMap.enabled = shadows;
+            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            // Shader programs bake in whether shadow maps are sampled —
+            // force a recompile so the toggle shows without a reload.
+            this.scene.traverse((obj) => {
+                if (!obj.isMesh) return;
+                const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+                for (const m of mats) if (m) m.needsUpdate = true;
+            });
+        }
+        for (const vrm of this._allVrms()) this._applyAvatarLook(vrm.scene);
+        this._updateLightRig();
+    }
+
+    /** Per-avatar half of a preset: meshes cast and receive the key light's
+     *  shadow (rooms only receive — see loadRoom; only visible on shadow
+     *  presets), and MToon materials get the preset's parametric rim — or
+     *  their authored rim back when the preset has none. Runs at load and
+     *  on every preset switch. */
+    _applyAvatarLook(root) {
+        const preset = LIGHTING_PRESETS[this._lightingPreset] || LIGHTING_PRESETS.default;
+        const rim = preset.rim;
+        const saved = this._rimOriginals ||= new WeakMap();
+        root?.traverse?.((obj) => {
+            if (!obj.isMesh) return;
+            obj.castShadow = true;
+            obj.receiveShadow = true;
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            for (const m of mats) {
+                if (!m?.isMToonMaterial) continue;
+                let orig = saved.get(m);
+                if (!orig) {
+                    orig = {
+                        color: m.parametricRimColorFactor.clone(),
+                        power: m.parametricRimFresnelPowerFactor,
+                        lift: m.parametricRimLiftFactor,
+                        mix: m.rimLightingMixFactor,
+                    };
+                    saved.set(m, orig);
+                }
+                if (rim) {
+                    const scale = RIM_HAIR_RE.test(m.name || "") ? RIM_HAIR_SCALE : 1;
+                    m.parametricRimColorFactor.set(rim.color).multiplyScalar(rim.strength * scale);
+                    m.parametricRimFresnelPowerFactor = RIM_FRESNEL_POWER;
+                    m.parametricRimLiftFactor = 0;
+                    m.rimLightingMixFactor = RIM_LIGHTING_MIX;
+                } else {
+                    m.parametricRimColorFactor.copy(orig.color);
+                    m.parametricRimFresnelPowerFactor = orig.power;
+                    m.parametricRimLiftFactor = orig.lift;
+                    m.rimLightingMixFactor = orig.mix;
+                }
+            }
+        });
+    }
+
+    /** Per frame: keep the rig (and its shadow frustum) centred on the base
+     *  avatar, and park the contact shadow under its feet. */
+    _updateLightRig() {
+        const lights = this._lights;
+        if (!lights) return;
+        const preset = LIGHTING_PRESETS[this._lightingPreset] || LIGHTING_PRESETS.default;
+        const anchor = this.vrm?.scene?.position;
+        const ax = anchor?.x || 0, az = anchor?.z || 0;
+        const aim = (light, spec) => {
+            if (!spec) return;
+            light.position.set(ax + spec.pos[0], spec.pos[1], az + spec.pos[2]);
+            light.target.position.set(ax, 0.9, az);
+        };
+        aim(lights.key, preset.key);
+        aim(lights.fill, preset.fill);
+        const catcher = this._shadowCatcher;
+        if (catcher) {
+            catcher.visible = !!preset.shadow && !!this.vrm && !this._room && !this._xrActive;
+            if (catcher.visible) {
+                catcher.position.set(ax, (this._meshBottomY ?? 0) + 0.002, az);
+            }
+        }
+    }
+
+    // ── Cursor touch physics ─────────────────────────────────────────────
+    // See TOUCH_TUNING. The cursor is projected onto a plane through the
+    // avatar's hips facing the camera (nudged toward the camera so the
+    // sphere reaches the front of the hair / skirt), a sphere collider eases
+    // to that point, and the cursor's in-plane velocity becomes a decaying
+    // "wind" written into the gravity of nearby spring joints. A click adds
+    // a short radial impulse around the projected point.
+
+    setTouchPhysics(enabled) {
+        this._touchEnabled = !!enabled;
+        if (!enabled && this._touch) {
+            this._touch.hasCursor = false;
+            this._touch.pendingTap = false;
+        }
+    }
+
+    /** Feed one cursor sample (window-relative CSS px) — null when the
+     *  cursor leaves the avatar surface. State only; the physics runs in
+     *  _updateCursorTouch each frame. */
+    touchCursor(point) {
+        if (!point) {
+            if (this._touch) this._touch.hasCursor = false;
+            return;
+        }
+        if (!this._touchEnabled || this._xrActive) return;
+        const canvas = this.activeCanvas;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const ndcX = ((point.x - rect.left) / rect.width) * 2 - 1;
+        const ndcY = -(((point.y - rect.top) / rect.height) * 2 - 1);
+        const t = this._ensureTouch();
+        if (!t) return;
+        const max = this._touchTuning.ndcMax;
+        if (Math.abs(ndcX) > max || Math.abs(ndcY) > max) {
+            t.hasCursor = false;
+            return;
+        }
+        // First sample after a gap: the collider teleports to the cursor
+        // instead of sweeping in from wherever it was parked.
+        if (!t.hasCursor) t.snap = true;
+        t.hasCursor = true;
+        t.ndcX = ndcX;
+        t.ndcY = ndcY;
+    }
+
+    /** A click on the avatar: radial impulse at the projected point. */
+    touchTap(point) {
+        this.touchCursor(point);
+        const t = this._touch;
+        if (t?.hasCursor) t.pendingTap = true;
+    }
+
+    _ensureTouch() {
+        if (this._touch) return this._touch;
+        const { THREE, VRMSpringBoneCollider, VRMSpringBoneColliderShapeSphere } = this.libs || {};
+        if (!THREE || !VRMSpringBoneCollider || !this.scene) return null;
+        const host = new THREE.Object3D();
+        host.name = "cursor-touch";
+        host.position.set(0, -100, 0);   // parked well below anything
+        const collider = new VRMSpringBoneCollider(
+            new VRMSpringBoneColliderShapeSphere({ radius: this._touchTuning.radius }),
+        );
+        host.add(collider);
+        this.scene.add(host);
+        this._touch = {
+            host, collider,
+            group: {
+                colliders: [collider], name: "cursor",
+                skip: (joint) => TOUCH_NO_COLLIDE_RE.test(joint.bone.name),
+            },
+            hasCursor: false, snap: true, ndcX: 0, ndcY: 0, ramp: 0,
+            target: new THREE.Vector3(), prev: new THREE.Vector3(),
+            vel: new THREE.Vector3(), wind: new THREE.Vector3(),
+            pendingTap: false, tapPos: new THREE.Vector3(), tapT: Infinity,
+            forcing: false,
+        };
+        for (const vrm of this._allVrms()) this._applySpringCollidersToVRM(vrm);
+        return this._touch;
+    }
+
+    _allVrms() {
+        const out = [];
+        if (this.vrm) out.push(this.vrm);
+        for (const peer of this._peers.values()) if (peer.vrm) out.push(peer.vrm);
+        if (this._comboPartner?.vrm) out.push(this._comboPartner.vrm);
+        return out;
+    }
+
+    _updateCursorTouch(delta) {
+        const t = this._touch;
+        if (!t || !(delta > 0)) return;
+        const { THREE } = this.libs;
+        const tune = this._touchTuning;
+        const s = this._touchScratch ||= {
+            anchor: new THREE.Vector3(), normal: new THREE.Vector3(), hit: new THREE.Vector3(),
+            plane: new THREE.Plane(), ray: new THREE.Raycaster(), ndc: new THREE.Vector2(),
+            jointPos: new THREE.Vector3(), g: new THREE.Vector3(), tmp: new THREE.Vector3(),
+        };
+        const vrm = this.vrm;
+        const live = t.hasCursor && this._touchEnabled && !this._xrActive && vrm && this.camera;
+        let engaged = false;
+        if (live) {
+            const hips = vrm.humanoid?.getNormalizedBoneNode?.("hips");
+            if (hips) hips.getWorldPosition(s.anchor); else s.anchor.copy(vrm.scene.position);
+            s.normal.subVectors(this.camera.position, s.anchor);
+            s.normal.y = 0;   // vertical plane: hair at the top and hem at the bottom sit at the same depth
+            if (s.normal.lengthSq() > 1e-6) {
+                s.normal.normalize();
+                s.hit.copy(s.anchor).addScaledVector(s.normal, tune.planeOffset);
+                s.plane.setFromNormalAndCoplanarPoint(s.normal, s.hit);
+                s.ndc.set(t.ndcX, t.ndcY);
+                s.ray.setFromCamera(s.ndc, this.camera);
+                if (s.ray.ray.intersectPlane(s.plane, s.hit)) {
+                    t.target.copy(s.hit);
+                    if (t.snap) {
+                        t.host.position.copy(t.target);
+                        t.prev.copy(t.target);
+                        t.vel.set(0, 0, 0);
+                        t.snap = false;
+                        t.ramp = 0;
+                    } else {
+                        t.host.position.lerp(t.target, 1 - Math.exp(-tune.followRate * delta));
+                    }
+                    engaged = true;
+                }
+            }
+        }
+        if (!engaged) {
+            t.host.position.set(0, -100, 0);
+            t.snap = true;
+            t.ramp = 0;
+            t.vel.set(0, 0, 0);
+            t.pendingTap = false;
+        }
+        // The sphere grows in after landing so hair it appears inside is
+        // eased aside instead of popping.
+        t.ramp = Math.min(1, t.ramp + delta / Math.max(tune.radiusRamp, 1e-3));
+        t.collider.shape.radius = tune.radius * t.ramp;
+        // Fresh world matrix now: the spring-bone manager only refreshes the
+        // collider itself, against whatever parent matrix it finds.
+        t.host.updateMatrixWorld(true);
+
+        // Cursor velocity (smoothed) → wind. Rises fast, dies slower, so a
+        // quick sweep leaves a gust that settles over a fraction of a second.
+        if (engaged) {
+            s.tmp.subVectors(t.host.position, t.prev).divideScalar(delta);
+            t.vel.lerp(s.tmp, 1 - Math.exp(-tune.velSmoothRate * delta));
+        }
+        t.prev.copy(t.host.position);
+        s.g.copy(t.vel).multiplyScalar(tune.windGain);
+        const mag = s.g.length();
+        if (mag > tune.windMax) s.g.multiplyScalar(tune.windMax / mag);
+        const rising = s.g.lengthSq() > t.wind.lengthSq();
+        t.wind.lerp(s.g, 1 - Math.exp(-(rising ? tune.windAttack : tune.windRelease) * delta));
+        if (t.wind.lengthSq() < 1e-6) t.wind.set(0, 0, 0);
+
+        if (t.pendingTap && engaged) {
+            t.tapPos.copy(t.target);
+            t.tapT = 0;
+            t.pendingTap = false;
+        }
+        const tapActive = t.tapT < tune.tapDuration;
+        if (tapActive) t.tapT += delta;
+        const windActive = t.wind.lengthSq() > 0;
+        if (!windActive && !tapActive) {
+            if (t.forcing) {
+                this._restoreTouchGravity();
+                t.forcing = false;
+            }
+            return;
+        }
+        t.forcing = true;
+        const windR2 = tune.windRadius * tune.windRadius;
+        for (const v of this._allVrms()) {
+            const mgr = v.springBoneManager;
+            if (!mgr) continue;
+            for (const joint of mgr.joints) {
+                let base = this._touchBase.get(joint);
+                if (!base) {
+                    base = {
+                        dir: joint.settings.gravityDir.clone(),
+                        power: joint.settings.gravityPower,
+                        scale: TOUCH_NO_COLLIDE_RE.test(joint.bone.name) ? tune.bustScale : 1,
+                    };
+                    this._touchBase.set(joint, base);
+                }
+                s.jointPos.setFromMatrixPosition(joint.bone.matrixWorld);
+                s.g.copy(base.dir).multiplyScalar(base.power);
+                if (windActive) {
+                    const d2 = s.jointPos.distanceToSquared(t.host.position);
+                    const w = Math.exp(-d2 / windR2) * base.scale;
+                    if (w > 0.01) s.g.addScaledVector(t.wind, w);
+                }
+                if (tapActive) {
+                    s.tmp.subVectors(s.jointPos, t.tapPos);
+                    const d = s.tmp.length();
+                    if (d < tune.tapRadius && d > 1e-4) {
+                        const env = 1 - t.tapT / tune.tapDuration;
+                        s.g.addScaledVector(s.tmp.divideScalar(d),
+                            tune.tapPower * env * (1 - d / tune.tapRadius) * base.scale);
+                    }
+                }
+                const p = s.g.length();
+                if (p > 1e-6) {
+                    joint.settings.gravityPower = p;
+                    joint.settings.gravityDir.copy(s.g).divideScalar(p);
+                } else {
+                    joint.settings.gravityPower = 0;
+                    joint.settings.gravityDir.copy(base.dir);
+                }
+            }
+        }
+    }
+
+    /** Put every joint's authored gravity back once the wind has died. */
+    _restoreTouchGravity() {
+        for (const v of this._allVrms()) {
+            const mgr = v.springBoneManager;
+            if (!mgr) continue;
+            for (const joint of mgr.joints) {
+                const base = this._touchBase.get(joint);
+                if (!base) continue;
+                joint.settings.gravityDir.copy(base.dir);
+                joint.settings.gravityPower = base.power;
+            }
+        }
+    }
+
     // ── Spring-bone hand colliders (VR touch physics) ───────────────────
     // The VR hands become real colliders for the avatar's spring bones
     // (hair / chest / clothing), so touching physically displaces them —
@@ -4527,17 +5092,22 @@ class AvatarRenderer {
      *  joints. Re-adding a joint marks the manager's dependency sort dirty so
      *  the new collider is picked up. Safe no-op when no group is active. */
     _applySpringCollidersToVRM(vrm) {
-        const group = this._xrHandColliderGroup;
         const mgr = vrm?.springBoneManager;
-        if (!group || !mgr) return;
-        try {
-            for (const joint of mgr.joints) {
-                if (!joint.colliderGroups.includes(group)) {
-                    joint.colliderGroups.push(group);
-                    mgr.addJoint(joint);
+        if (!mgr) return;
+        // Both runtime groups ride the same registration: the VR hands and
+        // the cursor collider (see _ensureTouch).
+        for (const group of [this._xrHandColliderGroup, this._touch?.group]) {
+            if (!group) continue;
+            try {
+                for (const joint of mgr.joints) {
+                    if (group.skip?.(joint)) continue;
+                    if (!joint.colliderGroups.includes(group)) {
+                        joint.colliderGroups.push(group);
+                        mgr.addJoint(joint);
+                    }
                 }
-            }
-        } catch (e) { /* non-fatal — touch physics is a bonus, never break loading */ }
+            } catch (e) { /* non-fatal — touch physics is a bonus, never break loading */ }
+        }
     }
 
     /** Undo attachSpringBoneColliders: unregister the group from every VRM

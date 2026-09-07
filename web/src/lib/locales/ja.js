@@ -464,6 +464,23 @@ export const JA = {
   "Full body view": "全身ビュー",
   "Show the whole character instead of the face view — drag rotates, scroll zooms.":
     "顔のアップではなく全身を表示します — ドラッグで回転、スクロールでズーム。",
+  "Look": "見た目",
+  "Lighting": "ライティング",
+  "Studio": "スタジオ",
+  "Sunny day": "晴れの日",
+  "Golden hour": "夕暮れ",
+  "Night neon": "ナイトネオン",
+  "Flat": "フラット",
+  "Overcast": "曇り",
+  "Moonlight": "月明かり",
+  "Candlelight": "キャンドル",
+  "Stage spotlight": "ステージスポット",
+  "Backlit": "逆光",
+  "Pre-set light rigs — a key light, a coloured rim from behind and, on most of them, a soft shadow under the feet. Also applies to the full-screen view.":
+    "プリセットの照明 — キーライト、背後からの色付きリムライト、多くのプリセットでは足元のやわらかい影。フルスクリーン表示にも適用されます。",
+  "Touch physics": "タッチ物理",
+  "Hair, skirts and other swinging parts move out of the cursor's way, ruffle with quick mouse sweeps, and bounce when clicked.":
+    "髪やスカートなどの揺れる部分がカーソルを避けて動き、素早いマウス操作でなびき、クリックすると弾みます。",
   "Window size": "ウィンドウサイズ",
   "Or scroll on the avatar (face view) for fine control.":
     "アバター上でスクロールしても微調整できます（フェイスビュー時）。",
