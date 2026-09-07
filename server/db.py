@@ -152,7 +152,23 @@ CREATE TABLE IF NOT EXISTS avatars (
     vrma_idle_path TEXT,
     -- Fade explicit emotions back toward neutral a few seconds after the
     -- model sets them (otherwise the blendshape holds until the next call).
-    emotion_decay INTEGER NOT NULL DEFAULT 1
+    emotion_decay INTEGER NOT NULL DEFAULT 1,
+    -- Idle fidgets (motion director): occasional small clips from the
+    -- motion library while the companion stands quietly. fidget_interval is
+    -- the AVERAGE seconds between them (jittered ±50% at runtime).
+    fidgets INTEGER NOT NULL DEFAULT 1,
+    fidget_interval REAL NOT NULL DEFAULT 10,
+    -- Speech gestures: a fast-model pick from the motion library for each
+    -- sentence the companion says (one small text call per sentence — see
+    -- session_service.speech_gesture_select). Off by default.
+    speech_gestures INTEGER NOT NULL DEFAULT 0,
+    -- Built-in play_gesture whitelist. restrict off = every built-in is
+    -- offered (tool enum + manual panel). restrict on = only the ids in
+    -- base_gestures (comma-separated, e.g. 'greeting,goodbye,thinking');
+    -- an empty list with restrict on disables the built-ins entirely, so a
+    -- pack can ship with nothing but its own custom gestures.
+    restrict_base_gestures INTEGER NOT NULL DEFAULT 0,
+    base_gestures TEXT
 );
 
 CREATE TABLE IF NOT EXISTS avatar_outfits (
@@ -325,6 +341,21 @@ CREATE TABLE IF NOT EXISTS agents (
     -- back — the cross-session counterpart to enable_call_agents_tool's
     -- live same-call join. On by default.
     enable_companion_texting INTEGER NOT NULL DEFAULT 1,
+    -- Whether THIS companion may use its own tools while answering a text
+    -- from another companion — real delegation between differently-equipped
+    -- companions ("ask Ara, she has the Minecraft bot"). On by default.
+    -- Turn it off for a companion whose tools are slow or expensive: the
+    -- sender's turn blocks on this reply, so an image or a delegated task
+    -- here is dead air in their live call. Note this is the RECIPIENT's
+    -- setting — the companion whose tools would run decides.
+    texting_tools_enabled INTEGER NOT NULL DEFAULT 1,
+    -- Speech gestures: for each sentence this companion speaks, a fast
+    -- model picks a gesture from the motion library (see
+    -- session_service.speech_gesture_select) and it plays while the line is
+    -- said. One small text-model call per sentence, so it is off by
+    -- default. Lives on the companion, not the avatar: it is a behaviour
+    -- and a cost, like every other tool switch here.
+    speech_gestures INTEGER NOT NULL DEFAULT 0,
     -- end_call: lets the companion hang up when the user asks it to
     -- ("end the call", "goodnight") — the browser drains the goodbye
     -- before disconnecting.
@@ -552,6 +583,14 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     -- heartbeat.build_context_block / run_heartbeat.
     allow_companion_texting INTEGER NOT NULL DEFAULT 0,
     companion_texting_max_turns INTEGER NOT NULL DEFAULT 5,
+    -- Offer this heartbeat the companion's ordinary tools (memory, imagine,
+    -- delegate, Minecraft…). OFF by default: a background tick writes a
+    -- diary entry or texts another companion, and an idle tool belt is
+    -- where a model with nothing left to do goes looking for something to
+    -- do — placeholder remember/forget spam until the turn's call budget
+    -- runs out. Companion texting is unaffected (it has its own toggle
+    -- above), and a tick that genuinely needs tools can opt back in.
+    tools_enabled INTEGER NOT NULL DEFAULT 0,
     created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_heartbeats_due ON heartbeats (active, past_due, next_run_at);
@@ -659,6 +698,16 @@ MIGRATIONS = (
     # Opt-in per agent; configurable working directory (empty = default).
     "ALTER TABLE agents ADD COLUMN enable_local_tasks INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE config ADD COLUMN local_task_workdir TEXT NOT NULL DEFAULT ''",
+    # Idle fidgets (motion library clips while the companion stands quietly)
+    # + the built-in gesture whitelist — per avatar, pack manifest keys of
+    # the same names. A no-op until a library exists under
+    # data/assets/motion.
+    "ALTER TABLE avatars ADD COLUMN fidgets INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE avatars ADD COLUMN fidget_interval REAL NOT NULL DEFAULT 10",
+    "ALTER TABLE avatars ADD COLUMN restrict_base_gestures INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE avatars ADD COLUMN base_gestures TEXT",
+    "ALTER TABLE avatars ADD COLUMN speech_gestures INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agents ADD COLUMN speech_gestures INTEGER NOT NULL DEFAULT 0",
     # Per-avatar emotion decay (settle back toward neutral after the beat).
     # On by default — replaces the old hardcoded Eve/Leo/Ara-only softening.
     "ALTER TABLE avatars ADD COLUMN emotion_decay INTEGER NOT NULL DEFAULT 1",
@@ -727,11 +776,18 @@ MIGRATIONS = (
     # Companion texting (text_companion): async cross-session messaging
     # between companions, landing in the target's own latest conversation.
     "ALTER TABLE agents ADD COLUMN enable_companion_texting INTEGER NOT NULL DEFAULT 1",
+    # Recipient-side tool belt when another companion texts you (see the
+    # agents schema comment).
+    "ALTER TABLE agents ADD COLUMN texting_tools_enabled INTEGER NOT NULL DEFAULT 1",
     # Per-heartbeat companion texting (off by default per row, unlike the
     # agent-level master switch above): lets one heartbeat's own tick use
     # text_companion, bounded to a configurable number of exchanges.
     "ALTER TABLE heartbeats ADD COLUMN allow_companion_texting INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE heartbeats ADD COLUMN companion_texting_max_turns INTEGER NOT NULL DEFAULT 5",
+    # Existing heartbeats lose their tool belt too (default 0) — none of the
+    # shipped ones need it, and an idle belt is what the placeholder
+    # remember/forget loop fed on. Opt back in per heartbeat.
+    "ALTER TABLE heartbeats ADD COLUMN tools_enabled INTEGER NOT NULL DEFAULT 0",
     # Authored default spawn placement for a GLB scene background (walk
     # mode's "reset to default position" and the fallback before any
     # scene_placements row exists for an agent).

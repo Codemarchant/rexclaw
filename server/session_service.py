@@ -10,6 +10,7 @@ are stripped rather than evaluated (no server-side eval surface here).
 import json
 import logging
 import mimetypes
+import random
 import re
 import threading
 import uuid
@@ -271,7 +272,7 @@ def _env_postamble(con, agent_row, mode='voice', stable=False):
     # section — centralized so tuning happens once and user-created
     # companions inherit the behavior without template text.
     if mode == 'voice':
-        expression = _expression_section(agent_row)
+        expression = _expression_section(con, agent_row)
         if expression:
             sections.append(expression)
         habits = _tool_habits_section(con, agent_row)
@@ -371,7 +372,7 @@ def _affection_section(agent_row, stable=False):
     )
 
 
-def _expression_section(agent_row):
+def _expression_section(con, agent_row):
     """Voice-surface expression guidance, injected centrally so it stays
     personality-agnostic and provider mechanics never live in companion
     prompts. Speech expression tags are a Grok voice-API feature, so they
@@ -390,12 +391,16 @@ def _expression_section(agent_row):
         block = (
             "## Speech expression tags\n"
             "You can mark up speech with tags that shape how a line is rendered. "
-            "Use them where they make a line feel alive, and let your "
-            "personality decide which tags fit and how often. "
-            "Anything the user would hear - a laugh, a giggle, a sigh, a "
+            "Reach for them freely - they are most of what separates a voice "
+            "that sounds like a person from one reading lines aloud. A beat "
+            "of hesitation before the honest answer, a laugh you'd actually "
+            "let out, a line dropped to a whisper, the one word you lean on: "
+            "if the user would hear it, tag it. "
+            "Anything audible - a laugh, a giggle, a sigh, a "
             "whisper, a breath - belongs in a tag inside the line "
             "(`[giggle] okay, that's actually wild`), never narrated as an "
-            "action (\"I giggle\").\n\n"
+            "action (\"I giggle\"). Which tags are yours, and how thickly "
+            "you lay them on, is your character's call.\n\n"
             "There are two kinds of tag.\n\n"
             "**Inline tags** - placed at the point in the text where the "
             "vocal expression should occur, like a laugh or a pause. "
@@ -447,39 +452,61 @@ def _expression_section(agent_row):
             )
         parts.append(block)
     if agent_row['enable_gesture_emotion_tools']:
+        # An avatar can whitelist ITSELF out of every built-in gesture and
+        # carry no custom ones, in which case play_gesture is not offered at
+        # all (see start_session). Describing a tool the model cannot call is
+        # the same trap the tool-mention gating elsewhere exists to avoid, so
+        # the gesture half of this block is gated on the same condition.
+        has_gestures = browser_tools.build_play_gesture_tool(
+            store.agent_gesture_dicts(con, agent_row),
+            allow=store.agent_allowed_base_gestures(con, agent_row),
+        ) is not None
         block = (
             "## Avatar expression\n"
-            "The same emotion or gesture repeated turn after turn reads as a "
-            "tic - vary it, or let it rest.\n"
             "- Your face should track your voice in real time - call "
             "`set_emotion` proactively whenever the emotional tone shifts, "
             "without waiting for permission or commenting on it, and return "
-            "to `neutral` when the moment passes. Each emotion plays a short "
-            "animation, so it marks a change of feeling rather than every "
-            "line: when the feeling changes, the call goes in "
-            "that turn, and a feeling you'd put into words (\"it does make "
-            "me happy\") is exactly the moment for it. Once played, let it "
-            "stand - more of the same feeling over the next few turns "
-            "doesn't need another call. Call it again only when it clearly "
-            "rises again (a new reason, a bigger moment) or after you've "
-            "returned to `neutral`. Which emotion and how strongly is your "
-            "character's call.\n"
-            "- `play_gesture` is punctuation, not background motion: one "
-            "gesture per beat, for moments worth marking. When you narrate something the "
-            "avatar can perform (a wave, a nod, a spin), the call goes in "
-            "that same turn - saying \"I wave\" without it is announcing "
-            "without acting. Which gestures fit, and how often, is a "
-            "personality question - let your character decide.\n"
-            "- Narrate in words only the physical beats the avatar can't "
-            "perform: touching the user, moving through the space, handling "
-            "things, leading them somewhere.\n"
-            "- A looping gesture (solo or with a call partner) keeps going "
-            "until you end it - `play_gesture` 'idle' stops it cleanly, and "
-            "any other gesture replaces it, so don't play one by accident "
-            "mid-loop. Emotions are fine at any time."
+            "to `neutral` when the moment passes. A feeling you'd put into "
+            "words (\"it does make me happy\"), a reaction to what they've "
+            "just told you, a shift in the mood between you - each is a "
+            "moment for it, and the call goes in that same turn. Each "
+            "emotion plays a short animation, so it marks the change rather "
+            "than every line: while the same feeling holds, the first call "
+            "stands.\n"
         )
+        if has_gestures:
+            block += (
+                "- `play_gesture` is punctuation - for the moments worth "
+                "marking. Its tool description is the menu: the gestures this "
+                "avatar actually has, each with the moment it is for. Read "
+                "it, and reach for one where it fits the beat. When you "
+                "narrate something the avatar can perform (a wave, a nod, a "
+                "spin), the call goes in that same turn - saying \"I wave\" "
+                "without it is announcing without acting. Which of them are "
+                "characteristically yours is your character's call.\n"
+                "- Narrate in words only the physical beats the avatar can't "
+                "perform: touching the user, moving through the space, "
+                "handling things, leading them somewhere.\n"
+                "- Neither should fall into a pattern - the same emotion or "
+                "gesture turn after turn reads as a tic. Vary which one, or "
+                "let it rest.\n"
+                "- A looping gesture (solo or with a call partner) keeps "
+                "going until you end it - `play_gesture` 'idle' stops it "
+                "cleanly, and any other gesture replaces it, so don't play "
+                "one by accident mid-loop. Emotions are fine at any time."
+            )
+        else:
+            # No gestures on this avatar: emotions are the only channel, so
+            # everything physical falls to narration.
+            block += (
+                "- The same emotion turn after turn reads as a tic - vary it, "
+                "or let it rest.\n"
+                "- This avatar has no gestures to play, so narrate the "
+                "physical beats in words: touching the user, moving through "
+                "the space, handling things, leading them somewhere."
+            )
         style = (agent_row['expression_style'] or '').strip()
-        if style:
+        if has_gestures and style:
             block += (
                 "\n\n### Your signature gestures\n"
                 "On top of the general guidance above, these are the "
@@ -803,7 +830,12 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     # wardrobe + custom gesture clips.
     tools = list(browser_tools.BROWSER_TOOLS)
     if agent['enable_gesture_emotion_tools']:
-        tools.append(browser_tools.build_play_gesture_tool(store.agent_gesture_dicts(con, agent)))
+        play_gesture = browser_tools.build_play_gesture_tool(
+            store.agent_gesture_dicts(con, agent),
+            allow=store.agent_allowed_base_gestures(con, agent),
+        )
+        if play_gesture is not None:   # None = avatar offers no gestures at all
+            tools.append(play_gesture)
         change_outfit = browser_tools.build_change_outfit_tool(store.agent_outfit_dicts(con, agent))
         if change_outfit is not None:
             tools.append(change_outfit)
@@ -2208,6 +2240,7 @@ def text_prompt_stale(con, session, agent, config=None):
 def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                    extra_content_blocks=None, tool_results=None, headless=False,
                    suppress_companion_text=False, companion_text_max_calls=None,
+                   minimal_tools=False,
                    model=None, reasoning_effort=_AGENT_EFFORT):
     """Drive one or more /v1/responses legs until the assistant returns plain
     text or needs the browser. Server-side function tools (imagine + memory +
@@ -2268,31 +2301,40 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         if last_at and datetime.utcnow() - last_at > timedelta(days=29):
             previous_response_id = None
 
-    mcp_entries = store.mcp_entries_for(con, agent['id'], surface='text')
+    # minimal_tools strips the whole ordinary tool belt for this turn —
+    # companion texting is the one exception, since it has its own toggle
+    # and is the point of the turns that use it (heartbeats; see
+    # heartbeats.tools_enabled). MCP servers go too: a background tick has
+    # no business reaching outside.
+    mcp_entries = ([] if minimal_tools
+                   else store.mcp_entries_for(con, agent['id'], surface='text'))
     tools = _build_text_tools(
         con, agent,
         mcp_entries=mcp_entries,
-        enable_web_search=bool(agent['enable_web_search']),
-        enable_x_search=bool(agent['enable_x_search']),
-        enable_code_execution=bool(agent['enable_code_execution']),
-        enable_grok_imagine_tools=bool(agent['enable_grok_imagine_tools']),
-        enable_memory_tools=bool(agent['enable_memory_tools']),
+        enable_web_search=bool(agent['enable_web_search']) and not minimal_tools,
+        enable_x_search=bool(agent['enable_x_search']) and not minimal_tools,
+        enable_code_execution=bool(agent['enable_code_execution']) and not minimal_tools,
+        enable_grok_imagine_tools=bool(agent['enable_grok_imagine_tools']) and not minimal_tools,
+        enable_memory_tools=bool(agent['enable_memory_tools']) and not minimal_tools,
         # The delegated analyst speaks with the companion's voice but not its
         # heart — background task sessions must not move the affection score.
         enable_affection_tool=(bool(agent['enable_affection_tool'])
-                               and session['origin'] != 'delegated'),
+                               and session['origin'] != 'delegated'
+                               and not minimal_tools),
         # Recursion guard: a delegated task session must never delegate
         # further — one level of background work, no self-spawning chains.
         enable_delegate_tool=(bool(agent['enable_delegate_tool'])
-                              and session['origin'] != 'delegated'),
+                              and session['origin'] != 'delegated'
+                              and not minimal_tools),
         # Deliberately NOT origin-guarded: the Grok Build CLI cannot call
         # back into rexclaw, so voice → delegate_task → local_task chains
         # are safe and let the deep-focus brain drive on-machine work.
-        enable_local_tasks=bool(agent['enable_local_tasks']),
+        enable_local_tasks=bool(agent['enable_local_tasks']) and not minimal_tools,
         # The delegated analyst must not steer the game bot — directing it
         # is the companion's own job (same spirit as the delegate guard).
         enable_minecraft=(bool(agent['enable_minecraft'])
-                          and session['origin'] != 'delegated'),
+                          and session['origin'] != 'delegated'
+                          and not minimal_tools),
         # Recursion guard: a companion replying to an incoming companion
         # text must not immediately text back — see companion_texting.
         # companion_text_max_calls == 0 fully disables it for a turn that

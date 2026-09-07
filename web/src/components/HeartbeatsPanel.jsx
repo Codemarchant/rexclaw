@@ -29,6 +29,7 @@ const EMPTY_HEARTBEAT = {
     next_run_at: null,
     allow_companion_texting: 0,
     companion_texting_max_turns: 5,
+    tools_enabled: 0,
 };
 
 // Keeps a tick comfortably inside the shared per-turn model-call budget —
@@ -312,6 +313,15 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                 </label>
             </span>
             <span className="rx_check" style={{ marginTop: "0.25rem" }}>
+                <input id={`hb-tools-${agentId}`} type="checkbox"
+                       checked={!!editing.tools_enabled}
+                       onChange={(ev) => set("tools_enabled", ev.target.checked ? 1 : 0)} />
+                <label htmlFor={`hb-tools-${agentId}`}
+                       title={_t("Gives this tick the companion's ordinary tools — memory, pictures, delegated tasks, Minecraft, MCP servers. Off by default: a background tick writes a diary entry or texts someone, and a companion with an idle tool belt and nothing left to do tends to fill the turn with pointless calls. Companion texting below is separate and unaffected.")}>
+                    {_t("Allow the companion's other tools during this heartbeat")}
+                </label>
+            </span>
+            <span className="rx_check" style={{ marginTop: "0.25rem" }}>
                 <input id={`hb-texting-${agentId}`} type="checkbox"
                        checked={!!editing.allow_companion_texting}
                        onChange={(ev) => set("allow_companion_texting", ev.target.checked ? 1 : 0)} />
@@ -447,6 +457,7 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                                 session_id: hb.session_id,
                                 allow_companion_texting: hb.allow_companion_texting || 0,
                                 companion_texting_max_turns: hb.companion_texting_max_turns || 5,
+                                tools_enabled: hb.tools_enabled || 0,
                                 // Always populated: rows that never got a
                                 // date (created inactive) show a truthful
                                 // now + interval that tracks interval edits.

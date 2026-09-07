@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api")
 _HEARTBEAT_FIELDS = (
     "agent_id", "name", "active", "prompt", "interval_number",
     "interval_unit", "mode", "session_strategy", "session_id",
-    "allow_companion_texting", "companion_texting_max_turns",
+    "allow_companion_texting", "companion_texting_max_turns", "tools_enabled",
 )
 
 # Keeps a heartbeat's own tick comfortably inside text_send_turn's shared

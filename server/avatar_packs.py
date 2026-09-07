@@ -20,6 +20,9 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
       "vrma_idle": "idle.vrma",
       "emotion_decay": true,             // optional; default true — emotions
                                          // settle back toward neutral after a beat
+      "restrict_base_gestures": true,    // optional; default false — with true, only
+      "base_gestures": "greeting,goodbye",  // these built-in play_gesture ids are
+                                         // offered (empty list = built-ins off)
       "outfits": [
         {"name": "Winter", "vrm": "kira_winter.vrm", "description": "…"}
       ],
@@ -125,6 +128,29 @@ def _vec3(value, default=(0.0, 0.0, 0.0)):
     return default
 
 
+def _positive_number(value, default):
+    """Manifest number field → float, falling back to `default` for
+    anything missing, non-numeric or <= 0."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return default
+    return v if v > 0 else default
+
+
+def _id_list(value):
+    """Manifest id list (JSON array or comma-separated string) → the
+    normalised comma-separated form stored in the DB, or None when empty."""
+    if isinstance(value, str):
+        parts = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        parts = [str(p) for p in value]
+    else:
+        return None
+    ids = sorted({p.strip() for p in parts if p and p.strip()})
+    return ",".join(ids) or None
+
+
 def _upsert_avatar(con, pack_key, vals):
     """Insert or update the avatars row for this pack. Returns the row id.
 
@@ -143,16 +169,23 @@ def _upsert_avatar(con, pack_key, vals):
     if row:
         con.execute(
             "UPDATE avatars SET pack_key = ?, name = ?, description = ?, sequence = ?,"
-            " vrm_path = ?, vrma_idle_path = ?, emotion_decay = ?, active = 1 WHERE id = ?",
+            " vrm_path = ?, vrma_idle_path = ?, emotion_decay = ?, fidgets = ?,"
+            " fidget_interval = ?, restrict_base_gestures = ?, base_gestures = ?,"
+            " active = 1 WHERE id = ?",
             (pack_key, vals["name"], vals["description"], vals["sequence"],
-             vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"], row["id"]),
+             vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
+             vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
+             vals["base_gestures"], row["id"]),
         )
         return row["id"]
     cur = con.execute(
         "INSERT INTO avatars (pack_key, name, description, sequence, vrm_path, vrma_idle_path,"
-        " emotion_decay) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        " emotion_decay, fidgets, fidget_interval, restrict_base_gestures, base_gestures"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (pack_key, vals["name"], vals["description"], vals["sequence"],
-         vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"]),
+         vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
+         vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
+         vals["base_gestures"]),
     )
     return cur.lastrowid
 
@@ -185,6 +218,10 @@ def _scan_pack(con, pack_dir, url_root):
         # Only an explicit false opts out — absent (all pre-existing packs)
         # means on.
         "emotion_decay": 0 if manifest.get("emotion_decay") is False else 1,
+        "fidgets": 0 if manifest.get("fidgets") is False else 1,
+        "fidget_interval": _positive_number(manifest.get("fidget_interval"), 10.0),
+        "restrict_base_gestures": 1 if manifest.get("restrict_base_gestures") is True else 0,
+        "base_gestures": _id_list(manifest.get("base_gestures")),
     })
 
     # Children are replaced wholesale — manifest is the source of truth.

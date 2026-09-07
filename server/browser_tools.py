@@ -226,46 +226,50 @@ END_CALL_TOOL = {
     },
 }
 
-# Built-in gesture ids shipped in web/src/models/avatar_catalog.js. Kept here
-# verbatim so build_play_gesture_tool can produce the right enum without
-# reading the JS.
-_BUILTIN_GESTURE_IDS = (
-    "clapping", "dance", "goodbye", "greeting", "jump",
-    "look_around", "sleepy", "thinking", "peace_sign",
-    "shoot", "spin", "show_full_body", "model_pose", "squat",
-    "backflip", "blow_kiss", "belly_dance", "push_up", "pike_walk",
+# Built-in gestures shipped in web/src/models/avatar_catalog.js, in enum
+# order, each with the usage hint the model sees. Kept here verbatim so
+# build_play_gesture_tool can produce the right enum without reading the
+# JS; an avatar's built-in whitelist (restrict_base_gestures + base_gestures)
+# filters BOTH the enum and the hint list, so the model is never told about
+# a gesture it can't play.
+# Hint convention: what the MOTION looks like first, then one brief example
+# of a moment for it — the model maps its own moments onto a described
+# motion far more readily than onto a single scripted situation.
+_BUILTIN_GESTURES = (
+    ("clapping", "claps hands together a few times — e.g. the user pulled something off"),
+    ("dance", "an energetic performative kpop style dance on the spot — e.g. celebrating in style/showing off"),
+    ("goodbye", "waves goodbye — e.g. ending the call"),
+    ("greeting", "crouches down, then jumps up and waves hello — e.g. greeting the user with energetic tone"),
+    ("jump", "a happy jump — e.g. bursting with excitement"),
+    ("look_around", "glances left and right, searching — e.g. \"where did it go?\""),
+    ("sleepy", "rubs eyes, arm to head in yawning motion — e.g. late at night, or a shrug of \"no idea\""),
+    ("thinking", "crossing arms and moving head in thought, weighing something — e.g. for figuring out something complex"),
+    ("peace_sign", "flashes a V sign — e.g. \"cool\", a playful pose for the user"),
+    ("shoot", "finger-gun with a wink — e.g. \"gotcha\", playful energy"),
+    ("spin", "twirls once on the spot — e.g. showing off an outfit"),
+    ("show_full_body", "elegantly lean left and right, then spin slowly, to show off the whole body — e.g. asked \"show off your oufit\""),
+    ("model_pose", "strikes a brief fashion pose, hand on hip, flicking arm up — e.g. for a brief showy pose"),
+    ("squat", "squat reps, loops continuously until you stop it — e.g. exercising together"),
+    ("backflip", "a backflip — e.g. asked for a trick"),
+    ("blow_kiss", "blows a kiss — e.g. an affectionate goodbye, or a warm, playful moment with the user"),
+    ("belly_dance", "a belly dance, sustained — e.g. a more sensual dance for the user"),
+    ("push_up", "push-ups, loops continuously until you stop it — e.g. a workout flex or exercising together"),
+    ("pike_walk", "a yoga-style pike stretch, loops continuously until you stop it — e.g. limbering up"),
 )
+_BUILTIN_GESTURE_IDS = tuple(g for g, _ in _BUILTIN_GESTURES)
+_BUILTIN_LOOP_IDS = frozenset({"squat", "push_up", "pike_walk"})
 
-_PLAY_GESTURE_BASE_DESCRIPTION = (
+_PLAY_GESTURE_INTRO = (
     "Play a one-shot body-language animation on your avatar. Use "
     "sparingly — these are punctuation, not background motion. Pick: "
-    "'clapping' for celebrating with the user; 'dance' for high-energy "
-    "celebration when the user achieves something big; 'goodbye' for farewells; "
-    "'greeting' for hellos / first contact in a session; 'jump' for "
-    "excitement; 'look_around' when searching or curious; 'sleepy' for "
-    "low-energy or 'I don't know' moments; 'thinking' while a tool call "
-    "is running and you want to indicate work in progress; "
-    "'peace_sign' for casual agreement / 'cool'; 'shoot' (finger-gun) "
-    "for a confident 'got it' / acknowledgement; 'spin' for a playful "
-    "twirl on success; 'show_full_body' when introducing yourself or "
-    "the user explicitly asks to see your full body; 'model_pose' for "
-    "a brief showy pose; 'squat' for squat reps — workout scenes or "
-    "exercising together (loops continuously until you stop it); "
-    "'backflip' for an athletic show-off "
-    "celebration or when asked to perform a trick; 'blow_kiss' for an "
-    "affectionate goodbye or a warm, playful moment with the user; "
-    "'belly_dance' when asked to dance for the user or putting on a "
-    "playful performance; 'push_up' for a workout flex, exercising "
-    "together, or an energetic show of determination (loops continuously "
-    "until you stop it); 'pike_walk' for a yoga stretch or a playful "
-    "limbering-up moment (loops continuously until you stop it). "
-    "Emotions (set_emotion) already play "
-    "a matching gesture automatically — only use play_gesture for "
-    "these standalones."
+)
+_PLAY_GESTURE_OUTRO = (
+    " Emotions (set_emotion) already play a matching gesture "
+    "automatically — only use play_gesture for these standalones."
 )
 
 
-def build_play_gesture_tool(custom_gestures):
+def build_play_gesture_tool(custom_gestures, allow=None):
     """Return the play_gesture tool entry, with the avatar's custom VRMA
     gestures appended to the enum and described inline.
 
@@ -273,14 +277,31 @@ def build_play_gesture_tool(custom_gestures):
         store.agent_gesture_dicts. Solo and combo customs share the enum —
         a combo is just a gesture that stages a second character while it
         plays.
+    :param allow: built-in whitelist from store.allowed_base_gestures —
+        None offers every built-in; a list (even empty) offers only those.
     """
     from . import store  # local import — store imports nothing from here
 
-    description = _PLAY_GESTURE_BASE_DESCRIPTION
-    enum = list(_BUILTIN_GESTURE_IDS)
-    # push_up / pike_walk are looping builtins, so the loop-stop affordance
-    # below is always relevant now (it used to depend on custom gestures).
-    has_loop = True
+    allowed = None if allow is None else set(allow)
+    builtins = [(g, hint) for g, hint in _BUILTIN_GESTURES if allowed is None or g in allowed]
+    if builtins:
+        description = (
+            _PLAY_GESTURE_INTRO
+            + "; ".join(f"'{g}' {hint}" for g, hint in builtins)
+            + "."
+            + _PLAY_GESTURE_OUTRO
+        )
+    else:
+        # Built-ins switched off for this avatar: the tool is only worth
+        # offering for its custom gestures, described below.
+        description = (
+            "Play a one-shot body-language animation on your avatar. Use "
+            "sparingly — these are punctuation, not background motion."
+        )
+    enum = [g for g, _ in builtins]
+    # The loop-stop affordance below matters whenever a looping gesture
+    # is actually offered — built-in or custom.
+    has_loop = any(g in _BUILTIN_LOOP_IDS for g in enum)
     if custom_gestures:
         extra_lines = [
             "",
@@ -316,6 +337,10 @@ def build_play_gesture_tool(custom_gestures):
             "'idle'. Playing any other gesture, or calling set_emotion, also "
             "replaces a running loop."
         )
+    # Built-ins off and no playable customs: nothing to offer — the caller
+    # leaves the tool out entirely (an empty enum would be a broken tool).
+    if not enum:
+        return None
     return {
         "name": "play_gesture",
         "description": description,

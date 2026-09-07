@@ -371,6 +371,10 @@ def run_heartbeat(con, hb, *, source='scheduler'):
             headless=True,  # no browser is attached to a heartbeat turn
             companion_text_max_calls=(hb['companion_texting_max_turns']
                                       if hb['allow_companion_texting'] else 0),
+            # No ordinary tool belt unless this heartbeat asks for one —
+            # companion texting is exempt (its own toggle above). See
+            # heartbeats.tools_enabled.
+            minimal_tools=not hb['tools_enabled'],
         )
         if turn.get('type') == 'error':
             raise RuntimeError(turn.get('message') or 'heartbeat turn failed')

@@ -172,6 +172,8 @@ data/avatars/Kira/
   "name": "Kira",
   "vrm": "kira_default.vrm",
   "vrma_idle": "idle.vrma",
+  "restrict_base_gestures": true,
+  "base_gestures": "greeting,goodbye,thinking",
   "outfits": [
     {"name": "Winter", "vrm": "kira_winter.vrm",
      "description": "what it looks like / when to wear it — fed to the LLM"}
@@ -365,8 +367,29 @@ FastAPI ── SQLite + local files             (data/rexclaw.sqlite3, data/file
 
 ## 📋 Notes
 
-- Animation credits: bundled VRMA clips include pixiv Inc.'s VRoid Project
-  Motion Pack (commercial use permitted with credit).
+### Credits
+
+Also in the app, under **Settings → Credits**. Licences are as stated by
+each project.
+
+- **[VRoid Project Motion Pack](https://vroid.pixiv.help/hc/en-us/articles/4402394424089)**
+  — pixiv Inc. The bundled VRMA gesture clips. Commercial use permitted
+  with credit.
+- **[@pixiv/three-vrm](https://github.com/pixiv/three-vrm)** (MIT) — VRM
+  avatar and VRMA animation runtime, on
+  **[three.js](https://threejs.org)** (MIT).
+- **[Digital Life Project](https://github.com/dlp3d-ai/dlp3d.ai)** (MIT,
+  S-Lab, Nanyang Technological University) — source of the motion library in
+  `assets/motion/dlp3d-ani` (the speaking gestures and idle fidgets),
+  converted to VRMA by `tools/motion/dlp3d_npz2vrma.py`.
+- **[Vosk](https://alphacephei.com/vosk/)** (Apache-2.0) — offline speech
+  models for wake phrases.
+- Minecraft sidecar — **[Project AIRI](https://github.com/moeru-ai/airi)**
+  (MIT) for the brain architecture and pathfinder patches,
+  **[Mindcraft](https://github.com/kolbytn/mindcraft)** (MIT) for those
+  patches' origin and the building schematics, and
+  **[PrismarineJS](https://github.com/PrismarineJS)** (MIT) for mineflayer.
+  Full provenance in `game_integrations/minecraft/README.md`.
 
 ## 🔗 Related projects
 

@@ -507,7 +507,7 @@ def import_sessions(con, sessions, agent_id):
 # it means anything on another install.
 _HEARTBEAT_PORTABLE_FIELDS = (
     "name", "active", "prompt", "interval_number", "interval_unit",
-    "mode", "session_strategy",
+    "mode", "session_strategy", "tools_enabled",
 )
 
 

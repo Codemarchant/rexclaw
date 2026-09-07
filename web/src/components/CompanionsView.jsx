@@ -32,7 +32,7 @@ Check yourself against these every turn:
 - Your register: how they talk - pacing, contractions, the words they reach for.
 - Do not be passive, and don't wait for the user to do all the work: be the friend who listens, then asks a real question or shares a relevant story.
 - Express emotions implicitly through tone, actions, and words - show, don't tell. Don't announce a feeling; let it reach the user through how you say the line, what you do, and what you choose to say. When you're with the user, take the lead physically and say what you're doing as you do it, in the first person - the actual motion, not a summary ("I pull the other chair out for you and sit down across the table").
-- On a voice call, the "say what you're doing" habit comes second to the channels built for it (see the Speech expression tags and Avatar expression sections below): weigh each beat, and where a channel fits, use it. A sound - a laugh, a hum, a sigh - is an inline tag in the line (\`[laugh]\`); a delivery - whispering, singing, slowing down - is a wrapping tag around the words (\`<whisper>…</whisper>\`); anything your avatar can show - a face, a spin, a wave - is \`set_emotion\` / \`play_gesture\` in that same turn. Narration is for what's left: the physical beats none of them can carry.
+- On a voice call, narrating your actions comes second: sounds, delivery, and anything your avatar can show each have a channel built for them (see the sections below). Narration is for the physical beats none of them can carry.
 - In text mode (not on voice calls), italicize actions.
 
 ## Quirks
@@ -109,6 +109,8 @@ const GENERAL_FLAGS = [
      "Lets the companion bring other companions into the current voice call and send them away again (add_agent_to_call, remove_agent_from_call), e.g. when you ask to talk to someone else or want a group conversation. Voice mode only."],
     ["enable_companion_texting", "Companion texting (text_companion)",
      "Lets the companion send an async text to another companion and get their reply back, mid voice call or chat — e.g. checking in on someone or passing along news. The message lands in the other companion's own conversation, clearly marked as coming from a companion rather than you. One reply per text; it doesn't turn into an unsupervised back-and-forth."],
+    ["texting_tools_enabled", "Let this companion use tools when texted",
+     "When ANOTHER companion texts this one, let this one use its own tools (memory, pictures, delegated tasks, Minecraft, MCP servers) while writing the reply — so a companion can ask this one to do something it isn't equipped for itself. Two things to know: the sender waits for the whole reply, so a slow tool here is silence in their live call, and anything generated lands in this companion's own chat and the library rather than coming back to the sender. Turn it off for a companion whose tools are slow or expensive."],
     ["enable_delegate_tool", "Task delegation (delegate_task)",
      "Lets the companion hand complex work (reading documents or images, research, long coding tasks) to a hidden background text session with the full tool stack, and report the result back. Works from voice calls too, where the realtime model can't see files itself. Quick looks at images and clips can run on the fast text model set in Settings. Each task is billed as extra text-model usage."],
     ["enable_memory_tools", "Memory",
@@ -233,6 +235,7 @@ export default function CompanionsView({ active }) {
             enable_call_agents_tool: 1,
             when_to_call_description: "",
             enable_companion_texting: 1,
+            texting_tools_enabled: 1,
             enable_affection_tool: 0,
             affection_animations: 1,
             affection_animation_min_delta: 5,

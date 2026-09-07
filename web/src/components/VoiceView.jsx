@@ -894,6 +894,13 @@ export default function VoiceView({ active = true }) {
             .catch((e) => console.error("[voice] outfit re-sync failed", e));
     };
     const customGestures = (currentAgent?.avatar?.custom_gestures || []).filter((g) => g.vrma_url);
+    // Built-ins filtered by the avatar's whitelist — the same rule the
+    // server applies to the companion's play_gesture enum: unrestricted =
+    // all, restricted = only `base_gestures` (possibly none).
+    const avatarForGestures = currentAgent?.avatar;
+    const allowedBase = avatarForGestures?.restrict_base_gestures
+        ? new Set(avatarForGestures.base_gestures || []) : null;
+    const builtinGestures = allowedBase ? GESTURES.filter((g) => allowedBase.has(g.id)) : GESTURES;
     const currentBackgrounds = currentAgent?.avatar?.backgrounds || [];
 
     // Unified gesture list for the VR panel's Gestures tab: the built-in pack
@@ -902,7 +909,7 @@ export default function VoiceView({ active = true }) {
     // so vr_manager can route them to the two-character player.
     useEffect(() => {
         vrGesturesRef.current = () => {
-            const builtin = GESTURES.map((g) => ({ id: g.id, label: g.label, url: g.url, loop: !!g.loop }));
+            const builtin = builtinGestures.map((g) => ({ id: g.id, label: g.label, url: g.url, loop: !!g.loop }));
             const custom = customGestures.map((g) => ({
                 id: "c" + g.id, label: g.name, url: g.vrma_url, loop: !!g.loop,
                 combo: g.type === "combo" ? g : null,
@@ -1335,7 +1342,7 @@ export default function VoiceView({ active = true }) {
                         <div className="o_voice_full_settings_section">
                             <strong>{_t("Gestures")}</strong>
                             <div className="o_voice_full_settings_grid">
-                                {GESTURES.map((g) => (
+                                {builtinGestures.map((g) => (
                                     <button key={g.id} className="btn btn-sm btn-outline-light"
                                             onClick={() => triggerGesture(g.url, !!g.loop)}
                                             title={_t(g.label) + (g.loop ? " " + _t("(loops)") : "")}>

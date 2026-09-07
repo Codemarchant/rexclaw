@@ -725,6 +725,49 @@ body {
         code { background: #e2e8f0; padding: 0.05rem 0.3rem; border-radius: 0.25rem; }
     }
 
+    // Avatar editor → Motion & gestures: the fidget row keeps the checkbox
+    // and the interval field on one line without the interval stretching
+    // to fill the row; the whitelist is a tag list fed by a dropdown.
+    .rx_motion_row {
+        align-items: flex-end;
+        > .rx_check { flex: 0 0 auto; margin-top: 0; padding-bottom: 0.45rem; }
+        > .rx_motion_interval { flex: 0 0 9rem; }
+    }
+    .rx_whitelist {
+        margin: 0.4rem 0 0.2rem 1.6rem;
+        .rx_chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            margin-bottom: 0.4rem;
+            min-height: 1.6rem;
+            align-items: center;
+        }
+        .rx_chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.1rem 0.3rem 0.1rem 0.6rem;
+            border-radius: 1rem;
+            background: #e2e8f0;
+            color: #334155;
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
+        .rx_chip_x {
+            border: 0;
+            background: transparent;
+            color: #64748b;
+            font-size: 1rem;
+            line-height: 1;
+            padding: 0 0.2rem;
+            cursor: pointer;
+            border-radius: 50%;
+            &:hover { color: #0f172a; background: #cbd5e1; }
+        }
+        .rx_whitelist_add { width: auto; max-width: 22rem; }
+    }
+
 // ── Sessions tab ────────────────────────────────────────────────────────
 // Sessions tab — each session is a title line (mode icon, name, meta,
 // actions) over a clamped summary line; the summary expands in place or
@@ -928,6 +971,38 @@ body {
         gap: 0.5rem;
         flex-wrap: wrap;
     }
+}
+
+// Credits — grouped list of the third-party work Rexclaw is built on.
+.rx_dialog--credits {
+    max-width: 40rem;
+    .rx_credits_body { max-height: 60vh; overflow: auto; }
+    .rx_credits_group + .rx_credits_group { margin-top: 1rem; }
+    .rx_credits_group h5 {
+        margin: 0 0 0.4rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+    }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li + li { margin-top: 0.5rem; }
+    a { font-weight: 600; }
+    .rx_credits_note {
+        display: block;
+        font-size: 0.82rem;
+        color: #64748b;
+        line-height: 1.4;
+    }
+}
+
+// Credits link, centred under the last settings section.
+.rx_settings_footer {
+    margin: 1.5rem 0 0.5rem;
+    text-align: center;
+    .btn-link { color: #64748b; font-size: 0.85rem; text-decoration: none; }
+    .btn-link:hover { color: #334155; text-decoration: underline; }
 }
 
 // "See all models" — wider dialog with a scrolling, grouped id list.

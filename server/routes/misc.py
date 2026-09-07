@@ -45,6 +45,7 @@ _CONFIG_FIELDS = (
     "minecraft_brain_model", "minecraft_brain_model_hard", "minecraft_master",
     "transcript_display_limit",
     "transcript_retention_days", "file_default_expiry_seconds",
+
 )
 
 _AGENT_FIELDS = (
@@ -60,7 +61,7 @@ _AGENT_FIELDS = (
     "affection_max_score", "affection_level_count", "affection_max_delta",
     "affection_max_delta_major",
     "enable_call_agents_tool", "when_to_call_description",
-    "enable_companion_texting",
+    "enable_companion_texting", "texting_tools_enabled",
     "enable_delegate_tool", "enable_multi_agent_delegation",
     "enable_local_tasks", "enable_minecraft",
     "enable_end_call_tool", "wake_phrase", "wake_action",
@@ -103,23 +104,6 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
         con.execute(f"UPDATE config SET {cols} WHERE id = 1", tuple(updates.values()))
         con.commit()
     return {"ok": True, "updated": sorted(updates.keys())}
-
-
-_PHOTO_MIMETYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
-
-
-def _delete_files_web_path(web_path):
-    """Best-effort delete of a /files/... path — used to clean up the
-    previous user photo on re-upload/clear. Never raises: an orphaned file
-    is a minor annoyance, a crashed request over it is not acceptable."""
-    if not web_path or not web_path.startswith("/files/"):
-        return
-    try:
-        candidate = (FILES_DIR / web_path[len("/files/"):]).resolve()
-        if str(candidate).startswith(str(FILES_DIR.resolve())) and candidate.is_file():
-            candidate.unlink()
-    except Exception:
-        _logger.exception("Could not delete old file %s", web_path)
 
 
 @router.post("/config/user_photo")

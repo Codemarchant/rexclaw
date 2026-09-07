@@ -9,6 +9,7 @@ import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { UnsavedBar } from "./UnsavedUI.jsx";
 import HotkeysSettings from "./HotkeysSettings.jsx";
 import ModelsDialog from "./ModelsDialog.jsx";
+import CreditsDialog from "./CreditsDialog.jsx";
 
 // Languages the server can fetch a Vosk wake-word model for (keep in sync
 // with WAKE_MODELS in server/routes/misc.py).
@@ -30,6 +31,7 @@ export default function SettingsView({ active }) {
     const [startInMascot, setStartInMascot] = useState(null);  // desktop shell only
     const [launchAtLogin, setLaunchAtLogin] = useState(null);  // desktop shell only: {supported, enabled}
     const [modelsOpen, setModelsOpen] = useState(false);   // "See all models" dialog
+    const [creditsOpen, setCreditsOpen] = useState(false);
     // Hotkey overrides, parsed out of config.hotkeys_json for editing and
     // serialised back on save.
     const [hotkeys, setHotkeys] = useState({});
@@ -676,6 +678,13 @@ export default function SettingsView({ active }) {
                         </div>
                     </section>
                 )}
+
+                <div className="rx_settings_footer">
+                    <button className="btn btn-link" onClick={() => setCreditsOpen(true)}>
+                        <i className="fa fa-heart-o" /> {_t("Credits")}
+                    </button>
+                </div>
+                {creditsOpen && <CreditsDialog onClose={() => setCreditsOpen(false)} />}
 
                 <UnsavedBar dirty={dirty} saving={saving}
                             onSave={saveConfig} onDiscard={discard} />

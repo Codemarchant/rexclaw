@@ -995,6 +995,10 @@ export const JA = {
     "リモート MCP サーバーに接続できません — MCP ツールなしで続行します。",
 
   // ── Heartbeats ────────────────────────────────────────────────────────
+  "Allow the companion's other tools during this heartbeat":
+    "このハートビート中にコンパニオンの他のツールを許可する",
+  "Gives this tick the companion's ordinary tools — memory, pictures, delegated tasks, Minecraft, MCP servers. Off by default: a background tick writes a diary entry or texts someone, and a companion with an idle tool belt and nothing left to do tends to fill the turn with pointless calls. Companion texting below is separate and unaffected.":
+    "このティックでコンパニオンの通常のツール（メモリ、画像、委任タスク、Minecraft、MCP サーバー）を使えるようにします。既定はオフです。バックグラウンドのティックは日記を書いたり誰かにメッセージを送ったりするもので、手持ち無沙汰なツールを抱えたコンパニオンは、意味のない呼び出しでターンを埋めがちだからです。下のコンパニオン間メッセージは別扱いで、この設定の影響を受けません。",
   "Heartbeats": "ハートビート",
   "Heartbeats can be added after the companion is saved.":
     "ハートビートはコンパニオンを保存した後に追加できます。",
@@ -1117,6 +1121,41 @@ export const JA = {
     "開いているストーリーの下書きが未完成です — 完成させるかキャンセルしてから、もう一度保存してください。",
   "The open MCP connection draft is incomplete — finish it or cancel it, then save again.":
     "開いている MCP 接続の下書きが未完成です — 完成させるかキャンセルしてから、もう一度保存してください。",
+
+  // ── Avatar editor: motion & built-in gesture whitelist ────────────────
+  "Motion & gestures": "モーションとジェスチャー",
+  "Restrict built-in gestures to a whitelist": "組み込みジェスチャーをホワイトリストに限定する",
+  "Offer the companion only the built-in gestures picked below (its play_gesture tool and the gesture panel). With nothing picked, built-in gestures are off entirely and only this avatar's custom gestures remain.":
+    "下で選んだ組み込みジェスチャーだけをコンパニオンに提供します（play_gesture ツールとジェスチャーパネルの両方）。何も選ばない場合、組み込みジェスチャーは完全にオフになり、このアバターのカスタムジェスチャーだけが残ります。",
+  "Nothing picked — built-in gestures are off for this avatar.":
+    "何も選ばれていません — このアバターでは組み込みジェスチャーはオフです。",
+  "Add a built-in gesture…": "組み込みジェスチャーを追加…",
+  "All built-in gestures added": "組み込みジェスチャーはすべて追加済みです",
+
+  // ── Credits dialog ────────────────────────────────────────────────────
+  "Credits": "クレジット",
+  "Rexclaw stands on a lot of other people's work. Licences are as stated by each project; the full text ships with the dependencies themselves.":
+    "Rexclaw は多くの方々の成果の上に成り立っています。ライセンスは各プロジェクトの表記に従い、全文は依存関係そのものに同梱されています。",
+  "Avatars & animation": "アバターとアニメーション",
+  "Motion library": "モーションライブラリ",
+  "Voice activation": "音声起動",
+  "Minecraft sidecar": "Minecraft サイドカー",
+  "pixiv Inc. The built-in gesture clips. Commercial use permitted with credit.":
+    "pixiv Inc.。組み込みのジェスチャークリップ。クレジット表記により商用利用可。",
+  "MIT. Plays the avatars and their animations.":
+    "MIT。アバターとそのアニメーションを再生します。",
+  "MIT. The 3D renderer behind every avatar view.":
+    "MIT。すべてのアバター表示を支える 3D レンダラー。",
+  "MIT, S-Lab, Nanyang Technological University. Source of the speaking gestures and idle fidgets, converted to VRMA by the tool in tools/motion.":
+    "MIT、S-Lab, Nanyang Technological University。発話ジェスチャーと待機中の小さな動きの出典。tools/motion のツールで VRMA に変換しています。",
+  "Apache-2.0. The offline speech models that listen for wake phrases.":
+    "Apache-2.0。ウェイクフレーズを聞き取るオフライン音声モデル。",
+  "MIT, Neko Ayaka and contributors. The bot's brain architecture and its pathfinder patches are ported from their Minecraft integration.":
+    "MIT、Neko Ayaka および貢献者の皆さん。ボットのブレイン構成と pathfinder パッチは、その Minecraft 連携から移植しています。",
+  "MIT, Kolby Nottingham. Where those pathfinder patches came from, plus the building designs the bot can construct.":
+    "MIT、Kolby Nottingham。上記 pathfinder パッチの出自であり、ボットが建築できる設計図の提供元です。",
+  "MIT. mineflayer and friends, the bot's connection to the game.":
+    "MIT。mineflayer とその関連ライブラリ。ボットとゲームをつなぎます。",
 
   // ── Locale-aware call injections (model-facing, not shown in the UI) ────
   "[System]: The call reconnected after a window change on the user's side. Do not greet or announce yourself — simply continue the conversation from where it left off.":

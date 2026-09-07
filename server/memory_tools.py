@@ -24,6 +24,19 @@ from . import store
 _logger = logging.getLogger(__name__)
 
 CONTENT_MAX_LEN = 64000
+# A real memory is a statement about the user; anything this short is not
+# one. Twice now a companion has filled an otherwise-finished turn with
+# `remember("placeholder")` → `forget(that id)` on repeat until the turn's
+# call budget ran out — the exact-content dedupe below can't catch it,
+# because the forget in between means every rewrite really is new. These
+# two checks refuse the junk write outright, so the loop has nothing to
+# stand on and no rows are left behind.
+CONTENT_MIN_LEN = 12
+_PLACEHOLDER_CONTENT = frozenset({
+    'placeholder', 'test', 'testing', 'x', 'xx', 'xxx', 'foo', 'bar', 'baz',
+    'todo', 'tbd', 'n/a', 'na', 'none', 'null', 'nothing', 'temp', 'temporary',
+    'sample', 'example', 'dummy', 'asdf', 'lorem ipsum',
+})
 DEFAULT_CORE_CAP = 100
 # Additive boost when a memory's tags overlap a tag the agent passed to
 # `recall`. Same magnitude as the query-substring tag bonus, so a passed tag
@@ -427,6 +440,27 @@ def _impl_remember(con, session, arguments):
 
     if not content:
         return {'ok': False, 'reason': 'content_empty', 'message': 'Memory content cannot be empty.'}
+    # Junk guard (see CONTENT_MIN_LEN). Both replies tell the model plainly
+    # not to retry: a "try again" reading is what keeps a loop alive.
+    if content.strip(' .!?"\'').lower() in _PLACEHOLDER_CONTENT:
+        return {
+            'ok': False,
+            'reason': 'content_placeholder',
+            'message': 'That is placeholder text, not a memory. Nothing was '
+                       'stored and nothing needs undoing — do not call '
+                       'remember again unless you have a real fact about the '
+                       'user to store.',
+        }
+    if len(content) < CONTENT_MIN_LEN:
+        return {
+            'ok': False,
+            'reason': 'content_too_short',
+            'message': f'Too short to be a memory ({len(content)} characters, '
+                       f'minimum {CONTENT_MIN_LEN}). A memory is a full '
+                       f'statement about the user, e.g. "Prefers morning '
+                       f'calls." Nothing was stored — do not retry with '
+                       f'filler text.',
+        }
     if len(content) > CONTENT_MAX_LEN:
         return {
             'ok': False,

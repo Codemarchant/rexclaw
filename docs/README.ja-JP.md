@@ -176,6 +176,8 @@ data/avatars/Kira/
   "name": "Kira",
   "vrm": "kira_default.vrm",
   "vrma_idle": "idle.vrma",
+  "restrict_base_gestures": true,
+  "base_gestures": "greeting,goodbye,thinking",
   "outfits": [
     {"name": "Winter", "vrm": "kira_winter.vrm",
      "description": "見た目・いつ着るか — LLM に渡されます"}
@@ -378,8 +380,29 @@ FastAPI ── SQLite + ローカルファイル        （data/rexclaw.sqlite3,
 
 ## 📋 注記
 
-- アニメーションクレジット：同梱の VRMA クリップには pixiv Inc. の VRoid
-  Project Motion Pack が含まれます（クレジット表記により商用利用可）。
+### クレジット
+
+アプリ内では **設定 → クレジット** にもあります。ライセンスは各プロジェクト
+の表記に従います。
+
+- **[VRoid Project Motion Pack](https://vroid.pixiv.help/hc/ja/articles/4402394424089)**
+  — pixiv Inc.。同梱の VRMA ジェスチャークリップ。クレジット表記により
+  商用利用可。
+- **[@pixiv/three-vrm](https://github.com/pixiv/three-vrm)**（MIT）— VRM
+  アバターと VRMA アニメーションのランタイム。基盤は
+  **[three.js](https://threejs.org)**（MIT）。
+- **[Digital Life Project](https://github.com/dlp3d-ai/dlp3d.ai)**（MIT、
+  S-Lab, Nanyang Technological University）— `assets/motion/dlp3d-ani` の
+  モーションライブラリ（発話ジェスチャーと待機中のフィジェット）の出典。
+  `tools/motion/dlp3d_npz2vrma.py` で VRMA に変換しています。
+- **[Vosk](https://alphacephei.com/vosk/)**（Apache-2.0）— ウェイクフレーズ
+  用のオフライン音声モデル。
+- Minecraft サイドカー — ブレインのアーキテクチャと pathfinder パッチは
+  **[Project AIRI](https://github.com/moeru-ai/airi)**（MIT）、それらの
+  パッチの出自と建築スキーマは
+  **[Mindcraft](https://github.com/kolbytn/mindcraft)**（MIT）、mineflayer
+  は **[PrismarineJS](https://github.com/PrismarineJS)**（MIT）。詳細は
+  `game_integrations/minecraft/README.md` を参照。
 
 ## 🔗 関連プロジェクト
 

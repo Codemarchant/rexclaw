@@ -9,6 +9,7 @@ import { useListSort } from "../lib/list_sort";
 import { EditorBar } from "./UnsavedUI.jsx";
 import Portrait from "./Portrait.jsx";
 import { avatarRenderer } from "../services/avatar_renderer";
+import { GESTURES } from "../models/avatar_catalog";
 
 /** Avatar manager — create/edit/delete avatar packs from the desktop UI.
  *  Round-trips through the manifest: uploads land in the pack folder, Save
@@ -658,12 +659,6 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                            onUploaded={(fn) => setM({ vrma_idle: fn })}
                            onClear={() => setM({ vrma_idle: "" })} />
             </div>
-            <label className="rx_check"
-                   title={_t("Emotions the companion sets fade back toward neutral after a few seconds. Turn off to hold each expression until the next one.")}>
-                <input type="checkbox" checked={manifest.emotion_decay !== false}
-                       onChange={(ev) => setM({ emotion_decay: ev.target.checked })} />
-                <span>{_t("Fade emotions back to neutral")}</span>
-            </label>
             <p className="text-muted small rx_pack_path">
                 <i className="fa fa-folder-o" /> {_t("Pack folder:")}{" "}
                 <code>data/avatars/{editing.isNew ? "…" : pack_key}/</code>
@@ -678,6 +673,26 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                 <i className="fa fa-camera" /> {_t("Full-body portraits (Generate portrait ▾) are what the companion uses as their likeness for pictures of themselves in text chat. Generate one for the main look and each outfit.")}
             </p>
             </section>
+
+            {/* Motion & gestures: idle fidgets + the built-in gesture whitelist */}
+            <Section title={_t("Motion & gestures")}>
+                <label className="rx_check"
+                       title={_t("Emotions the companion sets fade back toward neutral after a few seconds. Turn off to hold each expression until the next one.")}>
+                    <input type="checkbox" checked={manifest.emotion_decay !== false}
+                           onChange={(ev) => setM({ emotion_decay: ev.target.checked })} />
+                    <span>{_t("Fade emotions back to neutral")}</span>
+                </label>
+                <label className="rx_check"
+                       title={_t("Offer the companion only the built-in gestures picked below (its play_gesture tool and the gesture panel). With nothing picked, built-in gestures are off entirely and only this avatar's custom gestures remain.")}>
+                    <input type="checkbox" checked={!!manifest.restrict_base_gestures}
+                           onChange={(ev) => setM({ restrict_base_gestures: ev.target.checked })} />
+                    <span>{_t("Restrict built-in gestures to a whitelist")}</span>
+                </label>
+                {manifest.restrict_base_gestures && (
+                    <BaseGesturePicker value={manifest.base_gestures || ""}
+                                       onChange={(v) => setM({ base_gestures: v })} />
+                )}
+            </Section>
 
             {/* Outfits */}
             <Section title={_t("Outfits")}
@@ -998,14 +1013,57 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     );
 }
 
+/** Whitelist of built-in gesture ids, stored as the manifest's
+ *  comma-separated `base_gestures` string. Tag-style: a dropdown of the
+ *  built-ins not yet listed adds one, each chip's × removes it. */
+function BaseGesturePicker({ value, onChange }) {
+    // A hand-written manifest may give this as a JSON array — avatar_packs
+    // ._id_list accepts either, so the editor has to as well or it throws on
+    // the first render and blanks the whole avatar form.
+    const raw = Array.isArray(value) ? value.join(",") : (value || "");
+    const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    const remaining = GESTURES.filter((g) => !ids.includes(g.id));
+    const commit = (next) => onChange(next.join(","));
+    return (
+        <div className="rx_whitelist">
+            <div className="rx_chips">
+                {ids.length === 0 && (
+                    <span className="text-muted small">{_t("Nothing picked — built-in gestures are off for this avatar.")}</span>
+                )}
+                {ids.map((id) => {
+                    const g = GESTURES.find((x) => x.id === id);
+                    return (
+                        <span key={id} className="rx_chip">
+                            {g ? _t(g.label) : id}
+                            <button type="button" className="rx_chip_x" aria-label={_t("Remove")}
+                                    title={_t("Remove")}
+                                    onClick={() => commit(ids.filter((x) => x !== id))}>×</button>
+                        </span>
+                    );
+                })}
+            </div>
+            <select className="rx_whitelist_add" value="" disabled={!remaining.length}
+                    onChange={(ev) => { if (ev.target.value) commit([...ids, ev.target.value]); }}>
+                <option value="">{remaining.length ? _t("Add a built-in gesture…") : _t("All built-in gestures added")}</option>
+                {remaining.map((g) => (
+                    <option key={g.id} value={g.id}>{_t(g.label)} ({g.id}){g.loop ? " · " + _t("loops") : ""}</option>
+                ))}
+            </select>
+        </div>
+    );
+}
+
 function Section({ title, onAdd, children }) {
     // NOT a <label> — a label wrapping the button makes a click anywhere in
-    // the header row (including blank space) activate Add.
+    // the header row (including blank space) activate Add. Sections without
+    // a list (settings groups) pass no onAdd and get no button.
     return (
         <section>
             <div className="rx_section_head" style={{ margin: 0 }}>
                 <h3 style={{ margin: 0 }}>{title}</h3>
-                <button className="btn btn-sm" onClick={onAdd}><i className="fa fa-plus" /> {_t("Add")}</button>
+                {onAdd && (
+                    <button className="btn btn-sm" onClick={onAdd}><i className="fa fa-plus" /> {_t("Add")}</button>
+                )}
             </div>
             {children}
         </section>

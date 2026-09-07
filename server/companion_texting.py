@@ -155,6 +155,10 @@ def execute_text_companion_tool(con, session, arguments):
             user_text=_tagged_message(agent, message),
             headless=True,  # no browser is attached to this injected turn
             suppress_companion_text=True,  # recursion guard: one reply, no auto chains
+            # The recipient answers without its tool belt unless it opts in
+            # (agents.texting_tools_enabled). The sender's turn blocks on
+            # this call, so a slow tool here is silence in their live call.
+            minimal_tools=not target['texting_tools_enabled'],
         )
     except Exception as e:
         _logger.exception('text_companion: turn failed for session %s',

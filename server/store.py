@@ -90,6 +90,29 @@ def gesture_is_playable(g):
     return True
 
 
+def _id_list_from_row(raw):
+    return sorted({p.strip() for p in (raw or '').split(',') if p.strip()})
+
+
+def allowed_base_gestures(avatar_row):
+    """Built-in gesture whitelist for an avatar: None when unrestricted
+    (every built-in), else the list of allowed ids — possibly empty."""
+    if not avatar_row or not avatar_row['restrict_base_gestures']:
+        return None
+    return _id_list_from_row(avatar_row['base_gestures'])
+
+
+def agent_allowed_base_gestures(con, agent_row):
+    """Whitelist for an agent's avatar (None = unrestricted / no avatar)."""
+    if not agent_row['avatar_id']:
+        return None
+    av = con.execute(
+        "SELECT restrict_base_gestures, base_gestures FROM avatars WHERE id = ?",
+        (agent_row['avatar_id'],),
+    ).fetchone()
+    return allowed_base_gestures(av)
+
+
 def avatar_payload(con, avatar_id):
     """Mirror rexclaw.voice.avatar.to_payload(). Returns None when no avatar."""
     if not avatar_id:
@@ -179,6 +202,16 @@ def avatar_payload(con, avatar_id):
         'vrm_url': av['vrm_path'],
         'vrma_idle_url': av['vrma_idle_path'] or False,
         'emotion_decay': bool(av['emotion_decay']),
+        # NOTE: the avatars.fidgets / fidget_interval columns are legacy. The
+        # fidget settings are global now (config, see the motion director), so
+        # they are not shipped to the client — the columns and the pack-manifest
+        # parsing stay only so a future per-avatar override has somewhere to go.
+        # Built-in play_gesture whitelist — the manual gesture panel filters
+        # on it; the tool enum is built server-side from the same columns
+        # (allowed_base_gestures). base_gestures is only meaningful when
+        # restrict_base_gestures is on.
+        'restrict_base_gestures': bool(av['restrict_base_gestures']),
+        'base_gestures': _id_list_from_row(av['base_gestures']),
         'backgrounds': backgrounds,
         'default_background_id': default_bg['id'] if default_bg else False,
         'outfits': outfits,
