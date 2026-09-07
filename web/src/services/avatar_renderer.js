@@ -32,6 +32,7 @@ import {
     emotionDecayEnabled,
     emotionSettleTarget,
 } from "../models/avatar_catalog";
+import { IdleMotion } from "./idle_motion";
 
 // Kept async + memoized so the renderer code below stays identical to the
 // CDN-loading version it was ported from.
@@ -103,49 +104,31 @@ const BACKGROUND_PRESETS = {
     solid_light: "#f5f5f5",
 };
 
-// Animation constants — chosen from human-physiology and VTuber-rendering research:
-// - Blink: humans blink every 2-10s (avg ~4); biphasic 80ms close + 100ms open feels natural.
-//   Range [3, 6] hides the variability without feeling robotic.
-// - Breath: subtle, 0.012 of head-bone Y position; ~0.27 Hz (= 16 breaths/min, restful).
+// Animation constants.
+//
+// The idle's SIGNALS — breath, postural sway, head follow-through, gaze,
+// blink and the resting mouth — all come from services/idle_motion.js, which
+// documents the physiology behind each one. What is left here is the part
+// this file owns: the static rest POSE (arms out of T-pose, relaxed hands,
+// knee bend) and how the signals are mapped onto bones.
+//
 // - Look-at: at the camera. "Cursor follow" breaks eye contact, so it stays off
 //   everywhere except the mascot overlay (opt-in, via setCursorFollow) — there
 //   the cursor IS the user's attention, and tracking it reads as attentiveness.
-// - Procedural idle: tiny sinusoidal bone rotations on hips/spine/shoulders/arms.
-//   Runs whenever no VRMA clip is loaded so the avatar isn't stuck in T-pose.
-//   Amplitudes are deliberately small so it looks like a relaxed standing person,
-//   not a swaying drunk.
-const BLINK_INTERVAL_MIN = 3.0;
-const BLINK_INTERVAL_MAX = 6.0;
-// Lids snap shut and ease open (easeOut on the close, easeIn on the open,
-// per airi's Live2D blink), and the reopen time is re-rolled per blink so
-// no two blinks are identical.
-const BLINK_CLOSE_DURATION = 0.075;
-const BLINK_OPEN_MIN = 0.15;
-const BLINK_OPEN_MAX = 0.30;
-const BREATH_AMPLITUDE = 0.012;
-const BREATH_FREQUENCY_HZ = 0.27;
-
-// Idle bone deltas in radians; SHOULDER_DOWN is rotation.z to drop arms from T-pose.
-const IDLE_HIP_SWAY_AMP = 0.025;
-const IDLE_HIP_SWAY_HZ = 0.18;
-const IDLE_SPINE_SWAY_AMP = 0.015;
-const IDLE_SPINE_SWAY_HZ = 0.22;
+// - Procedural idle runs whenever no VRMA clip is loaded, so the avatar is
+//   never stuck in T-pose. Amplitudes are deliberately small: a relaxed
+//   standing person, not a swaying drunk.
 const IDLE_SHOULDER_DOWN = 1.15;        // ~66deg, brings arms down from T-pose
-const IDLE_ARM_SWAY_AMP = 0.04;
-const IDLE_ARM_SWAY_HZ = 0.30;
-const IDLE_HEAD_TURN_AMP = 0.05;
-const IDLE_HEAD_TURN_HZ = 0.15;
-
-// Compound-frequency layer added on top of primary sway. A second sine at an
-// incommensurate frequency makes the motion read as quasi-random instead of
-// a clean periodic loop — the single-sine version gave away the "robot" feel.
-const IDLE_SECONDARY_HZ = 0.071;
-const IDLE_SECONDARY_AMP_RATIO = 0.45;  // multiplier of the primary amplitude
-
-// Phase offsets so left/right limbs aren't perfect mirrors. Prime-ish radian
-// values keep the asymmetry from re-aligning into visible sync periodically.
-const IDLE_ASYMMETRY_PHASE_L = 0.41;
-const IDLE_ASYMMETRY_PHASE_R = 1.13;
+// Resting elbow flex. A hanging arm is NOT straight — this was 0.15 rad
+// (8.6 deg), which reads as a mannequin's arm and is most of why the arms
+// looked like they snapped between positions with nothing bending. The
+// authored reference idles sit at 29-35 deg on this same axis and sign;
+// 24 is a relaxed human elbow without the stylisation.
+const IDLE_ELBOW_BEND = 0.42;
+// Arms hang slightly FORWARD of the body, never in the coronal plane.
+// Same sign both sides — fore/aft is not a mirrored axis (the reference
+// rig has the same sign on both legs for the equivalent offset).
+const IDLE_ARM_REST_PITCH = -0.15;
 
 // Relaxed hand pose. VRM normalized fingers curl on rotation.z with sign
 // flipped for left vs right; thumbs curl on rotation.y. These values are
@@ -157,52 +140,12 @@ const IDLE_FINGER_CURL_DISTAL = 0.30;
 const IDLE_THUMB_OPPOSE = 0.28;          // thumb out from palm
 const IDLE_THUMB_CURL = 0.10;
 
-// Lower body. A small permanent knee bend prevents locked-leg stiffness, and
-// a very slow weight shift between feet rolls the hips and alternates which
-// knee bends more — basic contrapposto, the default standing pose for humans.
-const IDLE_KNEE_BEND = 0.07;
-const IDLE_WEIGHT_SHIFT_AMP = 0.022;
-const IDLE_WEIGHT_SHIFT_HZ = 0.08;       // ~12s per full L↔R cycle
-
 // Speaking-state amplifiers. Multiplied INTO the idle amplitudes when the
 // avatar is "speaking" (audio intensity > ~0.1). Tuned to look animated but
 // not jittery — exceeding ~2x starts looking caffeinated.
 const SPEAK_BODY_GAIN = 1.6;
-const SPEAK_HEAD_NOD_AMP = 0.06;
-const SPEAK_HEAD_NOD_HZ = 0.7;
-const SPEAK_HEAD_TILT_AMP = 0.04;
-const SPEAK_HEAD_TILT_HZ = 0.45;
 const SPEAK_INTENSITY_ATTACK = 0.25;    // smoothing factor when ramping up
 const SPEAK_INTENSITY_RELEASE = 0.05;   // slower when ramping down (no whiplash on interrupt)
-
-// Idle eye saccades. Real eyes never hold perfectly still — they micro-dart
-// (saccade) to new fixation points even while "staring". Without this the
-// avatar's gaze reads as glassy/dead. The jitter is deliberately small and
-// centred on the camera so eye CONTACT is preserved (this is not cursor
-// follow — see the look-at note above). EYE_SACCADE_AMP is in world units of
-// offset around the eye-contact point; the interval model below is ported
-// from moeru-ai/airi (utils/eye-motions.ts): a probability table that biases
-// toward short fixations with a long tail, so the timing never feels periodic.
-const EYE_SACCADE_AMP = 0.16;
-const EYE_SACCADE_INT_STEP = 400;       // ms granularity of the interval buckets
-const EYE_SACCADE_INT_P = [
-    [0.075, 800], [0.110, 0], [0.125, 0], [0.140, 0], [0.125, 0],
-    [0.050, 0], [0.040, 0], [0.030, 0], [0.020, 0], [1.000, 0],
-];
-for (let i = 1; i < EYE_SACCADE_INT_P.length; i++) {
-    EYE_SACCADE_INT_P[i][0] += EYE_SACCADE_INT_P[i - 1][0];
-    EYE_SACCADE_INT_P[i][1] = EYE_SACCADE_INT_P[i - 1][1] + EYE_SACCADE_INT_STEP;
-}
-/** Random fixation interval in ms, weighted toward short holds. */
-function randomSaccadeInterval() {
-    const r = Math.random();
-    for (let i = 0; i < EYE_SACCADE_INT_P.length; i++) {
-        if (r <= EYE_SACCADE_INT_P[i][0]) {
-            return EYE_SACCADE_INT_P[i][1] + Math.random() * EYE_SACCADE_INT_STEP;
-        }
-    }
-    return EYE_SACCADE_INT_P[EYE_SACCADE_INT_P.length - 1][1] + Math.random() * EYE_SACCADE_INT_STEP;
-}
 
 // Mascot cursor follow (opt-in, mascot overlay only — see the look-at note).
 // The gaze leaves the camera and rides the desktop cursor: the shell's cursor
@@ -299,8 +242,12 @@ const libraryVrmaPromises = new Map();  // url → Promise<VRMAnimation|null>
 const RETURN_HALFLIFE = 0.32;   // s — held pose halves every 0.32 s (gone by ~2 s)
 const RETURN_MAX_S = 2.2;
 
-// Humanoid bones the procedural idle does NOT pose (it owns hips, spine,
-// upper/lower arms, head, legs and the fingers). Nothing writes these, so
+// Humanoid bones the procedural idle does NOT pose. It now owns nearly the
+// whole rig — hips, spine, chest, upperChest, shoulders, arms, hands, head,
+// legs, feet and fingers — because breath needs the ribcage, the arm drag
+// chain runs down to the wrists, and the ankles have to counter the hips to
+// keep the feet on the floor. Only the neck and toes are left. Nothing
+// writes those, so
 // whatever last touched them sticks — after a VRMA clip ends they keep its
 // final rotation and the avatar stays half-way into the gesture, shoulders
 // and hands frozen. _applyIdle zeroes them every frame instead: in a VRM's
@@ -308,12 +255,7 @@ const RETURN_MAX_S = 2.2;
 // baseline, and the return blend (above) then eases the clip's pose out of
 // them like any other bone. Eyes and jaw are left alone — lookAt and the
 // expression manager own those.
-const IDLE_NEUTRAL_BONES = [
-    "neck", "chest", "upperChest",
-    "leftShoulder", "rightShoulder",
-    "leftHand", "rightHand",
-    "leftFoot", "rightFoot", "leftToes", "rightToes",
-];
+const IDLE_NEUTRAL_BONES = ["neck", "leftToes", "rightToes"];
 
 // ── Multi-agent call layout ─────────────────────────────────────────────
 // When peer avatars join (multi-agent calls), all characters are spread
@@ -363,9 +305,9 @@ class AvatarRenderer {
         this._hipsBasePos = null;        // rest hips translation (clips move it)
         this._meshTopY = null;           // top of VRM bounding box (hair / accessories)
         this._meshBottomY = null;        // bottom of VRM bounding box (feet)
-        this._nextBlinkAt = 0;
-        this._saccadeOffset = null;          // THREE.Vector3, created in _ensureRenderer
-        this._nextSaccadeAt = undefined;     // scheduled gaze re-fixation time
+        // Idle physiology (breath, posture, gaze, blink, resting mouth) —
+        // one engine per actor, ticked from _applyIdle. See idle_motion.js.
+        this._idle = new IdleMotion();
         this._currentVowels = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
         this._currentEmotion = "neutral";
         this._emotionTransitionProgress = 1; // 0..1; 1 = settled
@@ -485,8 +427,6 @@ class AvatarRenderer {
         // Look-at target: a small empty positioned at the camera by default.
         this._lookAtTarget = new THREE.Object3D();
         this.scene.add(this._lookAtTarget);
-        // Per-frame gaze offset applied by _applyEyeSaccade.
-        this._saccadeOffset = new THREE.Vector3();
 
         // Apply face preset using the fallback head Y. Once a VRM loads,
         // _captureHeadWorldY re-applies with the model's actual head height.
@@ -682,8 +622,10 @@ class AvatarRenderer {
         // bone manager needs the shared group re-registered.
         this._applySpringCollidersToVRM(vrm);
 
-        this._scheduleNextBlink(this);
-        this._scheduleNextSaccade(this.clock?.elapsedTime || 0);
+        // Fresh physiology for the new body — otherwise the incoming model
+        // inherits the outgoing one's half-completed weight transfer and
+        // starts by settling out of a pose it never held.
+        this._idle.reset();
         this._buildVisemeMap(this);
     }
 
@@ -748,6 +690,7 @@ class AvatarRenderer {
         const vrma = gltf.userData.vrmAnimations?.[0];
         if (!vrma) return;
         const clip = createVRMAnimationClip(vrma, this.vrm);
+        clip.rexclawExpressions = this._vrmaExpressionNames(vrma);
         // Keep the raw VRMA too — it retargets onto any humanoid, so the
         // combo teardown can give a spawned partner this same idle to blend
         // into (see _unloadComboPartner's T-pose note).
@@ -1055,6 +998,7 @@ class AvatarRenderer {
         if (!vrma || actor.vrm !== vrmAtCall || !actor.vrm) return null;
         const { createVRMAnimationClip } = this.libs;
         const clip = createVRMAnimationClip(vrma, actor.vrm);
+        clip.rexclawExpressions = this._vrmaExpressionNames(vrma);
         actor._libraryClipCache.set(entry.url, clip);
         return clip;
     }
@@ -1618,7 +1562,7 @@ class AvatarRenderer {
             _rawSpeakingIntensity: 0,
             _speakingIntensity: 0,
             _headBaseY: 0,
-            _nextBlinkAt: 0,
+            _idle: new IdleMotion(),
             _visemeMap: null,
         };
     }
@@ -1717,7 +1661,7 @@ class AvatarRenderer {
         try { vrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
         this._applySpringCollidersToVRM(vrm);
 
-        this._scheduleNextBlink(peer);
+        peer._idle.reset();
         this._buildVisemeMap(peer);
 
         // Idle VRMA (optional).
@@ -1728,7 +1672,9 @@ class AvatarRenderer {
                 const idleGltf = await idleLoader.loadAsync(idleUrl);
                 const vrma = idleGltf.userData.vrmAnimations?.[0];
                 if (vrma && peer._loadGeneration === generation && peer.vrm === vrm) {
-                    peer.idleClipAction = peer.mixer.clipAction(createVRMAnimationClip(vrma, vrm));
+                    const peerIdleClip = createVRMAnimationClip(vrma, vrm);
+                    peerIdleClip.rexclawExpressions = this._vrmaExpressionNames(vrma);
+                    peer.idleClipAction = peer.mixer.clipAction(peerIdleClip);
                     peer.idleClipAction.play();
                 }
             } catch (e) {
@@ -3405,54 +3351,83 @@ class AvatarRenderer {
         this._replayMode = !!replayMode;
     }
 
-    _scheduleNextBlink(actor) {
-        const span = BLINK_INTERVAL_MAX - BLINK_INTERVAL_MIN;
-        actor._nextBlinkAt = (this.clock?.elapsedTime || 0) + BLINK_INTERVAL_MIN + Math.random() * span;
-        actor._blinkOpenDur = BLINK_OPEN_MIN + Math.random() * (BLINK_OPEN_MAX - BLINK_OPEN_MIN);
-    }
-
-    _applyBlink(actor, now) {
+    /** Blink. The timing, the biphasic shape and the couplings (bursts,
+     *  double blinks, gaze-evoked blinks, a higher rate while speaking) all
+     *  live in the idle engine — this just writes the value it produced. */
+    _applyBlink(actor) {
         if (!actor.vrm?.expressionManager) return;
         // A gesture clip that choreographs its own blinks owns the eyelids
         // while it plays; auto-blink resumes when it ends.
-        const ge = this._gestureExpressions(actor);
+        const ge = this._clipExpressions(actor);
         if (ge && (ge.has("blink") || ge.has("blinkLeft") || ge.has("blinkRight"))) return;
-        if (now >= actor._nextBlinkAt) {
-            const t = now - actor._nextBlinkAt;
-            const openDur = actor._blinkOpenDur || BLINK_OPEN_MIN;
-            if (t < BLINK_CLOSE_DURATION) {
-                const u = t / BLINK_CLOSE_DURATION;
-                actor.vrm.expressionManager.setValue("blink", 1 - (1 - u) * (1 - u));   // easeOutQuad
-            } else if (t < BLINK_CLOSE_DURATION + openDur) {
-                const u = (t - BLINK_CLOSE_DURATION) / openDur;
-                actor.vrm.expressionManager.setValue("blink", 1 - u * u);               // easeInQuad
-            } else {
-                actor.vrm.expressionManager.setValue("blink", 0);
-                this._scheduleNextBlink(actor);
-            }
-        } else {
-            actor.vrm.expressionManager.setValue("blink", 0);
-        }
+        const em = actor.vrm.expressionManager;
+        // Blink is a SCHEDULE, not a level, and that makes it the one channel
+        // an ambient clip owns outright rather than contributing to.
+        //
+        // Max-blending two blink generators does not blend anything: it
+        // yields the union of two schedules with the ramps clipped off by
+        // whichever source is higher. Measured against a 42 s authored idle,
+        // its 6 blinks plus our 9 came out as 14 closures — and because our
+        // procedural blink peaks at 1.0 against the clip's 0.92, ours sat on
+        // top of every one of its blinks and replaced a slow, held,
+        // hand-authored close with our snap. The result blinks too often, at
+        // the wrong speed, and holds too long where the two overlap.
+        //
+        // So a clip that carries blink keeps it, and auto-blink stands down
+        // until the clip ends. Levels (visemes, emotion) still contribute —
+        // see _ambientExpressions.
+        if (this._ambientExpressions(actor)?.has("blink")) return;
+        em.setValue("blink", actor._idle?.sig.blink || 0);
     }
 
-    _applyBreath(actor, now) {
+    /** The head's share of the breath: a small vertical rise on the inhale.
+     *  The torso's share (chest, spine, shoulders) is posed in _applyIdle,
+     *  from the same breath phase, so the two always agree. */
+    _applyBreath(actor) {
         if (!actor.vrm) return;
         try {
             const head = actor.vrm.humanoid?.getNormalizedBoneNode?.("head");
             if (head && actor._headBaseY) {
-                // baseY + sin(t*ω) — never += to avoid drift accumulation.
-                head.position.y = actor._headBaseY + Math.sin(now * BREATH_FREQUENCY_HZ * 2 * Math.PI) * BREATH_AMPLITUDE;
+                // baseY + delta — never += to avoid drift accumulation.
+                head.position.y = actor._headBaseY + (actor._idle?.sig.headY || 0);
             }
         } catch (e) { /* non-fatal */ }
     }
 
+    /** Resting mouth. A silent mouth held on one shape is most of why an
+     *  idle avatar reads as embalmed: real lips drift, part fractionally at
+     *  the top of an inhale, press and purse every few seconds, and swallow
+     *  about once a minute. The engine produces those as tiny viseme values.
+     *
+     *  Runs LAST in the facial chain and MAX-blends, so live lipsync and an
+     *  emotion's mouth shape both win outright — and the engine already
+     *  gates itself to zero the moment speech has anything to say. */
+    _applyIdleMouth(actor) {
+        const exp = actor.vrm?.expressionManager;
+        const mouth = actor._idle?.sig.mouth;
+        if (!exp || !mouth) return;
+        const ge = this._clipExpressions(actor);
+        for (const canonical of ["aa", "ih", "ou"]) {
+            const v = mouth[canonical] || 0;
+            if (v < 0.001) continue;
+            if (ge?.has(canonical)) continue;   // gesture clip owns this channel
+            const name = actor._visemeMap?.[canonical] ?? canonical;
+            const cur = exp.getValue?.(name) || 0;
+            exp.setValue(name, Math.max(cur, v * (this.expressionMap[canonical] ?? 1)));
+        }
+    }
+
     /** Procedural idle pose + speaking gestures. Drops arms from T-pose and
-     *  adds subtle sway. When `_speakingIntensity > 0`, body sway scales up
-     *  and a head nod/tilt is layered in so the avatar visibly "talks with
-     *  her body". Skipped entirely if a VRMA mixer action is playing, so
-     *  user-supplied animation clips win.
+     *  poses the body from the idle engine's signals (breath, weight
+     *  transfer, head follow-through — see idle_motion.js). When
+     *  `_speakingIntensity > 0` the body gain rises and a head nod/tilt is
+     *  layered in so the avatar visibly "talks with her body". The POSING is
+     *  skipped entirely if a VRMA mixer action is playing, so user-supplied
+     *  animation clips win — but the engine keeps ticking either way, so
+     *  blink, gaze and breath run under a gesture and the idle never resumes
+     *  from a stale phase.
      */
-    _applyIdle(actor, now) {
+    _applyIdle(actor, delta) {
         if (!actor.vrm?.humanoid) return;
         // Smooth raw intensity into animation-driving intensity. Done before
         // the clip guards below so the eased value keeps tracking while a
@@ -3461,6 +3436,18 @@ class AvatarRenderer {
         const a = target > actor._speakingIntensity ? SPEAK_INTENSITY_ATTACK : SPEAK_INTENSITY_RELEASE;
         actor._speakingIntensity = actor._speakingIntensity * (1 - a) + target * a;
         const speak = actor._speakingIntensity;
+        // Whether the procedural pose will actually reach the bones this
+        // frame. The engine ticks either way — the face and gaze signals are
+        // consumed outside this method — but it only STARTS a discrete
+        // event (a weight transfer, an arm adjustment) while the body is
+        // visible, so nothing is half over by the time a clip hands back.
+        const posing = !(actor.idleClipAction?.isRunning()
+            || actor._layerAction?.isRunning()
+            || actor._gestureAction?.isRunning()
+            || actor._moving);
+        actor._idle?.update(delta, speak, posing);
+        const sig = actor._idle?.sig;
+        if (!sig) return;
 
         // A baked idle clip owns the bones — but it may not animate hips
         // TRANSLATION, and a library clip that carried root motion leaves its
@@ -3490,19 +3477,6 @@ class AvatarRenderer {
         try {
             const h = actor.vrm.humanoid;
             const get = (name) => h.getNormalizedBoneNode?.(name);
-            const TAU = Math.PI * 2;
-
-            // Compound-frequency helper: primary sine + a slower secondary at
-            // a coprime-ish frequency. Reads as quasi-random instead of a
-            // clean periodic wave the eye locks onto.
-            const sway = (primaryHz, primaryAmp, phase = 0) =>
-                Math.sin(now * primaryHz * TAU + phase) * primaryAmp
-                + Math.sin(now * IDLE_SECONDARY_HZ * TAU + phase * 0.7) * primaryAmp * IDLE_SECONDARY_AMP_RATIO;
-
-            // Slow weight transfer between the two feet — drives both hip roll
-            // and the alternating knee bend below. ~12s per full cycle so the
-            // viewer never catches it as a "rhythm".
-            const weightShift = Math.sin(now * IDLE_WEIGHT_SHIFT_HZ * TAU);
 
             // Baseline: bones this function does not pose are returned to
             // the normalized rest (identity) — see IDLE_NEUTRAL_BONES.
@@ -3516,24 +3490,41 @@ class AvatarRenderer {
             if (hips) {
                 // .set() so x/y/z are written atomically — partial writes can
                 // corrupt the quaternion under non-default Euler order.
-                hips.rotation.set(
-                    0,
-                    sway(IDLE_HIP_SWAY_HZ, IDLE_HIP_SWAY_AMP) * bodyGain,
-                    weightShift * IDLE_WEIGHT_SHIFT_AMP * 0.6,
-                );
+                hips.rotation.set(0, sig.hipYaw * bodyGain, sig.hipRoll);
             }
 
             // Atomic .set() on every bone below, not `.rotation.z = …`: a
             // partial write leaves the other two axes holding whatever a
             // finished clip put there.
             const spine = get("spine");
-            if (spine) spine.rotation.set(0, 0, sway(IDLE_SPINE_SWAY_HZ, IDLE_SPINE_SWAY_AMP) * bodyGain);
-
-            // Arms with L/R phase offset so they don't move in lockstep.
+            if (spine) {
+                spine.rotation.set(
+                    sig.spinePitch, sig.spineYaw * bodyGain, sig.spineRoll * bodyGain,
+                );
+            }
+            // Ribcage: the breath's visible half, plus the contrapposto
+            // counter-tilt (the shoulders drop toward the RAISED hip, which
+            // is what makes a weight shift read as a weight shift rather
+            // than a lean). upperChest is optional in VRM; when a model has
+            // it, the two share the movement so neither has to overdo it.
+            const chest = get("chest");
+            const upperChest = get("upperChest");
+            const chestShare = upperChest ? 0.6 : 1;
+            if (chest) {
+                chest.rotation.set(
+                    sig.chestPitch * chestShare, 0, sig.chestRoll * chestShare,
+                );
+            }
+            if (upperChest) {
+                upperChest.rotation.set(
+                    sig.chestPitch * 0.4, 0, sig.chestRoll * 0.4,
+                );
+            }
+            // Arms drift on independent noise, not mirrored waves.
             const ls = get("leftUpperArm");
             const rs = get("rightUpperArm");
-            const armSwayL = sway(IDLE_ARM_SWAY_HZ, IDLE_ARM_SWAY_AMP, IDLE_ASYMMETRY_PHASE_L) * bodyGain;
-            const armSwayR = sway(IDLE_ARM_SWAY_HZ, IDLE_ARM_SWAY_AMP, IDLE_ASYMMETRY_PHASE_R) * bodyGain;
+            const armSwayL = sig.armL * bodyGain;
+            const armSwayR = sig.armR * bodyGain;
             // Auto-detect arm orientation once per VRM load.
             // We can't rely on world-space X position because both standard and
             // non-standard models place the left shoulder at ~+0.1 X. Instead,
@@ -3559,13 +3550,43 @@ class AvatarRenderer {
                 }
             }
             const _as = actor._armSign ?? 1;
-            if (ls) ls.rotation.set(0, 0, _as * IDLE_SHOULDER_DOWN + armSwayL);
-            if (rs) rs.rotation.set(0, 0, -_as * IDLE_SHOULDER_DOWN - armSwayR);
+            // Shoulders: the breath's lift, plus the top link of the drag
+            // chain. Unlike the sideways sway — symmetric noise, where the
+            // sign is invisible — the lift is directional, so it goes
+            // through the detected arm sign (+_as lowers the arm, so −_as
+            // raises the shoulder) and mirrors for the right. Without that,
+            // a rig with the opposite convention would shrug DOWN on every
+            // inhale.
+            const lShoulder = get("leftShoulder");
+            const rShoulder = get("rightShoulder");
+            if (lShoulder) lShoulder.rotation.set(sig.shoulderDragL, 0, -_as * sig.shoulderLift);
+            if (rShoulder) rShoulder.rotation.set(sig.shoulderDragR, 0, _as * sig.shoulderLift);
+
+            // The chain proper: x swings the arm fore and aft, and each
+            // joint's value is a spring one step slower than the joint above
+            // it — so the shoulder leads, the upper arm follows, the elbow
+            // after that and the wrist lags last. That stagger (overlapping
+            // action) is what a limb of flesh does and what a limb of
+            // synchronised sine waves never does. Hanging arms also move far
+            // more fore-and-aft than sideways, so this plane carries most of
+            // the motion; the z terms stay as the small lateral drift.
+            if (ls) ls.rotation.set(IDLE_ARM_REST_PITCH + sig.armPitchL * bodyGain, 0,
+                _as * IDLE_SHOULDER_DOWN + armSwayL);
+            if (rs) rs.rotation.set(IDLE_ARM_REST_PITCH + sig.armPitchR * bodyGain, 0,
+                -_as * IDLE_SHOULDER_DOWN - armSwayR);
 
             const lElbow = get("leftLowerArm");
             const rElbow = get("rightLowerArm");
-            if (lElbow) lElbow.rotation.set(0, -0.15, 0);
-            if (rElbow) rElbow.rotation.set(0,  0.15, 0);
+            if (lElbow) lElbow.rotation.set(sig.elbowL * bodyGain, -IDLE_ELBOW_BEND, armSwayL * 0.5);
+            if (rElbow) rElbow.rotation.set(sig.elbowR * bodyGain,  IDLE_ELBOW_BEND, -armSwayR * 0.5);
+
+            // Wrists are the end of the chain and lag everything. Tiny, but
+            // a hand that stays rigid while the forearm moves is one of the
+            // things the eye picks up without being able to name it.
+            const lWrist = get("leftHand");
+            const rWrist = get("rightHand");
+            if (lWrist) lWrist.rotation.set(sig.handL, 0, 0);
+            if (rWrist) rWrist.rotation.set(sig.handR, 0, 0);
 
             // Auto-detect the finger-curl axis. VRM 0.x rigs conventionally
             // curl fingers via rotation.z (Blender bone-roll convention), but
@@ -3651,20 +3672,33 @@ class AvatarRenderer {
                 );
             }
 
-            // Lower body: gentle constant knee bend + alternating extra bend
-            // on the off-leg as weight shifts. Locked legs were a big part of
-            // the "stiff" read.
+            // Lower body — contrapposto's other half. The engine works out
+            // which leg is engaged and which is free, so the whole chain
+            // (hip pitch, turnout, knee, ankle) arrives here already
+            // consistent; the ankle values in particular are computed as the
+            // exact negation of the hip + knee pitches, which is what keeps
+            // the soles flat on the floor. Locked legs were a big part of
+            // the old "stiff" read, and feet tilted a couple of degrees off
+            // the floor were most of the rest.
             const lUpperLeg = get("leftUpperLeg");
             const rUpperLeg = get("rightUpperLeg");
             const lLowerLeg = get("leftLowerLeg");
             const rLowerLeg = get("rightLowerLeg");
-            // weightShift > 0 → weight on left foot → right knee bends more.
-            const leftKneeExtra = Math.max(0, -weightShift) * IDLE_KNEE_BEND * 0.8;
-            const rightKneeExtra = Math.max(0, weightShift) * IDLE_KNEE_BEND * 0.8;
-            if (lUpperLeg) lUpperLeg.rotation.set(-IDLE_KNEE_BEND * 0.4 - leftKneeExtra * 0.5, 0, 0);
-            if (rUpperLeg) rUpperLeg.rotation.set(-IDLE_KNEE_BEND * 0.4 - rightKneeExtra * 0.5, 0, 0);
-            if (lLowerLeg) lLowerLeg.rotation.set(IDLE_KNEE_BEND + leftKneeExtra, 0, 0);
-            if (rLowerLeg) rLowerLeg.rotation.set(IDLE_KNEE_BEND + rightKneeExtra, 0, 0);
+            if (lUpperLeg) lUpperLeg.rotation.set(sig.hipPitchL, sig.hipYawL, 0);
+            if (rUpperLeg) rUpperLeg.rotation.set(sig.hipPitchR, sig.hipYawR, 0);
+            if (lLowerLeg) lLowerLeg.rotation.set(sig.kneeL, 0, 0);
+            if (rLowerLeg) rLowerLeg.rotation.set(sig.kneeR, 0, 0);
+            // Both ankles counter the hip roll the same way round, not
+            // mirrored: this cancels a rotation shared by the whole body, so
+            // it is the same correction on each side.
+            const lFoot = get("leftFoot");
+            const rFoot = get("rightFoot");
+            // Constant: the exact negation of the hip and knee pitches, so
+            // the soles sit flat. Nothing here varies, and nothing above the
+            // ankle in this chain varies either, so the feet are genuinely
+            // motionless — not "nearly still", identical every frame.
+            if (lFoot) lFoot.rotation.set(sig.footPitchL, 0, 0);
+            if (rFoot) rFoot.rotation.set(sig.footPitchR, 0, 0);
 
             // Relaxed hand pose. Flat T-pose hands read as mannequin; a soft
             // curl across all four fingers + an opposed thumb is the "loose
@@ -3675,14 +3709,13 @@ class AvatarRenderer {
 
             const head = get("head");
             if (head) {
-                // Always-on small turn + speaking-only nod (x) and tilt (z).
-                // Multiplied by `speak` so nod/tilt fade in smoothly when
-                // speech starts and fade out (slow release) on stop/interrupt.
-                head.rotation.set(
-                    Math.sin(now * SPEAK_HEAD_NOD_HZ * TAU) * SPEAK_HEAD_NOD_AMP * speak,
-                    Math.sin(now * IDLE_HEAD_TURN_HZ * TAU) * IDLE_HEAD_TURN_AMP,
-                    Math.sin(now * SPEAK_HEAD_TILT_HZ * TAU) * SPEAK_HEAD_TILT_AMP * speak,
-                );
+                // The head is spring-driven in the engine: it chases a target
+                // built from the torso's motion, its own slow drift, the gaze
+                // aversions and the swallow dip, and therefore LAGS and
+                // slightly overshoots the body — follow-through for free,
+                // which no amount of adding sines to a head ever produces.
+                // The speaking nod and tilt are already folded in there.
+                head.rotation.set(sig.headPitch, sig.headYaw, sig.headRoll);
                 // Mascot cursor follow: the head carries a clamped share of
                 // the gaze deflection. Measured as yaw/pitch DELTAS between
                 // the cursor gaze point and the camera as seen from the head,
@@ -3728,9 +3761,11 @@ class AvatarRenderer {
      *  axes (the existing y/z dual rotation is a reasonable default and
      *  worth refining only if thumbs look off after the finger fix lands).
      *  Bones missing from a particular VRM are silently skipped. */
-    _applyRelaxedHand(actor, side) {
+    _applyRelaxedHand(actor, side, squeeze = 0) {
         const h = actor.vrm?.humanoid;
         if (!h) return;
+        // An occasional squeeze deepens the resting curl and releases it.
+        const grip = 1 + squeeze;
         const sideSign = side === "left" ? 1 : -1;
         // Detected curl axis/sign is for the LEFT hand; right hand flips
         // sign for x/z axes (body mirror) and keeps it for y (longitudinal).
@@ -3749,14 +3784,18 @@ class AvatarRenderer {
                 const bone = h.getNormalizedBoneNode?.(`${side}${cap(finger)}${seg}`);
                 if (bone) {
                     bone.rotation.set(0, 0, 0);
-                    bone.rotation[axis] = mirrorSign * curlAmt;
+                    bone.rotation[axis] = mirrorSign * curlAmt * grip;
                 }
             }
         }
         for (const seg of ["Proximal", "Intermediate", "Distal"]) {
             const bone = h.getNormalizedBoneNode?.(`${side}Thumb${seg}`);
             if (bone) {
-                bone.rotation.set(0, sideSign * IDLE_THUMB_OPPOSE, sideSign * IDLE_THUMB_CURL);
+                bone.rotation.set(
+                    0,
+                    sideSign * IDLE_THUMB_OPPOSE / grip,   // thumb closes IN as the fist tightens
+                    sideSign * IDLE_THUMB_CURL * grip,
+                );
             }
         }
     }
@@ -3773,16 +3812,51 @@ class AvatarRenderer {
         return names;
     }
 
-    /** Expression names owned by the actor's running gesture clip, or null
-     *  when no gesture (or an expressionless one) is playing. While a clip
-     *  animates a face channel, the procedural writers below skip it so the
-     *  choreographed face actually shows (they run after the mixer and would
-     *  otherwise overwrite it every frame). */
-    _gestureExpressions(actor) {
-        const action = actor._gestureAction;
-        if (!action || !action.isRunning?.()) return null;
-        const names = action.getClip?.()?.rexclawExpressions;
-        return names?.size ? names : null;
+    /** Expression names a DELIBERATE clip owns right now, or null.
+     *
+     *  Two kinds of clip animate the face, and they must be treated
+     *  differently:
+     *
+     *  A gesture or a library fidget is a short, chosen moment — a wink, a
+     *  blown kiss. While one plays it OWNS the channels it animates and the
+     *  procedural writers stand down, or the choreography never reaches the
+     *  screen (they run after the mixer and would overwrite it every frame).
+     *  Those are the clips this returns.
+     *
+     *  The idle is not that. It runs continuously, for the whole session, so
+     *  ownership there means the live systems are vetoed permanently — an
+     *  idle with any `happy` in it would block set_emotion forever, and one
+     *  with any mouth shape would silence the resting mouth for good. An
+     *  ambient loop must CONTRIBUTE, not own: the writers below MAX against
+     *  whatever the mixer already wrote, so the clip's face and the live
+     *  face both show and neither can suppress the other.
+     *
+     *  (The first version of this suppressed for idles too, and was then
+     *  worked around by filtering weak channels out of the clip at
+     *  conversion time — fixing the data to suit a rule that was wrong.) */
+    _clipExpressions(actor) {
+        let names = null;
+        for (const action of [actor._gestureAction, actor._layerAction]) {
+            if (!action?.isRunning?.()) continue;
+            const set = action.getClip?.()?.rexclawExpressions;
+            if (!set?.size) continue;
+            if (!names) names = new Set(set);
+            else for (const n of set) names.add(n);
+        }
+        return names;
+    }
+
+    /** Expression names the AMBIENT clip (the idle) is writing this frame,
+     *  or null. These are the only channels the writers below may MAX
+     *  against, and the restriction is not cosmetic: for any channel no clip
+     *  animates, expressionManager.getValue() returns the value WE wrote last
+     *  frame, so maxing everything would ratchet — emotions could never fade
+     *  out and the mouth could never close. */
+    _ambientExpressions(actor) {
+        const action = actor.idleClipAction;
+        if (!action?.isRunning?.()) return null;
+        const set = action.getClip?.()?.rexclawExpressions;
+        return set?.size ? set : null;
     }
 
     _applyVowels(actor) {
@@ -3792,14 +3866,20 @@ class AvatarRenderer {
         const vm = actor._visemeMap;
         // Live speech always wins the mouth; in silence, a gesture clip that
         // animates a viseme keeps it (otherwise we'd zero it every frame).
-        const ge = this._gestureExpressions(actor);
+        // An idle clip's mouth is not owned — it is MAX-blended below, so
+        // lipsync still opens the mouth over the top of it.
+        const ge = this._clipExpressions(actor);
+        const amb = this._ambientExpressions(actor);
         const speaking = ["aa", "ih", "ou", "ee", "oh"]
             .some((v) => (actor._currentVowels[v] || 0) > 0.01);
         for (const canonical of ["aa", "ih", "ou", "ee", "oh"]) {
             if (ge && !speaking && ge.has(canonical)) continue;
             // Use the discovered alias if available, fall back to canonical name.
             const exprName = vm?.[canonical] ?? canonical;
-            exp.setValue(exprName, (actor._currentVowels[canonical] || 0) * (m[canonical] ?? 1));
+            const live = (actor._currentVowels[canonical] || 0) * (m[canonical] ?? 1);
+            exp.setValue(exprName, amb?.has(canonical)
+                ? Math.max(exp.getValue?.(exprName) || 0, live)
+                : live);
         }
     }
 
@@ -3836,11 +3916,18 @@ class AvatarRenderer {
 
         // Emotion channels a running gesture clip animates belong to the
         // clip (the mixer wrote them this frame, before us).
-        const ge = this._gestureExpressions(actor);
+        const ge = this._clipExpressions(actor);
+        const amb = this._ambientExpressions(actor);
         for (const exprName of Object.keys(targets)) {
             if (ge?.has(exprName)) continue;
             const start = actor._emotionTransitionStart[exprName] ?? 0;
-            exp.setValue(exprName, start + (targets[exprName] - start) * t);
+            const ours = start + (targets[exprName] - start) * t;
+            // Ours always reaches its target — emotion is semantic and an
+            // ambient loop must never veto it — but the clip's own ambient
+            // expression still reads through whenever we are neutral.
+            exp.setValue(exprName, amb?.has(exprName)
+                ? Math.max(exp.getValue?.(exprName) || 0, ours)
+                : ours);
         }
 
         // Secondary mouth-shape coupling. MAX against the current value —
@@ -3895,31 +3982,24 @@ class AvatarRenderer {
         }
     }
 
-    _scheduleNextSaccade(now) {
-        this._nextSaccadeAt = now + randomSaccadeInterval() / 1000;
-    }
-
-    /** Idle eye saccades. Nudges the look-at target by a small random offset
-     *  around the eye-contact point (the camera) on a biologically-weighted
-     *  interval, so the gaze re-fixates with quick darts instead of staring
-     *  glassily. Offset stays small to preserve eye contact; darts shrink
-     *  while speaking for more focused engagement. Also home of the mascot
-     *  cursor-follow blend, which moves the fixation point itself (the
-     *  saccade jitter rides on top wherever the gaze is). The eyes are
-     *  driven by vrm.update(delta) in the loop, which reads this target.
-     *  Runs every frame regardless of idle/gesture state. */
-    _applyEyeSaccade(now, delta) {
-        if (!this.vrm?.lookAt || !this._lookAtTarget || !this.camera || !this._saccadeOffset) return;
-        if (this._nextSaccadeAt === undefined) this._scheduleNextSaccade(now);
-        if (now >= this._nextSaccadeAt) {
-            const amp = EYE_SACCADE_AMP * (1 - 0.4 * this._speakingIntensity);
-            this._saccadeOffset.set(
-                (Math.random() * 2 - 1) * amp,
-                (Math.random() * 2 - 1) * amp,
-                0,
-            );
-            this._scheduleNextSaccade(now);
-        }
+    /** Idle eye saccades. Nudges the look-at target away from the
+     *  eye-contact point (the camera) by the offset the idle engine
+     *  produced, so the gaze re-fixates with quick darts instead of staring
+     *  glassily. The engine draws the fixation intervals from a
+     *  biologically-weighted table and the SIZES from a separate
+     *  distribution — mostly micro-corrections that preserve eye contact,
+     *  occasionally a glance, and a few times a minute a held aversion that
+     *  also turns the head and often triggers a blink. Unbroken eye contact
+     *  is one of the strongest uncanny signals there is, so the rare big
+     *  ones matter more than their frequency suggests.
+     *
+     *  Also home of the mascot cursor-follow blend, which moves the fixation
+     *  point itself (the saccade jitter rides on top wherever the gaze is).
+     *  The eyes are driven by vrm.update(delta) in the loop, which reads
+     *  this target. Runs every frame regardless of idle/gesture state. */
+    _applyEyeSaccade(delta) {
+        if (!this.vrm?.lookAt || !this._lookAtTarget || !this.camera) return;
+        const sig = this._idle?.sig;
         // Gaze sits on the eye-contact point plus the saccade offset. In XR
         // `this.camera` is a dolly child whose .position is local (~origin) —
         // the real viewpoint is the HMD, so read its world position instead so
@@ -3965,8 +4045,8 @@ class AvatarRenderer {
             }
         }
         this._lookAtTarget.position.set(
-            gx + this._saccadeOffset.x,
-            gy + this._saccadeOffset.y,
+            gx + (sig?.gazeX || 0),
+            gy + (sig?.gazeY || 0),
             gz,
         );
     }
@@ -4031,13 +4111,17 @@ class AvatarRenderer {
         if (this.vrm) {
             // Order matters: idle bones first (sets base pose), then mixer if any
             // overrides them, then face-level adjustments on top.
-            this._applyIdle(this, now);
+            this._applyIdle(this, delta);
             this._applyReturnBlend(this, delta);
-            this._applyBlink(this, now);
-            this._applyBreath(this, now);
-            this._applyEyeSaccade(now, delta);
+            this._applyBlink(this);
+            this._applyBreath(this);
+            this._applyEyeSaccade(delta);
             this._applyVowels(this);
             this._applyEmotion(this, delta);
+            // Last on the face: the resting mouth only fills what lipsync
+            // and emotion left silent (it MAX-blends, and zeroes itself the
+            // moment there is speech).
+            this._applyIdleMouth(this);
             // Physics/ragdoll write-back: after animation has posed the
             // normalized bones, before vrm.update copies them to the raw rig.
             for (const cb of this._preVRMUpdateCallbacks) {
@@ -4054,11 +4138,12 @@ class AvatarRenderer {
             for (const peer of this._peers.values()) {
                 if (!peer.vrm) continue;
                 if (peer.mixer) peer.mixer.update(delta);
-                this._applyIdle(peer, now);
-                this._applyBlink(peer, now);
-                this._applyBreath(peer, now);
+                this._applyIdle(peer, delta);
+                this._applyBlink(peer);
+                this._applyBreath(peer);
                 this._applyVowels(peer);
                 this._applyEmotion(peer, delta);
+                this._applyIdleMouth(peer);
                 try {
                     peer.vrm.expressionManager?.update?.();
                     peer.vrm.update(delta);
