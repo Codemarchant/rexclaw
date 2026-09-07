@@ -87,6 +87,13 @@ export default function MascotSettingsView() {
     }, []);
 
     const send = (msg) => chRef.current?.postMessage(msg);
+    // Motion switches are global config rather than overlay prefs, but they
+    // travel the same way: the overlay owns the director, so it applies and
+    // persists them and pushes the new state back.
+    const sendMotion = (settings) => {
+        setMascot((m) => (m ? { ...m, motion: { ...m.motion, ...settings } } : m));
+        send({ type: "motion", settings });
+    };
     // Optimistic flip + rollback on failure, same as the Settings tab's
     // shell toggles.
     const setShell = async (fn, setLocal, flag) => {
@@ -285,6 +292,32 @@ export default function MascotSettingsView() {
                                 (v) => send({ type: "set", key: "fullBody", value: v }))}
                         </fieldset>
                     </section>
+
+                    {mascot?.motion && (
+                        <section>
+                            <h3><i className="fa fa-child" /> {_t("Background Avatar Motion")}</h3>
+                            {!mascot.motionAvailable && (
+                                <p className="rx_mascot_set_desc">
+                                    {_t("No motion library installed, so these have nothing to play yet.")}
+                                </p>
+                            )}
+                            <fieldset disabled={!alive}>
+                                {check("rx_ms_speechgest",
+                                    _t("Automated background gestures while speaking (experimental)"),
+                                    _t("Your companion gestures along with what they're "
+                                        + "saying. Each sentence is matched by the turn "
+                                        + "director model, so it adds a little to your usage."),
+                                    mascot.motion.speech_gestures,
+                                    (v) => sendMotion({ speech_gestures: v }))}
+                                {check("rx_ms_fidgets", _t("Idle fidgets"),
+                                    _t("Small movements while your companion stands there "
+                                        + "quietly: a shift of weight, folded arms, a touch "
+                                        + "of their hair."),
+                                    mascot.motion.idle_fidgets,
+                                    (v) => sendMotion({ idle_fidgets: v }))}
+                            </fieldset>
+                        </section>
+                    )}
 
                     <section>
                         <h3><i className="fa fa-arrows" /> {_t("Placement")}</h3>

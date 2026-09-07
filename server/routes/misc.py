@@ -45,7 +45,7 @@ _CONFIG_FIELDS = (
     "minecraft_brain_model", "minecraft_brain_model_hard", "minecraft_master",
     "transcript_display_limit",
     "transcript_retention_days", "file_default_expiry_seconds",
-
+    "speech_gestures", "idle_fidgets", "fidget_interval",
 )
 
 _AGENT_FIELDS = (
@@ -104,6 +104,108 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
         con.execute(f"UPDATE config SET {cols} WHERE id = 1", tuple(updates.values()))
         con.commit()
     return {"ok": True, "updated": sorted(updates.keys())}
+
+
+@router.post("/motion/settings")
+def motion_settings_set(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Patch just the motion switches.
+
+    The mascot window flips these mid-call and has no business round-
+    tripping the whole config to do it (it would clobber anything unsaved
+    in the Settings tab). Same three fields as /config/set, on their own.
+    """
+    sets, vals = [], []
+    for key in ("speech_gestures", "idle_fidgets"):
+        if key in payload:
+            sets.append(f"{key} = ?")
+            vals.append(1 if payload[key] else 0)
+    if "fidget_interval" in payload:
+        try:
+            interval = max(3.0, float(payload["fidget_interval"]))
+        except (TypeError, ValueError):
+            interval = 60.0
+        sets.append("fidget_interval = ?")
+        vals.append(interval)
+    if sets:
+        con.execute(f"UPDATE config SET {', '.join(sets)} WHERE id = 1", vals)
+        con.commit()
+    row = con.execute("SELECT * FROM config WHERE id = 1").fetchone()
+    return {
+        "speech_gestures": bool(row["speech_gestures"]),
+        "idle_fidgets": bool(row["idle_fidgets"]),
+        "fidget_interval": float(row["fidget_interval"] or 60),
+    }
+
+
+@router.post("/motion/libraries")
+def motion_libraries(con=Depends(db_con)):
+    """Clip libraries + settings for the client-side motion director.
+
+    A library is a folder of .vrma files plus a manifest.json (see
+    tools/motion/dlp3d_npz2vrma.py for the shape: clips with tags —
+    `idle_safe` marks the fidget pool — and cutoff/recovery timing). Two
+    places are scanned, both already mounted as static routes, so the
+    response only has to name the url base per library:
+
+      assets/motion/<name>/       shipped with the app
+      data/assets/motion/<name>/  dropped in by the user
+
+    A user folder of the same name wins, so a shipped library can be
+    replaced without touching the install.
+
+    `settings` carries the global switches (config, not the avatar or the
+    companion), so the director can re-read them whenever it restarts
+    without a call being in progress.
+    """
+    by_key = {}
+    for root, url_base in ((ASSETS_DIR / "motion", "/assets/motion"),
+                           (avatar_packs.USER_ASSETS_DIR / "motion", "/user-assets/motion")):
+        if not root.is_dir():
+            continue
+        for folder in sorted(root.iterdir()):
+            manifest = folder / "manifest.json"
+            if not folder.is_dir() or not manifest.is_file():
+                continue
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                _logger.warning("motion library %s: unreadable manifest (%s)", folder.name, e)
+                continue
+            clips = [c for c in data.get("clips", []) if c.get("file")]
+            by_key[folder.name] = {
+                "key": folder.name,
+                "url_base": f"{url_base}/{folder.name}/",
+                "source": data.get("source"),
+                "fps": data.get("fps"),
+                "clips": clips,
+            }
+    libraries = [by_key[k] for k in sorted(by_key)]
+    row = con.execute("SELECT * FROM config WHERE id = 1").fetchone()
+    return {
+        "libraries": libraries,
+        "settings": {
+            "speech_gestures": bool(row["speech_gestures"]),
+            "idle_fidgets": bool(row["idle_fidgets"]),
+            "fidget_interval": float(row["fidget_interval"] or 60),
+        },
+    }
+
+
+_PHOTO_MIMETYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+
+
+def _delete_files_web_path(web_path):
+    """Best-effort delete of a /files/... path — used to clean up the
+    previous user photo on re-upload/clear. Never raises: an orphaned file
+    is a minor annoyance, a crashed request over it is not acceptable."""
+    if not web_path or not web_path.startswith("/files/"):
+        return
+    try:
+        candidate = (FILES_DIR / web_path[len("/files/"):]).resolve()
+        if str(candidate).startswith(str(FILES_DIR.resolve())) and candidate.is_file():
+            candidate.unlink()
+    except Exception:
+        _logger.exception("Could not delete old file %s", web_path)
 
 
 @router.post("/config/user_photo")

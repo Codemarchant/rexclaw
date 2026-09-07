@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Motion library viewer</title>
+<!--
+  Browse a motion library (data/assets/motion/<lib>/manifest.json) on a VRM
+  and pick which clips to keep. No build, no server code: serve the repo
+  root with any static server and open this file, e.g.
+
+      python -m http.server 8070            (from the repo root)
+      http://localhost:8070/tools/motion/viewer.html?lib=dlp3d-ani
+
+  Keys: ↓/↑ or j/k next/previous clip, space play/pause, f toggle "fidget",
+  g toggle "gesture", a toggle auto-advance. Picks persist in localStorage;
+  "Copy picks" puts {fidgets:[...], gestures:[...]} on the clipboard.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; display: grid; grid-template-columns: 420px 1fr; font: 13px/1.4 system-ui, sans-serif; background: #12151a; color: #e6e8ec; }
+  aside { display: flex; flex-direction: column; border-right: 1px solid #2a2f37; min-height: 0; }
+  .bar { padding: 8px 10px; border-bottom: 1px solid #2a2f37; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .bar input[type=text] { flex: 1; min-width: 120px; background: #1c2027; color: inherit; border: 1px solid #333944; border-radius: 4px; padding: 4px 6px; }
+  button { background: #262c36; color: inherit; border: 1px solid #3a414d; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+  button:hover { background: #313847; }
+  button.on { background: #2f6f5e; border-color: #3f8f7a; }
+  label.chk { display: inline-flex; gap: 4px; align-items: center; }
+  ul { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+  li { display: grid; grid-template-columns: 22px 22px 1fr auto; gap: 6px; align-items: center; padding: 5px 10px; border-bottom: 1px solid #1f242c; cursor: pointer; }
+  li:hover { background: #1a1f27; }
+  li.cur { background: #24303b; }
+  li .en { font-weight: 600; }
+  li .meta { color: #8a919c; font-size: 11px; }
+  li .dur { color: #aeb4be; font-variant-numeric: tabular-nums; }
+  li input { margin: 0; }
+  li .tags { color: #6f7783; font-size: 11px; }
+  main { position: relative; min-width: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .hud { position: absolute; left: 12px; top: 10px; background: rgba(0,0,0,.45); padding: 6px 10px; border-radius: 6px; max-width: 60%; }
+  .hud b { font-size: 15px; }
+  .hud .sub { color: #aeb4be; }
+  #picks { position: absolute; right: 12px; top: 10px; width: 300px; height: 150px; background: rgba(0,0,0,.6); color: #cfd4dc; border: 1px solid #3a414d; border-radius: 6px; font: 11px/1.3 ui-monospace, monospace; padding: 6px; display: none; }
+  .count { color: #8a919c; font-size: 11px; padding: 4px 10px; border-top: 1px solid #2a2f37; }
+</style>
+</head>
+<body>
+<aside>
+  <div class="bar">
+    <input id="lib" type="text" value="dlp3d-ani" title="library folder under data/assets/motion">
+    <button id="reload">Load</button>
+    <input id="vrmPath" type="text" value="/assets/avatars/Eve/eve_casual_dress.vrm" title="VRM url (repo-relative)">
+    <button id="loadVrm">VRM</button>
+    <label class="chk" title="or pick a .vrm from disk"><input id="vrmFile" type="file" accept=".vrm" hidden><button onclick="document.getElementById('vrmFile').click()">File…</button></label>
+  </div>
+  <div class="bar">
+    <input id="filter" type="text" placeholder="filter (name, tag, id)">
+    <label class="chk"><input id="onlyPicked" type="checkbox"> picked only</label>
+    <button id="prev" title="previous (k / ↑)">◀</button>
+    <button id="next" title="next (j / ↓)">▶</button>
+    <button id="auto" title="auto-advance through the list (a)">auto</button>
+    <button id="loop" title="loop the current clip">loop</button>
+    <button id="copy" title="copy picks as JSON">Copy picks</button>
+    <button id="clear" title="clear all picks">Clear</button>
+  </div>
+  <div class="bar" style="color:#8a919c">columns: <b>F</b>=fidget (idle pool) · <b>G</b>=gesture (play_gesture candidate)</div>
+  <ul id="list"></ul>
+  <div class="count" id="count"></div>
+</aside>
+<main>
+  <canvas id="c"></canvas>
+  <div class="hud"><b id="hudName">—</b><div class="sub" id="hudMeta"></div></div>
+  <textarea id="picks" readonly></textarea>
+</main>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
+  "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.5.3/lib/three-vrm.module.min.js",
+  "@pixiv/three-vrm-animation": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm-animation@3.5.3/lib/three-vrm-animation.module.min.js"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
+import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from "@pixiv/three-vrm-animation";
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+if (params.get("lib")) $("lib").value = params.get("lib");
+if (params.get("vrm")) $("vrmPath").value = params.get("vrm");
+
+// ── scene ───────────────────────────────────────────────────────────────
+const canvas = $("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x12151a);
+const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+camera.position.set(0, 1.1, 3.2);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 0.95, 0);
+controls.update();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.2));
+const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(1, 3, 2); scene.add(key);
+const grid = new THREE.GridHelper(6, 12, 0x3a414d, 0x262c36); scene.add(grid);
+
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w || canvas.height !== h) { renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+}
+
+// ── VRM ─────────────────────────────────────────────────────────────────
+let vrm = null, mixer = null, current = null, currentAction = null;
+const clipCache = new Map();   // url → VRMAnimation (retargets onto any VRM)
+async function loadVRM(src) {
+  const loader = new GLTFLoader();
+  loader.register((p) => new VRMLoaderPlugin(p));
+  const gltf = await loader.loadAsync(src);
+  if (vrm) { scene.remove(vrm.scene); VRMUtils.deepDispose(vrm.scene); }
+  vrm = gltf.userData.vrm;
+  VRMUtils.removeUnnecessaryVertices(gltf.scene);
+  VRMUtils.combineSkeletons(gltf.scene);
+  vrm.scene.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+  // Face the camera regardless of VRM 0.x / 1.0 front convention.
+  const front = vrm.lookAt?.faceFront?.clone().normalize();
+  if (front) vrm.scene.quaternion.premultiply(new THREE.Quaternion().setFromUnitVectors(front, new THREE.Vector3(0, 0, 1)));
+  else vrm.scene.rotation.y = vrm.meta?.metaVersion === "1" ? 0 : Math.PI;
+  scene.add(vrm.scene);
+  mixer = new THREE.AnimationMixer(vrm.scene);
+  mixer.addEventListener("finished", onFinished);
+  currentAction = null;
+  if (current) play(current);
+}
+$("loadVrm").onclick = () => loadVRM($("vrmPath").value).catch((e) => alert("VRM load failed: " + e.message));
+$("vrmFile").onchange = (ev) => { const f = ev.target.files[0]; if (f) loadVRM(URL.createObjectURL(f)).catch((e) => alert(e.message)); };
+
+// ── library ─────────────────────────────────────────────────────────────
+let clips = [], libKey = "", picks = { fidgets: new Set(), gestures: new Set() };
+function loadPicks() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("motion-picks:" + libKey) || "{}");
+    picks = { fidgets: new Set(raw.fidgets || []), gestures: new Set(raw.gestures || []) };
+  } catch (e) { picks = { fidgets: new Set(), gestures: new Set() }; }
+}
+function savePicks() {
+  const data = { fidgets: [...picks.fidgets], gestures: [...picks.gestures] };
+  try { localStorage.setItem("motion-picks:" + libKey, JSON.stringify(data)); } catch (e) { /* */ }
+  $("picks").value = JSON.stringify(data, null, 1);
+  $("count").textContent = `${clips.length} clips · ${picks.fidgets.size} fidget · ${picks.gestures.size} gesture`;
+}
+async function loadLibrary() {
+  libKey = $("lib").value.trim();
+  const base = `/data/assets/motion/${libKey}/`;
+  const res = await fetch(base + "manifest.json");
+  if (!res.ok) { alert("manifest not found: " + base + "manifest.json"); return; }
+  const m = await res.json();
+  clips = (m.clips || []).map((c) => ({ ...c, url: base + c.file }));
+  loadPicks(); savePicks(); renderList();
+  if (clips.length && !current) play(clips[0]);
+}
+$("reload").onclick = () => loadLibrary().catch((e) => alert(e.message));
+
+function visibleClips() {
+  const q = $("filter").value.trim().toLowerCase();
+  const onlyPicked = $("onlyPicked").checked;
+  return clips.filter((c) => {
+    if (onlyPicked && !picks.fidgets.has(c.id) && !picks.gestures.has(c.id)) return false;
+    if (!q) return true;
+    return [c.id, c.en, c.zh, ...(c.tags || []), ...(c.states || [])].join(" ").toLowerCase().includes(q);
+  });
+}
+function renderList() {
+  const ul = $("list"); ul.innerHTML = "";
+  for (const c of visibleClips()) {
+    const li = document.createElement("li");
+    li.dataset.id = c.id;
+    if (current && current.id === c.id) li.classList.add("cur");
+    const f = document.createElement("input"); f.type = "checkbox"; f.checked = picks.fidgets.has(c.id); f.title = "fidget";
+    f.onclick = (ev) => { ev.stopPropagation(); toggle("fidgets", c.id, f.checked); };
+    const g = document.createElement("input"); g.type = "checkbox"; g.checked = picks.gestures.has(c.id); g.title = "gesture";
+    g.onclick = (ev) => { ev.stopPropagation(); toggle("gestures", c.id, g.checked); };
+    const body = document.createElement("div");
+    const extra = [c.states?.length ? "states: " + c.states.join(",") : "", c.cutoffs?.length ? "cuts " + c.cutoffs.map((x) => x.toFixed(1)).join("/") : ""].filter(Boolean).join(" · ");
+    body.innerHTML = `<div class="en">${c.en || c.id}</div><div class="meta">${c.id} · ${c.mask || ""}${extra ? " · " + extra : ""}</div><div class="tags">${(c.tags || []).join(", ")}</div>`;
+    const dur = document.createElement("div"); dur.className = "dur"; dur.textContent = (c.duration || 0).toFixed(1) + "s";
+    li.append(f, g, body, dur);
+    li.onclick = () => play(c);
+    ul.appendChild(li);
+  }
+}
+function toggle(kind, id, on) { picks[kind][on ? "add" : "delete"](id); savePicks(); }
+$("filter").oninput = renderList;
+$("onlyPicked").onchange = renderList;
+
+// ── playback ────────────────────────────────────────────────────────────
+let loop = false, autoAdvance = false;
+async function play(c) {
+  current = c;
+  $("hudName").textContent = c.en || c.id;
+  $("hudMeta").textContent = `${c.id} · ${(c.duration || 0).toFixed(1)}s · ${(c.tags || []).join(", ")}${c.zh ? " · " + c.zh : ""}`;
+  for (const li of $("list").children) li.classList.toggle("cur", li.dataset.id === c.id);
+  $("list").querySelector("li.cur")?.scrollIntoView({ block: "nearest" });
+  if (!vrm || !mixer) return;
+  let vrma = clipCache.get(c.url);
+  if (!vrma) {
+    const loader = new GLTFLoader();
+    loader.register((p) => new VRMAnimationLoaderPlugin(p));
+    const gltf = await loader.loadAsync(c.url);
+    vrma = gltf.userData.vrmAnimations?.[0];
+    if (!vrma) return;
+    clipCache.set(c.url, vrma);
+  }
+  if (current !== c) return;   // clicked past it while loading
+  const clip = createVRMAnimationClip(vrma, vrm);
+  const action = mixer.clipAction(clip);
+  action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
+  action.clampWhenFinished = true;
+  if (currentAction && currentAction !== action) currentAction.fadeOut(0.25);
+  action.reset().fadeIn(0.25).play();
+  currentAction = action;
+}
+function onFinished(ev) {
+  if (ev.action !== currentAction) return;
+  if (autoAdvance) step(1);
+}
+function step(d) {
+  const vis = visibleClips();
+  if (!vis.length) return;
+  const i = Math.max(0, vis.findIndex((c) => current && c.id === current.id));
+  play(vis[(i + d + vis.length) % vis.length]);
+}
+$("prev").onclick = () => step(-1);
+$("next").onclick = () => step(1);
+$("auto").onclick = () => { autoAdvance = !autoAdvance; $("auto").classList.toggle("on", autoAdvance); if (autoAdvance && currentAction && !currentAction.isRunning()) step(1); };
+$("loop").onclick = () => { loop = !loop; $("loop").classList.toggle("on", loop); if (current) play(current); };
+$("copy").onclick = async () => {
+  const text = $("picks").value; $("picks").style.display = "block";
+  try { await navigator.clipboard.writeText(text); $("copy").textContent = "Copied"; setTimeout(() => ($("copy").textContent = "Copy picks"), 1200); } catch (e) { /* textarea is visible for manual copy */ }
+};
+$("clear").onclick = () => { if (confirm("Clear all picks?")) { picks = { fidgets: new Set(), gestures: new Set() }; savePicks(); renderList(); } };
+addEventListener("keydown", (ev) => {
+  if (ev.target.tagName === "INPUT" || ev.target.tagName === "TEXTAREA") return;
+  if (ev.key === "j" || ev.key === "ArrowDown") { ev.preventDefault(); step(1); }
+  else if (ev.key === "k" || ev.key === "ArrowUp") { ev.preventDefault(); step(-1); }
+  else if (ev.key === " ") { ev.preventDefault(); if (currentAction) currentAction.paused = !currentAction.paused; }
+  else if (ev.key === "f" && current) { toggle("fidgets", current.id, !picks.fidgets.has(current.id)); renderList(); }
+  else if (ev.key === "g" && current) { toggle("gestures", current.id, !picks.gestures.has(current.id)); renderList(); }
+  else if (ev.key === "a") $("auto").click();
+});
+
+// ── loop ────────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  resize();
+  const dt = clock.getDelta();
+  if (mixer) mixer.update(dt);
+  if (vrm) vrm.update(dt);
+  controls.update();
+  renderer.render(scene, camera);
+});
+
+loadVRM($("vrmPath").value).catch((e) => console.warn("default VRM failed", e));
+loadLibrary().catch((e) => console.warn(e));
+</script>
+</body>
+</html>

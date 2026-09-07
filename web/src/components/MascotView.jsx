@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { useReactive } from "../lib/reactive";
-import { voice, avatarRenderer } from "../services";
+import { voice, avatarRenderer, services } from "../services";
 import { screenCapture } from "../lib/screen_capture";
 import { storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
 import { registerHotkeyHandlers } from "../lib/hotkeys";
@@ -531,6 +531,10 @@ export default function MascotView() {
                        ...(avatar.outfits || []).map((o) => ({ id: Number(o.id), name: o.name }))]
                     : [],
                 outfitId: Number(voice.state.selectedOutfitId || 0),
+                // Motion library switches — global config, held live by the
+                // director on this side.
+                motion: services.motion_director?.motionSettings?.() || null,
+                motionAvailable: !!services.motion_director?.enabled,
                 // Catalog for the Emotions & gestures tab (built-ins are a
                 // static import on both sides; only the per-avatar customs
                 // need to travel). Full records stay here — the window sends
@@ -588,6 +592,16 @@ export default function MascotView() {
                     } else {
                         avatarRenderer.playGesture?.(g.vrma_url, { loop: !!g.loop });
                     }
+                    return;
+                }
+                // Motion library switches (Settings → Background Avatar Motion, mirrored
+                // here so they can be flipped mid-call). Global config, so
+                // this persists as well as applying live.
+                case "motion": {
+                    const patch = msg.settings || {};
+                    services.motion_director?.applySettings?.(patch);
+                    settingsSync.current.publish();
+                    rpc("/api/motion/settings", patch).catch(() => {});
                     return;
                 }
                 case "set": {

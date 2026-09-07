@@ -441,6 +441,21 @@ def background_set_default_placement(payload: dict = Body(default={}), con=Depen
     return {"ok": True}
 
 
+@router.post("/speech_gesture")
+def speech_gesture(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Speech gesture selector: pick a motion-library gesture (or none) for
+    one line the companion is saying. Gated through the session; failures
+    degrade to {'gesture': None}."""
+    session = resolve_session(con, payload.get("session_id"))
+    recent = payload.get("recent")
+    return session_service.speech_gesture_select(
+        con,
+        session=session,
+        line=payload.get("line"),
+        recent_ids=recent if isinstance(recent, list) else [],
+    )
+
+
 @router.post("/director/decide")
 def director_decide(payload: dict = Body(default={}), con=Depends(db_con)):
     """Group-call turn director: given the recent speaker-labelled transcript

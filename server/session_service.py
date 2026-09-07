@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, store
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -990,6 +990,10 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         'active_background': active_background,
         'affection': affection_payload,
         'speaks_first': bool(agent['speaks_first']),
+        # Motion director: library gestures picked per spoken sentence. A
+        # global setting — the client also reads it from /motion/libraries,
+        # but a call starts before that fetch lands, so it rides along here.
+        'speech_gestures': bool(config['speech_gestures']),
         'replay_items': replay_items,
         'transcript_history': transcript_history,
         'transcript_truncated': transcript_truncated,
@@ -1688,6 +1692,91 @@ def generate_session_summary(con, session):
                 _logger.exception('Memory extraction failed for session %s', session['id'])
 
         return rollup_id
+
+
+def speech_gesture_select(con, *, session, line, recent_ids=()):
+    """Speech gesture selector: which motion-library gesture, if any, fits a
+    line the companion is saying? One fast-model call per sentence
+    (director model — the same latency-critical, non-reasoning pick as the
+    group-call director), made by the browser as transcript sentences
+    stream in; the clip plays over the idle while the line is still being
+    spoken. Deliberate play_gesture calls always pre-empt it client-side.
+
+    Return contract: {'gesture': <clip id>} or {'gesture': None} — None
+    covers "nothing fits", "could not run" and unparseable replies alike;
+    the client simply plays nothing. `reason` names which of those it was:
+    most sentences legitimately get no gesture, and without it a selector
+    that is declining and one that is broken look identical in the browser
+    console.
+    """
+    if session['state'] != 'active':
+        return {'gesture': None, 'reason': 'session_inactive'}
+    line = (line or '').strip()
+    # Mirror the client's length test: whitespace word counts are
+    # meaningless for Japanese/Chinese/Thai, which are written without
+    # spaces, so those scripts are measured in characters instead.
+    unspaced = re.search(r'[぀-ヿ㐀-䶿一-鿿豈-﫿฀-๿]', line)
+    if len(line.split()) < 3 and not (unspaced and len(line) >= 6):
+        return {'gesture': None, 'reason': 'too_short'}
+    config = get_config(con)
+    xai_key = config['xai_api_key']
+    model = config['director_model'] or config['text_model'] or config['summary_model']
+    if not xai_key or not model:
+        return {'gesture': None, 'reason': 'no_model_configured'}
+    candidates = motion_library.speech_gesture_candidates()
+    if not candidates:
+        return {'gesture': None, 'reason': 'no_gesture_library'}
+    recent = [str(r)[:64] for r in (recent_ids or [])[:12] if r]
+    # The newest entry is what the avatar has only just finished performing.
+    # Repeating that exact motion back-to-back is the one repeat that always
+    # reads as a glitch, so it is refused outright below rather than nudged.
+    last = motion_library.speech_gesture_canonical(candidates, recent[-1:])
+    just_played = last[0] if last else None
+    try:
+        gesture, usage = xai_client.select_speech_gesture(
+            xai_api_key=xai_key,
+            responses_url=config['xai_responses_url'],
+            model=model,
+            line=line[:400],
+            library_lines=motion_library.speech_gesture_lines(candidates),
+            # Named as the ids the prompt lists, not the takes that played.
+            recent_ids=motion_library.speech_gesture_canonical(candidates, recent),
+            just_played=just_played,
+        )
+    except Exception as e:  # noqa: BLE001 — a failed pick is just "no gesture"
+        _logger.warning("speech gesture select failed: %s", e)
+        return {'gesture': None, 'reason': 'selector_error'}
+    # Billed, but NOT added to the session's token totals - those drive the
+    # summarization threshold, and this call's prompt is the whole gesture
+    # library re-sent for every spoken sentence. Accruing it would make a
+    # chatty turn look like a huge context and compact the conversation long
+    # before it needed it. Same treatment as the group-call director below.
+    try:
+        store.accrue_usd_ticks(con, store.extract_cost_ticks(usage))
+        con.commit()
+    except Exception:  # noqa: BLE001 — spend accounting never fails a pick
+        pass
+    reason = None
+    if gesture and gesture not in candidates:
+        _logger.info("speech gesture selector named unknown id %r", gesture[:64])
+        gesture = None
+        reason = 'unknown_id'
+    if gesture and just_played:
+        # Same motion twice running — a different take of it is still the
+        # same gesture to look at, so drop it rather than rotate.
+        picked = motion_library.speech_gesture_canonical(candidates, [gesture])
+        if picked and picked[0] == just_played:
+            _logger.info("speech gesture: refused back-to-back repeat of %s", just_played)
+            gesture = None
+            reason = 'back_to_back_repeat'
+    if gesture:
+        # The prompt lists one take per motion; play a fresh take when the
+        # library has several, so a repeated "thanks" is not the same clip.
+        variants = motion_library.speech_gesture_variants(candidates, gesture)
+        unseen = [v for v in variants if v['id'] not in recent] or variants
+        if unseen:
+            gesture = random.choice(unseen)['id']
+    return {'gesture': gesture, 'reason': reason or ('nothing_fits' if not gesture else None)}
 
 
 def director_decide(con, *, session, transcript_lines, participants, user_name=None,

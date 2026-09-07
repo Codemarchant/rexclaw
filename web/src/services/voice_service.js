@@ -538,6 +538,9 @@ class VoiceCallService {
         await this.primary.end(reason);
         await this._destroyCaptureGraph();
         this.env.services.voice_lipsync?.disconnect?.();
+        // Out of the call: the state machine has nothing to listen to, but
+        // the neutral idle + fidgets keep the standing companion alive.
+        this.env.services.motion_director?.setConversationState?.({ listening: false, thinking: false });
     }
 
     /** Typed input. Solo calls behave exactly as before; group calls ask
@@ -1031,6 +1034,13 @@ class VoiceCallService {
                 setOutfit: (u, i) => renderer()?.setOutfit?.(u, i),
                 resetExpression: () => renderer()?.resetExpression?.(),
                 setBackground: (bg) => renderer()?.setBackground?.(bg),
+                // Motion director signals (base avatar only — peers neither
+                // fidget nor get speech gestures, so their adapter lacks these).
+                setConversationState: (s) => this.env.services.motion_director?.setConversationState?.(s),
+                onAssistantTranscript: (d, ahead) => this.env.services.motion_director?.onAssistantTranscript?.(d, ahead),
+                noteExpressionTool: () => this.env.services.motion_director?.noteExpressionTool?.(),
+                // Live audio-schedule probe, for diagnosing gesture timing.
+                audioLookahead: () => conn._audioLookaheadSec?.() ?? 0,
             };
         }
         const id = conn.connId;
@@ -1164,6 +1174,11 @@ class VoiceCallService {
         // made in the fullscreen dropdown beats it — see the guard notes in
         // full_view._hydrateAvatar.
         const keepUserBackground = this.state.backgroundPickedByUser;
+        // Rule-driven motion for the base avatar (state idles / fidgets /
+        // word gestures). Reloads the library every call so a folder added
+        // under data/assets/motion is live on the next call.
+        this.env.services.motion_director?.start?.().catch?.(() => {});
+        this.env.services.motion_director?.setSpeechGestures?.(!!payload.speech_gestures);
         if (payload.avatar) {
             renderer.configureFromAvatar(payload.avatar);
             if (!keepUserBackground && payload.active_background !== undefined && renderer.setBackground) {

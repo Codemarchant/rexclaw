@@ -121,6 +121,23 @@ CREATE TABLE IF NOT EXISTS config (
     transcript_display_limit INTEGER NOT NULL DEFAULT 200,
     transcript_retention_days INTEGER NOT NULL DEFAULT 0,
     file_default_expiry_seconds INTEGER NOT NULL DEFAULT 2592000,
+    -- Motion library (data/assets/motion). Global rather than per companion
+    -- or per avatar: one clip library serves every body, and these are
+    -- switches you flip by mood, not part of a character.
+    --
+    -- Both default OFF: they need a clip library to do anything, and
+    -- speech_gestures additionally spends a director-model call per spoken
+    -- sentence — not something to opt a user into silently.
+    --
+    -- speech_gestures picks a clip per spoken sentence, so it costs tokens,
+    -- but it is the one that makes the avatar look alive. idle_fidgets
+    -- plays occasional small clips while the companion stands doing
+    -- nothing, which reads as restlessness on some bodies.
+    -- fidget_interval is the AVERAGE gap — the real one varies either side
+    -- of it so it never becomes a rhythm.
+    speech_gestures INTEGER NOT NULL DEFAULT 0,
+    idle_fidgets INTEGER NOT NULL DEFAULT 0,
+    fidget_interval REAL NOT NULL DEFAULT 60,
     -- local_task working directory — the Grok Build CLI's blast-radius
     -- boundary. Empty = <data>/workspace (created on demand).
     local_task_workdir TEXT NOT NULL DEFAULT '',
@@ -708,6 +725,15 @@ MIGRATIONS = (
     "ALTER TABLE avatars ADD COLUMN base_gestures TEXT",
     "ALTER TABLE avatars ADD COLUMN speech_gestures INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE agents ADD COLUMN speech_gestures INTEGER NOT NULL DEFAULT 0",
+    # ...and then to global config, along with the fidget settings. One clip
+    # library serves every body, and both are switches you flip by mood
+    # rather than traits of a character — so they live in Settings and in
+    # the mascot window, not buried per companion and per avatar. The
+    # agents/avatars columns above are unused legacy: SQLite cannot drop a
+    # column, and nothing reads them any more.
+    "ALTER TABLE config ADD COLUMN speech_gestures INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN idle_fidgets INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN fidget_interval REAL NOT NULL DEFAULT 60",
     # Per-avatar emotion decay (settle back toward neutral after the beat).
     # On by default — replaces the old hardcoded Eve/Leo/Ara-only softening.
     "ALTER TABLE avatars ADD COLUMN emotion_decay INTEGER NOT NULL DEFAULT 1",

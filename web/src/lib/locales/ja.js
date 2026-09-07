@@ -1132,6 +1132,25 @@ export const JA = {
   "Add a built-in gesture…": "組み込みジェスチャーを追加…",
   "All built-in gestures added": "組み込みジェスチャーはすべて追加済みです",
 
+  // ── Settings / mascot: background avatar motion ───────────────────────
+  "Background Avatar Motion": "アバターの自動モーション",
+  "Extra body language on top of the avatar's own gesture set, picked up in the background.":
+    "アバター本来のジェスチャーに加えて、自動で拾われる body language です。",
+  "Automated background gestures while speaking (experimental)":
+    "発話中の自動ジェスチャー（実験的）",
+  "Your companion gestures along with what they're saying: a bow for thanks, a shrug for \"oh well\". Each sentence is matched by the turn director model set below, so it adds a little to your usage.":
+    "コンパニオンが話している内容に合わせてジェスチャーします。お礼にはお辞儀、「まあいいか」には肩をすくめる、といった具合です。文ごとに下のターンディレクターモデルが選ぶため、その分の利用量が少し増えます。",
+  "Your companion gestures along with what they're saying. Each sentence is matched by the turn director model, so it adds a little to your usage.":
+    "コンパニオンが話している内容に合わせてジェスチャーします。文ごとにターンディレクターモデルが選ぶため、その分の利用量が少し増えます。",
+  "Idle fidgets": "待機中の小さな動き",
+  "Small movements while your companion stands there quietly: a shift of weight, folded arms, a touch of their hair.":
+    "コンパニオンが静かに立っている間の小さな動きです。重心を移す、腕を組む、髪に触れる、といったものです。",
+  "Fidget every (seconds, average)": "動きの間隔（秒・平均）",
+  "An average, not a metronome. The real gap varies either side of it so the movements never fall into a rhythm.":
+    "あくまで平均で、メトロノームではありません。実際の間隔はこの前後で変化するため、動きが一定のリズムになることはありません。",
+  "No motion library installed, so these have nothing to play yet.":
+    "モーションライブラリが未導入のため、再生できるものがまだありません。",
+
   // ── Credits dialog ────────────────────────────────────────────────────
   "Credits": "クレジット",
   "Rexclaw stands on a lot of other people's work. Licences are as stated by each project; the full text ships with the dependencies themselves.":

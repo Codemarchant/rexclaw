@@ -498,6 +498,10 @@ export class ToolDispatcher {
 
     _setEmotion({ emotion }) {
         if (!emotion) return { ok: false, error: "No emotion specified" };
+        // The companion is driving its own expression this turn — the
+        // motion director's speech-gesture picker stands down (see
+        // motion_director.noteExpressionTool).
+        this.avatarApi?.noteExpressionTool?.();
         this.avatarApi?.setEmotion?.(emotion);
         // Auto-play matching VRMA gesture if one exists. Fire-and-forget — we
         // don't await the load so the function_call_output round-trip stays fast.
@@ -526,6 +530,8 @@ export class ToolDispatcher {
 
     _playGesture({ gesture }) {
         if (!gesture) return { ok: false, error: "No gesture specified" };
+        // As in _setEmotion: the companion's own choice owns this turn.
+        this.avatarApi?.noteExpressionTool?.();
         // Reserved sentinel: stop any running gesture (notably a continuous
         // loop, which never ends on its own) and return to the idle animation.
         if (gesture === "idle") {

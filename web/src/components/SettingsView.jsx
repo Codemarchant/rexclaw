@@ -6,6 +6,7 @@ import { applyHotkeys } from "../lib/hotkeys";
 import { wakeWord, wakeState } from "../lib/wake_word";
 import { useReactive } from "../lib/reactive";
 import { useUnsavedGuard } from "../lib/unsaved_guard";
+import { services } from "../services/index";
 import { UnsavedBar } from "./UnsavedUI.jsx";
 import HotkeysSettings from "./HotkeysSettings.jsx";
 import ModelsDialog from "./ModelsDialog.jsx";
@@ -183,6 +184,13 @@ export default function SettingsView({ active }) {
             // Standby listening reconciles against the saved config (arms,
             // disarms, or starts the model download as needed).
             wakeWord.refresh();
+            // Motion settings take effect at once, mid-call included — the
+            // director otherwise only reads them when it next restarts.
+            services.motion_director?.applySettings?.({
+                speech_gestures: !!config.speech_gestures,
+                idle_fidgets: !!config.idle_fidgets,
+                fidget_interval: config.fidget_interval,
+            });
             markDirty(false);
             load();
             return true;
@@ -268,6 +276,51 @@ export default function SettingsView({ active }) {
                                    style={{ display: "none" }} onChange={onUserPhotoSelected} />
                         </div>
                     </div>
+                </section>
+
+                <section>
+                    <h3><i className="fa fa-child" /> {_t("Background Avatar Motion")}</h3>
+                    <p className="text-muted">
+                        {_t("Extra body language on top of the avatar's own gesture set, "
+                            + "picked up in the background.")}
+                    </p>
+                    <div className="rx_check">
+                        <input id="rx_speech_gestures" type="checkbox"
+                               checked={!!config.speech_gestures}
+                               onChange={(ev) => setField("speech_gestures", ev.target.checked ? 1 : 0)} />
+                        <label htmlFor="rx_speech_gestures">
+                            {_t("Automated background gestures while speaking (experimental)")}
+                        </label>
+                    </div>
+                    <p className="text-muted">
+                        {_t("Your companion gestures along with what they're saying: a bow "
+                            + "for thanks, a shrug for \"oh well\". Each sentence is matched "
+                            + "by the turn director model set below, so it adds a little to "
+                            + "your usage.")}
+                    </p>
+                    <div className="rx_check">
+                        <input id="rx_idle_fidgets" type="checkbox"
+                               checked={!!config.idle_fidgets}
+                               onChange={(ev) => setField("idle_fidgets", ev.target.checked ? 1 : 0)} />
+                        <label htmlFor="rx_idle_fidgets">{_t("Idle fidgets")}</label>
+                    </div>
+                    <p className="text-muted">
+                        {_t("Small movements while your companion stands there quietly: a "
+                            + "shift of weight, folded arms, a touch of their hair.")}
+                    </p>
+                    {!!config.idle_fidgets && (
+                        <div className="rx_row">
+                            <div>
+                                <label title={_t("An average, not a metronome. The real gap varies either side of it so the movements never fall into a rhythm.")}>
+                                    {_t("Fidget every (seconds, average)")}
+                                </label>
+                                <input type="number" min="3" step="1"
+                                       value={config.fidget_interval ?? 60}
+                                       onChange={(ev) => setField("fidget_interval",
+                                           Number(ev.target.value) || 60)} />
+                            </div>
+                        </div>
+                    )}
                 </section>
 
                 {startInMascot !== null && (

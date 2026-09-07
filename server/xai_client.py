@@ -705,6 +705,71 @@ def decide_next_speaker(*, xai_api_key, responses_url, model, transcript_lines,
     return decision, (body.get('usage') if isinstance(body, dict) else None) or {}
 
 
+SPEECH_GESTURE_INSTRUCTIONS = (
+    'You annotate lines a 3D companion character is about to say aloud with '
+    'a body gesture from a fixed library. You get one line and the library — '
+    'one gesture per row: id, what the motion looks like, tags. Choose the '
+    'single gesture whose motion expresses the meaning or tone of the line: '
+    'a bow for thanks, an open-palm shrug for "oh well", heart hands for '
+    'affection, a nod for agreement, a wave for a greeting. When the line '
+    'says the character does something the library can perform, pick that. '
+    'Choose nothing when no gesture clearly fits — plain information, '
+    'questions and mid-thought continuations usually have none. Ids marked '
+    'recently used are a nudge, not a ban: prefer a different gesture when '
+    'one fits the line just as well, but still pick the recent one when it '
+    'is clearly the right gesture, and never answer null just to avoid it. '
+    'The one marked "just played" is the exception — the character has only '
+    'this moment finished performing it, so doing it twice running looks '
+    'broken. Pick a different gesture, or nothing. '
+    'Reply with JSON only: {"gesture": "<id>"} or {"gesture": null}.'
+)
+
+
+def select_speech_gesture(*, xai_api_key, responses_url, model, line,
+                          library_lines, recent_ids=(), just_played=None):
+    """One-shot pick of a library gesture for a spoken line (or none).
+
+    :param line: the sentence the companion is saying
+    :param library_lines: 'id | motion | tags' rows, the whole library
+    :param recent_ids: ids played recently, to steer away from repeats
+    :returns: (gesture_id or None, usage_dict) — None means "no gesture"
+        AND covers unparseable replies, which the caller treats the same.
+    """
+    recent = ', '.join(recent_ids) if recent_ids else 'none'
+    prompt = (
+        'Library:\n' + '\n'.join(library_lines)
+        + f'\n\nRecently used (prefer something else if it fits as well): {recent}'
+        + f'\nJust played, do NOT pick again: {just_played or "none"}\n\n'
+        f'Line: "{line}"\n\nJSON:'
+    )
+    body = create_response(
+        xai_api_key=xai_api_key,
+        responses_url=responses_url,
+        model=model,
+        input_items=[{
+            'role': 'user',
+            'content': [{'type': 'input_text', 'text': prompt}],
+        }],
+        instructions=SPEECH_GESTURE_INSTRUCTIONS,
+        tools=None,
+        reasoning_effort=None,
+        max_output_tokens=60,
+        store=False,
+        timeout=10,
+    )
+    text = _strip_json_fences(_extract_response_text(body) or '')
+    gesture = None
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict) and isinstance(parsed.get('gesture'), str):
+            gesture = parsed['gesture'].strip() or None
+    except ValueError:
+        # Format drift ("gesture: dlp3d_574") — take the first id-looking token.
+        m = re.search(r'[A-Za-z0-9_]+_\d+', text)
+        gesture = m.group(0) if m else None
+    return gesture, (body.get('usage') if isinstance(body, dict) else None) or {}
+
+
 TITLE_INSTRUCTIONS = (
     'You name conversations. Given a short transcript of the opening turns of '
     'an assistant chat, produce a concise descriptive title for the conversation '

@@ -271,6 +271,50 @@ const CAM_FOLLOW_RATE = 5;
 // _ensureWalkAction, which re-binds per VRM).
 let walkVrmaPromise = null;
 
+// ── Motion library (idle fidget clips) ─────────────────────────────────
+// Driven by models/motion_director.js. A library is a set of VRMA clips with
+// metadata (tags, safe cut points — see tools/motion/). The director plays
+// them as LAYER CLIPS: one-shot fidgets over whatever idle is running, with
+// the same crossfade shape as gestures. They are `auto` in the
+// isGestureBusy sense — a tool gesture, emotion, combo or walk always
+// pre-empts them, never the other way round. Parsed VRMA files are
+// avatar-independent and cached module-level like the walk clip; the
+// AnimationClips built from them are per-VRM (see _libraryClipCache,
+// cleared on every VRM swap).
+const LIBRARY_FPS = 30;
+const LAYER_FADE_IN = 0.3;            // s — idle → fidget
+const libraryVrmaPromises = new Map();  // url → Promise<VRMAnimation|null>
+
+// ── Return to idle ─────────────────────────────────────────────────────
+// How a one-shot clip (gesture, fidget, stopped loop) hands the body back.
+// A three.js crossfade is the wrong tool here: fading a clamped action out
+// blends toward the pose the bones had when the clip was BOUND (its saved
+// "original state", effectively the rest pose), and the live idle only
+// takes over once the fade ends — a drift toward rest followed by a jerk
+// into the idle. Instead the clip is released outright and every frame
+// blends between the pose it left behind and whatever the idle is
+// producing right now, with the held pose's share decaying by a short
+// half-life. Both sides are re-read per frame, so the result is a true
+// crossfade onto live motion and never depends on mixer timing.
+const RETURN_HALFLIFE = 0.32;   // s — held pose halves every 0.32 s (gone by ~2 s)
+const RETURN_MAX_S = 2.2;
+
+// Humanoid bones the procedural idle does NOT pose (it owns hips, spine,
+// upper/lower arms, head, legs and the fingers). Nothing writes these, so
+// whatever last touched them sticks — after a VRMA clip ends they keep its
+// final rotation and the avatar stays half-way into the gesture, shoulders
+// and hands frozen. _applyIdle zeroes them every frame instead: in a VRM's
+// normalized rig the rest pose IS identity, so zero is the correct
+// baseline, and the return blend (above) then eases the clip's pose out of
+// them like any other bone. Eyes and jaw are left alone — lookAt and the
+// expression manager own those.
+const IDLE_NEUTRAL_BONES = [
+    "neck", "chest", "upperChest",
+    "leftShoulder", "rightShoulder",
+    "leftHand", "rightHand",
+    "leftFoot", "rightFoot", "leftToes", "rightToes",
+];
+
 // ── Multi-agent call layout ─────────────────────────────────────────────
 // When peer avatars join (multi-agent calls), all characters are spread
 // horizontally with this spacing, each turned slightly toward the group
@@ -301,6 +345,12 @@ class AvatarRenderer {
         this.mixer = null;
         this.idleClipAction = null;
         this._idleVrmaData = null;       // raw idle VRMA — retargetable onto a spawned combo partner at teardown
+        // Motion library (see the constants block above). `_layerAction` is
+        // the one-shot fidget clip riding on top of the idle.
+        this._motionClips = [];
+        this._layerAction = null;
+        this._libraryClipCache = new Map();
+        this._returnBlend = null;        // in-flight clip→idle return (see constants)
         this.vrm = null;
         this._vrmLoadGeneration = 0;     // monotonic — newest loadVRM wins; older results are disposed silently
         this.clock = null;
@@ -310,6 +360,7 @@ class AvatarRenderer {
         this._lookAtTarget = null;       // THREE.Object3D
         this._headBaseY = 0;             // local head bone Y (for breath anim)
         this._headWorldY = null;         // world head Y (for camera framing)
+        this._hipsBasePos = null;        // rest hips translation (clips move it)
         this._meshTopY = null;           // top of VRM bounding box (hair / accessories)
         this._meshBottomY = null;        // bottom of VRM bounding box (feet)
         this._nextBlinkAt = 0;
@@ -518,6 +569,10 @@ class AvatarRenderer {
         this._gestureAction = null;
         this._currentGestureUrl = null;
         if (this._gestureClips) this._gestureClips.clear();
+        this._layerAction = null;
+        this._libraryClipCache.clear();
+        this._releaseQueue = null;   // bone nodes are about to be disposed
+        this._returnBlend = null;
         // Partner belongs to the outgoing scene composition — drop it with
         // no exit fade (the base VRM it was staged around is being disposed).
         // Clear the restore snapshot first: it captured the OLD model's
@@ -600,6 +655,13 @@ class AvatarRenderer {
                 head.getWorldPosition(worldPos);
                 this._headWorldY = worldPos.y;
             }
+            // Rest hips translation. VRMA clips animate it (they carry root
+            // motion), and nothing else ever writes it — without restoring
+            // this each idle frame the character keeps whatever offset the
+            // last clip ended on and drifts a little further with every
+            // gesture. See _applyIdle.
+            const hipsNode = vrm.humanoid?.getNormalizedBoneNode?.("hips");
+            this._hipsBasePos = hipsNode ? hipsNode.position.clone() : null;
             // Captured once, in rest pose, before procedural idle starts —
             // otherwise breath/sway would jitter the camera each frame.
             const box = new THREE.Box3().setFromObject(vrm.scene);
@@ -755,14 +817,14 @@ class AvatarRenderer {
             const old = this._gestureAction;
             setTimeout(() => { try { old.stop(); } catch (e) { /* */ } }, 200);
         }
+        // A deliberate gesture pre-empts any library fidget / word gesture.
+        this._stopLayerClip({ resumeIdle: false });
 
-        // Fade the idle VRMA clip out so the gesture isn't fighting it for
-        // bone weight. With both at full weight the mixer blends additively
+        // Fade the idle out so the gesture isn't fighting it for bone
+        // weight. With both at full weight the mixer blends additively
         // ("wave + sway") and the gesture-end transition is sharper because
         // idle is already at full strength when the gesture's weight drops.
-        if (this.idleClipAction) {
-            this.idleClipAction.fadeOut(FADE_IN);
-        }
+        this._fadeIdleOut(this, FADE_IN);
 
         const action = this.mixer.clipAction(clip);
 
@@ -781,32 +843,27 @@ class AvatarRenderer {
         }
 
         action.setLoop(THREE.LoopOnce, 1);
-        // Hold the gesture's last pose so fadeOut has something to fade FROM.
-        // With clampWhenFinished=false the action's weight goes to 0 the
-        // instant the clip ends, making any subsequent fadeOut a no-op — that
-        // was the root cause of the snap back to idle.
+        // Hold the last frame until the "finished" event releases the clip —
+        // the release reads that held pose as the start of the return.
         action.clampWhenFinished = true;
         action.reset().fadeIn(FADE_IN).play();
         this._gestureAction = action;
         this._currentGestureUrl = url;
         this._gestureAuto = auto;
 
-        // On finish, crossfade gesture → idle over the same window so the two
-        // truly overlap rather than the idle slamming back at full weight.
+        // On finish, hand the body straight back to the idle with an
+        // inertialized return (see RETURN_HALFLIFE) — no crossfade. The
+        // "finished" event fires INSIDE mixer.update(), so the release is
+        // queued and performed once the mixer has finished the frame:
+        // stopping an action / restoring its bindings mid-update corrupts
+        // that frame's blend.
         const onFinished = (ev) => {
             if (ev.action !== action) return;
             this.mixer.removeEventListener("finished", onFinished);
-            action.fadeOut(FADE_OUT);
-            if (this.idleClipAction) {
-                this.idleClipAction.reset().fadeIn(FADE_OUT).play();
-            }
-            setTimeout(() => {
-                if (this._gestureAction === action) {
-                    try { action.stop(); } catch (e) { /* */ }
-                    this._gestureAction = null;
-                    this._currentGestureUrl = null;
-                }
-            }, FADE_OUT * 1000);
+            if (this._gestureAction !== action) return;
+            this._gestureAction = null;
+            this._currentGestureUrl = null;
+            this._queueRelease(this, action);
         };
         this.mixer.addEventListener("finished", onFinished);
     }
@@ -843,19 +900,247 @@ class AvatarRenderer {
     _fadeOutBaseGesture() {
         const action = this._gestureAction;
         if (!action) return;
-        const FADE_OUT = 0.5;
-        try { action.fadeOut(FADE_OUT); } catch (e) { /* */ }
-        if (this.idleClipAction) {
-            try { this.idleClipAction.reset().fadeIn(FADE_OUT).play(); } catch (e) { /* */ }
-        }
-        setTimeout(() => {
-            if (this._gestureAction === action) {
-                try { action.stop(); } catch (e) { /* */ }
-                this._gestureAction = null;
-                this._currentGestureUrl = null;
-            }
-        }, FADE_OUT * 1000);
+        this._gestureAction = null;
+        this._currentGestureUrl = null;
+        this._queueRelease(this, action);
     }
+
+    /** Ask for a clip to be released to the idle at the next safe point —
+     *  after the mixer has applied the current frame (see _renderFrame).
+     *  Never release inside a mixer callback or between mixer.update and
+     *  the pose writers: the released clip's bindings restore their saved
+     *  state on stop(), which must not land mid-blend. */
+    _queueRelease(actor, action) {
+        (actor._releaseQueue ||= []).push(action);
+    }
+
+    _flushReleases(actor) {
+        const queue = actor._releaseQueue;
+        if (!queue || !queue.length) return;
+        actor._releaseQueue = [];
+        for (const action of queue) this._releaseToIdle(actor, action);
+    }
+
+    /** Release a one-shot / stopped clip and hand the body back to the idle
+     *  with an inertialized return: snapshot the pose the clip leaves the
+     *  bones in, stop it, put the idle back at full weight (the avatar's
+     *  VRMA idle resumes where it paused; procedural idle simply writes
+     *  again next frame), and let _applyReturnBlend ease out of that
+     *  snapshot into the live idle. */
+    _releaseToIdle(actor, action) {
+        this._snapshotPose(actor);
+        try { action.stop(); } catch (e) { /* */ }
+        // Drop it from the mixer's caches. Trimmed library clips are built
+        // per play (AnimationUtils.subclip makes a new clip with a new uuid),
+        // so without this the mixer retains an action and a full set of
+        // per-bone bindings for every gesture ever played - hundreds over a
+        // talkative call, none of them ever reachable again.
+        if (action.__rxDisposable) {
+            try {
+                this.mixer.uncacheAction(action.getClip(), action.getRoot());
+                this.mixer.uncacheClip(action.getClip());
+            } catch (e) { /* already gone */ }
+        }
+        const idle = actor.idleClipAction;
+        if (idle) {
+            try {
+                idle.enabled = true;
+                idle.stopFading();
+                idle.setEffectiveWeight(1);
+                idle.play();
+            } catch (e) { /* */ }
+        }
+    }
+
+    /** Arm the return blend: remember the pose the clip leaves the bones
+     *  in, so _applyReturnBlend can ease out of it. */
+    _snapshotPose(actor) {
+        const h = actor.vrm?.humanoid;
+        if (!h) return;
+        const snap = new Map();
+        for (const name of Object.keys(h.humanBones || {})) {
+            const node = h.getNormalizedBoneNode?.(name);
+            if (node) snap.set(node, node.quaternion.clone());
+        }
+        const hips = h.getNormalizedBoneNode?.("hips");
+        actor._returnBlend = {
+            snap, hips,
+            hipsPos: hips ? hips.position.clone() : null,
+            t: 0,
+        };
+    }
+
+    /** Per frame, after the idle has posed the bones: on the first frame
+     *  measure offset = snapshot ⊗ idle⁻¹ per bone; every frame after,
+     *  premultiply a slerp(identity, offset, w) with w decaying by
+     *  RETURN_HALFLIFE, so the pose is continuous at release and settles
+     *  into whatever the idle is doing right now. */
+    _applyReturnBlend(actor, delta) {
+        const st = actor._returnBlend;
+        if (!st) return;
+        // Weight 1 on the release frame, decaying by RETURN_HALFLIFE.
+        const w = Math.exp(-st.t * Math.LN2 / RETURN_HALFLIFE);
+        if (st.t > RETURN_MAX_S || w < 0.02) {
+            actor._returnBlend = null;
+            return;
+        }
+        for (const [node, q] of st.snap) {
+            // Toward the held pose by w — so w=1 IS the held pose and w=0 is
+            // whatever the idle just wrote. Both sides are re-read every
+            // frame, so nothing depends on when the mixer last ran.
+            node.quaternion.slerp(q, w);
+        }
+        if (st.hips && st.hipsPos) st.hips.position.lerp(st.hipsPos, w);
+        st.t += delta;
+    }
+
+    // ------------------------------------------------------------------
+    // Motion library: idle fidget clips (see constants block)
+    // ------------------------------------------------------------------
+
+    /** Fade the actor's idle VRMA out of the blend (no-op with procedural
+     *  idle, which _applyIdle suspends on its own while a clip runs). */
+    _fadeIdleOut(actor, dur) {
+        // A new clip is taking the body — any in-flight return to idle is
+        // over (it would fight the incoming clip for the same bones).
+        actor._returnBlend = null;
+        if (actor.idleClipAction) {
+            try { actor.idleClipAction.fadeOut(dur); } catch (e) { /* */ }
+        }
+    }
+
+    /** Bring the idle VRMA back after a gesture / fidget / walk. */
+    _fadeIdleIn(actor, dur) {
+        if (actor.idleClipAction) {
+            try { actor.idleClipAction.reset().fadeIn(dur).play(); } catch (e) { /* */ }
+        }
+    }
+
+    /** Install (or clear) the director's clip library. Entries carry an
+     *  absolute `url` plus the manifest metadata. */
+    setMotionLibrary(entries) {
+        this._motionClips = Array.isArray(entries) ? entries.filter((e) => e && e.url) : [];
+        if (!this._motionClips.length) this._stopLayerClip({ resumeIdle: true });
+    }
+
+    isLayerClipRunning() {
+        return !!(this._layerAction && this._layerAction.isRunning());
+    }
+
+    /** Parsed VRMA for a library url — module-level cache, avatar-independent. */
+    _loadLibraryVrma(url) {
+        let p = libraryVrmaPromises.get(url);
+        if (!p) {
+            const { GLTFLoader, VRMAnimationLoaderPlugin } = this.libs;
+            const loader = new GLTFLoader();
+            loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+            p = loader.loadAsync(url)
+                .then((gltf) => gltf.userData.vrmAnimations?.[0] || null)
+                .catch((e) => {
+                    libraryVrmaPromises.delete(url);   // allow a retry
+                    console.error("[voice] motion clip load failed", url, e);
+                    return null;
+                });
+            libraryVrmaPromises.set(url, p);
+        }
+        return p;
+    }
+
+    /** AnimationClip for a library entry, bound to the actor's current VRM. */
+    async _loadLibraryClip(actor, entry) {
+        const cached = actor._libraryClipCache.get(entry.url);
+        if (cached) return cached;
+        const vrmAtCall = actor.vrm;
+        const vrma = await this._loadLibraryVrma(entry.url);
+        if (!vrma || actor.vrm !== vrmAtCall || !actor.vrm) return null;
+        const { createVRMAnimationClip } = this.libs;
+        const clip = createVRMAnimationClip(vrma, actor.vrm);
+        actor._libraryClipCache.set(entry.url, clip);
+        return clip;
+    }
+
+    /** Play a library clip as a one-shot layer over the idle (fidget or
+     *  speech gesture). The clip ends at `cut` (seconds) when given, else at
+     *  its annotated `recovery` point (where the motion has settled — the
+     *  tail after it is a static hold), else at its end; the return to idle
+     *  is inertialized like a gesture's. Yields to a tool gesture, a combo
+     *  or locomotion; returns false when it did not play. */
+    async playLibraryClip(entry, { cut = null, trimLeadIn = false } = {}) {
+        if (!this.vrm || !this.mixer || !entry?.url) return false;
+        const busy = () => this._moving || this._comboPartner || this._comboLivePeer
+            || (this._gestureAction && this._gestureAction.isRunning());
+        if (busy()) return false;
+        const vrmAtCall = this.vrm;
+        const full = await this._loadLibraryClip(this, entry);
+        if (!full || this.vrm !== vrmAtCall || !this.mixer || busy()) return false;
+        const { THREE } = this.libs;
+        let clip = full;
+        let end = cut && cut > 0.5 ? cut : null;
+        if (!end && entry.recovery > 0.5 && entry.recovery < full.duration - 0.1) end = entry.recovery;
+        // trimLeadIn drops the clip's dead run-up (its annotated `startup`),
+        // so the gesture's stroke lands sooner. Speech gestures ask for it:
+        // the pick round-trips while the line is already being spoken, and
+        // this buys back part of that lag. Fidgets don't — nothing is
+        // waiting on them, and the run-up is what makes them look unhurried.
+        let start = 0;
+        if (trimLeadIn && entry.startup > 0.05) {
+            start = Math.min(entry.startup, (end || full.duration) - 0.5);
+        }
+        if (start > 0.02 || (end && end < full.duration - 0.05)) {
+            // The library's own rate when it declares one — subclip works in
+            // frames, so trimming at the wrong rate moves every cut point.
+            const fps = entry.fps > 0 ? entry.fps : LIBRARY_FPS;
+            const from = Math.round(Math.max(0, start) * fps);
+            const to = Math.round((end || full.duration) * fps);
+            if (to - from >= 2) {
+                clip = THREE.AnimationUtils.subclip(full, `${full.name}|${from}-${to}`, from, to, fps);
+            }
+        }
+        // Replace a running layer clip without bouncing through the idle.
+        this._stopLayerClip({ resumeIdle: false });
+        const action = this.mixer.clipAction(clip);
+        // Only the trimmed copy is throwaway — `full` is the cached clip
+        // _loadLibraryClip hands back for every future play of this entry, so
+        // it must survive. See the uncache in _releaseToIdle.
+        action.__rxDisposable = clip !== full;
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;   // hold the last frame until released
+        this._fadeIdleOut(this, LAYER_FADE_IN);
+        action.reset().fadeIn(LAYER_FADE_IN).play();
+        this._layerAction = action;
+        const onFinished = (ev) => {
+            if (ev.action !== action) return;
+            this.mixer.removeEventListener("finished", onFinished);
+            if (this._layerAction !== action) return;
+            this._layerAction = null;
+            this._queueRelease(this, action);   // after the mixer's frame, see _flushReleases
+        };
+        this.mixer.addEventListener("finished", onFinished);
+        return true;
+    }
+
+    /** End the running layer clip now (no-op when none). With `resumeIdle`
+     *  it hands back to the idle via the inertialized return; without, the
+     *  caller (gesture, walk, combo) is taking the body itself and the clip
+     *  just fades under it. */
+    /** End the running fidget / speech gesture and ease back to idle.
+     *  No-op when none is playing. Used on barge-in. */
+    stopLayerClip() {
+        this._stopLayerClip({ resumeIdle: true });
+    }
+
+    _stopLayerClip({ resumeIdle }) {
+        const action = this._layerAction;
+        if (!action) return;
+        this._layerAction = null;
+        if (resumeIdle) {
+            this._queueRelease(this, action);
+            return;
+        }
+        try { action.fadeOut(0.15); } catch (e) { /* */ }
+        setTimeout(() => { try { action.stop(); } catch (e) { /* */ } }, 200);
+    }
+
 
     // ------------------------------------------------------------------
     // Combo (two-character) gestures
@@ -1061,9 +1346,8 @@ class AvatarRenderer {
             old.fadeOut(0.15);
             setTimeout(() => { try { old.stop(); } catch (e) { /* */ } }, 200);
         }
-        if (this.idleClipAction) {
-            this.idleClipAction.fadeOut(FADE_IN);
-        }
+        this._stopLayerClip({ resumeIdle: false });
+        this._fadeIdleOut(this, FADE_IN);
         if (livePeer) {
             // The combo clip takes over the peer's body: retire any running
             // peer gesture and fade its idle out, exactly like the base side.
@@ -1123,9 +1407,7 @@ class AvatarRenderer {
             if (ev.action !== baseAction) return;
             this.mixer.removeEventListener("finished", onFinished);
             baseAction.fadeOut(FADE_OUT);
-            if (this.idleClipAction) {
-                this.idleClipAction.reset().fadeIn(FADE_OUT).play();
-            }
+            this._fadeIdleIn(this, FADE_OUT);
             setTimeout(() => {
                 if (this._gestureAction === baseAction) {
                     try { baseAction.stop(); } catch (e) { /* */ }
@@ -1428,6 +1710,9 @@ class AvatarRenderer {
         try {
             const head = vrm.humanoid?.getNormalizedBoneNode?.("head");
             if (head) peer._headBaseY = head.position.y;
+            // Rest hips translation — same reason as the base avatar's.
+            const hipsNode = vrm.humanoid?.getNormalizedBoneNode?.("hips");
+            peer._hipsBasePos = hipsNode ? hipsNode.position.clone() : null;
         } catch (e) { /* non-fatal */ }
         try { vrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
         this._applySpringCollidersToVRM(vrm);
@@ -1975,7 +2260,8 @@ class AvatarRenderer {
         const action = await this._ensureWalkAction(actor);
         if (!action) return;             // load failed — slide without the clip
         if (!actor._moving) return;      // stopped while the clip downloaded
-        if (actor.idleClipAction) actor.idleClipAction.fadeOut(WALK_FADE_IN);
+        if (actor === this) this._stopLayerClip({ resumeIdle: false });
+        this._fadeIdleOut(actor, WALK_FADE_IN);
         action.reset().fadeIn(WALK_FADE_IN).play();
     }
 
@@ -1991,7 +2277,7 @@ class AvatarRenderer {
                 if (!actor._moving) { try { action.stop(); } catch (e) { /* */ } }
             }, WALK_FADE_OUT * 1000);
         }
-        if (actor.idleClipAction) actor.idleClipAction.reset().fadeIn(WALK_FADE_OUT).play();
+        this._fadeIdleIn(actor, WALK_FADE_OUT);
         // A companion turns to face you when she stops — not frozen
         // mid-stride aimed at a wall. Eased per-frame in _applyReturnFacing.
         // In XR "you" is the headset, not the flat camera. Skipped entirely
@@ -2248,6 +2534,10 @@ class AvatarRenderer {
         this._gestureAction = null;
         this._currentGestureUrl = null;
         if (this._gestureClips) this._gestureClips.clear();
+        this._layerAction = null;
+        this._libraryClipCache.clear();
+        this._releaseQueue = null;   // bone nodes are about to be disposed
+        this._returnBlend = null;
         // The base VRM is gone — its restore snapshot is meaningless and the
         // partner has nothing to play against. Drop both without a fade.
         this._comboBaseRestore = null;
@@ -2262,6 +2552,7 @@ class AvatarRenderer {
         this._loadedVrmUrl = null;
         this._headBaseY = 0;
         this._headWorldY = null;
+        this._hipsBasePos = null;
         this._meshTopY = null;
         this._meshBottomY = null;
         this.resetExpression();
@@ -3163,19 +3454,36 @@ class AvatarRenderer {
      */
     _applyIdle(actor, now) {
         if (!actor.vrm?.humanoid) return;
-        if (actor.idleClipAction && actor.idleClipAction.isRunning()) return;
+        // Smooth raw intensity into animation-driving intensity. Done before
+        // the clip guards below so the eased value keeps tracking while a
+        // clip owns the body (no jump when procedural idle resumes).
+        const target = actor._rawSpeakingIntensity;
+        const a = target > actor._speakingIntensity ? SPEAK_INTENSITY_ATTACK : SPEAK_INTENSITY_RELEASE;
+        actor._speakingIntensity = actor._speakingIntensity * (1 - a) + target * a;
+        const speak = actor._speakingIntensity;
+
+        // A baked idle clip owns the bones — but it may not animate hips
+        // TRANSLATION, and a library clip that carried root motion leaves its
+        // final offset sitting there. The procedural path restores this below;
+        // avatars with a vrma_idle never reach that line, so they drift a
+        // little further with every clip. Restore here too, once no clip is
+        // actually moving the body.
+        if (actor.idleClipAction && actor.idleClipAction.isRunning()) {
+            const layerBusy = actor._layerAction?.isRunning() || actor._gestureAction?.isRunning();
+            if (!layerBusy && actor._hipsBasePos) {
+                actor.vrm.humanoid?.getNormalizedBoneNode?.("hips")
+                    ?.position.copy(actor._hipsBasePos);
+            }
+            return;
+        }
+        // A fidget clip from the motion library owns the bones.
+        if (actor._layerAction && actor._layerAction.isRunning()) return;
         // A one-shot gesture is animating — let it own the bones; procedural
         // idle would fight it and produce a weird blend.
         if (actor._gestureAction && actor._gestureAction.isRunning()) return;
         // Walking — the walk clip owns the bones (procedural idle would
         // overwrite the mixer output every frame; see _loop's update order).
         if (actor._moving) return;
-
-        // Smooth raw intensity into animation-driving intensity.
-        const target = actor._rawSpeakingIntensity;
-        const a = target > actor._speakingIntensity ? SPEAK_INTENSITY_ATTACK : SPEAK_INTENSITY_RELEASE;
-        actor._speakingIntensity = actor._speakingIntensity * (1 - a) + target * a;
-        const speak = actor._speakingIntensity;
         // Body gain ranges 1.0 (idle) → SPEAK_BODY_GAIN (peak speaking).
         const bodyGain = 1 + (SPEAK_BODY_GAIN - 1) * speak;
 
@@ -3196,7 +3504,15 @@ class AvatarRenderer {
             // viewer never catches it as a "rhythm".
             const weightShift = Math.sin(now * IDLE_WEIGHT_SHIFT_HZ * TAU);
 
+            // Baseline: bones this function does not pose are returned to
+            // the normalized rest (identity) — see IDLE_NEUTRAL_BONES.
+            for (const name of IDLE_NEUTRAL_BONES) {
+                const bone = get(name);
+                if (bone) bone.rotation.set(0, 0, 0);
+            }
+
             const hips = get("hips");
+            if (hips && actor._hipsBasePos) hips.position.copy(actor._hipsBasePos);
             if (hips) {
                 // .set() so x/y/z are written atomically — partial writes can
                 // corrupt the quaternion under non-default Euler order.
@@ -3207,8 +3523,11 @@ class AvatarRenderer {
                 );
             }
 
+            // Atomic .set() on every bone below, not `.rotation.z = …`: a
+            // partial write leaves the other two axes holding whatever a
+            // finished clip put there.
             const spine = get("spine");
-            if (spine) spine.rotation.z = sway(IDLE_SPINE_SWAY_HZ, IDLE_SPINE_SWAY_AMP) * bodyGain;
+            if (spine) spine.rotation.set(0, 0, sway(IDLE_SPINE_SWAY_HZ, IDLE_SPINE_SWAY_AMP) * bodyGain);
 
             // Arms with L/R phase offset so they don't move in lockstep.
             const ls = get("leftUpperArm");
@@ -3240,13 +3559,13 @@ class AvatarRenderer {
                 }
             }
             const _as = actor._armSign ?? 1;
-            if (ls) ls.rotation.z = _as * IDLE_SHOULDER_DOWN + armSwayL;
-            if (rs) rs.rotation.z = -_as * IDLE_SHOULDER_DOWN - armSwayR;
+            if (ls) ls.rotation.set(0, 0, _as * IDLE_SHOULDER_DOWN + armSwayL);
+            if (rs) rs.rotation.set(0, 0, -_as * IDLE_SHOULDER_DOWN - armSwayR);
 
             const lElbow = get("leftLowerArm");
             const rElbow = get("rightLowerArm");
-            if (lElbow) lElbow.rotation.y = -0.15;
-            if (rElbow) rElbow.rotation.y =  0.15;
+            if (lElbow) lElbow.rotation.set(0, -0.15, 0);
+            if (rElbow) rElbow.rotation.set(0,  0.15, 0);
 
             // Auto-detect the finger-curl axis. VRM 0.x rigs conventionally
             // curl fingers via rotation.z (Blender bone-roll convention), but
@@ -3698,6 +4017,10 @@ class AvatarRenderer {
         // mode); only the follow-camera below stays flat-mode-only.
         this._updateMovement(delta);
         if (this.mixer) this.mixer.update(delta);
+        // Clip releases queued during that update (finished events, stop
+        // requests) happen here: the bones hold the clip's final frame, and
+        // the idle takes over cleanly on the next update.
+        this._flushReleases(this);
         // Combo partner ticks with the same delta as the base mixer, so the
         // two clips stay in sync; vrm.update drives its spring bones (hair /
         // clothes) — the partner gets no blink/lipsync/gaze, only animation.
@@ -3709,6 +4032,7 @@ class AvatarRenderer {
             // Order matters: idle bones first (sets base pose), then mixer if any
             // overrides them, then face-level adjustments on top.
             this._applyIdle(this, now);
+            this._applyReturnBlend(this, delta);
             this._applyBlink(this, now);
             this._applyBreath(this, now);
             this._applyEyeSaccade(now, delta);

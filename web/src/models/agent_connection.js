@@ -131,6 +131,7 @@ export class AgentConnection {
         // next chunk should start at.
         this._scheduledSources = [];
         this._nextPlayTime = 0;
+        this._turnAudioSec = 0;   // voice scheduled for the current response
         this.toolDispatcher = null;
         this.pendingFunctionCalls = new Map();   // call_id → { name, argsBuffer }
         this.lipsyncUnsub = null;
@@ -605,6 +606,11 @@ export class AgentConnection {
         const startAt = this._nextPlayTime;
         source.start(startAt);
         this._nextPlayTime = startAt + audioBuffer.duration;
+        // Total voice this turn, accumulated as it is scheduled. The text
+        // stream finishes long before the audio does, so this is the only
+        // honest measure of how long the reply actually takes to say —
+        // the motion director maps sentences onto it (see setConversationState).
+        this._turnAudioSec += audioBuffer.duration;
 
         const entry = { source };
         this._scheduledSources.push(entry);
@@ -618,6 +624,15 @@ export class AgentConnection {
                 this._maybeRunCompaction();
             }
         };
+    }
+
+    /** Seconds of assistant audio scheduled but not yet played — i.e. how
+     *  far the transcript stream is running ahead of the voice. 0 when
+     *  nothing is queued (the next words will be heard right away). */
+    _audioLookaheadSec() {
+        const ctx = this.playbackContext;
+        if (!ctx) return 0;
+        return Math.max(0, this._nextPlayTime - ctx.currentTime);
     }
 
     /** True while assistant audio is still scheduled or playing out. */
@@ -688,6 +703,16 @@ export class AgentConnection {
                 msg.response_id !== this._currentResponseId) return;
             this.state.thinking = false;
             if (msg.delta) this._assistantTranscriptInProgress += msg.delta;
+            // Motion director: the reply is under way; its sentences feed the
+            // speech gesture selector.
+            this.avatarApi?.setConversationState?.({ thinking: false });
+            // The audio for text arriving now has been scheduled out to
+            // _nextPlayTime, so this says how far ahead of the voice the
+            // transcript currently is — the director uses it to hold each
+            // sentence's gesture until it is actually heard.
+            if (msg.delta) {
+                this.avatarApi?.onAssistantTranscript?.(msg.delta, this._audioLookaheadSec());
+            }
             return;
         }
         // Assistant transcript final — `done` events carry the full transcript
@@ -717,11 +742,24 @@ export class AgentConnection {
             return;
         }
         if (msg.type === "response.output_audio.done" || msg.type === "response.audio.done") {
+            // All of this turn's voice is now scheduled, so its true length
+            // is finally known — the motion director re-times its queued
+            // sentences against it (until now it only had the fraction of
+            // audio that had arrived, which is a large under-estimate for
+            // anything past the opening lines).
+            this.avatarApi?.setConversationState?.({
+                audioTotalSec: this._turnAudioSec,
+                audioEndsInSec: this._audioLookaheadSec(),
+            });
             return;
         }
         if (msg.type === "response.done" || msg.type === "response.completed") {
             const status = msg.response?.status;
             const respId = msg.response?.id;
+            // Motion director: nothing more is being composed (audio may
+            // still be playing out — the director watches playback itself);
+            // any trailing transcript fragment is the last sentence.
+            this.avatarApi?.setConversationState?.({ thinking: false, responseDone: true });
             // xAI ships the populated usage object at the OUTER event level;
             // response.usage arrives empty. Read inner first for
             // OpenAI-compatibility, fall back to outer.
@@ -852,6 +890,10 @@ export class AgentConnection {
         if (msg.type === "response.created") {
             this._responseInFlight = true;
             this._currentResponseId = msg.response?.id || null;
+            this._turnAudioSec = 0;
+            // Motion director: a reply is being composed — not idle; a fresh
+            // transcript starts for the speech gesture selector.
+            this.avatarApi?.setConversationState?.({ listening: false, thinking: true, responseStarted: true });
             // Tracks whether this response's assistant line reached the
             // transcript — drives the response.done recovery fallback.
             this._assistantFinalAppended = false;
@@ -899,6 +941,11 @@ export class AgentConnection {
             // note stays in context, so their turn will cover it.
             this._pendingToolReply = false;
             this._owedContextResponse = false;
+            // Motion director: the user has the floor — not idle. `interrupted`
+            // also drops a speech gesture still acting out the cut-off line.
+            this.avatarApi?.setConversationState?.({
+                listening: true, thinking: false, interrupted: true,
+            });
             const audioStillPlaying = this._assistantAudioActive();
             if (this._responseInFlight || audioStillPlaying) {
                 console.log(
@@ -925,6 +972,9 @@ export class AgentConnection {
         // Deliberately do NOT call _maybeCreateResponse here.
         if (msg.type === "input_audio_buffer.speech_stopped" ||
             msg.type === "input_audio_buffer.committed") {
+            // Motion director: the user finished — server VAD will start a
+            // reply, so the companion is busy until it does.
+            this.avatarApi?.setConversationState?.({ listening: false, thinking: true });
             if (msg.type === "input_audio_buffer.committed") {
                 // A user utterance is committed; its transcription arrives
                 // asynchronously — on slow endpoints AFTER the reply is
@@ -1248,6 +1298,7 @@ export class AgentConnection {
         this._pendingToolReply = false;
         this._owedContextResponse = false;
         this.state.thinking = false;
+        this.avatarApi?.setConversationState?.({ thinking: false });
         // Suppress stragglers until the next response.created.
         this._bargedIn = true;
     }
