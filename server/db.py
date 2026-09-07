@@ -252,7 +252,10 @@ CREATE TABLE IF NOT EXISTS avatar_backgrounds (
     -- before anyone has hand-placed one and saved it (see scene_placements).
     default_pos_x REAL NOT NULL DEFAULT 0,
     default_pos_z REAL NOT NULL DEFAULT 0,
-    default_yaw REAL NOT NULL DEFAULT 0
+    default_yaw REAL NOT NULL DEFAULT 0,
+    -- Lighting preset id (web LIGHTING_PRESETS) selected when this
+    -- background is switched to; NULL leaves the user's pick alone.
+    lighting TEXT
 );
 
 -- Where a companion was last hand-placed (walk mode) inside one specific
@@ -820,6 +823,8 @@ MIGRATIONS = (
     "ALTER TABLE avatar_backgrounds ADD COLUMN default_pos_x REAL NOT NULL DEFAULT 0",
     "ALTER TABLE avatar_backgrounds ADD COLUMN default_pos_z REAL NOT NULL DEFAULT 0",
     "ALTER TABLE avatar_backgrounds ADD COLUMN default_yaw REAL NOT NULL DEFAULT 0",
+    # Per-background default lighting preset (see the schema comment).
+    "ALTER TABLE avatar_backgrounds ADD COLUMN lighting TEXT",
     # create_image/create_video featuring ANOTHER companion by name — a
     # separate opt-in from enable_companion_texting (see the agents schema
     # comment above).

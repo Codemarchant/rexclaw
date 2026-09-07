@@ -17,7 +17,7 @@
 // block third-party scripts (Brave shields, strict tracking protection).
 // Bundling also makes the avatar work fully offline.
 import * as THREE_NS from "three";
-import { loadRenderPrefs, onRenderPrefsChange } from "../lib/render_prefs";
+import { loadRenderPrefs, onRenderPrefsChange, saveRenderPrefs } from "../lib/render_prefs";
 import {
     VRMLoaderPlugin,
     VRMUtils,
@@ -2879,7 +2879,17 @@ class AvatarRenderer {
      *    - the tool dispatcher's change_background post-result hook.
      */
     setBackground(bg) {
+        const prev = this._currentBackground;
         this._currentBackground = bg || null;
+        // A background with a default lighting preset selects it on the way
+        // in (through the shared pref, so every window and the Look
+        // dropdown follow); the user can still change it afterwards. Only
+        // on a genuine switch — re-applies of the same background (host
+        // reparents, hydration) must not undo a manual pick.
+        const key = (b) => (b ? `${b.id ?? ""}|${b.name ?? ""}|${b.scene_url || b.image_url || b.preset_style || ""}` : "");
+        if (bg?.lighting && LIGHTING_PRESETS[bg.lighting] && key(bg) !== key(prev)) {
+            saveRenderPrefs({ lighting: bg.lighting });
+        }
         this._applyBackgroundToActiveHost();
     }
 

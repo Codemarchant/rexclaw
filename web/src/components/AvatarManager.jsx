@@ -8,6 +8,7 @@ import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { useListSort } from "../lib/list_sort";
 import { EditorBar } from "./UnsavedUI.jsx";
 import Portrait from "./Portrait.jsx";
+import { LIGHTING_PRESET_OPTIONS } from "../lib/render_prefs";
 import { avatarRenderer } from "../services/avatar_renderer";
 import { GESTURES } from "../models/avatar_catalog";
 
@@ -955,6 +956,19 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                         <button className="btn btn-sm btn-link p-0" onClick={() => removeItem("backgrounds", i)}>
                             <i className="fa fa-trash-o" />
                         </button>
+                        {/* Lighting preset the view switches to when this background is
+                            picked (the user can still change it afterwards); blank
+                            keeps whatever is selected. */}
+                        <span className="rx_scene_xform" title={_t("Lighting preset selected whenever this background is switched to. Leave blank to keep the current selection.")}>
+                            <strong className="rx_scene_xform_label">{_t("Default lighting")}</strong>
+                            <select value={b.lighting || ""}
+                                    onChange={(ev) => setList("backgrounds", i, { lighting: ev.target.value || "" })}>
+                                <option value="">{_t("None (keep current)")}</option>
+                                {LIGHTING_PRESET_OPTIONS.map(([id, label]) => (
+                                    <option key={id} value={id}>{_t(label)}</option>
+                                ))}
+                            </select>
+                        </span>
                         {/* Direct grid child pinned to the controls column — gets its
                             own grid line under the file controls (see rx_subrow--bg). */}
                         {/* Two DIFFERENT things get positioned here, easy to

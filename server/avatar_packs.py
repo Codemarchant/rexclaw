@@ -328,13 +328,14 @@ def _scan_pack(con, pack_dir, url_root):
         con.execute(
             "INSERT INTO avatar_backgrounds (avatar_id, name, sequence, type, preset_style,"
             " image_path, scene_path, scene_scale, scene_offset_x, scene_offset_y, scene_offset_z,"
-            " scene_rotation_y, is_default, default_pos_x, default_pos_z, default_yaw)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " scene_rotation_y, is_default, default_pos_x, default_pos_z, default_yaw, lighting)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (avatar_id, name, (i + 1) * 10, btype, preset, image_path, scene_path,
              float(b.get("scale") or 1.0), float(offset[0]), float(offset[1]), float(offset[2]),
              float(b.get("rotation_y") or 0.0), int(is_default),
              float(b.get("default_x") or 0.0), float(b.get("default_z") or 0.0),
-             float(b.get("default_yaw") or 0.0)),
+             float(b.get("default_yaw") or 0.0),
+             (str(b.get("lighting")).strip() or None) if b.get("lighting") else None),
         )
 
     return avatar_id

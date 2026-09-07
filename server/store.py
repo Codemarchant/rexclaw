@@ -24,6 +24,8 @@ def background_payload(row):
         'preset_style': row['preset_style'] or False,
         'image_url': row['image_path'] or False,
         'is_default': bool(row['is_default']),
+        # Lighting preset applied on switching to this background (False = none).
+        'lighting': row['lighting'] or False,
     }
     if row['type'] == 'scene':
         payload.update({

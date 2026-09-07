@@ -476,6 +476,10 @@ export const JA = {
   "Candlelight": "キャンドル",
   "Stage spotlight": "ステージスポット",
   "Backlit": "逆光",
+  "Default lighting": "デフォルトのライティング",
+  "None (keep current)": "なし（現在の設定を維持）",
+  "Lighting preset selected whenever this background is switched to. Leave blank to keep the current selection.":
+    "この背景に切り替えたときに選択されるライティングプリセット。空欄なら現在の選択を維持します。",
   "Pre-set light rigs — a key light, a coloured rim from behind and, on most of them, a soft shadow under the feet. Also applies to the full-screen view.":
     "プリセットの照明 — キーライト、背後からの色付きリムライト、多くのプリセットでは足元のやわらかい影。フルスクリーン表示にも適用されます。",
   "Touch physics": "タッチ物理",
