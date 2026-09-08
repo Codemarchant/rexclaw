@@ -243,11 +243,14 @@ def session_upload_image(session_id: int, payload: dict = Body(default={}), con=
 @router.post("/session/{session_id}/screenshot")
 def session_screenshot(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
     """Persist a frame the take_screenshot tool grabbed from the user's
-    armed screen share. Lands in the files library (kind 'screenshot') so
+    armed share — screen or camera (`source`; the camera frame keeps kind
+    'screenshot', only the default name differs). Lands in the files
+    library (kind 'screenshot') so
     the transcript can thumbnail it and delegate_task can analyze it."""
+    camera = payload.get("source") == "camera"
     name = payload.get("name")
     if not isinstance(name, str) or not name.strip():
-        name = "Screenshot"
+        name = "Camera photo" if camera else "Screenshot"
     name = name.strip().replace("\n", " ")[:80]
     return _store_session_image(
         con, session_id, payload.get("image_data_url"),
@@ -262,15 +265,38 @@ def session_analyze_screen(session_id: int, payload: dict = Body(default={}), co
     frame exactly like take_screenshot (kind 'screenshot' — the transcript
     thumbnails it and create_video / local_task can reuse it), then read it
     with the fast text model in a single tool-free, chainless, capped call.
-    One round trip instead of capture → voice turn → delegate_task."""
+    One round trip instead of capture → voice turn → delegate_task.
+    `source` = 'screen' (default) or 'camera' — same storage, the vision
+    prompt just describes the right kind of picture."""
+    camera = payload.get("source") == "camera"
     stored = _store_session_image(
         con, session_id, payload.get("image_data_url"),
-        kind="screenshot", name="Screen analysis",
+        kind="screenshot", name="Camera look" if camera else "Screen analysis",
         flag="enable_capture_tools",
     )
     config = get_config(con)
     model = (config["delegate_fast_model"] or "").strip() or config["text_model"]
-    question = (payload.get("question") or "").strip() or "Describe what is on the screen."
+    question = (payload.get("question") or "").strip() or (
+        "Describe what the camera shows." if camera else "Describe what is on the screen.")
+    if camera:
+        instructions = (
+            "You are looking at a photo just taken by the user's camera "
+            "(webcam, phone or tablet camera) on behalf of a voice "
+            "assistant - it may show the user, something they are holding "
+            "up, or their surroundings. Answer the question directly and "
+            "concisely in plain conversational prose - no headings, bullets "
+            "or markdown. Describe people neutrally and briefly (no guesses "
+            "about identity, age or health). Read any text exactly where it "
+            "matters. A few sentences is ideal."
+        )
+    else:
+        instructions = (
+            "You are reading a screenshot of the user's screen on behalf "
+            "of a voice assistant. Answer the question directly and "
+            "concisely in plain conversational prose - no headings, "
+            "bullets or markdown. Quote short on-screen text exactly "
+            "where it matters. A few sentences is ideal."
+        )
     try:
         body = xai_client.create_response(
             xai_api_key=config["xai_api_key"],
@@ -284,19 +310,13 @@ def session_analyze_screen(session_id: int, payload: dict = Body(default={}), co
                     {"type": "input_text", "text": question},
                 ],
             }],
-            instructions=(
-                "You are reading a screenshot of the user's screen on behalf "
-                "of a voice assistant. Answer the question directly and "
-                "concisely in plain conversational prose - no headings, "
-                "bullets or markdown. Quote short on-screen text exactly "
-                "where it matters. A few sentences is ideal."
-            ),
+            instructions=instructions,
             reasoning_effort=None,
             max_output_tokens=400,
             store=False,
         )
     except UserError as e:
-        return {**stored, "ok": False, "error": f"Screen analysis failed: {e}"}
+        return {**stored, "ok": False, "error": f"{'Camera' if camera else 'Screen'} analysis failed: {e}"}
     # Billed LLM usage — accrue like the director and every background call.
     try:
         store.accrue_usd_ticks(con, store.extract_cost_ticks(body.get("usage") or {}))
@@ -310,8 +330,9 @@ def session_analyze_screen(session_id: int, payload: dict = Body(default={}), co
         **stored,
         "ok": True,
         "analysis": analysis,
-        "note": "The user sees the screenshot in the transcript. Answer them "
-                "from `analysis` in your own voice — don't recite it verbatim.",
+        "note": f"The user sees the {'photo' if camera else 'screenshot'} in the "
+                "transcript. Answer them from `analysis` in your own voice — "
+                "don't recite it verbatim.",
     }
 
 
@@ -320,10 +341,11 @@ async def session_screen_clip(
     session_id: int,
     file: UploadFile = File(...),
     name: str = Form(default=""),
+    source: str = Form(default="screen"),
     con=Depends(db_con),
 ):
     """Persist a clip the record_screen_clip tool captured from the user's
-    armed screen share. Multipart (clips run to tens of MB — no base64
+    armed share (screen or camera). Multipart (clips run to tens of MB — no base64
     JSON round-trip), stored as a files-library row only: no eager xAI
     upload, imagine_tools.ensure_xai_file re-uploads lazily if
     delegate_task ever needs to watch it."""
@@ -342,7 +364,7 @@ async def session_screen_clip(
     if len(content) > 48 * 1024 * 1024:
         raise ValidationError("Clip too large (max 48 MB).")
     if not isinstance(name, str) or not name.strip():
-        name = "Screen recording"
+        name = "Camera recording" if source == "camera" else "Screen recording"
     name = name.strip().replace("\n", " ")[:80]
     ext = ".mp4" if "mp4" in mimetype else ".webm"
     fname = f"imagine_{uuid.uuid4().hex}{ext}"

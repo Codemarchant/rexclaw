@@ -548,7 +548,7 @@ CREATE TABLE IF NOT EXISTS imagine_images (
     -- image, video or document — ingested at upload time from either
     -- mode's paperclip or drag-and-drop; 'screenshot'/'screen_clip' come
     -- from the take_screenshot / record_screen_clip tools over the user's
-    -- armed screen share)
+    -- armed share — screen or camera, same kinds, only the name differs)
     kind TEXT NOT NULL,
     prompt TEXT NOT NULL,
     image_path TEXT NOT NULL,                -- web path under /files

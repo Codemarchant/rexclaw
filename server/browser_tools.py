@@ -76,32 +76,62 @@ SELFIE_TOOL = {
 # grabs frames from the live stream on demand. Gated by the capture-tools
 # flag (captures land in the files library); text mode offers the pair too
 # via its browser-tool round-trip (session_service.TEXT_BROWSER_TOOL_NAMES).
+#
+# Two sources share one arming contract: the user's screen (getDisplayMedia,
+# desktop browsers only) and their camera (getUserMedia — phones, tablets,
+# headsets and the desktop app alike). The `source` parameter picks; left
+# out, whichever single source is live is used (screen wins if both are).
+
+# Shared `source` property for the three capture tools.
+_CAPTURE_SOURCE_PARAM = {
+    "type": "string",
+    "enum": ["screen", "camera"],
+    "description": (
+        "Where to capture from: 'screen' = the user's shared screen; "
+        "'camera' = their shared camera (webcam / phone or tablet camera - "
+        "shows the user, what they hold up, their surroundings). Omit to "
+        "use whatever they are currently sharing. Say 'camera' when the "
+        "user wants you to look at THEM or something physical; 'screen' "
+        "for anything on their display."
+    ),
+}
+
+_SHARE_HOWTO = (
+    "Requires the user to have started sharing via the share button "
+    "(screen icon) in the call header: its panel has a Screen / Camera "
+    "switch at the top and a Start button — if the needed source is not "
+    "live this returns an error saying which; ask them to start it, then "
+    "call the tool again. Phones and tablets can share the camera but "
+    "never the screen. "
+)
+
 SCREENSHOT_TOOL = {
     "name": "take_screenshot",
     "description": (
-        "Capture a screenshot of the user's screen from their live "
-        "screen-share and post it to the transcript - what they are looking "
-        "at right now, not an image you make up. Requires the user to "
-        "have started sharing via the Share-screen button (desktop icon) in "
-        "the call header — if sharing is not active this returns an error; "
-        "ask them to click it, then call the tool again. You cannot see the "
-        "screenshot yourself; the result's imagine_image_id is what other "
+        "Capture a still from the user's live share - their screen, or a "
+        "photo from their camera (`source`) - and post it to the "
+        "transcript: what they are looking at or showing you right now, "
+        "not an image you make up. "
+        + _SHARE_HOWTO +
+        "You cannot see the "
+        "capture yourself; the result's imagine_image_id is what other "
         "tools consume (local_task files, create_video sources) — on a later "
         "turn, and always THIS result's id, since an older capture shows "
         "stale content. "
         "Use it when you need the raw capture itself (create_video "
         "source material, local_task input, or the user wants the shot "
-        "saved); when they just want their screen READ, call "
-        "analyze_screen instead - it captures and analyzes in one step."
+        "saved); when they just want their screen or camera view READ, "
+        "call analyze_screen instead - it captures and analyzes in one step."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            "source": _CAPTURE_SOURCE_PARAM,
             "name": {
                 "type": "string",
                 "description": (
                     "Optional short label for the capture, e.g. 'Invoice "
-                    "error dialog'. Defaults to 'Screenshot'."
+                    "error dialog'. Defaults to 'Screenshot' / 'Camera photo'."
                 ),
             },
         },
@@ -118,25 +148,28 @@ SCREENSHOT_TOOL = {
 ANALYZE_SCREEN_TOOL = {
     "name": "analyze_screen",
     "description": (
-        "Look at the user's screen and get an answer in ONE step: captures "
-        "a frame from their live screen-share and reads it with a fast "
-        "vision model; the result's `analysis` field holds the answer, "
-        "ready to relay in your own voice. Requires the user to have "
-        "started sharing via the Share-screen button (desktop icon) in the "
-        "call header - if sharing is not active this returns an error; ask "
-        "them to click it, then call again. Use whenever the user asks "
-        "what is on their screen or to look at / read / check something "
-        "they have open. Prefer this over take_screenshot + delegate_task "
-        "for reading the screen - it is one call and much faster."
+        "Look at the user's screen OR through their camera and get an "
+        "answer in ONE step: captures a frame from the live share "
+        "(`source`) and reads it with a fast vision model; the result's "
+        "`analysis` field holds the answer, ready to relay in your own "
+        "voice. "
+        + _SHARE_HOWTO +
+        "Use whenever the user asks what is on their screen, to look at / "
+        "read / check something they have open, or to look at them, at "
+        "something they are holding up, or at their room (source='camera'). "
+        "Prefer this over take_screenshot + delegate_task for reading - it "
+        "is one call and much faster."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            "source": _CAPTURE_SOURCE_PARAM,
             "question": {
                 "type": "string",
                 "description": (
                     "What to look for or answer, e.g. 'what error is "
-                    "shown?'. Omit for a general description of the screen."
+                    "shown?' or 'what am I holding?'. Omit for a general "
+                    "description."
                 ),
             },
         },
@@ -152,12 +185,12 @@ ANALYZE_SCREEN_TOOL = {
 RECORD_SCREEN_CLIP_TOOL = {
     "name": "record_screen_clip",
     "description": (
-        "Record the user's screen (their live screen-share) for a set number "
-        "of seconds and post the clip to the transcript as a playable video - "
-        "what they are looking at right now, not a video you make up. "
-        "Requires the user to have started sharing via the Share-screen "
-        "button (desktop icon) in the call header — if sharing is not "
-        "active this returns an error; ask them to click it. IMPORTANT: if "
+        "Record the user's live share - their screen, or their camera "
+        "(`source`) - for a set number of seconds and post the clip to the "
+        "transcript as a playable video: what they are looking at or "
+        "showing you right now, not a video you make up. "
+        + _SHARE_HOWTO +
+        "IMPORTANT: if "
         "the user did not say how long to record, ASK them for the number "
         "of seconds before calling this tool — do not guess. Max 90 "
         "seconds. The tool blocks for the whole recording plus upload, so "
@@ -165,7 +198,8 @@ RECORD_SCREEN_CLIP_TOOL = {
         "whatever they want captured. Audio: the clip includes sound only "
         "if the user ticked 'share audio' when they started the share (tab "
         "shares support audio everywhere; whole-monitor audio is "
-        "Windows-only) — the result reports has_audio, and if the user "
+        "Windows-only; camera clips never carry audio) — the result "
+        "reports has_audio, and if the user "
         "wants sound but has_audio came back false, ask them to re-share "
         "with the audio box ticked. During a voice call, shared system "
         "audio also captures YOUR own spoken replies. You cannot watch the "
@@ -179,6 +213,7 @@ RECORD_SCREEN_CLIP_TOOL = {
     "parameters": {
         "type": "object",
         "properties": {
+            "source": _CAPTURE_SOURCE_PARAM,
             "duration_seconds": {
                 "type": "integer",
                 "description": (
@@ -190,7 +225,8 @@ RECORD_SCREEN_CLIP_TOOL = {
                 "type": "string",
                 "description": (
                     "Optional short label for the clip, e.g. 'Invoice "
-                    "posting bug repro'. Defaults to 'Screen recording'."
+                    "posting bug repro'. Defaults to 'Screen recording' / "
+                    "'Camera recording'."
                 ),
             },
         },

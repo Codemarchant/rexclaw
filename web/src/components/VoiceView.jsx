@@ -15,6 +15,8 @@ import Transcript from "./Transcript.jsx";
 import { downscaleImageFile, attachmentNote } from "../lib/attachments";
 import { useFileDrop } from "../lib/use_file_drop";
 import { screenCapture } from "../lib/screen_capture";
+import { cameraAwareness } from "../lib/camera_awareness";
+import ShareButton from "./ShareButton.jsx";
 import { storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
 import { LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 
@@ -59,20 +61,16 @@ function ensureIconsPaint(rootRef) {
 export default function VoiceView({ active = true }) {
     const sv = useReactive(voice.state);
     const ui = useReactive(uiState);
-    const scap = useReactive(screenCapture.state);
     const wk = useReactive(wakeState);
 
-    /** Arm/stop screen sharing for the screen-capture tools. Arming must
-     *  happen in this click handler — getDisplayMedia needs the gesture. */
+    /** Hotkey: stop whatever is shared, else start the preferred source
+     *  (Screen / Camera switch in the share popover). Arming must happen
+     *  in the gesture handler — getDisplayMedia/getUserMedia need it. */
     const toggleScreenShare = async () => {
-        if (screenCapture.isArmed) {
-            screenCapture.disarm();
-            return;
-        }
         try {
-            await screenCapture.arm();
+            await screenCapture.toggle();
         } catch (e) {
-            notification.add(_t("Screen sharing failed: %s", e?.message || e), { type: "danger" });
+            notification.add(_t("Sharing failed: %s", e?.message || e), { type: "danger" });
         }
     };
     const [agents, setAgents] = useState([]);
@@ -643,7 +641,8 @@ export default function VoiceView({ active = true }) {
         // ours (this window keeps running hidden; without the disarm it
         // would keep capturing in the background).
         if (screenCapture.isArmed) {
-            await window.rexclawDesktop.shareHandoffSet?.();
+            if (screenCapture.isSourceArmed("screen")) await window.rexclawDesktop.shareHandoffSet?.();
+            screenCapture.cameraHandoffSet();
             screenCapture.disarm();
         }
         await window.rexclawDesktop.openMascot({ resume: wasLive });
@@ -666,11 +665,20 @@ export default function VoiceView({ active = true }) {
             window.rexclawDesktop.shareHandoffTake?.().then((src) => {
                 if (src) screenCapture.armSilent(src);
             });
+            screenCapture.cameraHandoffTake();
             loadHistory();
             resyncOutfitRef.current();
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Camera awareness → the live call: presence/expression/gesture hints
+    // ride the same hidden context-note channel as VR touch events. No
+    // call, no sink — the popover still shows what it notices.
+    useEffect(() => {
+        cameraAwareness.setSink(isLive ? (text, opts) => voice.sendContextEvent(text, opts) : null);
+        return () => cameraAwareness.setSink(null);
+    }, [isLive]);
 
     // Tray → "Pop out avatar" routes through this page so a live call ends
     // cleanly first. Ref indirection so the once-registered handler sees
@@ -1227,17 +1235,7 @@ export default function VoiceView({ active = true }) {
                                 title={showHistory ? _t("Hide history") : _t("Show history")}>
                             <i className="fa fa-history" />
                         </button>
-                        {screenCapture.isSupported && (
-                            <button className={"btn btn-light" + (scap.armed ? " active" : "")}
-                                    onClick={toggleScreenShare}
-                                    title={scap.recording
-                                        ? _t("Recording your screen…")
-                                        : scap.armed
-                                            ? _t("Stop screen sharing")
-                                            : _t("Share your screen — lets the companion take screenshots or record clips of it on request")}>
-                                <i className={scap.recording ? "fa fa-circle text-danger" : "fa fa-desktop"} />
-                            </button>
-                        )}
+                        <ShareButton />
                         {xrSupported ? (
                             <button className="btn btn-light" onClick={enterVR}
                                     title={mrSupported

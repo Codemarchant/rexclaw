@@ -44,6 +44,12 @@ jobs:
       - name: Bundle wake-word model (en)
         run: python scripts/fetch_wake_model.py en
 
+      # Same for the camera-awareness models (MediaPipe FaceLandmarker +
+      # GestureRecognizer, ~12 MB) — the browser falls back to Google's
+      # bucket without them.
+      - name: Bundle camera-awareness models
+        run: python scripts/fetch_vision_model.py
+
       - name: Package desktop app
         run: |
           cd desktop

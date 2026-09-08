@@ -376,11 +376,32 @@ export const JA = {
   "Picking a screen needs a click, so the first use opens the picker rather than sharing outright.":
     "画面の選択にはクリックが必要なため、最初は共有ではなく選択画面が開きます。",
   "Pop the avatar out / back in": "アバターをポップアウト／戻す",
+  "Open the mascot settings window": "マスコット設定ウィンドウを開く",
+  "Works with the controls hidden too — the same window as the island's ⚙ and the tray entry.":
+    "コントロールを隠していても使えます — アイランドの ⚙ やトレイの項目と同じウィンドウです。",
   "The same handoff as the pop-out button: a live call is ended and resumed in the other window.":
     "ポップアウトボタンと同じ引き継ぎです。通話中の場合はいったん終了し、もう一方のウィンドウで再開します。",
   "Ghost mode (clicks pass through)": "ゴーストモード（クリックが背面に通る）",
   "Show / hide the avatar controls": "アバターの操作パネルを表示／非表示",
   "Cycle the window size": "ウィンドウサイズを切り替え",
+  "Movement mode": "移動モード",
+  "Chat preferences": "チャットの設定",
+  "Clear (back to default)": "クリア（既定に戻す）",
+  "Discard": "破棄",
+  "Could not render the avatar.": "アバターを描画できませんでした。",
+  "Portrait generation failed": "ポートレートの生成に失敗しました",
+  "Portrait — generated here, or the thumbnail embedded in the main VRM. Updates when the VRM changes (after Save).":
+    "ポートレート — ここで生成するか、メイン VRM に埋め込まれたサムネイルを使います。VRM を変更すると（保存後に）更新されます。",
+  "Render the avatar and save the shot beside the VRM (the VRM file itself is not modified). Face portraits are used in lists; full-body ones show the outfit and are what the companion uses for pictures of themselves in text chat.":
+    "アバターを描画して VRM の隣にショットを保存します（VRM ファイル自体は変更されません）。顔のポートレートは一覧で使われ、全身のものは衣装が写り、テキストチャットでコンパニオンが自分の写真として使います。",
+  "Render this outfit and save the shot beside its VRM (the VRM file itself is not modified).":
+    "この衣装を描画して VRM の隣にショットを保存します（VRM ファイル自体は変更されません）。",
+  "On voice calls the companion opens the conversation as soon as the call connects, instead of waiting for you to speak. Off by default - every call then starts with a turn from them.":
+    "音声通話では、あなたが話すのを待たずに、接続と同時にコンパニオンが会話を切り出します。既定ではオフ — オンにすると毎回の通話が相手のターンから始まります。",
+  "Only score changes of at least this size play the effect — small routine nudges stay invisible, so the hearts keep meaning something. Default 5 (the normal per-call maximum).":
+    "この大きさ以上のスコア変化のときだけエフェクトを再生します — 小さな日常的な増減は表示されないので、ハートの意味が保たれます。既定は 5（通常の 1 通話あたりの最大値）。",
+  "Whole screen (this display, taskbar excluded)": "画面全体（このディスプレイ、タスクバーを除く）",
+  "Full": "全画面",
   "Face view / full body": "顔ビュー／全身ビュー",
   "Move to the top-left corner": "左上に移動",
   "Move to the top-right corner": "右上に移動",
@@ -928,6 +949,49 @@ export const JA = {
   "Stop screen sharing": "画面共有を停止",
   "Recording your screen…": "画面を録画中…",
   "Screen sharing failed: %s": "画面共有に失敗しました: %s",
+  // Share popover (screen / camera)
+  "Share your screen or camera — lets the companion take a look, grab screenshots or record clips on request":
+    "画面またはカメラを共有 — コンパニオンがリクエストに応じて見たり、スクリーンショットやクリップ録画を撮れるようになります",
+  "Share your camera — lets the companion take a look on request":
+    "カメラを共有 — コンパニオンがリクエストに応じて見られるようになります",
+  "Sharing — click to manage or stop": "共有中 — クリックで管理／停止",
+  "Sharing failed: %s": "共有に失敗しました: %s",
+  "Recording…": "録画中…",
+  "Stop sharing": "共有を停止",
+  "Screen": "画面",
+  "Your companion can take screenshots, read your screen or record short clips of it when you ask. Nothing is captured until they call a tool.":
+    "頼めばコンパニオンがスクリーンショットを撮ったり、画面を読んだり、短いクリップを録画したりできます。ツールが呼ばれるまで何もキャプチャされません。",
+  "Share screen or camera": "画面またはカメラを共有",
+  "Share screen or camera…": "画面またはカメラを共有…",
+  "The avatar isn't popped out right now — sharing for mascot mode lives with the popped-out avatar.":
+    "アバターは現在ポップアウトされていません — マスコットモードの共有はポップアウトしたアバターと一緒に動きます。",
+  "Camera is sharing. Your companion only looks when you ask; each look sends one photo.":
+    "カメラを共有中です。コンパニオンが見るのは頼んだときだけで、1 回につき写真 1 枚が送られます。",
+  "Show your companion something — a thing you're holding, the room, yourself. They only look when you ask; each look sends one photo.":
+    "コンパニオンに何かを見せましょう — 手に持っているもの、部屋、あなた自身。見るのは頼んだときだけで、1 回につき写真 1 枚が送られます。",
+  "Which camera to share": "共有するカメラ",
+  "Default camera": "既定のカメラ",
+  "Switch between front and back camera": "前面／背面カメラを切り替え",
+  "Flip": "切替",
+  "Runs small face and hand models on this device while the camera is shared, so your companion reacts when you wave, give a thumbs up or down, a peace or OK sign or rock-on, and knows when you step away, come back or yawn. Only short hints reach them — never images, never scores.":
+    "カメラ共有中にこの端末内で小さな顔と手のモデルを動かします。手を振る、親指を上げる／下げる、ピース・OK サイン、ロックの手にコンパニオンが反応し、席を外した・戻った・あくび、も把握します。届くのは短いヒントだけ — 画像やスコアは一切送られません。",
+  "loading hand model…": "手のモデルを読み込み中…",
+  "hand model failed": "手のモデルの読み込みに失敗",
+  "hand: %s": "手: %s",
+  "Notice presence, expressions & gestures (on this device only)": "在席・表情・ジェスチャーに気づく（この端末内のみ）",
+  "Loading face model…": "顔モデルを読み込み中…",
+  "Awareness failed: %s": "認識に失敗しました: %s",
+  "you're here, facing the screen": "在席・画面を向いています",
+  "you're here": "在席",
+  "nobody in frame": "誰も映っていません",
+  "Watching: %s · last noticed: %s": "認識中: %s · 直近: %s",
+  "Watching: %s": "認識中: %s",
+  "Stop camera": "カメラを停止",
+  "Start camera": "カメラを開始",
+  "Share screen": "画面を共有",
+  "Camera is also sharing.": "カメラも共有中です。",
+  "Screen is also sharing.": "画面も共有中です。",
+  "Stop it": "停止する",
 
   // ── Companion tool flags ────────────────────────────────────────────────
   "Task delegation (delegate_task)": "タスク委任（delegate_task）",
@@ -1190,6 +1254,9 @@ export const JA = {
     "MIT、S-Lab, Nanyang Technological University。発話ジェスチャーと待機中の小さな動きの出典。tools/motion のツールで VRMA に変換しています。",
   "Apache-2.0. The offline speech models that listen for wake phrases.":
     "Apache-2.0。ウェイクフレーズを聞き取るオフライン音声モデル。",
+  "Camera awareness": "カメラ認識",
+  "Apache-2.0, Google. The on-device face and hand models that notice presence and gestures on the shared camera — nothing leaves the device.":
+    "Apache-2.0、Google。共有カメラ上で在席とジェスチャーに気づく端末内の顔・手モデル — 端末の外には何も出ません。",
   "MIT, Neko Ayaka and contributors. The bot's brain architecture and its pathfinder patches are ported from their Minecraft integration.":
     "MIT、Neko Ayaka および貢献者の皆さん。ボットのブレイン構成と pathfinder パッチは、その Minecraft 連携から移植しています。",
   "MIT, Kolby Nottingham. Where those pathfinder patches came from, plus the building designs the bot can construct.":

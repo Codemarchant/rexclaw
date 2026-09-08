@@ -4,6 +4,9 @@ import { _t } from "../lib/i18n";
 import { useReactive } from "../lib/reactive";
 import { voice, avatarRenderer, services } from "../services";
 import { screenCapture } from "../lib/screen_capture";
+import { cameraAwareness } from "../lib/camera_awareness";
+import ShareButton from "./ShareButton.jsx";
+import { localShareActions, localShareState } from "./SharePanel.jsx";
 import { storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
 import { registerHotkeyHandlers } from "../lib/hotkeys";
 import { wakeState } from "../lib/wake_word";
@@ -37,20 +40,30 @@ function saveMascotPref(patch) {
 export default function MascotView() {
     const sv = useReactive(voice.state);
     const scap = useReactive(screenCapture.state);
+    const awareState = useReactive(cameraAwareness.state);
     const wk = useReactive(wakeState);
 
-    /** Arm/stop screen sharing for the screen-capture tools. Arming must
-     *  happen in this click handler — getDisplayMedia needs the gesture. */
+    // Sharing in mascot mode is driven from the mascot settings window
+    // (the island has no room for the Screen / Camera panel): it mirrors
+    // our share state over the settings channel and sends the panel's
+    // actions back as commands, which run here against the real streams.
+    // Electron lets getDisplayMedia/getUserMedia through without a gesture
+    // in this window, so a command from another window can arm them. The
+    // last failure is published so the panel over there can show it.
+    const [shareError, setShareError] = useState(null);
+    const shareActions = useMemo(() => localShareActions({
+        onError: (msg) => { console.error("[mascot] share failed", msg); setShareError(msg); },
+        onBusy: (flag) => { if (flag) setShareError(null); },
+    }), []);
+
+    /** Hotkey / tray: stop whatever is shared, else open the screen
+     *  picker (the hotkey is labelled screen sharing). */
     const toggleScreenShare = async () => {
         if (screenCapture.isArmed) {
             screenCapture.disarm();
             return;
         }
-        try {
-            await screenCapture.arm();
-        } catch (e) {
-            console.error("[mascot] screen share failed", e);
-        }
+        shareActions.start("screen");
     };
     const [agents, setAgents] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState(null);
@@ -121,6 +134,8 @@ export default function MascotView() {
             avatarRenderer.setFullBodyMode?.(true);
         }
         const base = SIZES[sizeIdx];
+        // Whole-screen preset: already as wide as it gets.
+        if (base.full) return;
         const width = Math.round(base.width * (1 + 0.55 * peerCount));
         window.rexclawDesktop?.setMascotSize?.({
             width, height: base.height, anchor: "bottom-center",
@@ -250,7 +265,8 @@ export default function MascotView() {
         // Reverse share handoff: this window (and its stream) is about to
         // close — flag it so the main window re-arms the same source.
         if (screenCapture.isArmed) {
-            await window.rexclawDesktop?.shareHandoffSet?.();
+            if (screenCapture.isSourceArmed("screen")) await window.rexclawDesktop?.shareHandoffSet?.();
+            screenCapture.cameraHandoffSet();
             screenCapture.disarm();
         }
         window.rexclawDesktop?.closeMascot?.({ resume });
@@ -263,7 +279,15 @@ export default function MascotView() {
         window.rexclawDesktop?.shareHandoffTake?.().then((src) => {
             if (src) screenCapture.armSilent(src);
         });
+        screenCapture.cameraHandoffTake();
     }, []);
+
+    // Camera awareness hints → the live call (the call lives in this
+    // window while popped out). Same wiring as the voice view.
+    useEffect(() => {
+        cameraAwareness.setSink(isLive ? (text, opts) => voice.sendContextEvent(text, opts) : null);
+        return () => cameraAwareness.setSink(null);
+    }, [isLive]);
 
     // Tray → "Pop back in" routes through this page so a live call ends
     // cleanly before the window swap. Ref indirection: the handler is
@@ -479,7 +503,7 @@ export default function MascotView() {
         // Apply the group-call widening here too — cycling mid-call used to
         // snap back to the solo preset width and clip the outer characters.
         const base = SIZES[next];
-        window.rexclawDesktop?.setMascotSize?.(peerCount > 0
+        window.rexclawDesktop?.setMascotSize?.(peerCount > 0 && !base.full
             ? {
                 width: Math.round(base.width * (1 + 0.55 * peerCount)),
                 height: base.height,
@@ -521,9 +545,8 @@ export default function MascotView() {
                 status: sv.status,
                 muted: !!sv.muted,
                 hasResumable: !!currentAgent?.last_resumable_session,
-                shareSupported: screenCapture.isSupported,
-                shareArmed: !!scap.armed,
-                shareRecording: !!scap.recording,
+                // Share panel snapshot (components/SharePanel.jsx shape).
+                share: localShareState(scap, awareState, shareError),
                 // Page-owned prefs.
                 ghost,
                 cursorFollow,
@@ -565,9 +588,20 @@ export default function MascotView() {
                     else if (msg.action === "resume") { if (!busy) startOrResume(); }
                     return;
                 case "mute": if (isLive) voice.setMuted(!!msg.value); return;
-                // Same no-gesture context as the screen-share hotkey — the
-                // shell's own picker takes it from here.
-                case "share": toggleScreenShare(); return;
+                // Share panel actions from the settings window, run against
+                // the streams that live here. Legacy {type:"share"} with no
+                // action = the old toggle.
+                case "share": {
+                    const a = msg.action;
+                    if (!a) toggleScreenShare();
+                    else if (a === "preferred") shareActions.setPreferred(msg.source);
+                    else if (a === "start") shareActions.start(msg.source);
+                    else if (a === "stop") shareActions.stop(msg.source);
+                    else if (a === "pick") shareActions.pickCamera(msg.deviceId);
+                    else if (a === "flip") shareActions.flip();
+                    else if (a === "awareness") shareActions.setAwareness(!!msg.value);
+                    return;
+                }
                 case "popback": popBackIn(); return;
                 case "outfit": applyOutfit(msg.id); return;
                 case "size": {
@@ -630,10 +664,13 @@ export default function MascotView() {
         };
     }, []);
     // Push every change (outfit picks re-render via sv.selectedOutfitId).
+    // The share/awareness proxies keep their identity across mutations, so
+    // compare their serialised snapshot rather than the objects.
+    const shareKey = JSON.stringify(localShareState(scap, awareState, shareError));
     useEffect(() => { settingsSync.current.publish(); },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [ghost, cursorFollow, pinned, fullBody, sizeIdx, currentAgent, sv.selectedOutfitId,
-         agents, selectedAgentId, sv.status, sv.muted, scap.armed, scap.recording]);
+         agents, selectedAgentId, sv.status, sv.muted, shareKey]);
 
     // ---- hotkey call feedback -----------------------------------------------
     // A hotkey press has no visual echo here: the island only shows on
@@ -825,21 +862,29 @@ export default function MascotView() {
                         <i className="fa fa-stop" />
                     </button>
                 )}
-                {screenCapture.isSupported && (
-                    // The mascot runs its own page instance — the call (and
-                    // its tool dispatcher) live HERE, so screen sharing must
-                    // be armable here too or the capture tools would point
-                    // the user at a button that doesn't exist.
-                    <button className={scap.armed ? "is-active" : ""}
-                            onClick={toggleScreenShare}
-                            title={scap.recording
-                                ? _t("Recording your screen…")
-                                : scap.armed
-                                    ? _t("Stop screen sharing")
-                                    : _t("Share your screen — lets the companion take screenshots or record clips of it on request")}>
-                        <i className={scap.recording ? "fa fa-circle text-danger" : "fa fa-desktop"} />
-                    </button>
-                )}
+                {/* The mascot runs its own page instance — the call (and its
+                    tool dispatcher) live HERE, so sharing must be armable
+                    here too or the capture tools would point the user at a
+                    button that doesn't exist. In the desktop app the button
+                    opens the share window (/#mascot-share), which hosts the
+                    Screen / Camera panel and drives this page over the
+                    settings channel; in a plain browser (no shell) it falls
+                    back to the header popover. */}
+                {window.rexclawDesktop?.openMascotShare
+                    ? ((screenCapture.isSupported || screenCapture.isCameraSupported) && (
+                        <button className={scap.armed ? "is-active" : ""}
+                                onClick={() => window.rexclawDesktop.openMascotShare()}
+                                title={scap.recording
+                                    ? _t("Recording…")
+                                    : scap.armed
+                                        ? _t("Sharing — click to manage or stop")
+                                        : _t("Share your screen or camera — lets the companion take a look, grab screenshots or record clips on request")}>
+                            <i className={scap.recording
+                                ? "fa fa-circle text-danger"
+                                : scap.camera && !scap.screen ? "fa fa-camera" : "fa fa-desktop"} />
+                        </button>
+                    ))
+                    : <ShareButton buttonClass="" />}
                 <button className={fullBody ? "is-active" : ""} onClick={toggleFullBody}
                         title={fullBody
                             ? _t("Switch to face view")

@@ -15,6 +15,9 @@ export const MASCOT_MODE = /^#mascot(-resume)?$/.test(window.location.hash);
 // Mascot settings window: a normal framed window (/#mascot-settings, opened
 // from the overlay's ⚙ or the tray) holding the full set of mascot options.
 export const MASCOT_SETTINGS_MODE = /^#mascot-settings/.test(window.location.hash);
+// Mascot share window (/#mascot-share): the Screen / Camera panel for the
+// popped-out avatar, driving the overlay page over its settings channel.
+export const MASCOT_SHARE_MODE = /^#mascot-share/.test(window.location.hash);
 
 // Transcript-mirror mode: a standalone window (Electron tray or a second
 // browser tab on /#transcript) that mirrors the live call's transcript via

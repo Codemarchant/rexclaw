@@ -13,7 +13,8 @@ import Toasts from "./components/Toasts.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
 import { UnsavedDialog } from "./components/UnsavedUI.jsx";
 import { unsavedGuard, getUnsavedHandlers, clearUnsaved } from "./lib/unsaved_guard";
-import { uiState, toggleImmersive, MASCOT_MODE, MASCOT_SETTINGS_MODE, TRANSCRIPT_MODE } from "./lib/ui_state";
+import { uiState, toggleImmersive, MASCOT_MODE, MASCOT_SETTINGS_MODE, MASCOT_SHARE_MODE, TRANSCRIPT_MODE } from "./lib/ui_state";
+import MascotShareView from "./components/MascotShareView.jsx";
 import { startHotkeys } from "./lib/hotkeys";
 import { wakeWord } from "./lib/wake_word";
 import { heartbeatCall } from "./lib/heartbeat_call";
@@ -89,9 +90,9 @@ export default function App() {
     }, [ui.requestedTab]);
     // Any call-capable page (main view or mascot) mirrors its transcript to
     // /#transcript windows; mirror windows themselves stay passive — and so
-    // does the mascot settings window, which never owns a call.
+    // do the mascot settings and share windows, which never own a call.
     useEffect(() => {
-        if (!TRANSCRIPT_MODE && !MASCOT_SETTINGS_MODE) startTranscriptOwner();
+        if (!TRANSCRIPT_MODE && !MASCOT_SETTINGS_MODE && !MASCOT_SHARE_MODE) startTranscriptOwner();
     }, []);
     // Keyboard shortcuts: every page instance loads the bindings and listens.
     // The views register the handlers for the actions they own.
@@ -120,6 +121,14 @@ export default function App() {
         return (
             <>
                 <MascotSettingsView />
+                <Toasts />
+            </>
+        );
+    }
+    if (MASCOT_SHARE_MODE) {
+        return (
+            <>
+                <MascotShareView />
                 <Toasts />
             </>
         );

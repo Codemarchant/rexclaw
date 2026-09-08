@@ -6,6 +6,7 @@ import "./styles/avatar_canvas.scss";
 import "./styles/full_view.scss";
 import "./styles/transcript.scss";
 import "./styles/text_full_view.scss";
+import "./styles/share_popover.scss";
 import "./styles/mascot.scss";
 
 // Desktop mascot overlay (#mascot): the Electron window is transparent, so

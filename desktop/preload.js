@@ -74,6 +74,10 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     // Mascot settings window (/#mascot-settings): the island's ⚙ and the
     // tray both open it here — the shell owns window creation.
     openMascotSettings: () => ipcRenderer.invoke("mascot-settings-open"),
+    // Mascot share window (/#mascot-share): the Screen / Camera panel for
+    // mascot mode, opened from the island's share button or the settings
+    // window.
+    openMascotShare: () => ipcRenderer.invoke("mascot-share-open"),
     // Per-window "always on top" pin (transcript + mascot settings windows).
     // get resolves null in windows that have no pin — hide the button then.
     windowPin: () => ipcRenderer.invoke("window-pin-get"),

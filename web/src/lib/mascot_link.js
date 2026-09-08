@@ -20,4 +20,7 @@ export const MASCOT_SIZES = [
     { width: 480, height: 700 },
     { width: 620, height: 900 },
     { width: 760, height: 1100 },
+    // Whole screen: the shell resolves this to the current display's work
+    // area (taskbar excluded) at apply time, so it has no fixed numbers.
+    { full: true },
 ];

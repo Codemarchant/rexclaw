@@ -1,0 +1,211 @@
+// Share button popover (screen / camera) — see components/ShareButton.jsx.
+// Dark glass panel like the voice view's settings panel, so it reads the
+// same over the avatar canvas and over the text view's light header.
+.rx_share {
+    position: relative;
+    display: inline-block;
+}
+
+// The panel itself (components/SharePanel.jsx). Floating under the header
+// button by default; the mascot settings window embeds it inline.
+.rx_share_popover {
+    width: 300px;
+    max-width: calc(100vw - 2rem);
+    background: rgba(15, 23, 42, 0.92);
+    backdrop-filter: blur(8px);
+    color: #e2e8f0;
+    padding: 0.75rem;
+    border-radius: 0.75rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    font-size: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+
+    &.rx_share_popover--below {
+        position: absolute;
+        top: calc(100% + 0.5rem);
+        left: 0;
+        z-index: 30;
+    }
+
+    &.rx_share_popover--inline {
+        width: 100%;
+        max-width: 360px;
+        box-shadow: none;
+    }
+}
+
+// Mascot share window (/#mascot-share): a dark page holding one panel.
+.rx_mascot_share {
+    min-height: 100vh;
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    .rx_mascot_share_head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        font-weight: 600;
+
+        .btn-light { border: 1px solid #334155; }
+    }
+
+    .rx_share_popover--inline {
+        max-width: none;
+        background: rgba(30, 41, 59, 0.9);
+    }
+
+    .rx_mascot_share_offline {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        padding: 0.75rem;
+        border: 1px solid #fde047;
+        border-radius: 0.5rem;
+        background: rgba(254, 249, 195, 0.12);
+        color: #fde68a;
+        font-size: 0.85rem;
+
+        p { margin: 0; }
+        button { align-self: flex-start; }
+    }
+}
+
+// Panel internals (every placement: header popover, mascot share window).
+.rx_share_popover {
+    // The Screen / Camera switch — top of the panel, sticky per browser.
+    .rx_share_seg {
+        display: flex;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 0.5rem;
+        padding: 0.2rem;
+        gap: 0.2rem;
+
+        button {
+            flex: 1;
+            border: 0;
+            background: transparent;
+            color: #cbd5e1;
+            padding: 0.4rem 0.5rem;
+            border-radius: 0.4rem;
+            cursor: pointer;
+            font: inherit;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+
+            &:hover { color: white; }
+            &.is-on {
+                background: #2563eb;
+                color: white;
+            }
+        }
+    }
+
+    // "this source is live" dot on a segment.
+    .rx_share_dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: #22c55e;
+        box-shadow: 0 0 6px #22c55e;
+    }
+
+    .rx_share_hint {
+        margin: 0;
+        color: #cbd5e1;
+        line-height: 1.35;
+    }
+
+    .rx_share_preview {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        border-radius: 0.5rem;
+        background: black;
+        // Selfie-style mirror: matches what people expect from a front
+        // camera. Captured frames are NOT mirrored.
+        transform: scaleX(-1);
+    }
+
+    .rx_share_row {
+        display: flex;
+        gap: 0.4rem;
+        align-items: center;
+
+        select {
+            flex: 1;
+            min-width: 0;
+            font: inherit;
+            padding: 0.3rem 0.4rem;
+            border-radius: 0.4rem;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.08);
+            color: #e2e8f0;
+        }
+    }
+
+    .rx_share_mini {
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background: rgba(255, 255, 255, 0.08);
+        color: #e2e8f0;
+        border-radius: 0.4rem;
+        padding: 0.3rem 0.55rem;
+        cursor: pointer;
+        font: inherit;
+        white-space: nowrap;
+
+        &:hover { background: rgba(255, 255, 255, 0.16); }
+        &:disabled { opacity: 0.5; cursor: default; }
+    }
+
+    .rx_share_check {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.4rem;
+        cursor: pointer;
+        line-height: 1.3;
+        color: #cbd5e1;
+
+        input { margin-top: 0.2rem; }
+    }
+
+    .rx_share_status {
+        font-size: 0.78rem;
+        color: #94a3b8;
+
+        &.is-error { color: #f87171; }
+    }
+
+    .rx_share_go {
+        border: 0;
+        border-radius: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        background: #2563eb;
+        color: white;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 600;
+
+        &:hover { background: #1d4ed8; }
+        &.is-stop {
+            background: #dc2626;
+            &:hover { background: #b91c1c; }
+        }
+        &:disabled { opacity: 0.6; cursor: default; }
+    }
+
+    .rx_share_other {
+        font-size: 0.78rem;
+        color: #94a3b8;
+
+        a { color: #93c5fd; }
+    }
+}

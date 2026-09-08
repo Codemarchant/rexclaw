@@ -45,6 +45,15 @@ const CREDITS = [
         ],
     },
     {
+        title: "Camera awareness",
+        items: [
+            ["MediaPipe",
+             "https://github.com/google-ai-edge/mediapipe",
+             "Apache-2.0, Google. The on-device face and hand models that notice "
+             + "presence and gestures on the shared camera — nothing leaves the device."],
+        ],
+    },
+    {
         title: "Minecraft sidecar",
         items: [
             ["Project AIRI",

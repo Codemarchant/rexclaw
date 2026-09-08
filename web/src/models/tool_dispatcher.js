@@ -325,32 +325,53 @@ export class ToolDispatcher {
         };
     }
 
-    /** Shared precondition for the screen-capture tools. Returns an error
-     *  result when capture can't proceed, null when it can. Distinguishes
+    /** Shared precondition for the capture tools. Returns {source} when a
+     *  frame can be read (the model's requested source when live, else
+     *  whichever single source is), or {error} when it can't. Distinguishes
      *  "this device can never do it" (mobile/headset browsers have no
-     *  Screen Capture API — steer the model toward the paperclip fallback)
-     *  from "the user just hasn't armed sharing yet". */
-    _screenCaptureUnavailable() {
-        if (!screenCapture.isSupported) {
+     *  Screen Capture API — steer the model toward the camera or the
+     *  paperclip) from "the user just hasn't armed that source yet". */
+    _resolveCaptureSource(requested) {
+        const wanted = requested === "camera" || requested === "screen" ? requested : null;
+        const source = screenCapture.resolveSource(wanted);
+        if (source) return { source };
+        if (wanted === "screen" && !screenCapture.isSupported) {
             return {
-                ok: false,
                 error: "Screen capture is not supported on this device's "
-                    + "browser (mobile browsers don't allow it) — there is "
-                    + "no Share-screen button to click. Instead, suggest the "
-                    + "user take a screenshot or screen recording with their "
-                    + "device and attach it via the paperclip; you can then "
-                    + "analyze it via delegate_task.",
+                    + "browser (mobile browsers don't allow it). "
+                    + (screenCapture.isCameraSupported
+                        ? "The camera IS available: ask the user to open the "
+                          + "share button, pick Camera and start it, then call "
+                          + "this tool with source='camera'. "
+                        : "")
+                    + "Otherwise suggest the user take a screenshot with "
+                    + "their device and attach it via the paperclip; you can "
+                    + "then analyze it via delegate_task.",
             };
         }
-        if (!screenCapture.isArmed) {
+        if (wanted === "camera" && !screenCapture.isCameraSupported) {
             return {
-                ok: false,
-                error: "Screen sharing is not active. Ask the user to click the "
-                    + "Share-screen button (desktop icon) in the header, then "
-                    + "call this tool again.",
+                error: "The camera is not available in this browser"
+                    + (window.isSecureContext ? "" : " (it needs the https:// address — HTTPS mode in Settings)")
+                    + ". Ask the user to attach a photo via the paperclip "
+                    + "instead; you can then analyze it via delegate_task.",
             };
         }
-        return null;
+        const armedOther = screenCapture.resolveSource(null);
+        if (wanted && armedOther) {
+            return {
+                error: `The ${wanted} is not being shared (only the ${armedOther} is). `
+                    + `Either call again with source='${armedOther}', or ask the `
+                    + `user to open the share button in the header, switch to `
+                    + `${wanted === "camera" ? "Camera" : "Screen"} and start it.`,
+            };
+        }
+        return {
+            error: "Nothing is being shared. Ask the user to click the share "
+                + "button (screen icon) in the header, choose Screen or Camera "
+                + "at the top of the panel and start it, then call this tool "
+                + "again.",
+        };
     }
 
     /** Resolve once no call leg is audibly speaking, or after maxMs. Polling
@@ -373,28 +394,30 @@ export class ToolDispatcher {
      *  can't be initiated from here — getDisplayMedia needs a user gesture
      *  — so when sharing isn't armed the tool returns an error telling the
      *  model to ask the user for the Share-screen button. */
-    async _takeScreenshot({ name } = {}) {
+    async _takeScreenshot({ name, source: requested } = {}) {
         if (!this.sessionId) {
             return { ok: false, error: "take_screenshot requires an active session." };
         }
-        const unavailable = this._screenCaptureUnavailable();
-        if (unavailable) return unavailable;
-        const dataUrl = screenCapture.grabFrame();
+        const { source, error } = this._resolveCaptureSource(requested);
+        if (error) return { ok: false, error };
+        const dataUrl = screenCapture.grabFrame(2048, source);
         if (!dataUrl) {
             return {
                 ok: false,
-                error: "The shared screen has not produced a frame yet — "
+                error: `The shared ${source} has not produced a frame yet — `
                     + "try again in a moment.",
             };
         }
         const result = await rpc(`/api/voice/session/${this.sessionId}/screenshot`, {
             image_data_url: dataUrl,
+            source,
             ...(typeof name === "string" && name.trim() ? { name } : {}),
         });
         return {
             ok: true,
             ...result,
-            note: `Screenshot captured (imagine_image_id ${result.imagine_image_id}) `
+            source,
+            note: `${source === "camera" ? "Camera photo" : "Screenshot"} captured (imagine_image_id ${result.imagine_image_id}) `
                 + "— the user can see it in the transcript. You cannot see it "
                 + `yourself. Pass THIS id (${result.imagine_image_id}) — never an `
                 + "older one — to local_task or create_video as needed. If the "
@@ -407,24 +430,26 @@ export class ToolDispatcher {
      *  share and have the server run it through the fast vision model in
      *  the same round trip. The server stores the frame like
      *  take_screenshot, so the transcript still shows the capture. */
-    async _analyzeScreen({ question } = {}) {
+    async _analyzeScreen({ question, source: requested } = {}) {
         if (!this.sessionId) {
             return { ok: false, error: "analyze_screen requires an active session." };
         }
-        const unavailable = this._screenCaptureUnavailable();
-        if (unavailable) return unavailable;
-        const dataUrl = screenCapture.grabFrame();
+        const { source, error } = this._resolveCaptureSource(requested);
+        if (error) return { ok: false, error };
+        const dataUrl = screenCapture.grabFrame(2048, source);
         if (!dataUrl) {
             return {
                 ok: false,
-                error: "The shared screen has not produced a frame yet — "
+                error: `The shared ${source} has not produced a frame yet — `
                     + "try again in a moment.",
             };
         }
-        return rpc(`/api/voice/session/${this.sessionId}/analyze_screen`, {
+        const result = await rpc(`/api/voice/session/${this.sessionId}/analyze_screen`, {
             image_data_url: dataUrl,
+            source,
             ...(typeof question === "string" && question.trim() ? { question } : {}),
         });
+        return { ...result, source };
     }
 
     /** record_screen_clip: record the armed screen share for N seconds and
@@ -432,12 +457,12 @@ export class ToolDispatcher {
      *  arming contract as take_screenshot; the tool blocks for the whole
      *  recording, which the schema warns the model about. Multipart, not a
      *  data URI — clips run to tens of MB. */
-    async _recordScreenClip({ duration_seconds, name } = {}) {
+    async _recordScreenClip({ duration_seconds, name, source: requested } = {}) {
         if (!this.sessionId) {
             return { ok: false, error: "record_screen_clip requires an active session." };
         }
-        const unavailable = this._screenCaptureUnavailable();
-        if (unavailable) return unavailable;
+        const { source, error } = this._resolveCaptureSource(requested);
+        if (error) return { ok: false, error };
         const seconds = Number(duration_seconds);
         if (!Number.isFinite(seconds) || seconds < 1) {
             return {
@@ -455,7 +480,7 @@ export class ToolDispatcher {
         await this._waitForSpeechIdle(12000);
         let clip;
         try {
-            clip = await screenCapture.recordClip(seconds);
+            clip = await screenCapture.recordClip(seconds, source);
         } catch (e) {
             return { ok: false, error: String(e?.message || e) };
         }
@@ -465,7 +490,8 @@ export class ToolDispatcher {
         const blob = clip.blob;
         const ext = (blob.type || "").includes("mp4") ? "mp4" : "webm";
         const fd = new FormData();
-        fd.append("file", blob, `screen-recording.${ext}`);
+        fd.append("file", blob, `${source}-recording.${ext}`);
+        fd.append("source", source);
         if (typeof name === "string" && name.trim()) {
             fd.append("name", name.trim());
         }
@@ -481,14 +507,17 @@ export class ToolDispatcher {
         return {
             ok: true,
             ...meta,
+            source,
             has_audio: clip.hasAudio,
-            note: "Clip recorded"
+            note: `${source === "camera" ? "Camera clip" : "Clip"} recorded`
                 + (clip.hasAudio
                     ? " with audio"
-                    : " WITHOUT audio (the user didn't tick 'share audio' "
-                      + "when starting the share, or their platform doesn't "
-                      + "support audio for the shared surface — e.g. "
-                      + "whole-monitor shares carry audio on Windows only)")
+                    : source === "camera"
+                        ? " WITHOUT audio (camera shares are video-only)"
+                        : " WITHOUT audio (the user didn't tick 'share audio' "
+                          + "when starting the share, or their platform doesn't "
+                          + "support audio for the shared surface — e.g. "
+                          + "whole-monitor shares carry audio on Windows only)")
                 + ` — the user can play it in the transcript. You cannot `
                 + "watch it yourself: to analyze this clip, pass THIS id "
                 + `(imagine_image_id ${meta.imagine_image_id}) to delegate_task `

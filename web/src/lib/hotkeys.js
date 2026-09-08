@@ -70,6 +70,11 @@ export const HOTKEY_ACTIONS = [
         label: "Show / hide the avatar controls",
     },
     {
+        id: "mascot.settings", group: "mascot", combo: "Ctrl+Alt+O", desktop: true,
+        label: "Open the mascot settings window",
+        hint: "Works with the controls hidden too — the same window as the island's ⚙ and the tray entry.",
+    },
+    {
         id: "mascot.pin", group: "mascot", combo: "Ctrl+Alt+T", desktop: true,
         label: "Always on top",
     },

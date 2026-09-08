@@ -46,6 +46,7 @@ let mainWindow = null;
 let mascotWindow = null;         // pop-out avatar overlay (frameless, transparent)
 let mascotPinned = true;         // page's always-on-top toggle, mirrored shell-side
 let mascotSettingsWindow = null; // mascot settings (normal window)
+let mascotShareWindow = null;    // mascot screen/camera share panel (normal window)
 let transcriptWindow = null;     // pop-out transcript mirror (normal window)
 let tray = null;
 let cursorTimer = null;          // mascot cursor feed interval (ghost / cursor-follow)
@@ -1021,6 +1022,53 @@ ipcMain.handle("mascot-settings-open", () => {
     return true;
 });
 
+// ---------------------------------------------------------------------------
+// Mascot share window
+// ---------------------------------------------------------------------------
+// A small normal window on /#mascot-share — the Screen / Camera share panel
+// for mascot mode, opened from the island's share button or the mascot
+// settings window. The streams live in the overlay page: the panel mirrors
+// its share state over the settings BroadcastChannel and sends actions
+// back; the window opens its OWN camera stream purely for the live preview
+// (Chromium lets two windows read one webcam).
+
+function createMascotShareWindow() {
+    if (mascotShareWindow && !mascotShareWindow.isDestroyed()) {
+        mascotShareWindow.focus();
+        return;
+    }
+    const onTop = loadSettings().mascotShareOnTop !== false;
+    mascotShareWindow = new BrowserWindow({
+        width: 380,
+        height: 560,
+        minWidth: 320,
+        minHeight: 420,
+        title: "Rexclaw — Share screen or camera",
+        backgroundColor: "#0f172a",
+        autoHideMenuBar: true,
+        alwaysOnTop: onTop,
+        webPreferences: {
+            preload: path.join(__dirname, "preload.js"),
+            contextIsolation: true,
+            nodeIntegration: false,
+            spellcheck: false,
+        },
+    });
+    if (onTop) mascotShareWindow.setAlwaysOnTop(true, "screen-saver");
+    mascotShareWindow.webContents.setWindowOpenHandler(({ url }) => {
+        if (/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(url)) return { action: "allow" };
+        shell.openExternal(url);
+        return { action: "deny" };
+    });
+    mascotShareWindow.on("closed", () => { mascotShareWindow = null; });
+    mascotShareWindow.loadURL(`${serverScheme}://127.0.0.1:${serverPort}/#mascot-share`);
+}
+
+ipcMain.handle("mascot-share-open", () => {
+    createMascotShareWindow();
+    return true;
+});
+
 // Per-window "always on top" pin for the transcript + mascot settings
 // windows (default on — they'd otherwise open buried under the topmost
 // mascot). Keyed by which window is asking, so the pages need no window
@@ -1028,6 +1076,7 @@ ipcMain.handle("mascot-settings-open", () => {
 function windowPinKey(win) {
     if (win && win === transcriptWindow) return "transcriptOnTop";
     if (win && win === mascotSettingsWindow) return "mascotSettingsOnTop";
+    if (win && win === mascotShareWindow) return "mascotShareOnTop";
     return null;
 }
 
@@ -1174,6 +1223,7 @@ const SHELL_HOTKEY_ACTIONS = {
     "mascot.cornerBottomLeft": () => alignMascot("bottom-left"),
     "mascot.cornerBottomRight": () => alignMascot("bottom-right"),
     "mascot.nextDisplay": () => moveMascotToNextDisplay(),
+    "mascot.settings": () => createMascotSettingsWindow(),
     "app.transcriptWindow": () => createTranscriptWindow(),
 };
 
@@ -1334,6 +1384,21 @@ ipcMain.handle("mascot-pin", (event, flag) => {
 
 ipcMain.handle("mascot-size", (event, size) => {
     if (!mascotWindow || mascotWindow.isDestroyed()) return false;
+    // "Whole screen" preset: fill the current display's work area (taskbar
+    // excluded) — no caps, no corner anchoring, the window simply becomes
+    // the screen. Scroll-to-resize from there shrinks it back as usual.
+    if (size && size.full) {
+        try {
+            const { screen } = require("electron");
+            const wa = screen.getDisplayMatching(mascotWindow.getBounds()).workArea;
+            mascotWindow.setResizable(true);
+            mascotWindow.setBounds({ x: wa.x, y: wa.y, width: wa.width, height: wa.height });
+            mascotWindow.setResizable(false);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
     // Width cap 1600, not 1000: group calls in the mascot widen the window
     // per extra character; the work-area clamp below still bounds it to the
     // actual screen.

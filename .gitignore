@@ -13,6 +13,7 @@ data/
 # Wake-word models are CI-fetched into release packages, never committed
 # (scripts/fetch_wake_model.py).
 assets/wake_models/
+assets/vision_models/
 web/node_modules/
 web/dist/
 desktop/node_modules/

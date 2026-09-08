@@ -237,12 +237,16 @@ export default function MascotSettingsView() {
                                         <i className="fa fa-stop" /> {_t("End")}
                                     </button>
                                 )}
-                                {mascot?.shareSupported && (
-                                    <button className={"btn btn-sm " + (mascot.shareArmed ? "btn-primary" : "btn-light")}
-                                            title={_t("Share your screen — lets the companion take screenshots or record clips of it on request")}
-                                            onClick={() => send({ type: "share" })}>
-                                        <i className={mascot.shareRecording ? "fa fa-circle text-danger" : "fa fa-desktop"} />
-                                        {" "}{mascot.shareArmed ? _t("Stop screen sharing") : _t("Share screen")}
+                                {mascot?.share && (mascot.share.screenSupported || mascot.share.cameraSupported) && (
+                                    // Screen / Camera sharing has its own window
+                                    // (same one the island's share button opens).
+                                    <button className={"btn btn-sm " + (mascot.share.screen || mascot.share.camera ? "btn-primary" : "btn-light")}
+                                            title={_t("Share your screen or camera — lets the companion take a look, grab screenshots or record clips on request")}
+                                            onClick={() => bridge.openMascotShare?.()}>
+                                        <i className={mascot.share.recording
+                                            ? "fa fa-circle text-danger"
+                                            : mascot.share.camera && !mascot.share.screen ? "fa fa-camera" : "fa fa-desktop"} />
+                                        {" "}{_t("Share screen or camera…")}
                                     </button>
                                 )}
                             </div>
@@ -330,12 +334,12 @@ export default function MascotSettingsView() {
                             <label>{_t("Window size")}</label>
                             <div className="rx_mascot_set_sizes">
                                 {MASCOT_SIZES.map((s, idx) => (
-                                    <button key={s.width}
+                                    <button key={idx}
                                             className={"btn btn-sm "
                                                 + (alive && mascot?.sizeIdx === idx ? "btn-primary" : "btn-light")}
-                                            title={`${s.width}×${s.height}`}
+                                            title={s.full ? _t("Whole screen (this display, taskbar excluded)") : `${s.width}×${s.height}`}
                                             onClick={() => send({ type: "size", idx })}>
-                                        {["S", "M", "L", "XL"][idx]}
+                                        {s.full ? _t("Full") : ["S", "M", "L", "XL"][idx]}
                                     </button>
                                 ))}
                             </div>

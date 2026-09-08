@@ -10,28 +10,13 @@ import Transcript from "./Transcript.jsx";
 import EmojiPickerButton from "./EmojiPickerButton.jsx";
 import { _t } from "../lib/i18n";
 import { useFileDrop } from "../lib/use_file_drop";
-import { screenCapture } from "../lib/screen_capture";
+import ShareButton from "./ShareButton.jsx";
 
 /** Text companion view, ported from the Odoo text_full_view. No avatar canvas
  *  — static agent thumbnail in the header, markdown transcript in the middle,
  *  input bar with paperclip + attachment chips at the bottom. */
 export default function TextView({ active = true }) {
     const st = useReactive(text.state);
-    const scap = useReactive(screenCapture.state);
-
-    /** Arm/stop screen sharing for the screen-capture tools. Arming must
-     *  happen in this click handler — getDisplayMedia needs the gesture. */
-    const toggleScreenShare = async () => {
-        if (screenCapture.isArmed) {
-            screenCapture.disarm();
-            return;
-        }
-        try {
-            await screenCapture.arm();
-        } catch (e) {
-            notification.add(_t("Screen sharing failed: %s", e?.message || e), { type: "danger" });
-        }
-    };
     const [agents, setAgents] = useState([]);
     const [history, setHistory] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState(null);
@@ -371,17 +356,7 @@ export default function TextView({ active = true }) {
                                 title={dark ? _t("Light theme") : _t("Dark theme")}>
                             <i className={dark ? "fa fa-sun-o" : "fa fa-moon-o"} />
                         </button>
-                        {screenCapture.isSupported && (
-                            <button className={"btn btn-light" + (scap.armed ? " active" : "")}
-                                    onClick={toggleScreenShare}
-                                    title={scap.recording
-                                        ? _t("Recording your screen…")
-                                        : scap.armed
-                                            ? _t("Stop screen sharing")
-                                            : _t("Share your screen — lets the companion take screenshots or record clips of it on request")}>
-                                <i className={scap.recording ? "fa fa-circle text-danger" : "fa fa-desktop"} />
-                            </button>
-                        )}
+                        <ShareButton />
                         <button className="btn btn-light" onClick={() => setShowHistory(!showHistory)}
                                 title={showHistory ? _t("Hide history") : _t("Show history")}>
                             <i className="fa fa-history" />
