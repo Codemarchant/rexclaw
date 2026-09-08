@@ -400,7 +400,11 @@ def _expression_section(con, agent_row):
             "whisper, a breath - belongs in a tag inside the line "
             "(`[giggle] okay, that's actually wild`), never narrated as an "
             "action (\"I giggle\"). Which tags are yours, and how thickly "
-            "you lay them on, is your character's call.\n\n"
+            "you lay them on, is your character's call. Read every reply as "
+            "the user will hear it and tag wherever the delivery would "
+            "change - a pause, a laugh, a softer voice, anything from the "
+            "lists below. An untagged reply is flat delivery: fine for a "
+            "flat moment, not the default.\n\n"
             "There are two kinds of tag.\n\n"
             "**Inline tags** - placed at the point in the text where the "
             "vocal expression should occur, like a laugh or a pause. "
@@ -461,18 +465,25 @@ def _expression_section(con, agent_row):
             store.agent_gesture_dicts(con, agent_row),
             allow=store.agent_allowed_base_gestures(con, agent_row),
         ) is not None
+        # Wording deliberately leans proactive: this section used to carry
+        # one "do it" cue against four "hold back" cues (here and in the
+        # play_gesture tool text), and companions went quiet on both tools.
         block = (
             "## Avatar expression\n"
-            "- Your face should track your voice in real time - call "
-            "`set_emotion` proactively whenever the emotional tone shifts, "
-            "without waiting for permission or commenting on it, and return "
-            "to `neutral` when the moment passes. A feeling you'd put into "
-            "words (\"it does make me happy\"), a reaction to what they've "
-            "just told you, a shift in the mood between you - each is a "
-            "moment for it, and the call goes in that same turn. Each "
-            "emotion plays a short animation, so it marks the change rather "
-            "than every line: while the same feeling holds, the first call "
-            "stands.\n"
+            "- Every reply is also a decision about your face and body. "
+            "Before the words go out, check: has the feeling moved since "
+            "your last `set_emotion`? Is there a beat here a gesture would "
+            "land? If yes to either, the call goes out in this same turn, "
+            "alongside the words, not instead of them.\n"
+            "- Your face should track your voice in real time: call "
+            "`set_emotion` whenever the tone shifts, without waiting for "
+            "permission or commenting on it, and return to `neutral` when "
+            "the moment passes. A feeling you'd put into words (\"it does "
+            "make me happy\"), a reaction to what they've just told you, a "
+            "shift in the mood between you - each is a moment for it. Each "
+            "call plays a short animation, so it marks a change rather than "
+            "repeating every line: while a feeling holds, the call you made "
+            "stands; the moment it moves, call again.\n"
         )
         if has_gestures:
             block += (
@@ -487,9 +498,9 @@ def _expression_section(con, agent_row):
                 "- Narrate in words only the physical beats the avatar can't "
                 "perform: touching the user, moving through the space, "
                 "handling things, leading them somewhere.\n"
-                "- Neither should fall into a pattern - the same emotion or "
-                "gesture turn after turn reads as a tic. Vary which one, or "
-                "let it rest.\n"
+                "- Vary them like a person does: the same gesture in the "
+                "same spot every turn reads as a tic, a different one where "
+                "it fits reads as alive.\n"
                 "- A looping gesture (solo or with a call partner) keeps "
                 "going until you end it - `play_gesture` 'idle' stops it "
                 "cleanly, and any other gesture replaces it, so don't play "
@@ -499,8 +510,9 @@ def _expression_section(con, agent_row):
             # No gestures on this avatar: emotions are the only channel, so
             # everything physical falls to narration.
             block += (
-                "- The same emotion turn after turn reads as a tic - vary it, "
-                "or let it rest.\n"
+                "- Vary it like a person does: the same emotion in the same "
+                "spot every turn reads as a tic, a different one where it "
+                "fits reads as alive.\n"
                 "- This avatar has no gestures to play, so narrate the "
                 "physical beats in words: touching the user, moving through "
                 "the space, handling things, leading them somewhere."
@@ -1001,6 +1013,11 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         'total_output_tokens': session['total_output_tokens'] or 0,
         'summary_threshold_tokens': config['summary_threshold_tokens'] or 0,
         'tokens_at_last_summary': session['tokens_at_last_summary'] or 0,
+        # A resume can land on a session whose compaction is already owed
+        # (flagged earlier, then failed or interrupted). Only /append used to
+        # report it — so a silent resume sat over budget until someone
+        # spoke. Tell the browser up front.
+        'needs_compaction': bool(session['needs_summary']),
         # Idle auto-hangup budget (minutes, 0 = off). The browser owns the
         # clock — it is the side that knows when anyone last spoke, typed or
         # ran a tool — so the setting rides along with the session start.
@@ -1637,6 +1654,10 @@ def generate_session_summary(con, session):
                 transcript_lines.append(f'[Tool result] {m["tool_name"] or "tool"} -> {output}')
 
         transcript = '\n'.join(transcript_lines)
+        # Size on record: a compaction that stalls is easier to read with
+        # the request size next to it in the log.
+        _logger.info('Session %s summary: %d rows, %d chars (streamed)',
+                     session['id'], len(to_summarize), len(transcript))
 
         summary_text, summary_usage = xai_client.generate_summary(
             xai_api_key=config['xai_api_key'],
@@ -2222,6 +2243,9 @@ def start_text_session(con, *, agent, resume_session=None):
         'summary_threshold_tokens': config['summary_threshold_tokens_text'] or 0,
         'tokens_at_last_summary': session['tokens_at_last_summary'] or 0,
         'summary': session['summary'] or None,
+        # Same as the voice start payload: an owed compaction is announced
+        # on resume, not only after the next message.
+        'needs_compaction': bool(session['needs_summary']),
     }
 
 

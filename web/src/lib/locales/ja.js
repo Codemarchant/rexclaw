@@ -77,6 +77,9 @@ export const JA = {
   "messages": "件のメッセージ",
   "Name": "名前",
   "Compacting context…": "コンテキストを圧縮中…",
+  "summarising…": "要約中…",
+  "Over the threshold — the summary is being written in the background; the counter resets once it is applied at the next quiet moment.":
+    "しきい値を超えています — バックグラウンドで要約を作成中です。次の静かなタイミングで適用されるとカウンターがリセットされます。",
   "Type a message…": "メッセージを入力…",
   "Upload failed": "アップロードに失敗しました",
   "Save failed": "保存に失敗しました",

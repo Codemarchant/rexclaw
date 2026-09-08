@@ -295,13 +295,18 @@ _BUILTIN_GESTURES = (
 _BUILTIN_GESTURE_IDS = tuple(g for g, _ in _BUILTIN_GESTURES)
 _BUILTIN_LOOP_IDS = frozenset({"squat", "push_up", "pike_walk"})
 
+# No "use sparingly" here: the tool text is the strongest cue the model
+# reads, and restraint wording in it (plus the prompt's) made companions
+# stop gesturing altogether. Frequency is the persona's call.
 _PLAY_GESTURE_INTRO = (
-    "Play a one-shot body-language animation on your avatar. Use "
-    "sparingly — these are punctuation, not background motion. Pick: "
+    "Play a one-shot body-language animation on your avatar — deliberate "
+    "body language on top of its own idle motion, for the beats worth "
+    "marking. Pick: "
 )
 _PLAY_GESTURE_OUTRO = (
-    " Emotions (set_emotion) already play a matching gesture "
-    "automatically — only use play_gesture for these standalones."
+    " An emotion (set_emotion) already plays its own small matching clip; "
+    "play_gesture is for the standalone beats listed here, and a gesture "
+    "you play always takes priority for the body."
 )
 
 
@@ -331,8 +336,9 @@ def build_play_gesture_tool(custom_gestures, allow=None):
         # Built-ins switched off for this avatar: the tool is only worth
         # offering for its custom gestures, described below.
         description = (
-            "Play a one-shot body-language animation on your avatar. Use "
-            "sparingly — these are punctuation, not background motion."
+            "Play a one-shot body-language animation on your avatar — "
+            "deliberate body language on top of its own idle motion, for "
+            "the beats worth marking."
         )
     enum = [g for g, _ in builtins]
     # The loop-stop affordance below matters whenever a looping gesture

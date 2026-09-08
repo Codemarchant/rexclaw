@@ -52,6 +52,84 @@ def _post_with_retry(url, headers, payload, timeout=DEFAULT_TIMEOUT):
     return resp  # last 5xx response
 
 
+def _post_stream(url, headers, payload, timeout):
+    """POST a /v1/responses request with `stream: true` and fold the
+    server-sent events back into the same body dict a non-streaming call
+    returns.
+
+    Why: a non-streaming request is one TCP connection carrying nothing
+    in either direction for the whole generation, and a long summary
+    (minutes on a reasoning model) was getting the connection closed
+    unanswered at ~60 s by something in the path — not a documented xAI
+    limit, but a classic idle-timeout signature. Streaming keeps bytes
+    flowing the entire time, which is also xAI's own advice for long
+    generations. `timeout` is the read timeout between events; connect
+    stays short.
+
+    Returns either a `requests.Response` (HTTP error, for the caller's
+    normal error path) or the final response body dict."""
+    resp = requests.post(url, headers=headers, json={**payload, 'stream': True},
+                         stream=True, timeout=(30, timeout))
+    if resp.status_code >= 400:
+        resp.content  # drain so .text works for the error message
+        return resp
+    body = None
+    deltas = []
+    usage = None
+    try:
+        # Decode ourselves: text/event-stream arrives without a charset, and
+        # requests' own line decoding then falls back to Latin-1 — every
+        # curly quote and dash came out as mojibake ("â" + junk).
+        for raw_bytes in resp.iter_lines():
+            raw = raw_bytes.decode('utf-8', 'replace') if isinstance(raw_bytes, bytes) else raw_bytes
+            if not raw or not raw.startswith('data:'):
+                continue
+            data = raw[5:].strip()
+            if not data or data == '[DONE]':
+                continue
+            try:
+                ev = json.loads(data)
+            except ValueError:
+                continue
+            etype = ev.get('type') or ''
+            if etype == 'response.output_text.delta':
+                deltas.append(ev.get('delta') or '')
+            elif etype in ('response.completed', 'response.incomplete', 'response.failed'):
+                body = ev.get('response') or body
+                if etype == 'response.failed':
+                    err = (body or {}).get('error') or ev.get('error') or {}
+                    raise UserError(f"xAI streamed response failed: {err.get('message') or err}")
+            elif etype == 'error':
+                err = ev.get('error') or ev
+                raise UserError(f"xAI stream error: {err.get('message') or err}")
+            if isinstance(ev.get('response'), dict) and ev['response'].get('usage'):
+                usage = ev['response']['usage']
+    finally:
+        resp.close()
+    text = ''.join(deltas)
+    if body is None:
+        # No terminal event — the stream ended early. Whatever text arrived
+        # is still worth more than an exception (callers reject empty text).
+        body = {'output': [], 'usage': usage or {}}
+    if text and not _extract_response_text(body):
+        body = {**body, 'output_text': text}
+    return body
+
+
+def _post_stream_with_retry(url, headers, payload, timeout):
+    """`_post_with_retry`'s streaming twin: a connection that drops before
+    or during the stream gets one more go."""
+    last_exc = None
+    for attempt, backoff in enumerate(RETRY_BACKOFF):
+        try:
+            return _post_stream(url, headers, payload, timeout)
+        except requests.RequestException as e:
+            last_exc = e
+            _logger.warning('xAI streamed request failed (attempt %s): %s', attempt + 1, e)
+            time.sleep(backoff)
+    raise last_exc
+
+
 def _post_multipart_with_retry(url, headers, files, data, timeout=DEFAULT_TIMEOUT):
     """Same retry envelope as _post_with_retry but for multipart/form-data
     uploads. Used for /v1/files which expects the binary body alongside form
@@ -493,8 +571,12 @@ def create_response(*, xai_api_key, responses_url, model, input_items,
                     instructions=None, tools=None, reasoning_effort=None,
                     previous_response_id=None, max_output_tokens=None,
                     max_turns=None, prompt_cache_key=None,
-                    user=None, store=True, timeout=600):
+                    user=None, store=True, timeout=600, stream=False):
     """POST /v1/responses and return the parsed body dict.
+
+    `stream=True` sends the request as server-sent events and folds them
+    back into the same body shape (see _post_stream) — for long
+    generations whose silent connection would otherwise be cut.
 
     Behaviour notes (per xAI's spec):
       * `instructions` cannot be combined with `previous_response_id` (xAI
@@ -531,7 +613,12 @@ def create_response(*, xai_api_key, responses_url, model, input_items,
         'Authorization': f'Bearer {xai_api_key}',
         'Content-Type': 'application/json',
     }
-    resp = _post_with_retry(responses_url, headers, payload, timeout=timeout)
+    if stream:
+        resp = _post_stream_with_retry(responses_url, headers, payload, timeout)
+        if isinstance(resp, dict):
+            return resp
+    else:
+        resp = _post_with_retry(responses_url, headers, payload, timeout=timeout)
     if resp.status_code >= 400:
         _logger.error('xAI responses call failed: %s %s', resp.status_code, resp.text)
         raise UserError(f"xAI responses call failed ({resp.status_code}): {resp.text[:500]}")
@@ -848,11 +935,16 @@ def generate_summary(*, xai_api_key, responses_url, summary_model, transcript,
         tools=None,
         reasoning_effort=reasoning_effort,
         store=False,
-        # A big rollup (long prior summary + a text-mode block) can take
-        # well over a minute to write; at 120s the call timed out, retried
-        # three times and 500'd — leaving needs_summary set so every turn
-        # re-ran the same 6-minute failure.
-        timeout=300,
+        # Streamed: a big rollup (long prior summary + a text-mode block)
+        # can take minutes to write. Non-streaming, the silent connection
+        # was being closed unanswered at ~60 s (2026-09-08, one very long
+        # session, every attempt) — and before that, at 120 s the client
+        # timed out, retried and 500'd. Either way needs_summary stayed set
+        # and every turn re-ran the same failure. With events flowing the
+        # connection stays busy; the read timeout is xAI's own suggestion
+        # for reasoning models (an hour), i.e. effectively "let it finish".
+        stream=True,
+        timeout=3600,
     )
     text = _extract_response_text(body)
     if not text:

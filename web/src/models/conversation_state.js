@@ -12,6 +12,7 @@ export function makeConversationState() {
         thinking: false,        // true between user-end-of-turn / tool dispatch and the next assistant chunk
         replayMode: false,
         compacting: false,      // true while the session is being torn down + resumed for context compaction
+        summarizing: false,     // true while the rollup is being generated in the background (before the restart)
         errorMessage: null,
 
         // Session identity

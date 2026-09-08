@@ -357,6 +357,17 @@ export class AgentConnection {
             0,
             (this._runningTokens.input + this._runningTokens.output) - this._tokensAtLastSummary,
         );
+        // An owed compaction (flagged before this resume, then failed or
+        // interrupted) used to surface only through the next /append — a
+        // silent resume sat over budget until someone spoke. Kick off the
+        // background rollup now; the restart still waits for a quiet window.
+        if (!isCompactionRestart && payload.needs_compaction) {
+            console.log(`[voice:${this.connId}] session resumed with a pending compaction — starting it`);
+            this._compactionPending = true;
+            if (!this._compactionPromise && !this._compactionRollupReady) {
+                this._compactionPromise = this._beginBackgroundCompaction();
+            }
+        }
 
         // When resuming, populate the local transcript from
         // transcript_history (the unfiltered chronological feed). xAI
@@ -1200,6 +1211,7 @@ export class AgentConnection {
         this._sessionEnded = true;
         this.state.thinking = false;
         this.state.compacting = false;
+        this.state.summarizing = false;
         this._compactionPending = false;
         this._compactionRollupReady = false;
         this._compactionPromise = null;
@@ -1704,6 +1716,11 @@ export class AgentConnection {
     async _beginBackgroundCompaction() {
         const sessionId = this.state.sessionId;
         if (!sessionId) return null;
+        // Visible from the moment the summary starts until the restart
+        // applies it — a big rollup can take minutes to stream, and the
+        // budget pill sitting over the limit with no sign of life read as
+        // "not compacting".
+        this.state.summarizing = true;
         try {
             const result = await rpc(`/api/voice/session/${sessionId}/compact`, {});
             if (!result || !result.compacted) {
@@ -1714,6 +1731,7 @@ export class AgentConnection {
                     this._compactionPending = false;
                 }
                 this._compactionPromise = null;
+                this.state.summarizing = false;
                 return result;
             }
             console.log(`[voice:${this.connId}] background compaction ready (rollup id`, result.rollup_id +
@@ -1724,6 +1742,7 @@ export class AgentConnection {
         } catch (e) {
             console.warn(`[voice:${this.connId}] background compaction failed:`, e);
             this._compactionPromise = null;
+            this.state.summarizing = false;
             return null;
         }
     }
@@ -1752,6 +1771,7 @@ export class AgentConnection {
                 this._compactionPromise = null;
                 this._compactionRollupReady = false;
                 this.state.compacting = false;
+                this.state.summarizing = false;
             });
     }
 
@@ -2078,6 +2098,7 @@ export class AgentConnection {
         // Clear compaction flags so the disabled-input UX doesn't outlive
         // the session. Any background /compact promise settles on its own.
         this.state.compacting = false;
+        this.state.summarizing = false;
         this._compactionPending = false;
         this._compactionRollupReady = false;
         this._compactionPromise = null;
@@ -2156,6 +2177,7 @@ export class AgentConnection {
         this.state.tokenUsage = 0;
         this.state.tokenLimit = 0;
         this.state.compacting = false;
+        this.state.summarizing = false;
         this._compactionPending = false;
         this._compactionRollupReady = false;
         this._compactionPromise = null;

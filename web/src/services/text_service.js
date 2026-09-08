@@ -78,6 +78,13 @@ class TextService {
         );
         this.state.tokenCapWarningShown = false;
         this.state.promptStale = !!payload.prompt_stale;
+        // An owed compaction (flagged earlier, then failed or interrupted)
+        // used to surface only after the next message — a silent resume sat
+        // over budget. Run it now, in the background.
+        if (payload.needs_compaction) {
+            console.info("[text-companion] session resumed with a pending compaction — starting it");
+            this._compactInBackground();
+        }
 
         // Hydrate transcript from the server's resume payload. Mode = 'text'
         // ensures transcript.js renders with the chat thumbnail beside

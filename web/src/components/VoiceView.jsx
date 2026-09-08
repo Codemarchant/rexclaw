@@ -1085,6 +1085,7 @@ export default function VoiceView({ active = true }) {
 
     const tokenBudgetLabel = sv.tokenLimit > 0
         ? `${(sv.tokenUsage || 0).toLocaleString()} / ${sv.tokenLimit.toLocaleString()}`
+            + (sv.summarizing ? ` · ${_t("summarising…")}` : "")
         : null;
 
     // Affection readout for the meta row, e.g. "Lv 4 · 340/1000". Null when
@@ -1310,7 +1311,9 @@ export default function VoiceView({ active = true }) {
                         </span>
                         {tokenBudgetLabel && (
                             <span className="o_voice_token_budget"
-                                  title={_t("Tokens used since the last summary rollup, over the configured auto-compact threshold.")}>
+                                  title={sv.summarizing
+                                      ? _t("Over the threshold — the summary is being written in the background; the counter resets once it is applied at the next quiet moment.")
+                                      : _t("Tokens used since the last summary rollup, over the configured auto-compact threshold.")}>
                                 {tokenBudgetLabel}
                             </span>
                         )}
