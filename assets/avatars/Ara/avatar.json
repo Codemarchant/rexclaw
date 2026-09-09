@@ -2,6 +2,9 @@
   "name": "Ara",
   "sequence": 20,
   "vrm": "ara_casual_default.vrm",
+  "physical_description": "A petite, slender young woman with fair skin and a small soft face that rests in a faint calm smile. Large bright teal-blue eyes and a short teal-green bob with straight bangs and subtle highlights. Cute and polished rather than mature or rugged.",
+  "main_outfit_name": "Grey blazer uniform",
+  "main_outfit_description": "Modern schoolgirl-meets-uniform look - cropped grey blazer over a white collared shirt with a red ribbon tie. High-waisted pleated grey skirt with a ruffled white underskirt peeking out and small gold button accents. Black fingerless gloves with grey cuffs, asymmetric legwear (one bare leg, one black tight with gold star detailing), and black mid-calf boots with gold buckles.",
   "outfits": [
     {
       "name": "Festive Christmas dress",

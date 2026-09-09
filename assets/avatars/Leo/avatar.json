@@ -2,6 +2,9 @@
   "name": "Leo",
   "sequence": 50,
   "vrm": "leo_fancy_suit.vrm",
+  "physical_description": "A slender young man with fair skin and a soft oval face that rests in a faint calm smile. Large dark eyes, a small pointed nose, and short-to-medium messy dark teal-black hair with bangs across the forehead and longer strands framing the sides. Pretty-boy / bishounen rather than rugged.",
+  "main_outfit_name": "Gothic tailcoat",
+  "main_outfit_description": "An aristocratic gothic-formal ensemble - long black tailcoat with crimson lapels, gold filigree embroidery along the edges, and red interior lining visible at the back vents. Worn over a dark burgundy buttoned waistcoat with gold trim, a grey collared shirt, and a deep red cravat/ascot at the neck. Black slim-fit trousers with a small leather buckle strap on the right thigh, finished with black formal shoes featuring gold accents.",
   "outfits": [
     {
       "name": "Christmas Fit",

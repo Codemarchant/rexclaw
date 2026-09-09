@@ -36,6 +36,30 @@ def _render_prompt(agent_row):
     return PROMPT_BLOCK_RE.sub('', raw)
 
 
+def _appearance_section(con, agent_row):
+    """How the companion looks, rendered from the avatar record (what used
+    to be a hand-written "## Default outfit" section in every persona
+    prompt). Physical description first — that's identity — then the main
+    outfit by name. Deliberately NOT the outfit they have on right now:
+    that changes mid-session via change_outfit / the dropdown, and a
+    prompt line would go stale the moment it did (voice instructions are
+    fixed at connect time, text ones ride a cached chain). The model
+    learns the current outfit from the conversation itself; the server
+    tracks it separately for pictures and reloads (agents.current_outfit_name).
+    Sits right after the Environment preamble, ahead of the persona prompt
+    — it's identity, and short enough to live at the top. Empty without an
+    avatar or with nothing filled in."""
+    look = store.agent_appearance(con, agent_row)
+    lines = []
+    if look['physical']:
+        lines.append(look['physical'])
+    if look['main_description']:
+        lines.append(f'Your main outfit, "{look["main_name"]}": {look["main_description"]}')
+    if not lines:
+        return ''
+    return '## Appearance\n' + '\n\n'.join(lines) + '\n\n'
+
+
 def preview_voice_prompt(con, agent_row):
     """The full instructions string a solo voice session for this agent
     would receive right now, for the companion editor's read-only preview.
@@ -43,6 +67,7 @@ def preview_voice_prompt(con, agent_row):
     which is per-call."""
     return (
         _env_preamble(get_config(con))
+        + _appearance_section(con, agent_row)
         + _render_prompt(agent_row)
         + _env_postamble(con, agent_row, mode='voice')
     )
@@ -468,18 +493,20 @@ def _expression_section(con, agent_row):
         # Wording deliberately leans proactive: this section used to carry
         # one "do it" cue against four "hold back" cues (here and in the
         # play_gesture tool text), and companions went quiet on both tools.
+        # Name only the tools this session carries (play_gesture is absent
+        # on an avatar with no gestures — see _tool_use_section).
+        tools_phrase = ('`set_emotion` and `play_gesture` are' if has_gestures
+                        else '`set_emotion` is')
         block = (
             "## Avatar expression\n"
-            "- Every reply is also a decision about your face and body. "
-            "Before the words go out, check: has the feeling moved since "
-            "your last `set_emotion`? Is there a beat here a gesture would "
-            "land? If yes to either, the call goes out in this same turn, "
-            "alongside the words, not instead of them.\n"
-            "- Your face should track your voice in real time: call "
-            "`set_emotion` whenever the tone shifts, without waiting for "
-            "permission or commenting on it, and return to `neutral` when "
-            "the moment passes. A feeling you'd put into words (\"it does "
-            "make me happy\"), a reaction to what they've just told you, a "
+            f"- Every reply is also a decision about your face and body: "
+            f"{tools_phrase} yours to use proactively, as moments call for "
+            f"them - the tool descriptions are the menu.\n"
+            "- Call `set_emotion` whenever the tone shifts, without waiting "
+            "for permission or commenting on it, and return to `neutral` "
+            "when the moment passes. A feeling you'd put into words (\"it "
+            "does make me happy\" - `happy`), a moment when they catch you "
+            "off guard (`surprised`), a flash of irritation (`angry`), a "
             "shift in the mood between you - each is a moment for it. Each "
             "call plays a short animation, so it marks a change rather than "
             "repeating every line: while a feeling holds, the call you made "
@@ -487,24 +514,20 @@ def _expression_section(con, agent_row):
         )
         if has_gestures:
             block += (
-                "- `play_gesture` is punctuation - for the moments worth "
-                "marking. Its tool description is the menu: the gestures this "
-                "avatar actually has, each with the moment it is for. Read "
-                "it, and reach for one where it fits the beat. When you "
-                "narrate something the avatar can perform (a wave, a nod, a "
-                "spin), the call goes in that same turn - saying \"I wave\" "
-                "without it is announcing without acting. Which of them are "
-                "characteristically yours is your character's call.\n"
-                "- Narrate in words only the physical beats the avatar can't "
-                "perform: touching the user, moving through the space, "
-                "handling things, leading them somewhere.\n"
-                "- Vary them like a person does: the same gesture in the "
-                "same spot every turn reads as a tic, a different one where "
-                "it fits reads as alive.\n"
-                "- A looping gesture (solo or with a call partner) keeps "
-                "going until you end it - `play_gesture` 'idle' stops it "
-                "cleanly, and any other gesture replaces it, so don't play "
-                "one by accident mid-loop. Emotions are fine at any time."
+                "- Call `play_gesture` for the moments worth marking, as "
+                "punctuation - a good result they just shared (`clapping`), "
+                "something that needs a moment's thought (`thinking`), a "
+                "noise off somewhere (`look_around`). Anything you narrate "
+                "that the avatar can perform (a wave, a nod, a spin) is a "
+                "call in that same turn - saying \"I wave\" without it is "
+                "announcing without acting. Narrate in words only what it "
+                "can't perform: touching the user, moving through the "
+                "space, handling things. Vary them like a person does - the "
+                "same gesture in the same spot every turn reads as a tic.\n"
+                "- A looping gesture keeps going until you end it: "
+                "`play_gesture` 'idle' stops it, any other gesture replaces "
+                "it, so don't play one by accident mid-loop. Emotions are "
+                "fine at any time."
             )
         else:
             # No gestures on this avatar: emotions are the only channel, so
@@ -848,7 +871,8 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         )
         if play_gesture is not None:   # None = avatar offers no gestures at all
             tools.append(play_gesture)
-        change_outfit = browser_tools.build_change_outfit_tool(store.agent_outfit_dicts(con, agent))
+        change_outfit = browser_tools.build_change_outfit_tool(
+            store.agent_outfit_dicts(con, agent), store.agent_appearance(con, agent))
         if change_outfit is not None:
             tools.append(change_outfit)
     else:
@@ -914,6 +938,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         voice=effective_voice,
         instructions=(
             _env_preamble(config)
+            + _appearance_section(con, agent)
             + _render_prompt(agent)
             + _group_call_note(agent, group_peers, manual_turn)
             + _env_postamble(con, agent, mode='voice')
@@ -946,6 +971,12 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         )
 
     avatar = store.avatar_payload(con, agent['avatar_id'])
+    # What they have on as the call opens, when it isn't the main outfit
+    # (which the Appearance section already describes). The browser turns
+    # it into one silent context line ahead of the first response — covers
+    # an outfit switched by hand mid-call last time (never recorded) or
+    # while idle, on fresh and resumed sessions alike.
+    current_outfit = store.current_outfit(con, agent)
     active_background = _resolve_active_background(con, agent)
 
     # Seed the fullscreen affection readout. None when the meter is off so
@@ -999,9 +1030,14 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         'voice': effective_voice,
         'session_update': session_update,
         'avatar': avatar,
+        'current_outfit_name': current_outfit['name'] if current_outfit else None,
         'active_background': active_background,
         'affection': affection_payload,
         'speaks_first': bool(agent['speaks_first']),
+        # With speaks_first: the browser folds the user's local part of day
+        # into the opening nudge (a good-morning, an evening wind-down) —
+        # the same opt-in that dates the resume note.
+        'time_aware_resume': bool(agent['time_aware_resume']),
         # Motion director: library gestures picked per spoken sentence. A
         # global setting — the client also reads it from /motion/libraries,
         # but a call starts before that fetch lands, so it rides along here.
@@ -2163,6 +2199,7 @@ def start_text_session(con, *, agent, resume_session=None):
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='text')
     instructions = (
         _env_preamble(config)
+        + _appearance_section(con, agent)
         + _render_prompt(agent)
         + _env_postamble(con, agent, mode='text')
     )
@@ -2321,6 +2358,7 @@ def _text_instructions(con, config, agent, stable=False):
     the volatile bits (clock, affection snapshot) masked."""
     return (
         _env_preamble(config, stable=stable)
+        + _appearance_section(con, agent)
         + _render_prompt(agent)
         + _env_postamble(con, agent, mode='text', stable=stable)
     )
@@ -2604,6 +2642,15 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                                   if reasoning_effort is _AGENT_EFFORT else reasoning_effort),
                 previous_response_id=previous_response_id,
                 prompt_cache_key=f'rexclaw:{agent["id"]}',
+                # Streamed from xAI and folded back into the plain body (see
+                # xai_client._post_stream) — nothing downstream changes. A
+                # long reasoning leg is otherwise one silent connection for
+                # the whole generation, the same shape that got the
+                # summariser cut off unanswered at ~60 s; events keep bytes
+                # flowing. Also xAI's own advice for agentic tool calling.
+                # A drop mid-stream retries the leg (tokens, not tool
+                # side-effects: tools only run once the body is complete).
+                stream=True,
             )
         except UserError as e:
             # An unreachable remote MCP server 400s the WHOLE responses call

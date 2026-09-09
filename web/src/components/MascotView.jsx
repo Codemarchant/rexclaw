@@ -211,10 +211,13 @@ export default function MascotView() {
             return;
         }
         avatarRenderer.configureFromAvatar(avatar);
-        if (loadedAvatarId.current === avatar.id) return;
-        loadedAvatarId.current = avatar.id;
+        // Keyed by agent AND avatar — two companions can share an avatar
+        // but each wears their own outfit.
+        const loadKey = `${currentAgent.id}:${avatar.id}`;
+        if (loadedAvatarId.current === loadKey) return;
+        loadedAvatarId.current = loadKey;
         avatarRenderer.resetExpression?.();
-        const outfit = storedOutfit(avatar);
+        const outfit = storedOutfit(currentAgent);
         if (outfit) voice.state.selectedOutfitId = Number(outfit.id);
         avatarRenderer.loadVRM(outfit?.vrm_url || avatar.vrm_url).catch((e) => {
             console.error("[mascot] avatar VRM load failed", e);
@@ -233,9 +236,13 @@ export default function MascotView() {
         const outfit = (avatar.outfits || []).find((o) => Number(o.id) === Number(id)) || null;
         if (!outfit && Number(id) !== 0) return;   // stale catalog entry
         voice.state.selectedOutfitId = outfit ? Number(outfit.id) : 0;
-        // Persist like the main window's outfit dropdown does, so the pick
-        // survives pop-back and reloads.
-        storeOutfitPref(avatar.id, outfit ? Number(outfit.id) : 0);
+        // Persist server-side like the main window's outfit dropdown does,
+        // so the pick survives pop-back, reloads and restarts.
+        storeOutfitPref(currentAgent, outfit ? Number(outfit.id) : 0);
+        // Mid-call: a silent note so the companion knows what they now wear.
+        // (The list leads with the main outfit as id 0, so `outfit` is set
+        // for it too — main is decided by the id, not by a miss.)
+        voice.noteOutfitChange?.(outfit?.name, { isMain: Number(id) === 0 });
         avatarRenderer.setOutfit(outfit?.vrm_url || avatar.vrm_url, avatar.vrma_idle_url || null)
             .catch((e) => console.error("[mascot] outfit load failed", e));
     };
@@ -553,9 +560,10 @@ export default function MascotView() {
                 pinned,
                 fullBody,
                 sizeIdx,
+                // The avatar payload's outfit list already leads with the
+                // main outfit (id 0) under its own name.
                 outfits: avatar?.vrm_url
-                    ? [{ id: 0, name: _t("Default") },
-                       ...(avatar.outfits || []).map((o) => ({ id: Number(o.id), name: o.name }))]
+                    ? (avatar.outfits || []).map((o) => ({ id: Number(o.id), name: o.name }))
                     : [],
                 outfitId: Number(voice.state.selectedOutfitId || 0),
                 // Motion library switches — global config, held live by the

@@ -633,6 +633,23 @@ class VoiceCallService {
     /** One line naming everyone CURRENTLY in the call — appended to join/
      *  leave notes so agents never rely on stale history for the roster
      *  (a resumed conversation can mention companions who are long gone). */
+    /** A manual outfit switch (fullscreen dropdown, mascot picker) during a
+     *  live call: let the primary know what they now have on, silently —
+     *  parked as deferred context so it rides in ahead of their next
+     *  response rather than prompting one. Not recorded: it's a nudge about
+     *  the present, and the server already tracks the outfit itself. The
+     *  change_outfit tool path needs nothing — the model chose that one. */
+    noteOutfitChange(outfitName, { isMain = false } = {}) {
+        if (this.state.status !== "live" || !this.primary || this.primary.isTerminal) return;
+        const name = (outfitName || "").trim();
+        if (!name) return;
+        const text = isMain
+            ? `The user switched you back to your main outfit, "${name}" - that is what you have on now.`
+            : `The user switched your outfit to "${name}" - that is what you have on now.`;
+        this.primary.queueDeferredContext(
+            `[System] (call context) ${text} No need to comment on it unless it comes up.`);
+    }
+
     _rosterNote() {
         const names = this._participants().map((p) => p.name).filter(Boolean);
         return `Participants currently in the call: the user and ${names.join(", ")}. ` +
@@ -1179,6 +1196,16 @@ class VoiceCallService {
         // under data/assets/motion is live on the next call.
         this.env.services.motion_director?.start?.().catch?.(() => {});
         this.env.services.motion_director?.setSpeechGestures?.(!!payload.speech_gestures);
+        // Not in the main outfit as the call opens: one silent line so the
+        // companion knows what they have on, whether it was switched by
+        // hand mid-call last time (never recorded) or while idle. Deferred,
+        // so it lands right before the first response — a speak-first
+        // companion can even react to it — without prompting one itself.
+        if (payload.current_outfit_name) {
+            conn.queueDeferredContext(
+                `[System] (call context) You currently have on your "${payload.current_outfit_name}" outfit. `
+                + `No need to comment on it unless it comes up.`);
+        }
         if (payload.avatar) {
             renderer.configureFromAvatar(payload.avatar);
             if (!keepUserBackground && payload.active_background !== undefined && renderer.setBackground) {

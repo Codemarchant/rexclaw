@@ -529,6 +529,18 @@ def session_list(payload: dict = Body(default={}), con=Depends(db_con)):
     ]
 
 
+@router.post("/agents/{agent_id}/outfit")
+def agents_set_outfit(agent_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """Record what the companion is wearing (avatar_outfits id, 0 = main
+    outfit). Called by the outfit dropdown, the mascot's picker and the
+    change_outfit tool — server-side so the pick survives reloads, app
+    restarts and companion switches, and so text-mode pictures use it."""
+    agent = store.get_agent(con, agent_id)
+    outfit_id = store.set_current_outfit(con, agent, payload.get("outfit_id"))
+    con.commit()
+    return {"ok": True, "current_outfit_id": outfit_id}
+
+
 @router.post("/agents")
 def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
     agents = store.list_agents(con)
@@ -562,6 +574,9 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
             "wake_phrase": a["wake_phrase"] or "",
             "wake_action": a["wake_action"] or "resume_last",
             "avatar": store.avatar_payload(con, a["avatar_id"]),
+            # What they have on right now (this boot's avatar_outfits id,
+            # 0 = main) — the pickers hydrate from this; see agents_set_outfit.
+            "current_outfit_id": store.current_outfit_id(con, a),
             "last_resumable_session": (
                 {
                     "id": sess["id"],

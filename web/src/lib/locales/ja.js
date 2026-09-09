@@ -829,6 +829,14 @@ export const JA = {
   "Avatar name": "アバター名",
   "Main VRM (required)": "メイン VRM（必須）",
   "Idle animation VRMA (optional)": "待機アニメーション VRMA（任意）",
+  "Physical description": "身体的な特徴",
+  "Face, hair, eyes, build, species… — what the character looks like regardless of clothing.":
+    "顔・髪・目・体つき・種族など — 服装に関係なくキャラクターがどう見えるか。",
+  "Main outfit name": "メイン衣装の名前",
+  "e.g. Lab coat": "例：白衣",
+  "Main outfit description": "メイン衣装の説明",
+  "What the main VRM wears — fed to the LLM, the image tools read it too. Each extra outfit below carries its own.":
+    "メイン VRM が着ている服 — LLM に渡され、画像ツールも参照します。下の各衣装には、それぞれの説明があります。",
   "Fade emotions back to neutral": "表情を自然に戻す",
   "Library…": "ライブラリ…",
   "(bundled)": "（同梱）",
@@ -1110,7 +1118,6 @@ export const JA = {
   "Enter VR — opens this companion in a VR-capable browser window":
     "VR に入る — このコンパニオンを VR 対応ブラウザのウィンドウで開きます",
   "Companion to chat with": "チャットするコンパニオン",
-  "Default": "デフォルト",
   "\"%s\" is too large (max 48 MB).": "「%s」は大きすぎます（最大 48 MB）。",
   "Upload failed: %s": "アップロードに失敗しました: %s",
   "Attach files": "ファイルを添付",

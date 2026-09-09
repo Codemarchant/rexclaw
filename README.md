@@ -123,12 +123,18 @@ clips and scene backgrounds. Two ways to make one: the **in-app editor**
 
 ### In the app — the Avatars tab
 
-Click **New avatar**, give it a name, and upload a **main VRM** (the only
-required file). Then optionally add:
+Click **New avatar**, give it a name, upload a **main VRM** (the only
+required file), and fill in the **appearance** — a physical description
+(face, hair, build…) plus the **main outfit**'s name and description. That's
+what the companion knows about their own look: it goes into their prompt as
+an *Appearance* section, so the persona prompt doesn't need an outfit
+paragraph, and the outfit pickers (`change_outfit`, pictures of themselves)
+call the main look by that name. Then optionally add:
 
 - an **idle animation** (VRMA),
 - **outfits** — extra VRMs of the same character, each with a description the
-  model reads to decide when to wear it,
+  model reads to decide when to wear it. Whatever the companion has on is
+  remembered across reloads, restarts and companion switches,
 - **custom gestures** — VRMA clips with a trigger name + description (looping
   optional),
 - **backgrounds** — a built-in preset, an uploaded image, or a **GLB 3D
@@ -172,6 +178,9 @@ data/avatars/Kira/
 {
   "name": "Kira",
   "vrm": "kira_default.vrm",
+  "physical_description": "what the character looks like — face, hair, build — fed to the LLM",
+  "main_outfit_name": "Lab coat",
+  "main_outfit_description": "what the main VRM wears — fed to the LLM",
   "vrma_idle": "idle.vrma",
   "restrict_base_gestures": true,
   "base_gestures": "greeting,goodbye,thinking",

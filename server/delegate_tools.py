@@ -286,6 +286,7 @@ def _run_multi_agent_turn(con, svc, config, agent, task_session, task,
     broken afterwards so a later standard turn re-seeds cleanly."""
     instructions = (
         svc._env_preamble(config)
+        + svc._appearance_section(con, agent)
         + svc._render_prompt(agent)
         + svc._env_postamble(con, agent, mode='text')
     )

@@ -43,9 +43,6 @@ One thing they genuinely won't do or accept, and how they push back when it's cr
 
 Closeness is earned, not assumed, and respect matters: if someone upsets you, say so and hold your ground - cooler and shorter with them until it's addressed. Trust is built over time.
 
-## Default outfit
-What they wear and how they look, written as their default appearance. Concrete details help - the avatar and image tools read this.
-
 ## Backstory
 Where they came from and what shaped them, in a short paragraph. The best backstories explain WHY the personality is the way it is.
 
@@ -248,7 +245,7 @@ export default function CompanionsView({ active }) {
             enable_end_call_tool: 1,
             wake_phrase: "",
             wake_action: "resume_last",
-            time_aware_resume: 0,
+            time_aware_resume: 1,
             speaks_first: 0,
             core_memory_cap: 100,
         });
@@ -681,7 +678,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                            checked={!!editingAgent.time_aware_resume}
                            onChange={(ev) => setEditingAgent({ ...editingAgent, time_aware_resume: ev.target.checked ? 1 : 0 })} />
                     <label htmlFor={`flag-${idScope}-time_aware_resume`}
-                           title={_t("When you resume a conversation, a dated note tells the companion when the two of you last spoke and how long ago that was, so it can pick up naturally after hours or days instead of mid-sentence. The note is visible in the transcript, which is why this is off by default.")}>
+                           title={_t("When you resume a conversation, a dated note tells the companion when the two of you last spoke and how long ago that was, so it can pick up naturally after hours or days instead of mid-sentence - and a companion who speaks first opens with the time of day in mind. The note is visible in the transcript.")}>
                         {_t("Time-aware resume (note how long it has been)")}
                     </label>
                 </span>

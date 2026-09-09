@@ -101,30 +101,17 @@ _CREATE_IMAGE_TOOL = {
     'type': 'function',
     'name': 'create_image',
     'description': (
-        "Generate an image from a prompt. The image is saved to this agent's "
-        "Imagine library and appears automatically in the transcript as "
-        "a clickable thumbnail — NEVER say or write the URL, file name "
-        "or link; just react to the result naturally in your own words. "
-        "Optional `source_images` builds the new image FROM one or more "
-        "Imagine-library entries (pass the image_url or imagine_image_id "
-        "a previous tool call or user upload provided) — restyle, remix "
-        "or combine them; with multiple sources, reference them in the "
-        "prompt as <IMAGE_0>, <IMAGE_1>, <IMAGE_2> in the order passed. "
-        "This is also how you EDIT images the user uploaded: their "
-        "attachments are saved to the library and the imagine_image_id "
-        "refs appear in the conversation next to the upload. "
-        "To put YOURSELF in the picture, set include_self=true - your "
-        "likeness is added automatically as <IMAGE_0> (any source_images "
-        "follow as <IMAGE_1>, <IMAGE_2>, ...). On a voice call that is a "
-        "live snapshot of you as you appear on screen - current outfit, "
-        "the scene backdrop behind you, and anyone else in the call; in "
-        "text chat it is your full-body portrait on a transparent "
-        "background. Describe the scene, pose or moment in the prompt "
-        "(on a call, say so if the backdrop should change). That is the "
-        "whole answer to 'send me a picture of you'; no other tool call "
-        "is needed. "
-        "Does NOT change the avatar background — use change_background "
-        "for that when the user wants a new scene behind the avatar."
+        "Generate an image from a prompt, or edit/remix images from the "
+        "Imagine library. The result is saved to the library and appears "
+        "in the transcript as a clickable thumbnail — NEVER say or write "
+        "the URL, file name or link; just react to it in your own words. "
+        "To put YOURSELF in the picture set include_self=true - that alone "
+        "answers 'send me a picture of you', no other call is needed. "
+        "Other companions go in via include_companion, the user via "
+        "include_user, library images (earlier results, user uploads - "
+        "the imagine_image_id refs shown next to them in the conversation) "
+        "via source_images. Does NOT change the avatar background — use "
+        "change_background for that."
     ),
     'parameters': {
         'type': 'object',
@@ -132,36 +119,37 @@ _CREATE_IMAGE_TOOL = {
             'prompt': {
                 'type': 'string',
                 'description': (
-                    'Description of the image to generate — or, with '
-                    'source_images / include_self, the edit/remix '
-                    'instruction. Refer to the sources positionally as '
-                    '<IMAGE_0>, <IMAGE_1>, ... in the order passed '
-                    '(include_self is always <IMAGE_0>) — e.g. "<IMAGE_0> '
-                    'sitting on a pier at sunset", not "me on a pier".'
+                    'What to generate — or, with references attached, the '
+                    'edit/remix instruction. Every reference image is '
+                    'numbered in this order: you (include_self), then '
+                    'companions (include_companion), then the user '
+                    '(include_user), then source_images. Address them as '
+                    '<IMAGE_0>, <IMAGE_1>, ... with the name alongside — '
+                    'e.g. "<IMAGE_0> Eve sitting on a pier at sunset", '
+                    'never just "me on a pier".'
                 ),
             },
             'source_images': {
                 'type': 'array',
                 'items': {'type': 'string'},
                 'description': (
-                    'Optional. image_url (/files/...) or '
-                    'imagine_image_id values of library images to edit, '
-                    'restyle or combine into the new image. Omit this '
-                    'parameter entirely when generating from the prompt '
-                    'alone — never pass a placeholder value.'
+                    'image_url (/files/...) or imagine_image_id values of '
+                    'library images to edit, restyle or combine. Omit '
+                    'entirely when generating from the prompt alone — '
+                    'never pass a placeholder value.'
                 ),
             },
             'include_self': {
                 'type': 'boolean',
                 'description': (
-                    'true = the image features you: your likeness is added '
-                    'as <IMAGE_0> - on a voice call a live snapshot of you '
-                    'on screen (outfit, scene backdrop, call peers), in '
-                    'text chat your full-body portrait on a transparent '
-                    'background. Keep your art style - stylized '
-                    'anime/cel-shaded 3D, NOT photorealistic - unless the '
-                    'user asks for a different style. Omit when the picture '
-                    'is not of you.'
+                    'true = you are in the picture. On a voice call your '
+                    'likeness is a live snapshot of you on screen (current '
+                    'outfit, backdrop, anyone else on the call); in text '
+                    'chat it is your full-body portrait in the outfit you '
+                    'have on. Keep your art style - stylized anime/cel-'
+                    'shaded 3D, NOT photorealistic - unless the user asks '
+                    'for a different style. Omit when the picture is not '
+                    'of you.'
                 ),
             },
         },
@@ -405,42 +393,55 @@ def build_create_video_tool(*, reference=True, selfie=True):
     return tool
 
 
-# The main VRM's look, as an `outfit` choice — same wording change_outfit
-# uses for id 0, so the two tools agree.
-DEFAULT_OUTFIT_NAME = 'Default outfit'
+# Names that mean "the main VRM's look" in an outfit pick, besides the
+# avatar's own main_outfit_name: the generic fallback label, and the label
+# the pickers used before appearance moved onto the avatar record (a
+# resumed session's tool schema may still carry it).
+_MAIN_OUTFIT_ALIASES = frozenset({store.MAIN_OUTFIT_FALLBACK_NAME.lower(), 'default outfit'})
 
 
-def _with_outfit_param(tool, outfits):
+def _is_main_outfit(name, main_name):
+    """Does an outfit pick name the main look (case-insensitive)?"""
+    key = (name or '').strip().lower()
+    return bool(key) and (key == (main_name or '').strip().lower() or key in _MAIN_OUTFIT_ALIASES)
+
+
+def _with_outfit_param(tool, outfits, main_name):
     """Add the include_self companion parameter `outfit` (enum of the
-    avatar's outfit names) when the wardrobe has any. The likeness then
-    comes from that outfit's portrait (full-body when generated) instead of
-    the default: in text mode the default is the main portrait, in voice
-    mode it is the live on-screen avatar — so on a call, naming an outfit
-    swaps the live snapshot for a portrait without changing what is on
-    screen. In place; returns the tool for chaining."""
+    avatar's outfit names, main outfit first) when the wardrobe has any.
+    The likeness then comes from that outfit's portrait (full-body when
+    generated) instead of the current look: in text mode that is the
+    portrait of whatever they have on, in voice mode the live on-screen
+    avatar — so on a call, naming an outfit swaps the live snapshot for a
+    portrait without changing what is on screen. In place; returns the
+    tool for chaining."""
     names = [o['name'] for o in outfits or () if o.get('name')]
     if names and 'include_self' in tool['parameters']['properties']:
         tool['parameters']['properties']['outfit'] = {
             'type': 'string',
-            'enum': [DEFAULT_OUTFIT_NAME] + names,
+            'enum': [main_name] + names,
             'description': (
-                f'With include_self: which of your outfits to appear in. '
-                f'"{DEFAULT_OUTFIT_NAME}" is the look described in your '
-                f'system prompt. Omit for how you look right now.'
+                f'With include_self: which of your outfits to appear in '
+                f'("{main_name}" is your main outfit). Pass it whenever the '
+                f'picture is not about how you look right now - the user '
+                f'names a look, or the scene calls for one (a beach wants '
+                f'the swimsuit), even if it is what you already have on. '
+                f'Omit it only for a picture of you as you are on screen '
+                f'right now, backdrop and all.'
             ),
         }
     return tool
 
 
 def _with_companion_param(tool, con, agent, other_agents, *, include_voice_roster):
-    """Add include_companion (an enum of "Name: Outfit" entries, one per
-    other active companion's own wardrobe — including "Name: Default
-    outfit") when enable_cross_companion_imagine is on and there's anyone to
-    reference. Their likeness comes from that outfit's own portrait via
-    _portrait_bytes, same as include_self+outfit. A combined "Name: Outfit"
-    string is the only way to let the model pick BOTH in one static
-    enum — function-calling schemas can't make one parameter's choices
-    depend on another's. Deliberately NOT baked into the system prompt
+    """Add include_companion (a list drawn from an enum of "Name: Outfit"
+    entries, one per other active companion's own wardrobe — their main
+    outfit by its own name first) when enable_cross_companion_imagine is
+    on and there's anyone to reference. Their likeness comes from that outfit's
+    own portrait via _portrait_bytes, same as include_self+outfit. A
+    combined "Name: Outfit" string is the only way to let the model pick
+    BOTH in one static enum — function-calling schemas can't make one
+    parameter's choices depend on another's. Deliberately NOT baked into the system prompt
     (that would grow with every companion, every turn, tool-call or not) —
     it rides in the tool schema itself, same as outfit's own enum and
     text_companion's own roster, so the cost is paid only where the
@@ -455,24 +456,26 @@ def _with_companion_param(tool, con, agent, other_agents, *, include_voice_roste
     for a in others:
         if not a['name']:
             continue
-        outfit_names = [DEFAULT_OUTFIT_NAME] + [
+        outfit_names = [store.agent_appearance(con, a)['main_name']] + [
             o['name'] for o in store.agent_outfit_dicts(con, a) if o.get('name')
         ]
         entries.extend(f'{a["name"]}: {o}' for o in outfit_names)
     if entries and 'include_self' in tool['parameters']['properties']:
         tool['parameters']['properties']['include_companion'] = {
-            'type': 'string',
-            'enum': entries,
+            'type': 'array',
+            'items': {'type': 'string', 'enum': entries},
             'description': (
-                'Feature ANOTHER companion (not yourself), as "Name: '
-                'Outfit" — pick one entry from the roster. Their likeness '
-                'is added as a reference image from that outfit\'s own '
-                'portrait (falls back to their base look if that outfit '
-                'has none). Lands right after your own likeness if '
-                'include_self is also set, or first if not; any other '
-                'source/reference images continue the numbering after '
-                'both. Use this for a companion who is NOT here right now '
-                '— on a live call together, include_self already shows '
+                'Other companions to feature (not yourself): one "Name: '
+                'Outfit" entry per companion, from the roster. Each one '
+                'is added as a reference image, in the order listed, right '
+                'after your own likeness (or first without include_self). '
+                'Always address them in the prompt by positional tag, '
+                'name alongside: with include_self and one companion, '
+                f'"<IMAGE_0> {agent["name"]} and <IMAGE_1> <their name> '
+                'sitting on a pier at sunset". Their clothing comes from '
+                'the reference image - do not describe it, you do not '
+                'know their wardrobe. For companions who are not '
+                'on the call — on a live call, include_self already shows '
                 'everyone on screen.'
             ),
         }
@@ -512,18 +515,19 @@ def _with_user_param(tool, config):
 def build_voice_tools(con, agent):
     """Imagine function tools for a voice session."""
     outfits = store.agent_outfit_dicts(con, agent)
+    main_name = store.agent_appearance(con, agent)['main_name']
     other_agents = [a for a in store.list_agents(con) if a['id'] != agent['id']]
     config = get_config(con)
     return [
         _CHANGE_BACKGROUND_TOOL,
         _with_user_param(_with_companion_param(
-            _with_outfit_param(copy.deepcopy(_CREATE_IMAGE_TOOL), outfits),
+            _with_outfit_param(copy.deepcopy(_CREATE_IMAGE_TOOL), outfits, main_name),
             con, agent, other_agents, include_voice_roster=False), config),
         _with_user_param(_with_companion_param(
             _with_outfit_param(
                 build_create_video_tool(reference=video_reference_supported(config),
                                         selfie=bool(agent['enable_capture_tools'])),
-                outfits),
+                outfits, main_name),
             con, agent, other_agents, include_voice_roster=True), config),
     ]
 
@@ -533,17 +537,18 @@ def build_text_tools(con, agent):
     no live canvas, so include_self is the only way to feature the
     companion."""
     outfits = store.agent_outfit_dicts(con, agent)
+    main_name = store.agent_appearance(con, agent)['main_name']
     other_agents = [a for a in store.list_agents(con) if a['id'] != agent['id']]
     config = get_config(con)
     return [
         _with_user_param(_with_companion_param(
-            _with_outfit_param(copy.deepcopy(_CREATE_IMAGE_TOOL), outfits),
+            _with_outfit_param(copy.deepcopy(_CREATE_IMAGE_TOOL), outfits, main_name),
             con, agent, other_agents, include_voice_roster=False), config),
         _with_user_param(_with_companion_param(
             _with_outfit_param(
                 build_create_video_tool(reference=video_reference_supported(config),
                                         selfie=False),
-                outfits),
+                outfits, main_name),
             con, agent, other_agents, include_voice_roster=True), config),
     ]
 
@@ -607,44 +612,46 @@ def execute_imagine_tool(con, session, tool_name, arguments):
     # everything in the Imagine library (generated images, selfies, uploads).
     source_refs = _library_ref_list((arguments or {}).get('source_images'))
     include_self = tool_name == 'create_image' and _truthy((arguments or {}).get('include_self'))
-    include_companion = tool_name == 'create_image' and _library_ref((arguments or {}).get('include_companion'))
+    include_companion = tool_name == 'create_image' and _library_ref_list((arguments or {}).get('include_companion'))
     include_user = tool_name == 'create_image' and _truthy((arguments or {}).get('include_user'))
     if tool_name == 'create_image' and (source_refs or include_self or include_companion or include_user):
         source_uris = []
+        labels = []   # aligned with source_uris; None = plain library source
         self_note = None
         companion_note = None
         if include_self:
             # The companion's likeness goes first so it is <IMAGE_0>, as the
             # schema promises; explicit sources follow in the order passed.
-            uri, err, self_note = _portrait_data_uri(
-                con, agent, (arguments or {}).get('outfit'))
+            uri, err, self_note = _self_likeness_data_uri(con, agent, arguments or {})
             if err:
                 return {'error': err}
             source_uris.append(uri)
+            labels.append(agent['name'])
         if include_companion:
-            target, target_outfit, err = _resolve_companion(con, agent, include_companion)
+            entries, err, companion_note = _companion_portrait_data_uris(con, agent, include_companion)
             if err:
                 return {'error': f'include_companion: {err}'}
-            uri, err, companion_note = _portrait_data_uri(con, target, target_outfit)
-            if err:
-                return {'error': f'include_companion: {err}'}
-            source_uris.append(uri)
+            for uri, name in entries:
+                source_uris.append(uri)
+                labels.append(name)
         if include_user:
             uri, err = _user_photo_data_uri(config)
             if err:
                 return {'error': f'include_user: {err}'}
             source_uris.append(uri)
+            labels.append(_user_label(config))
         for ref in source_refs or ():
             uri, err = _library_image_data_uri(con, ref)
             if err:
                 return {'error': f'source_images: {err}'}
             source_uris.append(uri)
+            labels.append(None)
         try:
             body = xai_client.edit_image(
                 xai_api_key=xai_key,
                 edits_url=config['xai_images_edits_url'],
                 model=config['imagine_model'],
-                prompt=prompt,
+                prompt=_reference_legend(labels) + prompt,
                 image_data_uris=source_uris,
                 response_format='b64_json',
             )
@@ -704,9 +711,9 @@ def _portrait_bytes(con, agent, outfit=None):
     face portrait (sidecar or the thumbnail embedded in the VRM). Full-res
     sources throughout — this feeds image/video generation, not list rows."""
     from . import portraits
-    # "Default outfit" names the main avatar explicitly — it IS the
+    # Naming the main outfit picks the main avatar explicitly — it IS the
     # fallback, so it always counts as matched (no "used instead" note).
-    wants_default = bool(outfit) and outfit.strip().lower() == DEFAULT_OUTFIT_NAME.lower()
+    wants_default = _is_main_outfit(outfit, store.agent_appearance(con, agent)['main_name'])
     if outfit and not wants_default and agent['avatar_id']:
         row = con.execute(
             "SELECT vrm_path FROM avatar_outfits WHERE avatar_id = ?"
@@ -747,32 +754,116 @@ def _portrait_data_uri(con, agent, outfit=None):
     note = None
     if outfit and not matched:
         note = (f'No portrait exists for the "{outfit}" outfit, so your '
-                f'default look was used instead.')
+                f'main outfit was used instead.')
     return f'data:{mimetype};base64,{base64.b64encode(raw).decode()}', None, note
+
+
+def _self_likeness_data_uri(con, agent, arguments):
+    """include_self's likeness -> (data_uri, error, note). On the voice
+    surface the browser snapshots the live canvas and passes its library
+    ref as `self_snapshot` (see tool_dispatcher._resolveIncludeSelf); that
+    is the likeness, and it travels under the include_self flag rather
+    than inside source_images so it keeps the <IMAGE_0> slot the schema
+    promises ahead of any include_companion portraits. Without it, the
+    static portrait: the named `outfit` if any, else the outfit the
+    companion currently has on (agents.current_outfit_name — so "how you
+    look right now" holds in text chat too), else the main look."""
+    snapshot = _library_ref(arguments.get('self_snapshot'))
+    if snapshot:
+        uri, err = _library_image_data_uri(con, snapshot)
+        if err:
+            return None, f'include_self: {err}', None
+        return uri, None, None
+    # A plain strip, not _library_ref: that normaliser drops values like
+    # "None" or "Off", which are legitimate outfit names.
+    outfit = str(arguments.get('outfit') or '').strip() or None
+    if not outfit:
+        current = store.current_outfit(con, agent)
+        if current:
+            uri, err, _note = _portrait_data_uri(con, agent, current['name'])
+            # No note: nobody asked for this outfit by name, and the main
+            # portrait standing in for a missing one is not worth a remark.
+            return uri, err, None
+    return _portrait_data_uri(con, agent, outfit)
 
 
 def _resolve_companion(con, agent, value):
     """include_companion's "Name: Outfit" -> (agent_row, outfit_or_None,
     error). Case-insensitive name match; excludes the calling agent. Outfit
-    is None for "Name" alone or "Name: Default outfit" (both mean their base
-    look — same convention _portrait_bytes already uses for include_self).
-    Defence in depth: the flag also gates whether the parameter is offered
-    at all (see _with_companion_param), so this only fires for a stale/
-    injected call."""
+    is None for "Name" alone or "Name: <their main outfit>" (both mean
+    their base look — same convention _portrait_bytes already uses for
+    include_self). Defence in depth: the flag also gates whether the
+    parameter is offered at all (see _with_companion_param), so this only
+    fires for a stale/injected call."""
     if not agent['enable_cross_companion_imagine']:
         return None, None, 'the companion roster is disabled on this agent.'
     name, _, outfit = (value or '').partition(':')
     name = name.strip()
     outfit = outfit.strip() or None
-    if outfit and outfit.lower() == DEFAULT_OUTFIT_NAME.lower():
-        outfit = None
     row = con.execute(
         "SELECT * FROM agents WHERE active = 1 AND id != ? AND lower(name) = lower(?)",
         (agent['id'], name),
     ).fetchone()
     if not row:
         return None, None, f'no active companion named "{name}".'
+    if outfit and _is_main_outfit(outfit, store.agent_appearance(con, row)['main_name']):
+        outfit = None
     return row, outfit, None
+
+
+def _companion_portrait_data_uris(con, agent, values):
+    """include_companion's list of "Name: Outfit" entries -> (entries,
+    error, note), each entry a (data_uri, companion_name) pair. One
+    portrait per entry, in the order given; exact duplicate entries are
+    collapsed so a repeated pick doesn't double a likeness. The note names
+    the companion whose outfit had no portrait, since with several in one
+    call "the default look was used" alone wouldn't say whose."""
+    entries = []
+    notes = []
+    seen = set()
+    for value in values:
+        key = value.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        target, outfit, err = _resolve_companion(con, agent, value)
+        if err:
+            return None, err, None
+        found = _portrait_bytes(con, target, outfit)
+        if not found:
+            return None, (f'no portrait available for {target["name"]} — their '
+                          f'avatar has no embedded thumbnail.'), None
+        mimetype, raw, matched = found
+        if outfit and not matched:
+            notes.append(f'No portrait exists for {target["name"]}\'s "{outfit}" '
+                         f'outfit, so their default look was used instead.')
+        entries.append((f'data:{mimetype};base64,{base64.b64encode(raw).decode()}',
+                        target['name']))
+    return entries, None, ' '.join(notes) or None
+
+
+def _user_label(config):
+    """How the user is named in the reference legend."""
+    name = (config['user_display_name'] or '').strip()
+    return f'{name} (the user)' if name else 'the user'
+
+
+def _reference_legend(labels):
+    """Prefix for the prompt sent to xAI: which reference image is who.
+    `labels` is aligned with the image list — a name for a likeness
+    (self, companions, user), None for a plain library source. The
+    companion model is supposed to address people by <IMAGE_n> tag, but
+    it often narrates by name instead (the voice model especially), and
+    the image model then gets four references plus four names with no
+    mapping between them — which face lands on which body is a coin flip.
+    The server knows exactly who sits in each slot, so it says so here,
+    whatever the model wrote. Just the mapping — the prompt itself says
+    what to do with each reference. Empty when no likeness is involved —
+    a plain restyle of library images has nothing to name."""
+    if not any(labels):
+        return ''
+    parts = [f'<IMAGE_{i}> is {label or "a source image"}' for i, label in enumerate(labels)]
+    return 'Reference images: ' + ', '.join(parts) + '.\n\n'
 
 
 def _web_path_to_file(web_path):
@@ -967,6 +1058,7 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
     it as an imagine_images row. Same {'error': str} contract as the image
     tools."""
     mode = 'generate'
+    legend = ''   # reference-to-video only: who is which <IMAGE_n>
     image_data_uri = None
     reference_data_uris = None
     reference_voice_ids = None
@@ -990,7 +1082,7 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         source_ref = _library_ref(arguments.get('source_image'))
         reference_refs = _library_ref_list(arguments.get('reference_images'))
         include_self = _truthy(arguments.get('include_self'))
-        include_companion = _library_ref(arguments.get('include_companion'))
+        include_companion = _library_ref_list(arguments.get('include_companion'))
         include_user = _truthy(arguments.get('include_user'))
         # Schema-pruned for these models (see build_create_video_tool);
         # refuse here too so a stale or injected call can't slip through.
@@ -1036,30 +1128,34 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
                 return {'error': f'source_image: {err}'}
         elif reference_refs or include_self or include_companion or include_user:
             reference_data_uris = []
+            labels = []
             if include_self:
                 # Likeness first → <IMAGE_0>, as the schema promises.
-                uri, err, self_note = _portrait_data_uri(con, agent, arguments.get('outfit'))
+                uri, err, self_note = _self_likeness_data_uri(con, agent, arguments)
                 if err:
                     return {'error': err}
                 reference_data_uris.append(uri)
+                labels.append(agent['name'])
             if include_companion:
-                target, target_outfit, err = _resolve_companion(con, agent, include_companion)
+                entries, err, companion_note = _companion_portrait_data_uris(con, agent, include_companion)
                 if err:
                     return {'error': f'include_companion: {err}'}
-                uri, err, companion_note = _portrait_data_uri(con, target, target_outfit)
-                if err:
-                    return {'error': f'include_companion: {err}'}
-                reference_data_uris.append(uri)
+                for uri, name in entries:
+                    reference_data_uris.append(uri)
+                    labels.append(name)
             if include_user:
                 uri, err = _user_photo_data_uri(config)
                 if err:
                     return {'error': f'include_user: {err}'}
                 reference_data_uris.append(uri)
+                labels.append(_user_label(config))
             for ref in reference_refs or ():
                 uri, err = _library_image_data_uri(con, ref)
                 if err:
                     return {'error': f'reference_images: {err}'}
                 reference_data_uris.append(uri)
+                labels.append(None)
+            legend = _reference_legend(labels)
         elif extend_ref:
             mode = 'extend'
             video_data_uri, err = _library_video_data_uri(con, extend_ref)
@@ -1090,7 +1186,7 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             xai_api_key=xai_key,
             videos_url=config['xai_videos_url'],
             model=config['imagine_video_model'],
-            prompt=prompt,
+            prompt=legend + prompt,
             mode=mode,
             image_data_uri=image_data_uri,
             reference_image_data_uris=reference_data_uris,

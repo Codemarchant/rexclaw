@@ -24,7 +24,11 @@ const PRESETS = [
     "solid_dark", "solid_light",
 ];
 
-const BLANK_MANIFEST = { name: "", vrm: "", vrma_idle: "", outfits: [], gestures: [], backgrounds: [] };
+const BLANK_MANIFEST = {
+    name: "", vrm: "", vrma_idle: "",
+    physical_description: "", main_outfit_name: "", main_outfit_description: "",
+    outfits: [], gestures: [], backgrounds: [],
+};
 
 /** Numeric input that doesn't fight the keyboard. A plain controlled number
  *  input re-renders from the parsed value on every keystroke, so an
@@ -659,6 +663,33 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                            value={manifest.vrma_idle} accept=".vrma"
                            onUploaded={(fn) => setM({ vrma_idle: fn })}
                            onClear={() => setM({ vrma_idle: "" })} />
+            </div>
+            {/* Appearance: rendered into the companion's prompt as its
+                Appearance section and read by the outfit tools — so the
+                persona prompt no longer needs a hand-written outfit block. */}
+            <div className="rx_row">
+                <div style={{ flex: 1 }}>
+                    <label>{_t("Physical description")}</label>
+                    <textarea rows={2} value={manifest.physical_description || ""}
+                              placeholder={_t("Face, hair, eyes, build, species… — what the character looks like regardless of clothing.")}
+                              onChange={(ev) => setM({ physical_description: ev.target.value })} />
+                </div>
+            </div>
+            {/* Main outfit: name + description, same shape as each row of
+                the Outfits list below (minus the VRM — that's the main VRM). */}
+            <div className="rx_row">
+                <div style={{ flex: 1 }}>
+                    <label>{_t("Main outfit name")}</label>
+                    <input type="text" value={manifest.main_outfit_name || ""}
+                           placeholder={_t("e.g. Lab coat")}
+                           onChange={(ev) => setM({ main_outfit_name: ev.target.value })} />
+                </div>
+                <div style={{ flex: 3 }}>
+                    <label>{_t("Main outfit description")}</label>
+                    <textarea rows={2} value={manifest.main_outfit_description || ""}
+                              placeholder={_t("What the main VRM wears — fed to the LLM, the image tools read it too. Each extra outfit below carries its own.")}
+                              onChange={(ev) => setM({ main_outfit_description: ev.target.value })} />
+                </div>
             </div>
             <p className="text-muted small rx_pack_path">
                 <i className="fa fa-folder-o" /> {_t("Pack folder:")}{" "}

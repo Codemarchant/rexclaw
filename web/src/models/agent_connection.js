@@ -324,6 +324,10 @@ export class AgentConnection {
         // call injects its own prompt; a second kickoff would speak twice
         // and greet a user the heartbeat says is absent).
         this._speaksFirst = !!payload.speaks_first && !isCompactionRestart && speaksFirst;
+        // Time-aware companions get the user's part of day folded into the
+        // opening nudge (see _onWsOpen) — a good-morning rather than a
+        // generic hello.
+        this._timeAwareOpening = !!payload.time_aware_resume;
         // Last group-call roster (resume only) — the manager silently
         // re-adds these agents once the call is live (_restoreCallRoster).
         this._callPeerAgents = payload.call_peer_agents || [];
@@ -527,10 +531,16 @@ export class AgentConnection {
             // Speaks-first: primary leg only (peers get the join ceremony).
             // The hidden note stays out of the transcript.
             if (this._speaksFirst && this.role === "primary") {
-                this.injectContextItem(
-                    _t("[System]: The call has just connected and the user is listening. Open the conversation in character - briefly."),
-                    { promptResponse: true },
-                );
+                let text = _t("[System]: The call has just connected and the user is listening. Open the conversation in character - briefly.");
+                if (this._timeAwareOpening) {
+                    // Local clock, so the nudge matches the user's day, not
+                    // the server's. A nudge, not a script: "if it fits".
+                    const h = new Date().getHours();
+                    const part = h < 5 ? "the middle of the night" : h < 12 ? "morning"
+                        : h < 17 ? "afternoon" : h < 21 ? "evening" : "late night";
+                    text += " " + _t("It is %s for the user - let that colour the opening if it fits naturally.", part);
+                }
+                this.injectContextItem(text, { promptResponse: true });
             }
         } catch (e) {
             console.error(`[voice:${this.connId}] _onWsOpen failed`, e);

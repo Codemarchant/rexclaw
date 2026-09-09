@@ -17,6 +17,10 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
       "description": "optional",
       "sequence": 10,
       "vrm": "kira_default.vrm",
+      "physical_description": "what the character looks like — face, hair,
+                                build, species… (fed to the LLM)",
+      "main_outfit_name": "Lab coat",           // what the main VRM wears;
+      "main_outfit_description": "…",           // the wardrobe below has its own
       "vrma_idle": "idle.vrma",
       "emotion_decay": true,             // optional; default true — emotions
                                          // settle back toward neutral after a beat
@@ -138,6 +142,11 @@ def _positive_number(value, default):
     return v if v > 0 else default
 
 
+def _text_or_none(value):
+    """A manifest text field, stripped; None when absent or blank."""
+    return (str(value).strip() or None) if isinstance(value, str) else None
+
+
 def _id_list(value):
     """Manifest id list (JSON array or comma-separated string) → the
     normalised comma-separated form stored in the DB, or None when empty."""
@@ -171,21 +180,25 @@ def _upsert_avatar(con, pack_key, vals):
             "UPDATE avatars SET pack_key = ?, name = ?, description = ?, sequence = ?,"
             " vrm_path = ?, vrma_idle_path = ?, emotion_decay = ?, fidgets = ?,"
             " fidget_interval = ?, restrict_base_gestures = ?, base_gestures = ?,"
+            " physical_description = ?, main_outfit_name = ?, main_outfit_description = ?,"
             " active = 1 WHERE id = ?",
             (pack_key, vals["name"], vals["description"], vals["sequence"],
              vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
              vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
-             vals["base_gestures"], row["id"]),
+             vals["base_gestures"], vals["physical_description"],
+             vals["main_outfit_name"], vals["main_outfit_description"], row["id"]),
         )
         return row["id"]
     cur = con.execute(
         "INSERT INTO avatars (pack_key, name, description, sequence, vrm_path, vrma_idle_path,"
-        " emotion_decay, fidgets, fidget_interval, restrict_base_gestures, base_gestures"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " emotion_decay, fidgets, fidget_interval, restrict_base_gestures, base_gestures,"
+        " physical_description, main_outfit_name, main_outfit_description"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (pack_key, vals["name"], vals["description"], vals["sequence"],
          vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
          vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
-         vals["base_gestures"]),
+         vals["base_gestures"], vals["physical_description"],
+         vals["main_outfit_name"], vals["main_outfit_description"]),
     )
     return cur.lastrowid
 
@@ -222,6 +235,9 @@ def _scan_pack(con, pack_dir, url_root):
         "fidget_interval": _positive_number(manifest.get("fidget_interval"), 10.0),
         "restrict_base_gestures": 1 if manifest.get("restrict_base_gestures") is True else 0,
         "base_gestures": _id_list(manifest.get("base_gestures")),
+        "physical_description": _text_or_none(manifest.get("physical_description")),
+        "main_outfit_name": _text_or_none(manifest.get("main_outfit_name")),
+        "main_outfit_description": _text_or_none(manifest.get("main_outfit_description")),
     })
 
     # Children are replaced wholesale — manifest is the source of truth.

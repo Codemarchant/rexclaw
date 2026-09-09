@@ -393,8 +393,9 @@ CREATE TABLE IF NOT EXISTS agents (
     wake_action TEXT NOT NULL DEFAULT 'resume_last',
     -- Time-aware resume: when a conversation is resumed, a dated system
     -- note tells the companion how long it has been since the last
-    -- exchange. Opt-in: it adds a visible note to every resume.
-    time_aware_resume INTEGER NOT NULL DEFAULT 0,
+    -- exchange (and a speaks-first companion opens with the user's part
+    -- of day in mind). On by default; off hides the resume note.
+    time_aware_resume INTEGER NOT NULL DEFAULT 1,
     -- Voice calls: the companion opens the conversation as soon as the call
     -- connects instead of waiting for the user to speak. Opt-in.
     speaks_first INTEGER NOT NULL DEFAULT 0
@@ -792,8 +793,10 @@ MIGRATIONS = (
     " THEN 'fixed' ELSE 'persistent' END"
     " WHERE session_strategy = 'isolated'"
     " AND (session_id IS NOT NULL OR persist_session != 0)",
-    # Time-aware resume note (opt-in per companion).
-    "ALTER TABLE agents ADD COLUMN time_aware_resume INTEGER NOT NULL DEFAULT 0",
+    # Time-aware resume note. Default flipped to on (2026-09-09) for new
+    # databases and companions only: SQLite freezes a column's default at
+    # creation, and existing companions deliberately keep their setting.
+    "ALTER TABLE agents ADD COLUMN time_aware_resume INTEGER NOT NULL DEFAULT 1",
     # Cross-mode token accounting (see session_service._cross_mode_token_vals).
     "ALTER TABLE sessions ADD COLUMN tokens_at_mode_switch INTEGER NOT NULL DEFAULT 0",
     # Companion speaks first on voice calls (opt-in per companion).
@@ -832,6 +835,25 @@ MIGRATIONS = (
     # The user's own uploaded likeness (Settings tab) — create_image/
     # create_video's include_user.
     "ALTER TABLE config ADD COLUMN user_photo_path TEXT",
+    # Appearance lives on the avatar, not in the companion's system prompt:
+    # what the character looks like (physical_description) and what the
+    # main VRM wears (main_outfit_name / main_outfit_description — the
+    # wardrobe's outfits carry their own). Rendered into the prompt as an
+    # Appearance section and read by change_outfit / the imagine outfit
+    # pickers. Mirrors the avatar.json manifest keys of the same name.
+    "ALTER TABLE avatars ADD COLUMN physical_description TEXT",
+    "ALTER TABLE avatars ADD COLUMN main_outfit_name TEXT",
+    "ALTER TABLE avatars ADD COLUMN main_outfit_description TEXT",
+    # What the companion is wearing right now — an avatar_outfits NAME, or
+    # NULL for the main outfit. By name, not id: the pack scanner replaces
+    # every outfit row on boot, so ids don't survive a restart and names
+    # are the stable handle (the API still speaks ids, resolved per boot —
+    # store.current_outfit). Server-side so it survives reloads, app
+    # restarts and companion switches, and so text-mode pictures of the
+    # companion use the outfit they actually have on. Runtime state, not a
+    # setting: deliberately NOT in routes/misc._AGENT_FIELDS (never
+    # exported with a companion package).
+    "ALTER TABLE agents ADD COLUMN current_outfit_name TEXT",
 )
 
 

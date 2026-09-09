@@ -142,7 +142,7 @@ def avatar_payload(con, avatar_id):
     from . import portraits
     outfits = [{
         'id': 0,
-        'name': 'Default Outfit',
+        'name': (av['main_outfit_name'] or '').strip() or MAIN_OUTFIT_FALLBACK_NAME,
         'vrm_url': av['vrm_path'],
         'is_default': True,
         'portrait_url': portraits.portrait_url(av['vrm_path']),
@@ -218,6 +218,9 @@ def avatar_payload(con, avatar_id):
         # restrict_base_gestures is on.
         'restrict_base_gestures': bool(av['restrict_base_gestures']),
         'base_gestures': _id_list_from_row(av['base_gestures']),
+        'physical_description': av['physical_description'] or '',
+        'main_outfit_name': av['main_outfit_name'] or '',
+        'main_outfit_description': av['main_outfit_description'] or '',
         'backgrounds': backgrounds,
         'default_background_id': default_bg['id'] if default_bg else False,
         'outfits': outfits,
@@ -255,6 +258,75 @@ def agent_outfit_dicts(con, agent_row):
         (agent_row['avatar_id'],),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+MAIN_OUTFIT_FALLBACK_NAME = 'Main outfit'
+
+
+def agent_appearance(con, agent_row):
+    """The avatar's appearance fields for this agent, as a dict
+    {physical, main_name, main_description} (strings, '' when unset;
+    main_name falls back to MAIN_OUTFIT_FALLBACK_NAME so the outfit pickers
+    always have a label for the main look). All empty without an avatar."""
+    out = {'physical': '', 'main_name': MAIN_OUTFIT_FALLBACK_NAME, 'main_description': ''}
+    if not agent_row['avatar_id']:
+        return out
+    av = con.execute(
+        "SELECT physical_description, main_outfit_name, main_outfit_description"
+        " FROM avatars WHERE id = ?", (agent_row['avatar_id'],),
+    ).fetchone()
+    if not av:
+        return out
+    out['physical'] = (av['physical_description'] or '').strip()
+    out['main_name'] = (av['main_outfit_name'] or '').strip() or MAIN_OUTFIT_FALLBACK_NAME
+    out['main_description'] = (av['main_outfit_description'] or '').strip()
+    return out
+
+
+def current_outfit(con, agent_row):
+    """The avatar_outfits row the companion currently has on, or None for
+    the main outfit (agents.current_outfit_name unset, or naming an outfit
+    the avatar no longer has — the wardrobe was edited, or the agent moved
+    to another avatar — which silently means "main"). Stored by name
+    because outfit ids are reissued on every boot (see the db.py
+    migration note); resolved to this boot's row here."""
+    name = (agent_row['current_outfit_name'] or '').strip()
+    if not name or not agent_row['avatar_id']:
+        return None
+    return con.execute(
+        "SELECT * FROM avatar_outfits WHERE avatar_id = ? AND lower(name) = lower(?)"
+        " ORDER BY sequence, id LIMIT 1",
+        (agent_row['avatar_id'], name),
+    ).fetchone()
+
+
+def current_outfit_id(con, agent_row):
+    """This boot's id for what the companion has on — 0 for main. What the
+    browser hydrates its pickers from."""
+    row = current_outfit(con, agent_row)
+    return row['id'] if row else 0
+
+
+def set_current_outfit(con, agent_row, outfit_id):
+    """Record what the companion is wearing, given this boot's outfit id
+    (0/None = main outfit; anything else must belong to the agent's
+    avatar). Persists the NAME. Returns the id back (0 for main)."""
+    try:
+        oid = int(outfit_id or 0)
+    except (TypeError, ValueError):
+        raise UserError("outfit_id must be a number (0 for the main outfit).")
+    name = None
+    if oid:
+        row = con.execute(
+            "SELECT name FROM avatar_outfits WHERE id = ? AND avatar_id = ?",
+            (oid, agent_row['avatar_id']),
+        ).fetchone()
+        if not row:
+            raise UserError("That outfit does not belong to this companion's avatar.")
+        name = row['name']
+    con.execute("UPDATE agents SET current_outfit_name = ? WHERE id = ?",
+                (name, agent_row['id']))
+    return oid
 
 
 def agent_gesture_dicts(con, agent_row):

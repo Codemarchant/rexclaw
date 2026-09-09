@@ -400,12 +400,15 @@ def build_play_gesture_tool(custom_gestures, allow=None):
     }
 
 
-def build_change_outfit_tool(outfits):
+def build_change_outfit_tool(outfits, appearance):
     """Build a per-agent change_outfit tool whose description lists this
     agent's avatar wardrobe inline so the LLM can pick contextually.
 
     :param outfits: list of dicts {id, name, outfit_description} (additional
-        outfits only — the default outfit is the implicit id 0).
+        outfits only — the main outfit is the implicit id 0).
+    :param appearance: store.agent_appearance() dict — names the main
+        outfit in the list (its description already sits in the prompt's
+        Appearance section, so only the name is repeated here).
     Returns None when the wardrobe is empty so the caller omits the tool.
     """
     if not outfits:
@@ -420,8 +423,8 @@ def build_change_outfit_tool(outfits):
         "look. Don't change on a whim mid-sentence.",
         "",
         "Pass `outfit_id` from this list:",
-        "  - 0 — Default outfit (the look described in your system prompt). "
-        "Use this to revert.",
+        f"  - 0 — {appearance['main_name']} (your main outfit, described "
+        f"under Appearance). Use this to revert.",
     ]
     for o in outfits:
         desc = (o.get("outfit_description") or "").strip() or "(no description)"
@@ -438,7 +441,7 @@ def build_change_outfit_tool(outfits):
                     "enum": [0] + [o["id"] for o in outfits],
                     "description": (
                         "ID of the outfit to switch to. 0 reverts to the "
-                        "avatar's default outfit; other values come from the "
+                        "avatar's main outfit; other values come from the "
                         "list embedded in this tool's description."
                     ),
                 },

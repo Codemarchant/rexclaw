@@ -2,6 +2,9 @@
   "name": "Rex",
   "sequence": 30,
   "vrm": "CaptainLobster.vrm",
+  "physical_description": "Half lobster, half man - a stout anthropomorphic lobster with a bright red segmented carapace, broad-chested and muscular, with large working claws. Large white bulging eyes and a thick curled red mustache.",
+  "main_outfit_name": "Pirate vest",
+  "main_outfit_description": "An open olive-green leather vest over a bare chest, with a brown bandolier strap across the torso and a wide brown belt. White/grey textured pants. Topped off with a small brown pirate captain's hat featuring a white skull-and-crossbones emblem.",
   "outfits": [],
   "gestures": [],
   "backgrounds": [

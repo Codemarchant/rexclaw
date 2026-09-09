@@ -2,6 +2,9 @@
   "name": "Sal",
   "sequence": 40,
   "vrm": "Froggy.vrm",
+  "physical_description": "A male humanoid tree frog with bright green skin, a pale cream-white belly and chest, and orange hands and feet. Black tribal-style markings with yellow accents run along the arms, sides, and knees. Large red eyes with vertical slit pupils and a yellow stripe down the center of the forehead.",
+  "main_outfit_name": "Bare",
+  "main_outfit_description": "No clothing - the markings and colouring are the whole look.",
   "outfits": [],
   "gestures": [],
   "backgrounds": [

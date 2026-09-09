@@ -277,13 +277,17 @@ export class ToolDispatcher {
 
     /** create_image / create_video `include_self` on the voice surface: the
      *  companion's likeness is the LIVE avatar (outfit, scene, call
-     *  peers), so snapshot the canvas here and pass it as the first source
-     *  (<IMAGE_0>), dropping the flag so the server doesn't add the static
-     *  portrait on top. If there is no canvas to capture, the flag goes
-     *  through untouched and the server falls back to the portrait. A named
-     *  `outfit` also goes through untouched: the user asked for a different
-     *  look, so the server's outfit portrait is the likeness — nothing on
-     *  screen changes. */
+     *  peers), so snapshot the canvas here and hand it to the server as
+     *  `self_snapshot`, which it uses as the likeness in place of the
+     *  static portrait. The flag itself stays set: the server orders
+     *  likenesses self → companions → user → other sources, so the
+     *  snapshot has to travel as "self" to stay <IMAGE_0> — splicing it
+     *  into source_images (the old way) put any include_companion
+     *  portrait ahead of it and mislabelled everyone. If there is no
+     *  canvas to capture, the flag goes through alone and the server
+     *  falls back to the portrait. A named `outfit` also goes through
+     *  untouched: the user asked for a different look, so the server's
+     *  outfit portrait is the likeness — nothing on screen changes. */
     async _resolveIncludeSelf(name, args) {
         if (!args?.include_self) return args;
         if (name !== "create_image" && name !== "create_video") return args;
@@ -291,11 +295,7 @@ export class ToolDispatcher {
         const shot = await this._takeSelfie({ include_background: true });
         const ref = shot?.imagine_image_id || shot?.image_url;
         if (!shot?.ok || !ref) return args;
-        const { include_self, ...rest } = args;
-        void include_self;
-        const key = name === "create_image" ? "source_images" : "reference_images";
-        const existing = Array.isArray(rest[key]) ? rest[key] : (rest[key] ? [rest[key]] : []);
-        return { ...rest, [key]: [ref, ...existing] };
+        return { ...args, self_snapshot: ref };
     }
 
     /** take_selfie: snapshot the live canvas and persist it server-side as
@@ -619,11 +619,11 @@ export class ToolDispatcher {
     }
 
     /** Swap the avatar's VRM to the chosen outfit. outfit_id=0 reverts to the
-     *  avatar's default VRM; other values map to outfit records embedded in
+     *  avatar's main VRM; other values map to outfit records embedded in
      *  conversationState.avatar.outfits. */
     _changeOutfit({ outfit_id }) {
         if (outfit_id == null || !Number.isInteger(outfit_id)) {
-            return { ok: false, error: "change_outfit requires integer `outfit_id` (0 for default)." };
+            return { ok: false, error: "change_outfit requires integer `outfit_id` (0 for the main outfit)." };
         }
         if (!this.avatarApi?.setOutfit) {
             return { ok: false, error: "No avatar renderer attached — outfit changes are only available in voice mode with an avatar visible." };
@@ -638,12 +638,13 @@ export class ToolDispatcher {
             return { ok: false, error: `Outfit ${outfit_id} has no VRM file uploaded.` };
         }
         // Write the new selection onto the shared reactive state so the
-        // pickers re-render to match, and persist it so fresh page
-        // instances (mascot pop-out, reloads) hydrate with this outfit.
+        // pickers re-render to match, and persist it server-side so fresh
+        // page instances (mascot pop-out, reloads, restarts) hydrate with
+        // this outfit.
         if (this.conversationState) {
             this.conversationState.selectedOutfitId = Number(outfit_id);
         }
-        storeOutfitPref(avatar?.id, outfit_id);
+        storeOutfitPref(this.conversationState?.agentId, outfit_id);
         // Fire-and-forget: setOutfit is async (VRM load), but the model just
         // needs the ack to continue speaking.
         Promise.resolve(this.avatarApi.setOutfit(outfit.vrm_url, avatar?.vrma_idle_url || null)).catch((e) => {

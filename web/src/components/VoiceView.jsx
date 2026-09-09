@@ -17,7 +17,7 @@ import { useFileDrop } from "../lib/use_file_drop";
 import { screenCapture } from "../lib/screen_capture";
 import { cameraAwareness } from "../lib/camera_awareness";
 import ShareButton from "./ShareButton.jsx";
-import { storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
+import { refreshStoredOutfit, storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
 import { LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 
 // WASD + arrows → camera-relative movement axes for the manual walk toggle.
@@ -249,8 +249,12 @@ export default function VoiceView({ active = true }) {
             return;
         }
         avatarRenderer.configureFromAvatar(avatar);
-        if (loadedAvatarId.current === avatar.id) return;
-        loadedAvatarId.current = avatar.id;
+        // Keyed by agent AND avatar: two companions can share an avatar but
+        // each wears their own outfit, so a switch between them must
+        // re-hydrate even though the model file is the same.
+        const loadKey = `${agentId}:${avatar.id}`;
+        if (loadedAvatarId.current === loadKey) return;
+        loadedAvatarId.current = loadKey;
         avatarRenderer.resetExpression?.();
         setCurrentEmotion("neutral");
         // Resolve the initial background with the SAME precedence the server
@@ -267,17 +271,29 @@ export default function VoiceView({ active = true }) {
         voice.state.activeBackground = resolved;
         voice.state.backgroundPickedByUser = false;
         avatarRenderer.setBackground?.(resolved);
-        // Restore the user's last outfit pick if it belongs to this avatar —
-        // in-page state first, else the persisted preference (which is what
-        // fresh page instances like the mascot hydrate from).
-        const wantId = Number(voice.state.selectedOutfitId || 0);
-        const wantOutfit = (avatar.outfits || []).find((o) => Number(o.id) === wantId)
-            || storedOutfit(avatar);
+        // Restore what this companion is wearing from the recorded pick
+        // (server-side, with this page's own latest picks layered on top).
+        // NOT from voice.state.selectedOutfitId: on a companion switch that
+        // still holds the previous companion's pick, and its 0 matched the
+        // main-outfit entry (id 0) that leads every avatar's list, so the
+        // stored pick was never consulted after a reload or a switch-back.
+        const wantOutfit = storedOutfit(agent);
         const targetUrl = wantOutfit?.vrm_url || avatar.vrm_url;
         voice.state.selectedOutfitId = wantOutfit ? Number(wantOutfit.id) : 0;
         avatarRenderer.loadVRM(targetUrl).catch((e) => {
             console.error("[voice] avatar VRM load failed", e);
             loadedAvatarId.current = null;
+        });
+        // The recorded pick may have moved since the agents list was
+        // fetched (the change_outfit tool, the mascot page): re-read it and
+        // correct the outfit if it differs from what just loaded.
+        refreshStoredOutfit(agent).then((fresh) => {
+            if (loadedAvatarId.current !== loadKey) return;   // switched away meanwhile
+            const id = fresh ? Number(fresh.id) : 0;
+            if (id === Number(voice.state.selectedOutfitId || 0)) return;
+            voice.state.selectedOutfitId = id;
+            avatarRenderer.setOutfit(fresh?.vrm_url || avatar.vrm_url, avatar.vrma_idle_url || null)
+                .catch((e) => console.error("[voice] outfit re-sync failed", e));
         });
         if (avatar.vrma_idle_url) {
             avatarRenderer.loadVRMA(avatar.vrma_idle_url).catch(() => {});
@@ -895,10 +911,11 @@ export default function VoiceView({ active = true }) {
     const currentAgent = findAgent(selectedAgentId);
     const currentOutfits = currentAgent?.avatar?.outfits || [];
 
-    resyncOutfitRef.current = () => {
+    resyncOutfitRef.current = async () => {
         const avatar = currentAgent?.avatar;
         if (!avatar?.vrm_url) return;
-        const outfit = storedOutfit(avatar);   // null = default → base VRM
+        // The mascot page wrote its pick to the server — re-read it.
+        const outfit = await refreshStoredOutfit(currentAgent);   // null = main → base VRM
         const wantId = outfit ? Number(outfit.id) : 0;
         if (wantId === Number(voice.state.selectedOutfitId || 0)) return;
         voice.state.selectedOutfitId = wantId;
@@ -1075,9 +1092,11 @@ export default function VoiceView({ active = true }) {
         const outfit = (avatar?.outfits || []).find((o) => Number(o.id) === id);
         if (!outfit) return;
         voice.state.selectedOutfitId = id;
-        // Persist so fresh page instances (mascot pop-out, reloads) hydrate
-        // with this outfit instead of snapping back to the default.
-        storeOutfitPref(avatar?.id, id);
+        // Persist server-side so reloads, restarts, companion switches and
+        // the mascot pop-out all hydrate with this outfit.
+        storeOutfitPref(currentAgent, id);
+        // Mid-call: a silent note so the companion knows what they now wear.
+        voice.noteOutfitChange?.(outfit.name, { isMain: id === 0 });
         avatarRenderer.setOutfit(outfit.vrm_url, avatar?.vrma_idle_url || null).catch((e) => {
             console.error("[voice] outfit load failed", e);
         });

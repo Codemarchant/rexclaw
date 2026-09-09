@@ -18,7 +18,7 @@ from .db import ASSETS_DIR, FILES_DIR, connect, init_db
 from .errors import UserError
 from .routes import avatars, heartbeats, minecraft, misc, text, voice
 from .lore_seeds import seed_lore_if_empty
-from .seeds import seed_if_empty
+from .seeds import migrate_default_outfit_sections, seed_if_empty
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _logger = logging.getLogger(__name__)
@@ -50,6 +50,9 @@ def startup():
         scan_packs(con)
         seed_if_empty(con)
         seed_lore_if_empty(con)
+        # After the scan: moves legacy "## Default outfit" prompt sections
+        # onto the avatar record (no-op once every prompt is clean).
+        migrate_default_outfit_sections(con)
     finally:
         con.close()
     # Daemon thread; opens its own DB connection per tick. Its first pass

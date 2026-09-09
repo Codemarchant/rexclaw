@@ -2,6 +2,9 @@
   "name": "Eve",
   "sequence": 10,
   "vrm": "eve_doctors_coat.vrm",
+  "physical_description": "A petite, slender young woman with a delicate build, fair skin, and a small soft face that rests in a faint calm expression. Large blue eyes and long straight silver-grey hair with bangs across the forehead, worn in a high side ponytail. Gentle and soft rather than heavily stylized or mature.",
+  "main_outfit_name": "Lab coat",
+  "main_outfit_description": "A professional white lab coat worn over a crisp white collared dress shirt, with a slim dark grey necktie. The coat falls to about knee-length, has notched lapels, three front buttons, and side pockets - giving it that classic researcher silhouette. Underneath, the legs are covered by dark navy trousers.",
   "outfits": [
     {
       "name": "Cozy Winter casual",
