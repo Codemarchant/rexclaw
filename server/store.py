@@ -6,9 +6,13 @@ methods (avatar / background / imagine image) so the ported frontend services
 consume them unchanged.
 """
 import json
+import logging
+import sqlite3
 
 from .db import utcnow
 from .errors import UserError, ValidationError
+
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -496,7 +500,12 @@ USD_TICKS_PER_USD = 10_000_000_000
 
 def accrue_usd_ticks(con, ticks):
     """Add the dollar-equivalent of `ticks` to the config row's spend counters.
-    Resets the daily bucket when the date rolls over."""
+    Resets the daily bucket when the date rolls over.
+
+    Best-effort: the spend meter is a convenience readout, so a busy database
+    ("database is locked" after the connection's wait) logs and skips rather
+    than failing the caller's real work (a compaction rollup, a turn). The
+    xAI console remains the accurate meter."""
     try:
         ticks = max(0, int(ticks or 0))
     except (TypeError, ValueError):
@@ -505,17 +514,20 @@ def accrue_usd_ticks(con, ticks):
         return
     usd = float(ticks) / float(USD_TICKS_PER_USD)
     today = utcnow()[:10]
-    row = con.execute("SELECT spend_today_date FROM config WHERE id = 1").fetchone()
-    if row and row['spend_today_date'] != today:
+    try:
+        row = con.execute("SELECT spend_today_date FROM config WHERE id = 1").fetchone()
+        if row and row['spend_today_date'] != today:
+            con.execute(
+                "UPDATE config SET spend_today_usd = 0, spend_today_date = ? WHERE id = 1",
+                (today,),
+            )
         con.execute(
-            "UPDATE config SET spend_today_usd = 0, spend_today_date = ? WHERE id = 1",
-            (today,),
+            "UPDATE config SET spend_lifetime_usd = spend_lifetime_usd + ?, "
+            "spend_today_usd = spend_today_usd + ?, spend_today_date = ? WHERE id = 1",
+            (usd, usd, today),
         )
-    con.execute(
-        "UPDATE config SET spend_lifetime_usd = spend_lifetime_usd + ?, "
-        "spend_today_usd = spend_today_usd + ?, spend_today_date = ? WHERE id = 1",
-        (usd, usd, today),
-    )
+    except sqlite3.OperationalError as e:
+        _logger.warning('Skipped spend accrual of %d ticks (%s)', ticks, e)
 
 
 def extract_cost_ticks(usage):

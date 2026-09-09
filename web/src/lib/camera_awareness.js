@@ -124,6 +124,29 @@ const EVENTS = {
             + "then drop it." },
 };
 
+// User-facing list of the triggers above, for the share panel's info
+// popover. Kept next to EVENTS so adding an event means adding a row here;
+// the strings are _t() keys resolved at render time.
+export const TRIGGER_HELP = [
+    { group: "Hand signs · hold about a second", items: [
+        ["wave", "Wave", "Waves back; hello or goodbye from context"],
+        ["thumbs_up", "Thumbs up", "Takes it as approval"],
+        ["thumbs_down", "Thumbs down", "Takes it as disapproval and adjusts"],
+        ["ok_sign", "OK sign", "Takes it as 'all good'"],
+        ["peace", "Peace sign", "Light, playful reaction"],
+        ["rock_on", "Rock-on horns", "Matches the energy"],
+        ["middle_finger", "Middle finger", "Reacts in character"],
+    ] },
+    { group: "Presence", items: [
+        ["away", "Step away", "Knows nobody is there and waits"],
+        ["back", "Come back", "A short greeting"],
+        ["goodbye", "Wave, then leave", "Treats it as goodbye"],
+    ] },
+    { group: "Tiredness", items: [
+        ["yawn", "Yawn", "One soft remark, rarely"],
+    ] },
+];
+
 const PREFIX = "[Camera note] ";
 const RULES = " (Never quote scores, never say you are analysing or watching their face.)";
 

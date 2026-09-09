@@ -141,7 +141,17 @@ function findFreePort() {
 }
 
 function spawnServer(python, port) {
-    const env = { ...process.env, REXCLAW_NO_BROWSER: "1" };
+    const env = {
+        ...process.env,
+        REXCLAW_NO_BROWSER: "1",
+        // The server watches this PID and exits when the shell dies, so a
+        // crashed Electron never leaves an orphaned python.exe behind
+        // (Steam would keep showing the app as "Running").
+        REXCLAW_PARENT_PID: String(process.pid),
+        // Never write __pycache__ into the bundled server tree. The install
+        // dir (Steam depot, unzipped folder) should stay exactly as shipped.
+        PYTHONDONTWRITEBYTECODE: "1",
+    };
     if (headsetAccess) {
         // HTTPS + LAN bind so a headset browser on the same WiFi can
         // connect (WebXR/mic need a secure origin). The server generates

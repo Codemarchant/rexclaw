@@ -171,6 +171,34 @@ body {
     }
 }
 
+// First-run "no API key yet" strip under the tab bar (App.jsx). Same palette
+// as the warning toast so it reads as status, not as an error.
+.rx_key_banner {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 1rem;
+    background: #b45309;
+    color: white;
+    font-size: 0.875rem;
+
+    > .fa { flex: 0 0 auto; }
+    > span { flex: 1 1 auto; min-width: 0; }
+    a { color: white; text-decoration: underline; }
+    .btn { flex: 0 0 auto; white-space: nowrap; }
+}
+
+.rx_key_banner_close {
+    flex: 0 0 auto;
+    background: transparent;
+    border: 0;
+    color: rgba(255, 255, 255, 0.8);
+    cursor: pointer;
+    padding: 0 0.25rem;
+    &:hover { color: white; }
+}
+
 // ---- Settings page ----------------------------------------------------------
 
 .rx_settings {

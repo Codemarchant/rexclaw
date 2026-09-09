@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { _t } from "../lib/i18n";
 import { screenCapture } from "../lib/screen_capture";
-import { cameraAwareness } from "../lib/camera_awareness";
+import { cameraAwareness, TRIGGER_HELP } from "../lib/camera_awareness";
 
 /** The share panel body: Screen / Camera switch at the top, per-source
  *  controls, awareness opt-in, Start / Stop. Presentational — it renders
@@ -11,6 +11,7 @@ import { cameraAwareness } from "../lib/camera_awareness";
  *  actions sent back as commands to the page that owns the streams). */
 export default function SharePanel({ share, actions, previewStream = null, busy = false, className = "" }) {
     const previewRef = useRef(null);
+    const [showTriggers, setShowTriggers] = useState(false);
     const source = share.preferred;
     const armed = !!share[source];
     const aware = share.awareness || {};
@@ -98,12 +99,37 @@ export default function SharePanel({ share, actions, previewStream = null, busy 
                             )}
                         </div>
                     )}
-                    <label className="rx_share_check"
-                           title={_t("Runs small face and hand models on this device while the camera is shared, so your companion reacts when you wave, give a thumbs up or down, a peace or OK sign or rock-on, and knows when you step away, come back or yawn. Only short hints reach them — never images, never scores.")}>
-                        <input type="checkbox" checked={!!aware.enabled}
-                               onChange={(ev) => actions.setAwareness(ev.target.checked)} />
-                        {" "}{_t("Notice presence, expressions & gestures (on this device only)")}
-                    </label>
+                    <div className="rx_share_check_row">
+                        <label className="rx_share_check"
+                               title={_t("Runs small face and hand models on this device while the camera is shared, so your companion reacts when you wave, give a thumbs up or down, a peace or OK sign or rock-on, and knows when you step away, come back or yawn. Only short hints reach them — never images, never scores.")}>
+                            <input type="checkbox" checked={!!aware.enabled}
+                                   onChange={(ev) => actions.setAwareness(ev.target.checked)} />
+                            {" "}{_t("Notice presence, expressions & gestures (on this device only)")}
+                        </label>
+                        {/* Outside the label on purpose: a label forwards clicks to its control. */}
+                        <button type="button" className={"rx_share_info" + (showTriggers ? " is-on" : "")}
+                                title={_t("What your companion reacts to")}
+                                onClick={() => setShowTriggers((v) => !v)}>
+                            <i className="fa fa-info-circle" />
+                        </button>
+                    </div>
+                    {showTriggers && (
+                        <div className="rx_share_triggers">
+                            {TRIGGER_HELP.map((g) => (
+                                <div key={g.group}>
+                                    <div className="rx_share_triggers_group">{_t(g.group)}</div>
+                                    {g.items.map(([key, label, effect]) => (
+                                        <div key={key} className="rx_share_triggers_row">
+                                            <b>{_t(label)}</b> · {_t(effect)}
+                                        </div>
+                                    ))}
+                                </div>
+                            ))}
+                            <div className="rx_share_status">
+                                {_t("A held sign fires once. Release it and pause before repeating it. Only short notes reach your companion, never images.")}
+                            </div>
+                        </div>
+                    )}
                     {awarenessStatus() && (
                         <div className={"rx_share_status" + (aware.status === "error" ? " is-error" : "")}>
                             {awarenessStatus()}

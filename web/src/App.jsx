@@ -21,6 +21,7 @@ import { heartbeatCall } from "./lib/heartbeat_call";
 import { startTranscriptOwner } from "./services/transcript_sync";
 import { useReactive } from "./lib/reactive";
 import { _t, i18nState } from "./lib/i18n";
+import { rpc } from "./lib/rpc";
 
 const TABS = [
     { id: "voice", label: "Voice", icon: "fa-microphone" },
@@ -103,6 +104,23 @@ export default function App() {
     // Heartbeat call mode — one elected window polls for due "call the
     // user" heartbeats and answers by starting the call.
     useEffect(() => { heartbeatCall.start(); }, []);
+    // First-run pointer: nothing works without an xAI key, and a fresh
+    // install has no reason to know it lives under Settings. Checked on
+    // load and again whenever the tab changes (i.e. after leaving Settings)
+    // so the banner clears itself once a key is saved. Dismiss lasts for
+    // the window's lifetime only. It comes back next launch until a key
+    // exists, which is the point.
+    const [needsKey, setNeedsKey] = useState(false);
+    const [keyBannerDismissed, setKeyBannerDismissed] = useState(false);
+    useEffect(() => {
+        if (keyBannerDismissed) return;
+        let cancelled = false;
+        rpc("/api/config/get", {})
+            .then((cfg) => { if (!cancelled) setNeedsKey(!cfg.has_api_key); })
+            .catch(() => { /* server unreachable; the views report that themselves */ });
+        return () => { cancelled = true; };
+    }, [tab, keyBannerDismissed]);
+    const showKeyBanner = needsKey && !keyBannerDismissed;
     // In immersive mode on the Voice tab, hide the whole header for a pure
     // full-screen avatar. Other tabs always keep their header.
     const hideHeader = ui.immersive && tab === "voice";
@@ -170,6 +188,24 @@ export default function App() {
                     </button>
                 )}
             </nav>}
+            {showKeyBanner && !hideHeader && (
+                <div className="rx_key_banner" role="status">
+                    <i className="fa fa-key" />
+                    <span>
+                        {_t("Companions talk through your own xAI (Grok) account, which bills you directly for usage.")}{" "}
+                        {_t("Add your API key in Settings to get started.")}{" "}
+                        <a href="https://console.x.ai" target="_blank" rel="noreferrer">{_t("Get a key")}</a>
+                    </span>
+                    {tab !== "settings" && (
+                        <button className="btn btn-sm btn-light" onClick={() => requestTab("settings")}>
+                            {_t("Open Settings")}
+                        </button>
+                    )}
+                    <button className="rx_key_banner_close" onClick={() => setKeyBannerDismissed(true)} title={_t("Dismiss")}>
+                        <i className="fa fa-times" />
+                    </button>
+                </div>
+            )}
             <main className="rx_main">
                 <div className="rx_view" style={{ display: tab === "voice" ? "" : "none" }}>
                     <VoiceView active={tab === "voice"} />

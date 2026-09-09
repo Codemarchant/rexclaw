@@ -177,6 +177,56 @@
         input { margin-top: 0.2rem; }
     }
 
+    .rx_share_check_row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.25rem;
+
+        .rx_share_check { flex: 1 1 auto; }
+    }
+
+    // "What your companion reacts to" toggle + the trigger list it opens.
+    .rx_share_info {
+        flex: 0 0 auto;
+        background: transparent;
+        border: 0;
+        padding: 0 0.1rem;
+        color: #94a3b8;
+        cursor: pointer;
+        font-size: 0.95rem;
+        line-height: 1.3;
+
+        &:hover, &.is-on { color: white; }
+    }
+
+    .rx_share_triggers {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        padding: 0.5rem 0.6rem;
+        border-radius: 0.5rem;
+        background: rgba(255, 255, 255, 0.06);
+        font-size: 0.8rem;
+        color: #cbd5e1;
+        // The list scrolls, not the popover, so Start / Stop stays in reach.
+        max-height: 40vh;
+        overflow-y: auto;
+    }
+
+    .rx_share_triggers_group {
+        color: #94a3b8;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.1rem;
+    }
+
+    .rx_share_triggers_row {
+        line-height: 1.35;
+
+        b { color: white; font-weight: 600; }
+    }
+
     .rx_share_status {
         font-size: 0.78rem;
         color: #94a3b8;

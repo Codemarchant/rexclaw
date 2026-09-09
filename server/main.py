@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import heartbeat
+from . import heartbeat, parent_watch
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, init_db
 from .errors import UserError
@@ -39,6 +39,8 @@ async def user_error_handler(request: Request, exc: UserError):
 
 @app.on_event("startup")
 def startup():
+    # Desktop shell only: die with the Electron process that spawned us.
+    parent_watch.start_if_configured()
     init_db()
     con = connect()
     try:
