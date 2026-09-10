@@ -5,7 +5,9 @@ import React, { useEffect, useRef, useState } from "react";
  *  plain text; text mode renders markdown for assistant content, draws the
  *  agent thumbnail beside assistant rows, and shows attachment chips on user
  *  messages. Consecutive tool_call + tool_result messages collapse into one
- *  accordion row. */
+ *  accordion row, and so do the rows a silent heartbeat wrote (when that
+ *  heartbeat's collapse_in_transcript is on) and an incoming companion text
+ *  with its reply (always). */
 
 /** Tiny markdown renderer: HTML-escapes input first, then re-introduces a
  *  whitelist of safe constructs (paragraphs, line breaks, bold, italic,
@@ -172,6 +174,7 @@ function buildDisplayRows(messages) {
                     args: m.tool_arguments_json || "",
                     result: result.content || "",
                     pending: false,
+                    fold: m.fold || null,
                 }));
             } else {
                 rows.push(toolRow({
@@ -180,6 +183,7 @@ function buildDisplayRows(messages) {
                     args: m.tool_arguments_json || "",
                     result: "",
                     pending: true,
+                    fold: m.fold || null,
                 }));
             }
         } else if (m.role === "tool_result") {
@@ -190,13 +194,44 @@ function buildDisplayRows(messages) {
                 args: "",
                 result: m.content || "",
                 pending: false,
+                fold: m.fold || null,
             }));
         } else {
-            rows.push({ kind: "msg", key: `m-${m.sequence}`, msg: m });
+            rows.push({ kind: "msg", key: `m-${m.sequence}`, msg: m, fold: m.fold || null });
         }
     }
-    return rows;
+    return foldRows(rows);
 }
+
+/** Fold each run of consecutive rows carrying the same fold tag (a silent
+ *  heartbeat tick, or an incoming companion text and its reply) into one
+ *  kind='fold' accordion row, when the tag asks for it (collapsed). Rows
+ *  whose tag doesn't, and ordinary rows, pass through unchanged. */
+function foldRows(rows) {
+    const out = [];
+    let group = null;
+    for (const row of rows) {
+        const tag = row.fold && row.fold.collapsed ? row.fold : null;
+        const groupKey = tag ? `${tag.kind}-${tag.id}` : null;
+        if (tag && group && group.groupKey === groupKey) {
+            group.rows.push(row);
+            continue;
+        }
+        group = null;
+        if (tag) {
+            group = { kind: "fold", key: `fold-${row.key}`, groupKey, tag, rows: [row] };
+            out.push(group);
+        } else {
+            out.push(row);
+        }
+    }
+    return out;
+}
+
+// The model-facing preamble on an incoming companion text ("[Companion text
+// from "X": another companion is texting you, ...]\n"). The transcript shows
+// the message itself under the sender's name instead.
+const TEXT_TAG_RE = /^\[Companion text from [^\]]*\]\s*/;
 
 export default function Transcript({
     messages,
@@ -221,7 +256,7 @@ export default function Transcript({
     // Only a reply that arrived live (msg.fresh, set by text_service) is
     // paced; history, resume and the Sessions tab show every bubble at once.
     const [revealed, setRevealed] = useState({});
-    const isMdAssistantRow = (row) => row.kind !== "tool" && isTextMode && row.msg.role === "assistant";
+    const isMdAssistantRow = (row) => row.kind === "msg" && isTextMode && row.msg.role === "assistant";
     useEffect(() => {
         const updates = {};
         for (const row of rows) {
@@ -299,7 +334,42 @@ export default function Transcript({
                     <span>{_t("Earlier messages not shown")}</span>
                 </div>
             )}
-            {rows.map((row) => {
+            {rows.map(function renderRow(row) {
+                if (row.kind === "fold") {
+                    // Folded silent-heartbeat tick or incoming companion
+                    // text: a pill with the heartbeat's / sender's name; the
+                    // rows render inside (recursively, so tool rows keep
+                    // their own accordion).
+                    const open = !!expanded[row.key];
+                    const isText = row.tag.kind === "text";
+                    return (
+                        <div
+                            key={row.key}
+                            className={"o_voice_msg o_voice_msg--heartbeat" + (open ? " is-expanded" : "")}
+                        >
+                            <button
+                                type="button"
+                                className="o_voice_tool_header"
+                                onClick={() => toggleRow(row.key)}
+                                aria-expanded={open ? "true" : "false"}
+                                title={isText
+                                    ? _t("A text from another companion and the reply. Click to show or hide it.")
+                                    : _t("Written by a scheduled heartbeat while you were away. Click to show or hide it.")}
+                            >
+                                <i className={open ? "fa fa-caret-down" : "fa fa-caret-right"} />
+                                <i className={(isText ? "fa fa-commenting-o" : "fa fa-heartbeat") + " o_voice_tool_icon"} />
+                                <span className="o_voice_tool_name">
+                                    {isText ? _t("Text from %s", row.tag.name) : row.tag.name}
+                                </span>
+                            </button>
+                            {open && (
+                                <div className="o_voice_hb_body">
+                                    {row.rows.map(renderRow)}
+                                </div>
+                            )}
+                        </div>
+                    );
+                }
                 if (row.kind === "tool") {
                     return (
                         <div
@@ -413,14 +483,19 @@ export default function Transcript({
                 // Voice-surface rendering. A text-mode reply resumed into a
                 // voice session still carries `[next]` breaks — split it the
                 // same way (no pacing), role label on the first bubble only.
-                const chunks = msg.role === "assistant" ? splitBubbles(msg.content) : [msg.content || ""];
+                // An incoming companion text is a user-role row for the
+                // model; to the reader it is the sender speaking, so label
+                // it with their name and drop the model-facing preamble.
+                const fromCompanion = msg.role === "user" && msg.fold?.kind === "text";
+                const content = fromCompanion ? (msg.content || "").replace(TEXT_TAG_RE, "") : (msg.content || "");
+                const chunks = msg.role === "assistant" ? splitBubbles(content) : [content];
                 return chunks.map((chunk, i) => (
                     <div key={`${row.key}-${i}`}
                          className={classFor(msg.role) + (i ? " o_voice_msg--cont" : "")}>
                         {/* Group calls stamp assistant rows with the speaking
                             agent's name — show it instead of the generic role
                             so three-way exchanges read clearly. */}
-                        {!i && <div className="o_voice_msg_role">{msg.speaker || msg.role}</div>}
+                        {!i && <div className="o_voice_msg_role">{fromCompanion ? msg.fold.name : (msg.speaker || msg.role)}</div>}
                         <div className="o_voice_msg_content">{chunk}</div>
                         {i === chunks.length - 1 && renderAttachments(msg)}
                     </div>

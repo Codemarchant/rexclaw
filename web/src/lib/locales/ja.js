@@ -1129,6 +1129,37 @@ export const JA = {
     "このハートビート中にコンパニオンの他のツールを許可する",
   "Gives this tick the companion's ordinary tools — memory, pictures, delegated tasks, Minecraft, MCP servers. Off by default: a background tick writes a diary entry or texts someone, and a companion with an idle tool belt and nothing left to do tends to fill the turn with pointless calls. Companion texting below is separate and unaffected.":
     "このティックでコンパニオンの通常のツール（メモリ、画像、委任タスク、Minecraft、MCP サーバー）を使えるようにします。既定はオフです。バックグラウンドのティックは日記を書いたり誰かにメッセージを送ったりするもので、手持ち無沙汰なツールを抱えたコンパニオンは、意味のない呼び出しでターンを埋めがちだからです。下のコンパニオン間メッセージは別扱いで、この設定の影響を受けません。",
+  "Hide this heartbeat's entries behind an accordion in the transcript":
+    "このハートビートの書き込みをトランスクリプトで折りたたむ",
+  "Folds everything a silent tick writes (a diary entry, a texting exchange) behind one collapsed row named after this heartbeat in the chat and voice transcripts. Keeps the conversation short and lets you choose whether to read it. Toggling it restyles past ticks too; call-mode ticks are never folded.":
+    "サイレントティックが書いたもの（日記、コンパニオン間のメッセージ）を、チャットとボイスのトランスクリプトでこのハートビート名の折りたたみ行にまとめます。会話が長くならず、読むかどうかを自分で選べます。切り替えると過去のティックにも反映されます。通話モードのティックは折りたたまれません。",
+  "Written by a scheduled heartbeat while you were away. Click to show or hide it.":
+    "留守中にハートビートが書き込んだ内容です。クリックで表示・非表示を切り替えます。",
+  "A text from another companion and the reply. Click to show or hide it.":
+    "他のコンパニオンからのメッセージとその返信です。クリックで表示・非表示を切り替えます。",
+  "Text from %s": "%s からのメッセージ",
+  "Fires": "発火条件",
+  "On a schedule": "スケジュールで",
+  "After the user has been quiet for": "ユーザーが一定時間静かなとき",
+  "On a schedule: fires every interval from 'Next run'. After the user has been quiet: fires once when you have not written to this companion for one interval (in the latest conversation), then not again until you speak. Quiet-period heartbeats are always silent.":
+    "スケジュール: 「次回実行」から間隔ごとに発火します。ユーザーが静かなとき: 最新の会話でこのコンパニオンに一定時間メッセージを送っていないと一度だけ発火し、次にあなたが話しかけるまで再発火しません。この種類のハートビートは常にサイレントです。",
+  "Quiet for": "静かな時間",
+  "How long the user has to be quiet before this heartbeat fires.":
+    "このハートビートが発火するまでにユーザーが静かでいる必要のある時間です。",
+  "after %s %s of quiet": "%s %s 静かなあと",
+  "waiting for quiet": "静かになるのを待機中",
+  "Notify me when it runs (desktop app)": "実行時に通知する（デスクトップアプリ）",
+  "Raise a desktop notification when a silent run of this heartbeat writes something; clicking it opens the chat. Needs 'Desktop notifications for heartbeats' in Settings and the desktop app. Meant for heartbeats that write to you, not for a diary.":
+    "このハートビートのサイレント実行が何かを書き込んだときにデスクトップ通知を出します。クリックするとチャットが開きます。設定の「ハートビートのデスクトップ通知」とデスクトップアプリが必要です。日記ではなく、あなた宛てに書くハートビート向けです。",
+  "Desktop notifications for heartbeats": "ハートビートのデスクトップ通知",
+  "Send a test notification": "テスト通知を送る",
+  "Raises a sample notification right now, so you can check that Windows shows them for this app.":
+    "今すぐサンプル通知を出して、Windows がこのアプリの通知を表示するか確認できます。",
+  "Notifications are working. A companion's message will look like this.":
+    "通知は動作しています。コンパニオンからのメッセージはこのように表示されます。",
+  "This system reports no notification support.": "このシステムは通知に対応していないと報告しています。",
+  "Heartbeats that write to you can raise a system notification when they run, even while Rexclaw sits in the tray or behind other windows. Clicking it opens the chat with that companion. Only heartbeats with 'Notify me when it runs' ticked take part, so a diary stays quiet. Requires notifications to be on in Windows Settings › System › Notifications (and off Do Not Disturb).":
+    "あなた宛てに書くハートビートは、Rexclaw がトレイや他のウィンドウの後ろにあっても、実行時にシステム通知を出せます。クリックするとそのコンパニオンとのチャットが開きます。「実行時に通知する」にチェックしたハートビートだけが対象なので、日記は静かなままです。Windows の設定 › システム › 通知で通知がオンになっている必要があります（応答不可はオフに）。",
   "Heartbeats": "ハートビート",
   "Heartbeats can be added after the companion is saved.":
     "ハートビートはコンパニオンを保存した後に追加できます。",

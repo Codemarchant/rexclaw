@@ -507,7 +507,8 @@ def import_sessions(con, sessions, agent_id):
 # it means anything on another install.
 _HEARTBEAT_PORTABLE_FIELDS = (
     "name", "active", "prompt", "interval_number", "interval_unit",
-    "mode", "session_strategy", "tools_enabled",
+    "mode", "session_strategy", "tools_enabled", "collapse_in_transcript",
+    "trigger_mode", "notify",
 )
 
 
@@ -558,6 +559,11 @@ def import_heartbeats(con, rows, agent_id):
             "interval_unit": unit,
             "mode": mode,
             "session_strategy": strategy,
+            "collapse_in_transcript": 1 if h.get("collapse_in_transcript", 1) else 0,
+            "trigger_mode": (h.get("trigger_mode")
+                             if h.get("trigger_mode") in heartbeat._TRIGGERS and mode == "silent"
+                             else "schedule"),
+            "notify": 1 if h.get("notify") else 0,
             "next_run_at": heartbeat.compute_next_run(
                 {"interval_number": interval_number, "interval_unit": unit}, now),
             "created_at": utcnow(),

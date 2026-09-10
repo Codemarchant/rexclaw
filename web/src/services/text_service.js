@@ -104,6 +104,10 @@ class TextService {
                 xai_call_id: m.xai_call_id || null,
                 is_summary_rollup: !!m.is_summary_rollup,
                 attachments: m.attachments || [],
+                // Rows a silent heartbeat or an incoming companion text
+                // wrote — the transcript folds them into one accordion
+                // when the owning setting asks for it.
+                fold: m.fold || null,
             });
         }
 
@@ -133,6 +137,29 @@ class TextService {
             if (m.sequence > max) max = m.sequence;
         }
         return max + 1;
+    }
+
+    /** Append rows the server wrote into this live session behind our back
+     *  (a silent heartbeat's tick — see lib/heartbeat_notify.js). They are
+     *  already persisted and already in the model's response chain; this is
+     *  display only. `fresh` gives the reply the paced bubble reveal a live
+     *  answer gets. */
+    appendExternalRows(rows) {
+        if (this.state.status !== "live") return;
+        for (const r of rows || []) {
+            this.state.messages.push({
+                role: r.role,
+                content: r.content || "",
+                sequence: this._nextSeq(),
+                speaker: r.speaker || null,
+                tool_name: r.tool_name,
+                tool_arguments_json: r.tool_arguments_json,
+                tool_result_json: r.tool_result_json,
+                xai_call_id: r.xai_call_id || null,
+                fold: r.fold || null,
+                fresh: r.role === "assistant",
+            });
+        }
     }
 
     /** Upload a file. Returns the metadata dict the user can attach via

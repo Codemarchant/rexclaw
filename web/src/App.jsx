@@ -18,6 +18,7 @@ import MascotShareView from "./components/MascotShareView.jsx";
 import { startHotkeys } from "./lib/hotkeys";
 import { wakeWord } from "./lib/wake_word";
 import { heartbeatCall } from "./lib/heartbeat_call";
+import { heartbeatNotify, notifyState } from "./lib/heartbeat_notify";
 import { startTranscriptOwner } from "./services/transcript_sync";
 import { useReactive } from "./lib/reactive";
 import { _t, i18nState } from "./lib/i18n";
@@ -104,6 +105,11 @@ export default function App() {
     // Heartbeat call mode — one elected window polls for due "call the
     // user" heartbeats and answers by starting the call.
     useEffect(() => { heartbeatCall.start(); }, []);
+    useEffect(() => { heartbeatNotify.start(); }, []);
+    // A desktop notification click lands on the Chat tab; TextView takes it
+    // from there (and clears the request once it has opened the session).
+    const ns = useReactive(notifyState);
+    useEffect(() => { if (ns.openChat) requestTab("chat"); }, [ns.openChat]);
     // First-run pointer: nothing works without an xAI key, and a fresh
     // install has no reason to know it lives under Settings. Checked on
     // load and again whenever the tab changes (i.e. after leaving Settings)

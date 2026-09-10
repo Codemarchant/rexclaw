@@ -11,6 +11,7 @@ import EmojiPickerButton from "./EmojiPickerButton.jsx";
 import { _t } from "../lib/i18n";
 import { useFileDrop } from "../lib/use_file_drop";
 import ShareButton from "./ShareButton.jsx";
+import { notifyState } from "../lib/heartbeat_notify";
 
 /** Text companion view, ported from the Odoo text_full_view. No avatar canvas
  *  — static agent thumbnail in the header, markdown transcript in the middle,
@@ -147,6 +148,29 @@ export default function TextView({ active = true }) {
         setShowHistory(false);
         loadHistory();
     };
+
+    // A desktop notification click ("Eve wrote to you"): select that
+    // companion and resume the conversation the heartbeat wrote into. If a
+    // chat is already live it stays (the rows were appended live when it is
+    // the same session; another session's chat is not torn down over a
+    // notification).
+    const ns = useReactive(notifyState);
+    useEffect(() => {
+        const req = ns.openChat;
+        if (!req || !agents.length) return;
+        notifyState.openChat = null;
+        const agentId = Number(req.agentId) || null;
+        if (agentId && agents.some((a) => a.id === agentId)) {
+            setSelectedAgentId(agentId);
+            text.preferredAgentId = agentId;
+        }
+        if (isLive || isConnecting || !agentId || !req.sessionId) return;
+        (async () => {
+            const ok = await text.start(agentId, req.sessionId);
+            if (ok !== false) loadHistory();
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ns.openChat, agents]);
 
     const lastResumableSession = useMemo(() => {
         const agentId = Number(selectedAgentId);

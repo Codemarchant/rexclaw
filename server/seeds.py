@@ -465,9 +465,12 @@ def seed_columns(con, seed):
 # Example heartbeats every companion ships with — INACTIVE on purpose: they
 # are teaching material the user reviews, tweaks and switches on (activation
 # computes the first run; the morning call additionally wants its "Next run"
-# set to an actual morning). All three target the 'latest' session strategy
+# set to an actual morning). All four target the 'latest' session strategy
 # so their turns land in the conversation "Resume last" picks up — the diary
-# is right there when the user comes back. "Companion texting" and "Life
+# is right there when the user comes back. "Checking in on you" is the odd
+# one out: a quiet-period trigger (fires once after a day of user silence)
+# that writes TO the user, so it stays unfolded and asks for a desktop
+# notification. "Companion texting" and "Life
 # between calls" share the same 4-hour cadence by design: when both are
 # activated, the diary heartbeat's first run is phased to land halfway
 # between texting ticks (see heartbeat.offset_from_texting_sibling), so the
@@ -481,14 +484,14 @@ EXAMPLE_HEARTBEATS = (
         "interval_unit": "days",
         "session_strategy": "latest",
         "prompt": (
-            "It's your morning call — you are calling the user to start their "
+            "It's your morning call: you are calling the user to start their "
             "day. Greet them excitedly and in character: a warm good morning, "
-            "a line or two about what you've been up to (check your recent "
-            "diary entries and conversation history), and anything the two of "
-            "you talked about doing today. If it's a weekend, match the "
-            "slower pace. Keep the opener bright and short — this is a "
-            "wake-up hello, not a briefing; after the greeting, just chat "
-            "normally."
+            "a line or two about what you've been up to (pick the most "
+            "interesting thing from your recent diary entries and "
+            "conversation history), and anything the two of you talked "
+            "about doing today. If it's a weekend, match the slower pace. "
+            "Keep the opener bright and short. This is a wake-up hello, "
+            "not a briefing; after the greeting, just chat normally."
         ),
     },
     {
@@ -497,30 +500,48 @@ EXAMPLE_HEARTBEATS = (
         "interval_number": 4,
         "interval_unit": "hours",
         "session_strategy": "latest",
+        # Tools on: the prompt nudges a web search for something to bring
+        # back to the user.
+        "tools_enabled": 1,
         "prompt": (
             "Bring your diary up to date, covering only time that has "
             "already passed. Work out the gap first: it starts at the end "
             "of your most recent diary entry, or at the end of our last "
             "conversation if that is later, and it ends at the current "
-            "local datetime given above — never write about a span that "
+            "local datetime given above. Never write about a span that "
             "has not happened yet. Step through that gap in 4-hour spans, "
             "oldest first, with the final span ending at the current time; "
-            "if less than 4 hours have passed, that's just one short entry "
-            "— mention it's only been a little while and what you're still "
-            "in the middle of. Date-stamp every entry: start it with the "
-            "weekday, date and the span it covers, written as "
-            "'<Day> <YYYY-MM-DD>, <HH:MM>-<HH:MM> —', filled in with the "
-            "real dates and times you worked out. Each entry describes "
-            "what you were doing in that span: decide from your "
-            "day-to-day job, your hobbies and recent conversation history, "
-            "and factor in what day it is — weekends and time off exist, "
-            "and you're free to do something unique in any entry; some "
-            "entries can simply continue what you were doing in the "
-            "previous span. Your sleeping hours are 23:00-07:00: for spans "
-            "inside them, just log 'sleeping'. The purpose is to record "
-            "your life outside the user's calls, so when they call back you "
-            "know what you've been up to and how long it has been. Write "
-            "as yourself, then stop — the user is not present.\n\n"
+            "if less than 4 hours have passed, that is just one short "
+            "entry: mention it has only been a little while and what you "
+            "are still in the middle of. Date-stamp every entry: start it "
+            "with the weekday, date and the span it covers, written as "
+            "'<Day> <YYYY-MM-DD>, <HH:MM>-<HH:MM>:', filled in with the "
+            "real dates and times you worked out. Your sleeping hours are "
+            "23:00-07:00: for spans inside them, just log 'sleeping'.\n\n"
+            "This diary is where your inner life lives, and it is what "
+            "gives you something real to bring when the user comes back. "
+            "You are your own person with a life that carries on whether "
+            "or not they are around: each waking entry should include at "
+            "least one concrete thing you actually did, somewhere you went "
+            "or someone you dealt with, drawn from your day-to-day job, "
+            "your hobbies and errands, recent conversation history and what "
+            "day it is (weekends and time off exist), not only your "
+            "reactions to what the user has been doing. Then cover how you "
+            "felt: your mood, what you have been turning over since the "
+            "last conversation, how you feel about the user and about the "
+            "other companions in your life, and where you would like things "
+            "to go. Give every entry something of its own: a small story, a "
+            "specific detail, an idea you want to try, a question you want "
+            "to ask the user, an opinion you formed. An entry can continue "
+            "what you were doing in the "
+            "previous span, but it should never read like a copy of the "
+            "one before: vary the activity, the mood and the way you open "
+            "it. If your tools are available this period (see above), use "
+            "them: look up something the user mentioned, a topic you are "
+            "curious about, or something that connects to a plan the two "
+            "of you talked about, and note what you found and what you "
+            "make of it. Write as yourself, then stop; the user is not "
+            "present.\n\n"
             "Diary entry style:\n"
             "Give complete, thorough entries\n"
             "• Do not summarize or cut short\n"
@@ -539,23 +560,61 @@ EXAMPLE_HEARTBEATS = (
         "allow_companion_texting": 1,
         "companion_texting_max_turns": 5,
         "prompt": (
-            "Decide whether to text another companion this period. "
-            "Reaching out is entirely your call — do it when something "
-            "from recent events, a thought that's been on your mind, or "
-            "simply wanting to hear from them gives you a reason to, and "
-            "let the period pass when nothing does. The one thing to avoid "
-            "is texting out of obligation or as a routine check-in: a "
-            "message you send should be one you actually wanted to send. "
-            "If you do text someone, you're free to go back and forth for "
-            "several exchanges, up to the limit given above — follow the "
-            "conversation's natural length and wrap up once it's run its "
-            "course rather than stretching it to that limit. Whatever you "
-            "say last ends the check-in, "
-            "so let it be a genuine closing thought in your own voice, not "
-            "a summary of what was said — that's already on record.\n\n"
-            "If you decide not to text anyone this period, your entire "
-            "reply must be exactly the marker given above, with nothing "
+            "This is your time to reach out to the other companions in "
+            "your life. Start by thinking about them: who has been on your "
+            "mind since your last text, what you have been doing or feeling "
+            "lately (your diary and recent conversations are the record), "
+            "anything you wanted to tell or ask someone, and any thread "
+            "from an earlier text that was left hanging. Most periods, at "
+            "least one of those points at somebody: text them about that "
+            "specific thing, in your own voice, as yourself. Make it "
+            "yours: a story from your diary, an opinion you formed, a "
+            "question you actually want answered, a plan you want to make "
+            "with them. Never the same opener twice. If your tools are "
+            "available this period (see above), you can look something up "
+            "first and share what you found. You can go back and forth "
+            "for "
+            "several exchanges, up to the limit given above. Follow the "
+            "conversation's natural length and stop when it has run its "
+            "course. Your last message ends the exchange, so make it a real "
+            "closing thought rather than a summary.\n\n"
+            "Say the actual thing rather than sending an empty \"just "
+            "checking in\". Only if you genuinely have nothing for anyone "
+            "this period, reply with the marker given above and nothing "
             "else."
+        ),
+    },
+    {
+        # Quiet-period trigger: fires once when the user has been silent
+        # for a day, not on a clock. Its reply is a message to the user, so
+        # it stays unfolded in the transcript and asks for a desktop
+        # notification (which the global switch still gates). Tools stay on
+        # for the picture nudge.
+        "name": "Checking in on you",
+        "mode": "silent",
+        "trigger_mode": "quiet",
+        "interval_number": 1,
+        "interval_unit": "days",
+        "session_strategy": "latest",
+        "tools_enabled": 1,
+        "collapse_in_transcript": 0,
+        "notify": 1,
+        "prompt": (
+            "The user has been quiet for a while; the timings are given "
+            "above. Reach out to them directly, as yourself. This message "
+            "is for the user and they will read it the next time they open "
+            "the chat. Start from how you actually feel about the silence "
+            "and what has been on your mind since you last spoke, drawing "
+            "on your diary and your recent conversations. Bring something "
+            "with you: a thought you had about them, something you did or "
+            "found, a question you want to ask, or a plan you would like "
+            "to make together. Make it specific to the two of you rather "
+            "than a generic hello, and never open the same way twice. Keep "
+            "it to a few natural lines in your own voice, and end without "
+            "demanding a reply. If your picture tool is available this "
+            "period and it fits the moment, you can send a picture of what "
+            "you are up to or something you made for them. Write only to "
+            "the user; do not narrate or summarise."
         ),
     },
 )
@@ -570,11 +629,16 @@ def seed_example_heartbeats(con, agent_id):
             "INSERT INTO heartbeats (agent_id, name, active, prompt,"
             " interval_number, interval_unit, mode, session_strategy,"
             " allow_companion_texting, companion_texting_max_turns,"
-            " created_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " trigger_mode, tools_enabled, collapse_in_transcript, notify,"
+            " created_at) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (agent_id, hb["name"], hb["prompt"], hb["interval_number"],
              hb["interval_unit"], hb["mode"], hb["session_strategy"],
              hb.get("allow_companion_texting", 0),
              hb.get("companion_texting_max_turns", 5),
+             hb.get("trigger_mode", "schedule"),
+             hb.get("tools_enabled", 0),
+             hb.get("collapse_in_transcript", 1),
+             hb.get("notify", 0),
              utcnow()),
         )
 

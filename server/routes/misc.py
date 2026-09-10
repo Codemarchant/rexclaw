@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, transfer, xai_client
+from .. import avatar_packs, heartbeat, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, transfer, xai_client
 from ..db import ASSETS_DIR, FILES_DIR, shipped_column_defaults, utcnow
 from ..wake_models import WAKE_MODELS
 from ..errors import UserError
@@ -43,7 +43,7 @@ _CONFIG_FIELDS = (
     "wake_word_enabled", "wake_word_language",
     "local_task_workdir",
     "minecraft_brain_model", "minecraft_brain_model_hard", "minecraft_master",
-    "transcript_display_limit",
+    "transcript_display_limit", "heartbeat_notifications",
     "transcript_retention_days", "file_default_expiry_seconds",
     "speech_gestures", "idle_fidgets", "fidget_interval",
 )
@@ -705,6 +705,7 @@ def sessions_messages(payload: dict = Body(default={}), con=Depends(db_con)):
             (session["id"],),
         ).fetchall()
     out = []
+    hb_cache = {}
     for m in rows:
         entry = {
             "sequence": m["sequence"],
@@ -720,6 +721,9 @@ def sessions_messages(payload: dict = Body(default={}), con=Depends(db_con)):
             # call id; without it, adjacency guessing mispairs multi-tool
             # turns.
             "xai_call_id": m["xai_call_id"],
+            # Display grouping for rows a silent heartbeat or an incoming
+            # companion text wrote.
+            "fold": heartbeat.transcript_tag(con, m, hb_cache),
         }
         atts = con.execute(
             "SELECT xai_file_id, filename, size_bytes FROM message_attachments"

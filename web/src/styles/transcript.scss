@@ -62,7 +62,23 @@
             align-self: flex-start;
         }
 
-        &--tool {
+        // A silent heartbeat's rows (diary entry, texting exchange) folded
+        // behind one pill headed by the heartbeat's name — same look as a
+        // tool row. The body re-renders the folded rows at full size.
+        &--heartbeat {
+            .o_voice_hb_body {
+                margin-top: 0.4rem;
+                padding-left: 0.6rem;
+                border-left: 2px solid #e2e8f0;
+                display: flex;
+                flex-direction: column;
+                gap: 0.5rem;
+                font-size: 0.85rem;
+                color: var(--o-text, #0f172a);
+            }
+        }
+
+        &--tool, &--heartbeat {
             // Compact pill — collapsed shows just the tool name; expanded
             // reveals args + result panels. Mirrors how Claude/ChatGPT
             // surface tool invocations: information-dense interactions

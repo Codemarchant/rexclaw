@@ -27,6 +27,7 @@ _HEARTBEAT_FIELDS = (
     "agent_id", "name", "active", "prompt", "interval_number",
     "interval_unit", "mode", "session_strategy", "session_id",
     "allow_companion_texting", "companion_texting_max_turns", "tools_enabled",
+    "collapse_in_transcript", "trigger_mode", "notify",
 )
 
 # Keeps a heartbeat's own tick comfortably inside text_send_turn's shared
@@ -72,6 +73,15 @@ def heartbeats_save(payload: dict = Body(default={}), con=Depends(db_con)):
         raise UserError("mode must be silent or call.")
     if "session_strategy" in updates and updates["session_strategy"] not in heartbeat._SESSION_STRATEGIES:
         raise UserError("session_strategy must be isolated, persistent, latest or fixed.")
+    if "trigger_mode" in updates and updates["trigger_mode"] not in heartbeat._TRIGGERS:
+        raise UserError("trigger_mode must be schedule or quiet.")
+    if "trigger_mode" in updates or "mode" in updates:
+        current = _get(con, hb_id) if hb_id else None
+        trigger = updates.get("trigger_mode", current["trigger_mode"] if current else "schedule")
+        mode = updates.get("mode", current["mode"] if current else "silent")
+        if trigger == "quiet" and mode != "silent":
+            raise UserError("A quiet-period heartbeat must be silent: a call needs the app open, "
+                            "and the user being away is the whole point.")
     if "interval_number" in updates:
         try:
             updates["interval_number"] = max(1, int(updates["interval_number"]))
@@ -217,10 +227,7 @@ def heartbeats_resolve(payload: dict = Body(default={}), con=Depends(db_con)):
                             "try again after the call ends.")
     elif action == "defer":
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        con.execute(
-            "UPDATE heartbeats SET past_due = 0, next_run_at = ? WHERE id = ?",
-            (heartbeat.defer_next_run(hb, now), hb["id"]),
-        )
+        heartbeat.defer_past_due(con, hb, now)
         con.commit()
     else:
         raise UserError("action must be execute or defer.")
@@ -267,10 +274,7 @@ def heartbeats_resolve_all(payload: dict = Body(default={}), con=Depends(db_con)
                 continue
             resolved += 1
         else:
-            con.execute(
-                "UPDATE heartbeats SET past_due = 0, next_run_at = ? WHERE id = ?",
-                (heartbeat.defer_next_run(hb, now), hb["id"]),
-            )
+            heartbeat.defer_past_due(con, hb, now)
             resolved += 1
     con.commit()
     return {"ok": True, "resolved": resolved}
@@ -288,6 +292,75 @@ def heartbeats_due_calls(payload: dict = Body(default={}), con=Depends(db_con)):
         (utcnow(),),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+@router.post("/heartbeats/recent_runs")
+def heartbeats_recent_runs(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Silent ticks that FINISHED after `since` (a `now` value from an
+    earlier call; the first call passes nothing and only syncs the clock, so
+    runs from before the window opened never surface). Cursoring on the
+    finish stamp matters: a run can take a minute (pictures), and a poll
+    landing mid-run must not move the cursor past it. Each run carries the
+    rows it wrote, transcript-shaped, so an open chat can append them live
+    and the desktop shell can raise a notification for rows that ask for
+    one (`notify`, gated by the global switch echoed in `notifications`).
+    Polled by the main window; cheap when nothing ran."""
+    from ..db import get_config
+    since = payload.get("since") or None
+    now = utcnow()
+    runs = []
+    if since:
+        rows = con.execute(
+            "SELECT h.id, h.name, h.agent_id, h.notify, h.last_run_at,"
+            " a.name AS agent_name"
+            " FROM heartbeats h JOIN agents a ON a.id = h.agent_id"
+            " WHERE h.mode = 'silent' AND h.last_error IS NULL"
+            " AND h.last_finished_at IS NOT NULL"
+            " AND h.last_finished_at > ? AND h.last_finished_at <= ?"
+            " ORDER BY h.last_finished_at, h.id",
+            (since, now),
+        ).fetchall()
+        hb_cache = {}
+        for hb in rows:
+            msgs = con.execute(
+                "SELECT * FROM messages WHERE heartbeat_id = ? AND created_at >= ?"
+                " AND NOT (role = 'user' AND content LIKE ?)"
+                " ORDER BY sequence ASC, id ASC",
+                (hb["id"], hb["last_run_at"], heartbeat.CONTEXT_PREFIX + "%"),
+            ).fetchall()
+            if not msgs:
+                continue  # e.g. a texting tick that decided not to text
+            # The companion's portrait, for the desktop notification icon
+            # (same picture the chat header shows). Lazy import: this
+            # module must stay light for the scheduler.
+            from ..session_service import _agent_thumbnail_url
+            agent = store.get_agent(con, hb["agent_id"])
+            runs.append({
+                "id": hb["id"],
+                "name": hb["name"],
+                "agent_id": hb["agent_id"],
+                "agent_name": hb["agent_name"],
+                "agent_icon_url": _agent_thumbnail_url(con, agent) if agent else None,
+                "notify": bool(hb["notify"]),
+                "ran_at": hb["last_run_at"],
+                "session_id": msgs[0]["session_id"],
+                "rows": [{
+                    "role": m["role"],
+                    "content": (m["tool_result_json"] or m["content"] or "")
+                               if m["role"] == "tool_result" else (m["content"] or ""),
+                    "speaker": m["speaker"],
+                    "tool_name": m["tool_name"],
+                    "tool_arguments_json": m["tool_arguments_json"],
+                    "tool_result_json": m["tool_result_json"],
+                    "xai_call_id": m["xai_call_id"],
+                    "fold": heartbeat.transcript_tag(con, m, hb_cache),
+                } for m in msgs],
+            })
+    return {
+        "now": now,
+        "notifications": bool(get_config(con)["heartbeat_notifications"]),
+        "runs": runs,
+    }
 
 
 @router.post("/heartbeats/skip_due_calls")

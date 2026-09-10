@@ -39,6 +39,7 @@ _TICK_SECONDS = 30
 
 _INTERVAL_UNITS = ('minutes', 'hours', 'days')
 _MODES = ('silent', 'call')
+_TRIGGERS = ('schedule', 'quiet')
 # Where each run lands — see the heartbeats DDL in db.py for the semantics.
 _SESSION_STRATEGIES = ('isolated', 'persistent', 'latest', 'fixed')
 
@@ -162,6 +163,94 @@ CONTEXT_PREFIX = '[Scheduled heartbeat '
 NO_TEXT_SENTINEL = '<no text sent by heartbeat>'
 
 
+def last_user_message_at(con, agent_id):
+    """When the user last actually wrote to this companion (naive-UTC ISO),
+    in the latest conversation. Heartbeat context rows and companion texts
+    are user-role rows too and do not count. None when they never have."""
+    from .companion_texting import CONTEXT_PREFIX as TEXT_PREFIX
+    session = latest_manual_session(con, agent_id)
+    if not session:
+        return None
+    row = con.execute(
+        "SELECT created_at FROM messages WHERE session_id = ? AND role = 'user'"
+        " AND content NOT LIKE ? AND content NOT LIKE ?"
+        " ORDER BY sequence DESC, id DESC LIMIT 1",
+        (session['id'], CONTEXT_PREFIX + '%', TEXT_PREFIX + '%'),
+    ).fetchone()
+    return row['created_at'] if row else None
+
+
+def quiet_due(con, hb, now):
+    """Is a trigger_mode='quiet' row due: the user has been silent for one
+    interval, and this row has not fired since they last spoke. Returns the
+    last-message timestamp it was judged against (truthy) or None."""
+    last_iso = last_user_message_at(con, hb['agent_id'])
+    last = parse_dt(last_iso) if last_iso else None
+    if not last or now - last < interval_delta(hb):
+        return None
+    ran = parse_dt(hb['last_run_at']) if hb['last_run_at'] else None
+    if ran and ran >= last:
+        return None  # already checked in during this silence
+    return last_iso
+
+
+def defer_past_due(con, hb, now):
+    """The user's Defer on a past-due row. Schedule rows skip to their next
+    future slot (defer_next_run); quiet rows are stamped as having fired
+    for this silence, so they stay quiet until the user next speaks.
+    Caller commits."""
+    if hb['trigger_mode'] == 'quiet':
+        con.execute(
+            "UPDATE heartbeats SET past_due = 0, last_run_at = ? WHERE id = ?",
+            (now.isoformat(timespec='seconds'), hb['id']),
+        )
+    else:
+        con.execute(
+            "UPDATE heartbeats SET past_due = 0, next_run_at = ? WHERE id = ?",
+            (defer_next_run(hb, now), hb['id']),
+        )
+
+
+def transcript_tag(con, row, cache):
+    """Display grouping ("fold") for a message row, else None:
+      * {'kind': 'heartbeat', 'id', 'name', 'collapsed'} when a silent tick
+        wrote it (messages.heartbeat_id; heartbeats.collapse_in_transcript);
+      * {'kind': 'text', 'id', 'name', 'collapsed': True} when an incoming
+        companion text produced it (messages.text_from_agent_id).
+    `cache` is a dict the caller keeps across one transcript build so a
+    long conversation costs one lookup per heartbeat/sender. Read at view
+    time on purpose: toggling a collapse flag restyles past rows too."""
+    keys = row.keys()
+    hb_id = row['heartbeat_id'] if 'heartbeat_id' in keys else None
+    if hb_id:
+        key = ('hb', hb_id)
+        if key not in cache:
+            hb = con.execute(
+                "SELECT name, collapse_in_transcript FROM heartbeats WHERE id = ?",
+                (hb_id,),
+            ).fetchone()
+            cache[key] = {
+                'kind': 'heartbeat',
+                'id': hb_id,
+                'name': ((hb['name'] or '').strip() or 'Heartbeat') if hb else 'Heartbeat',
+                'collapsed': bool(hb['collapse_in_transcript']) if hb else False,
+            }
+        return cache[key]
+    sender_id = row['text_from_agent_id'] if 'text_from_agent_id' in keys else None
+    if sender_id:
+        key = ('text', sender_id)
+        if key not in cache:
+            sender = con.execute("SELECT name FROM agents WHERE id = ?", (sender_id,)).fetchone()
+            cache[key] = {
+                'kind': 'text',
+                'id': sender_id,
+                'name': ((sender['name'] or '').strip() or 'Companion') if sender else 'Companion',
+                'collapsed': True,
+            }
+        return cache[key]
+    return None
+
+
 def build_context_block(con, hb, agent):
     """The user-turn amble a heartbeat runs with — shared verbatim by the
     silent path and the call path (the claim endpoint hands it to the
@@ -192,9 +281,22 @@ def build_context_block(con, hb, agent):
         cap = hb['companion_texting_max_turns'] or 5
         texting_line = (
             f'- Companion texting is available this period: up to {cap} '
-            f'back-and-forth exchange(s) with another companion, if you '
-            f'have real reason to. If you decide not to text anyone, your '
-            f'entire reply must be exactly: {NO_TEXT_SENTINEL}\n'
+            f'back-and-forth exchange(s) with another companion. If you '
+            f'decide not to text anyone, your entire reply must be '
+            f'exactly: {NO_TEXT_SENTINEL}\n'
+        )
+    tools_line = ''
+    if hb['tools_enabled']:
+        search = ', including web search' if agent['enable_web_search'] else ''
+        tools_line = (
+            f'- Your ordinary tools are available this period{search}. Use '
+            f'them to look something up that connects to a recent '
+            f'conversation, a plan you made with the user, or something you '
+            f'are curious about, so you have something real to bring back. '
+            f'Use them quietly: do not announce, narrate or explain that you '
+            f'are looking something up or making a picture, before or '
+            f'after. Only what you would actually say or write should '
+            f'appear.\n'
         )
     return (
         f'{CONTEXT_PREFIX}"{name}" — this is an autonomous scheduled '
@@ -204,6 +306,7 @@ def build_context_block(con, hb, agent):
         f'- This heartbeat last ran: {line(hb["last_run_at"], "never")}\n'
         f'- Your last real conversation with the user {last_line}\n'
         f'{texting_line}'
+        f'{tools_line}'
         f'Instructions:\n'
         f'{(hb["prompt"] or "").strip()}'
     )
@@ -398,6 +501,11 @@ def run_heartbeat(con, hb, *, source='scheduler'):
             con.execute("DELETE FROM messages WHERE session_id = ? AND id > ?",
                         (session['id'], before_id))
 
+        # Stamp what this tick wrote so the transcript views can fold it
+        # into one accordion (heartbeats.collapse_in_transcript).
+        con.execute("UPDATE messages SET heartbeat_id = ? WHERE session_id = ? AND id > ?",
+                    (hb['id'], session['id'], before_id))
+
         store.update_session(con, session['id'], last_active_at=utcnow())
         if isolated:
             session = store.get_session(con, session['id'])
@@ -425,10 +533,13 @@ def run_heartbeat(con, hb, *, source='scheduler'):
                                   hb['id'], session['id'])
 
     try:
+        # last_finished_at is stamped with the CURRENT time, not `now`: the
+        # recent-runs poll cursors on it, and it must postdate every row
+        # this run wrote (they are all committed by here).
         con.execute(
-            "UPDATE heartbeats SET last_run_at = ?, next_run_at = ?, past_due = 0,"
-            " last_error = ? WHERE id = ?",
-            (now.isoformat(timespec='seconds'), compute_next_run(hb, now), error,
+            "UPDATE heartbeats SET last_run_at = ?, last_finished_at = ?, next_run_at = ?,"
+            " past_due = 0, last_error = ? WHERE id = ?",
+            (now.isoformat(timespec='seconds'), utcnow(), compute_next_run(hb, now), error,
              hb['id']),
         )
         con.commit()
@@ -456,6 +567,7 @@ def _flag_past_due(con, now, *, startup):
     was never opened)."""
     rows = con.execute(
         "SELECT * FROM heartbeats WHERE active = 1 AND past_due = 0"
+        " AND trigger_mode = 'schedule'"
         " AND next_run_at IS NOT NULL AND next_run_at <= ?"
         + ("" if startup else " AND mode = 'call'"),
         (now.isoformat(timespec='seconds'),),
@@ -469,6 +581,20 @@ def _flag_past_due(con, now, *, startup):
             con.execute("UPDATE heartbeats SET past_due = 1 WHERE id = ?",
                         (hb['id'],))
             flagged += 1
+    if startup:
+        # Quiet-period rows keep the same promise: a silence that ran its
+        # course while the app was closed is the user's call, not an
+        # automatic message (or picture) the moment they come back.
+        # Execute runs it; Defer stamps it as done for this silence.
+        quiet = con.execute(
+            "SELECT * FROM heartbeats WHERE active = 1 AND past_due = 0"
+            " AND mode = 'silent' AND trigger_mode = 'quiet'",
+        ).fetchall()
+        for hb in quiet:
+            if quiet_due(con, hb, now):
+                con.execute("UPDATE heartbeats SET past_due = 1 WHERE id = ?",
+                            (hb['id'],))
+                flagged += 1
     if flagged:
         con.commit()
         _logger.info('heartbeat: flagged %d %s row(s) past due (pending user decision)',
@@ -479,7 +605,8 @@ def _tick(con, now):
     _flag_past_due(con, now, startup=False)
     due = con.execute(
         "SELECT * FROM heartbeats WHERE active = 1 AND past_due = 0"
-        " AND mode = 'silent' AND next_run_at IS NOT NULL AND next_run_at <= ?"
+        " AND mode = 'silent' AND trigger_mode = 'schedule'"
+        " AND next_run_at IS NOT NULL AND next_run_at <= ?"
         # Texting heartbeats first on a tie (rare in steady-state — they're
         # deliberately phased apart — but common right after a bulk past-due
         # catch-up): so a diary-style heartbeat due at the same moment sees
@@ -515,6 +642,39 @@ def _tick(con, now):
         except Exception:
             # run_heartbeat handles its own failures; this is belt-and-
             # braces so one broken row can't kill the pass for the rest.
+            _logger.exception('heartbeat %s: unexpected failure', hb['id'])
+
+    # Quiet-period rows: due when the user has been silent for one interval
+    # (see quiet_due). No next_run_at and no past-due here: a silence that
+    # spans a restart is still just a silence, judged fresh on every pass.
+    quiet = con.execute(
+        "SELECT * FROM heartbeats WHERE active = 1 AND past_due = 0"
+        " AND mode = 'silent' AND trigger_mode = 'quiet' ORDER BY id",
+    ).fetchall()
+    for hb in quiet:
+        if _stop.is_set():
+            return
+        if not quiet_due(con, hb, now):
+            continue
+        # Claim-before-run, same idea as above: stamp last_run_at first so
+        # the once-per-silence guard holds even if the run's own
+        # bookkeeping is lost, guarded on the value we judged against.
+        claimed = con.execute(
+            "UPDATE heartbeats SET last_run_at = ? WHERE id = ?"
+            " AND active = 1 AND past_due = 0 AND last_run_at IS ?",
+            (now.isoformat(timespec='seconds'), hb['id'], hb['last_run_at']),
+        )
+        con.commit()
+        if claimed.rowcount == 0:
+            continue
+        try:
+            run_heartbeat(con, hb, source='scheduler')
+        except SessionBusy:
+            # In a live call the user is not quiet at all; the guard above
+            # stays stamped, and their next message re-arms the row.
+            _logger.debug('heartbeat %s: target session is in a live call — skipped',
+                          hb['id'])
+        except Exception:
             _logger.exception('heartbeat %s: unexpected failure', hb['id'])
 
 

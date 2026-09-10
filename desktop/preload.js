@@ -5,6 +5,15 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("rexclawDesktop", {
+    // Native notification for a heartbeat that wrote to the user
+    // ({title, body, agentId, sessionId}); resolves false when the OS has
+    // no notification support. A click comes back through onOpenChat with
+    // the same {agentId, sessionId} after the shell has raised the window.
+    notify: (payload) => ipcRenderer.invoke("notify", payload || {}),
+    onOpenChat: (cb) => {
+        ipcRenderer.removeAllListeners("open-companion-chat");
+        ipcRenderer.on("open-companion-chat", (event, payload) => cb(payload));
+    },
     // True when the machine can actually present VR: an active OpenXR
     // runtime is registered AND a WebXR-capable browser is installed.
     vrAvailable: () => ipcRenderer.invoke("vr-available"),

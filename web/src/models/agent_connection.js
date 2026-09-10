@@ -391,6 +391,7 @@ export class AgentConnection {
                         replayed: true,
                         xai_item_id: item.id || null,
                         xai_previous_item_id: item.previous_item_id || null,
+                        fold: item.fold || null,
                     });
                 } else if (item.type === "function_call") {
                     const args = item.arguments || "";
@@ -404,6 +405,7 @@ export class AgentConnection {
                         xai_item_id: item.id || null,
                         xai_call_id: item.call_id || null,
                         xai_previous_item_id: item.previous_item_id || null,
+                        fold: item.fold || null,
                     });
                 } else if (item.type === "function_call_output") {
                     this.state.messages.push({
@@ -415,6 +417,7 @@ export class AgentConnection {
                         xai_item_id: item.id || null,
                         xai_call_id: item.call_id || null,
                         xai_previous_item_id: item.previous_item_id || null,
+                        fold: item.fold || null,
                     });
                 }
             }

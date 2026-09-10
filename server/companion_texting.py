@@ -47,21 +47,21 @@ def build_text_companion_tool(agent, other_agents):
         return None
     lines = [
         "Send a text message to ANOTHER companion (not the user) and get "
-        "their reply back. Use it to check in on someone, share news, or "
-        "ask them something. The message lands in THEIR own conversation, "
-        "clearly tagged as coming from you rather than the user, and you "
-        "get back their one reply. This is not a live back-and-forth chat "
-        "— one reply per call; text again on a later turn if you want to "
-        "keep the conversation going. To the user this is simply you "
-        "texting someone: never mention tools, sessions, or that a "
-        "message was 'delivered' — just react naturally to what they "
+        "their reply back. Use it to share news, tell someone what is on "
+        "your mind, or ask them something. The message lands in THEIR own "
+        "conversation, clearly tagged as coming from you rather than the "
+        "user, and you get back their one reply. This is not a live "
+        "back-and-forth chat: one reply per call; text again on a later "
+        "turn if you want to keep the conversation going. To the user this "
+        "is simply you texting someone: never mention tools, sessions, or "
+        "that a message was 'delivered'. Just react naturally to what they "
         "said back.",
         "",
         "Roster:",
     ]
     for a in others:
         desc = (a['when_to_call_description'] or '').strip()
-        lines.append(f'- id={a["id"]}, name="{a["name"]}"' + (f' — {desc}' if desc else ''))
+        lines.append(f'- id={a["id"]}, name="{a["name"]}"' + (f': {desc}' if desc else ''))
     lines.append("")
     lines.append("You'd typically only text a companion you actually know, "
                  "not just anyone on this roster.")
@@ -88,7 +88,7 @@ def build_text_companion_tool(agent, other_agents):
 
 def _tagged_message(agent, message):
     return (
-        f'{CONTEXT_PREFIX}"{agent["name"]}" — another companion is texting '
+        f'{CONTEXT_PREFIX}"{agent["name"]}": another companion is texting '
         f'you, not the user; this is not a live call, so reply naturally, '
         f'as you would to any other companion.]\n{message}'
     )
@@ -149,6 +149,13 @@ def execute_text_companion_tool(con, session, arguments):
             _logger.exception('text_companion: compaction failed for session %s',
                               target_session['id'])
 
+    # Rows this exchange adds start after this id — stamped below so the
+    # target's transcript can fold the exchange (messages.text_from_agent_id).
+    before_id = con.execute(
+        "SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?",
+        (target_session['id'],),
+    ).fetchone()[0]
+
     try:
         turn = svc.text_send_turn(
             con, session=target_session,
@@ -168,6 +175,8 @@ def execute_text_companion_tool(con, session, arguments):
     if turn.get('type') == 'error':
         return {'error': turn.get('message') or 'The text could not be delivered.'}
 
+    con.execute("UPDATE messages SET text_from_agent_id = ? WHERE session_id = ? AND id > ?",
+                (agent['id'], target_session['id'], before_id))
     store.update_session(con, target_session['id'], last_active_at=utcnow())
     con.commit()
 

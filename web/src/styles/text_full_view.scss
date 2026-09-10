@@ -464,12 +464,18 @@
         }
     }
 
-    .o_voice_msg--tool .o_voice_tool_header {
+    .o_voice_msg--tool .o_voice_tool_header,
+    .o_voice_msg--heartbeat .o_voice_tool_header {
         background: #1e293b;
         border-color: #334155;
         color: #cbd5e1;
 
         &:hover { background: #334155; }
+    }
+
+    .o_voice_msg--heartbeat .o_voice_hb_body {
+        border-color: #334155;
+        color: #e2e8f0;
     }
 
     .o_voice_msg--tool .o_voice_tool_details {

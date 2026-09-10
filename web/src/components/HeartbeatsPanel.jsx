@@ -4,6 +4,7 @@ import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
 import { confirmAsk } from "../lib/confirm";
 import { heartbeatCall } from "../lib/heartbeat_call";
+import { heartbeatNotify } from "../lib/heartbeat_notify";
 import { withEditorSnapshot, editorDirty, useRegisterChildEditor } from "../lib/child_editor";
 
 /** Heartbeats panel — one companion's scheduled prompts, embedded in the
@@ -30,6 +31,9 @@ const EMPTY_HEARTBEAT = {
     allow_companion_texting: 0,
     companion_texting_max_turns: 5,
     tools_enabled: 0,
+    collapse_in_transcript: 1,
+    trigger_mode: "schedule",
+    notify: 0,
 };
 
 // Keeps a tick comfortably inside the shared per-turn model-call budget —
@@ -122,6 +126,7 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
             setEditing(null);
             load();
             heartbeatCall.refresh();
+            heartbeatNotify.refresh();
             return true;
         } catch (e) {
             notification.add(e?.message || _t("Could not save the heartbeat"), { type: "danger" });
@@ -150,6 +155,7 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
             await rpc("/api/heartbeats/save", { id: hb.id, active: hb.active ? 0 : 1 });
             load();
             heartbeatCall.refresh();
+            heartbeatNotify.refresh();
         } catch (e) {
             notification.add(e?.message || _t("Could not save the heartbeat"), { type: "danger" });
         }
@@ -161,6 +167,7 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
             await rpc("/api/heartbeats/delete", { id: hb.id });
             load();
             heartbeatCall.refresh();
+            heartbeatNotify.refresh();
         } catch (e) {
             notification.add(e?.message || _t("Delete failed"), { type: "danger" });
         }
@@ -172,6 +179,7 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
             await rpc("/api/heartbeats/resolve", { id: hb.id, action });
             load();
             heartbeatCall.refresh();
+            heartbeatNotify.refresh();
         } catch (e) {
             notification.add(e?.message || _t("Could not resolve the heartbeat"), { type: "danger" });
         } finally {
@@ -187,6 +195,7 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
             await rpc("/api/heartbeats/resolve_all", { agent_id: agentId, action });
             load();
             heartbeatCall.refresh();
+            heartbeatNotify.refresh();
         } catch (e) {
             notification.add(e?.message || _t("Could not resolve the heartbeats"), { type: "danger" });
         } finally {
@@ -227,8 +236,24 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                            onChange={(ev) => set("name", ev.target.value)} />
                 </div>
                 <div>
-                    <label title={_t("How often the heartbeat fires while the app is running. Also drives the default 'Next run' (now + interval) until you pick a date yourself.")}>
-                        {_t("Every")}
+                    <label title={_t("On a schedule: fires every interval from 'Next run'. After the user has been quiet: fires once when you have not written to this companion for one interval (in the latest conversation), then not again until you speak. Quiet-period heartbeats are always silent.")}>
+                        {_t("Fires")}
+                    </label>
+                    <select value={editing.trigger_mode || "schedule"}
+                            onChange={(ev) => setEditing((c) => ({
+                                ...c,
+                                trigger_mode: ev.target.value,
+                                mode: ev.target.value === "quiet" ? "silent" : c.mode,
+                            }))}>
+                        <option value="schedule">{_t("On a schedule")}</option>
+                        <option value="quiet">{_t("After the user has been quiet for")}</option>
+                    </select>
+                </div>
+                <div>
+                    <label title={editing.trigger_mode === "quiet"
+                        ? _t("How long the user has to be quiet before this heartbeat fires.")
+                        : _t("How often the heartbeat fires while the app is running. Also drives the default 'Next run' (now + interval) until you pick a date yourself.")}>
+                        {editing.trigger_mode === "quiet" ? _t("Quiet for") : _t("Every")}
                     </label>
                     <div style={{ display: "flex", gap: "0.5rem" }}>
                         <input type="number" min={1} step={1} style={{ width: "5rem" }}
@@ -249,7 +274,7 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                     <label title={_t("Silent: the prompt runs as a background text turn — you find the result in the session later. Call the user first: the companion starts a voice call with you, carries out the prompt, and speaks first (needs the app open).")}>
                         {_t("Mode")}
                     </label>
-                    <select value={editing.mode}
+                    <select value={editing.mode} disabled={editing.trigger_mode === "quiet"}
                             onChange={(ev) => set("mode", ev.target.value)}>
                         <option value="silent">{_t("Silent (background)")}</option>
                         <option value="call">{_t("Call the user first")}</option>
@@ -275,17 +300,19 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                         <option value="isolated">{_t("Own session per run (throwaway)")}</option>
                     </select>
                 </div>
-                <div>
-                    <label title={_t("When the next run is due, in your local time. Maintained automatically — after each run it advances to last run + interval — and you can set it directly to schedule the next run yourself (e.g. tomorrow 09:00). Setting it in the past makes a silent heartbeat run on the next scheduler tick.")}>
-                        {_t("Next run")}
-                    </label>
-                    <input type="datetime-local" value={toLocalInput(editing.next_run_at)}
-                           onChange={(ev) => setEditing((c) => ({
-                               ...c,
-                               next_run_at: toUtcIso(ev.target.value) || null,
-                               _nextTouched: true,
-                           }))} />
-                </div>
+                {editing.trigger_mode !== "quiet" && (
+                    <div>
+                        <label title={_t("When the next run is due, in your local time. Maintained automatically — after each run it advances to last run + interval — and you can set it directly to schedule the next run yourself (e.g. tomorrow 09:00). Setting it in the past makes a silent heartbeat run on the next scheduler tick.")}>
+                            {_t("Next run")}
+                        </label>
+                        <input type="datetime-local" value={toLocalInput(editing.next_run_at)}
+                               onChange={(ev) => setEditing((c) => ({
+                                   ...c,
+                                   next_run_at: toUtcIso(ev.target.value) || null,
+                                   _nextTouched: true,
+                               }))} />
+                    </div>
+                )}
             </div>
             {editing.session_strategy === "fixed" && (
                 <div style={{ marginTop: "0.25rem" }}>
@@ -319,6 +346,24 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                 <label htmlFor={`hb-tools-${agentId}`}
                        title={_t("Gives this tick the companion's ordinary tools — memory, pictures, delegated tasks, Minecraft, MCP servers. Off by default: a background tick writes a diary entry or texts someone, and a companion with an idle tool belt and nothing left to do tends to fill the turn with pointless calls. Companion texting below is separate and unaffected.")}>
                     {_t("Allow the companion's other tools during this heartbeat")}
+                </label>
+            </span>
+            <span className="rx_check" style={{ marginTop: "0.25rem" }}>
+                <input id={`hb-collapse-${agentId}`} type="checkbox"
+                       checked={!!editing.collapse_in_transcript}
+                       onChange={(ev) => set("collapse_in_transcript", ev.target.checked ? 1 : 0)} />
+                <label htmlFor={`hb-collapse-${agentId}`}
+                       title={_t("Folds everything a silent tick writes (a diary entry, a texting exchange) behind one collapsed row named after this heartbeat in the chat and voice transcripts. Keeps the conversation short and lets you choose whether to read it. Toggling it restyles past ticks too; call-mode ticks are never folded.")}>
+                    {_t("Hide this heartbeat's entries behind an accordion in the transcript")}
+                </label>
+            </span>
+            <span className="rx_check" style={{ marginTop: "0.25rem" }}>
+                <input id={`hb-notify-${agentId}`} type="checkbox"
+                       checked={!!editing.notify}
+                       onChange={(ev) => set("notify", ev.target.checked ? 1 : 0)} />
+                <label htmlFor={`hb-notify-${agentId}`}
+                       title={_t("Raise a desktop notification when a silent run of this heartbeat writes something; clicking it opens the chat. Needs 'Desktop notifications for heartbeats' in Settings and the desktop app. Meant for heartbeats that write to you, not for a diary.")}>
+                    {_t("Notify me when it runs (desktop app)")}
                 </label>
             </span>
             <span className="rx_check" style={{ marginTop: "0.25rem" }}>
@@ -408,7 +453,9 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                            onChange={() => toggleActive(hb)} />
                     <strong>{hb.name || _t("(unnamed)")}</strong>
                     <span className="rx_memory_content text-muted small">
-                        {_t("every %s %s", hb.interval_number, _t(UNIT_LABELS[hb.interval_unit] || "minutes"))}
+                        {hb.trigger_mode === "quiet"
+                            ? _t("after %s %s of quiet", hb.interval_number, _t(UNIT_LABELS[hb.interval_unit] || "minutes"))
+                            : _t("every %s %s", hb.interval_number, _t(UNIT_LABELS[hb.interval_unit] || "minutes"))}
                         {" · "}
                         {hb.mode === "call" ? _t("calls you") : _t("silent")}
                         {" · "}
@@ -422,7 +469,9 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                         {hb.past_due
                             ? null
                             : hb.active
-                                ? `${_t("next:")} ${fmtLocal(hb.next_run_at)}`
+                                ? (hb.trigger_mode === "quiet"
+                                    ? _t("waiting for quiet")
+                                    : `${_t("next:")} ${fmtLocal(hb.next_run_at)}`)
                                 : _t("inactive")}
                         {hb.last_run_at ? ` · ${_t("last:")} ${fmtLocal(hb.last_run_at)}` : ""}
                     </span>
@@ -458,6 +507,9 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                                 allow_companion_texting: hb.allow_companion_texting || 0,
                                 companion_texting_max_turns: hb.companion_texting_max_turns || 5,
                                 tools_enabled: hb.tools_enabled || 0,
+                                collapse_in_transcript: hb.collapse_in_transcript ?? 1,
+                                trigger_mode: hb.trigger_mode || "schedule",
+                                notify: hb.notify || 0,
                                 // Always populated: rows that never got a
                                 // date (created inactive) show a truthful
                                 // now + interval that tracks interval edits.

@@ -354,6 +354,32 @@ export default function SettingsView({ active }) {
                             </label>
                         </div>
                         <p className="text-muted">
+                            {_t("Heartbeats that write to you can raise a system notification "
+                                + "when they run, even while Rexclaw sits in the tray or behind "
+                                + "other windows. Clicking it opens the chat with that companion. "
+                                + "Only heartbeats with 'Notify me when it runs' ticked take part, "
+                                + "so a diary stays quiet. Requires notifications to be on in "
+                                + "Windows Settings › System › Notifications (and off Do Not Disturb).")}
+                        </p>
+                        <div className="rx_check">
+                            <input id="rx_hb_notifications" type="checkbox"
+                                   checked={!!config.heartbeat_notifications}
+                                   onChange={(ev) => setField("heartbeat_notifications", ev.target.checked ? 1 : 0)} />
+                            <label htmlFor="rx_hb_notifications">
+                                {_t("Desktop notifications for heartbeats")}
+                            </label>
+                        </div>
+                        <button className="btn btn-secondary" style={{ marginBottom: "0.5rem" }}
+                                title={_t("Raises a sample notification right now, so you can check that Windows shows them for this app.")}
+                                onClick={() => window.rexclawDesktop.notify?.({
+                                    title: "Rexclaw",
+                                    body: _t("Notifications are working. A companion's message will look like this."),
+                                }).then((ok) => {
+                                    if (!ok) notification.add(_t("This system reports no notification support."), { type: "warning" });
+                                }).catch(() => {})}>
+                            <i className="fa fa-bell-o" /> {_t("Send a test notification")}
+                        </button>
+                        <p className="text-muted">
                             {_t("The mascot's own options — call controls, ghost mode, "
                                 + "cursor follow, emotions and more — live in its settings "
                                 + "window: the ⚙ on the avatar's controls, or \"Full mascot "

@@ -12,7 +12,7 @@
 // If a rexclaw server is already running on the default port (run.sh, PyCharm,
 // Docker), the shell attaches to it instead of spawning a second one — handy
 // for developing the wrapper against a live session.
-const { app, BrowserWindow, Menu, Tray, dialog, globalShortcut, ipcMain,
+const { app, BrowserWindow, Menu, Notification, Tray, dialog, globalShortcut, ipcMain,
         nativeImage, session, shell } = require("electron");
 const { execFile, spawn } = require("child_process");
 const http = require("http");
@@ -24,6 +24,9 @@ const fs = require("fs");
 
 const REPO_ROOT = path.join(__dirname, "..");
 const DEFAULT_PORT = parseInt(process.env.REXCLAW_PORT || "8990", 10);
+// Windows attributes toasts by Application User Model ID. Same value as
+// package.json build.appId so an installed build and the zip agree.
+const APP_USER_MODEL_ID = "com.codemarchant.rexclaw";
 const STARTUP_TIMEOUT_MS = 30000;
 
 // The app is a realtime three.js scene — make sure Chromium actually uses the
@@ -1381,6 +1384,105 @@ ipcMain.handle("mascot-close", (event, opts) => {
     return true;
 });
 
+/** Make Windows treat our AppUserModelID as a real app so toasts are
+ *  delivered. Microsoft's current guidance for unpackaged desktop apps is a
+ *  per-user registry entry (no Start Menu shortcut needed):
+ *  HKCU\Software\Classes\AppUserModelId\<AUMID> with DisplayName and
+ *  IconUri — that name and icon are what the toast and the Windows
+ *  notification settings show. Without it the toast fails with HRESULT
+ *  0x803E0114 (WPN_E_NOTIFICATION_TYPE_DISABLED). reg.exe ships with
+ *  Windows, needs no elevation for HKCU, and the writes are idempotent. */
+function ensureWindowsToastRegistration() {
+    if (process.platform !== "win32") return;
+    const key = `HKCU\\Software\\Classes\\AppUserModelId\\${APP_USER_MODEL_ID}`;
+    const values = [["DisplayName", "Rexclaw"]];
+    const icon = trayIconPath();
+    if (icon) values.push(["IconUri", icon]);
+    for (const [name, value] of values) {
+        execFile("reg.exe", ["add", key, "/v", name, "/t", "REG_SZ", "/d", value, "/f"],
+            (err) => { if (err) console.warn(`[notify] AUMID registration (${name}) failed:`, err.message); });
+    }
+}
+
+/** Native "the companion wrote to you" notification, raised from the main
+ *  process (the documented path for click handling: the click must bring a
+ *  possibly hidden window up, which only the shell can do). On click the
+ *  main window is shown and told which chat to open. */
+// Recent notifications. A Notification object that nothing references gets
+// garbage-collected once show() returns, and a collected notification never
+// delivers its click event. On Windows "close" also fires when the toast
+// merely slides off into the Action Center, where it stays clickable — so
+// do NOT release on close; keep the last few alive until clicked, and let
+// the oldest drop off when the list is full.
+const liveNotifications = [];
+const LIVE_NOTIFICATIONS_MAX = 20;
+
+/** Fetch a small image from our own server (the companion's portrait) as a
+ *  NativeImage for the toast icon; null on any failure so the caller can
+ *  fall back. Only 127.0.0.1 is ever contacted — the page hands us a URL on
+ *  its own origin — and the headset-mode cert is self-signed. */
+function fetchIconImage(url, timeoutMs = 3000) {
+    return new Promise((resolve) => {
+        let u;
+        try { u = new URL(url); } catch (e) { return resolve(null); }
+        if (!["127.0.0.1", "localhost"].includes(u.hostname)) return resolve(null);
+        const mod = u.protocol === "https:" ? https : http;
+        const opts = {
+            host: u.hostname, port: u.port, path: u.pathname + u.search,
+            timeout: timeoutMs, rejectUnauthorized: false,
+        };
+        const req = mod.get(opts, (res) => {
+            const chunks = [];
+            let size = 0;
+            res.on("data", (d) => { chunks.push(d); size += d.length; if (size > 4_000_000) req.destroy(); });
+            res.on("end", () => {
+                if (res.statusCode !== 200) return resolve(null);
+                const img = nativeImage.createFromBuffer(Buffer.concat(chunks));
+                resolve(img.isEmpty() ? null : img);
+            });
+        });
+        req.on("timeout", () => { req.destroy(); resolve(null); });
+        req.on("error", () => resolve(null));
+    });
+}
+
+ipcMain.handle("notify", async (event, payload) => {
+    if (!Notification.isSupported()) return false;
+    const p = payload || {};
+    // Companion portrait when the page offers one, else the app icon.
+    const portrait = p.icon ? await fetchIconImage(String(p.icon)) : null;
+    const n = new Notification({
+        title: String(p.title || "Rexclaw").slice(0, 100),
+        body: String(p.body || "").slice(0, 250),
+        icon: portrait || trayIconPath() || undefined,
+        // Chime rather than nag: the toast is the message, the sound is the
+        // OS default; nothing critical, so let it auto-dismiss.
+        silent: false,
+    });
+    liveNotifications.push(n);
+    while (liveNotifications.length > LIVE_NOTIFICATIONS_MAX) liveNotifications.shift();
+    const release = () => {
+        const i = liveNotifications.indexOf(n);
+        if (i >= 0) liveNotifications.splice(i, 1);
+    };
+    n.on("click", () => {
+        release();
+        console.log("[notify] clicked → opening chat", { agentId: p.agentId, sessionId: p.sessionId });
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            if (!mainWindow.isVisible()) mainWindow.show();
+            mainWindow.focus();
+            mainWindow.webContents.send("open-companion-chat", {
+                agentId: p.agentId || null,
+                sessionId: p.sessionId || null,
+            });
+        }
+    });
+    n.on("failed", (ev, error) => { release(); console.warn("[notify] failed:", error); });
+    n.show();
+    return true;
+});
+
 ipcMain.handle("mascot-pin", (event, flag) => {
     // Mirror the page's toggle shell-side: the topmost guard and the
     // hide/show path both need to know it, and querying isAlwaysOnTop()
@@ -1501,6 +1603,14 @@ if (!app.requestSingleInstanceLock()) {
 
     app.whenReady().then(async () => {
         try {
+            // Windows toasts are attributed by Application User Model ID.
+            // An installer (Squirrel/NSIS) registers one on the Start Menu
+            // shortcut and Electron picks it up; the zip build has no
+            // installer, so set the id by hand AND register it (below), or
+            // Windows refuses the toast ("notification type disabled").
+            // No-op on other platforms.
+            app.setAppUserModelId(APP_USER_MODEL_ID);
+            ensureWindowsToastRegistration();
             // Drop the HTTP cache before the first load. The server didn't
             // always send Cache-Control on index.html, so shells that ran an
             // older version can have a heuristically-cached entry page (and

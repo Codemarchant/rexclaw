@@ -1263,37 +1263,44 @@ def _build_transcript_history(con, session, limit=None):
     """Full chronological message list for the voice UI transcript, in the
     xAI envelope shape the JS replay loop maps into state.messages.
     Returns (items, truncated)."""
+    from . import heartbeat
     msgs, truncated = _transcript_rows(con, session, limit=limit)
     items = []
+    hb_cache = {}
     for m in msgs:
+        item = None
         if m['role'] == 'user':
-            items.append({
+            item = {
                 'type': 'message',
                 'role': 'user',
                 'content': [{'type': 'input_text', 'text': m['content'] or ''}],
-            })
+            }
         elif m['role'] == 'assistant':
-            items.append({
+            item = {
                 'type': 'message',
                 'role': 'assistant',
                 # Group-call attribution: lets the UI label who said what
                 # when a session containing mirrored peer lines is resumed.
                 'speaker': m['speaker'] or None,
                 'content': [{'type': 'text', 'text': m['content'] or ''}],
-            })
+            }
         elif m['role'] == 'tool_call' and m['xai_call_id']:
-            items.append({
+            item = {
                 'type': 'function_call',
                 'call_id': m['xai_call_id'],
                 'name': m['tool_name'] or '',
                 'arguments': m['tool_arguments_json'] or '{}',
-            })
+            }
         elif m['role'] == 'tool_result' and m['xai_call_id']:
-            items.append({
+            item = {
                 'type': 'function_call_output',
                 'call_id': m['xai_call_id'],
                 'output': m['tool_result_json'] or m['content'] or '',
-            })
+            }
+        if item is not None:
+            # Display grouping for rows a silent heartbeat wrote.
+            item['fold'] = heartbeat.transcript_tag(con, m, hb_cache)
+            items.append(item)
     return items, truncated
 
 
@@ -2207,11 +2214,13 @@ def start_text_session(con, *, agent, resume_session=None):
     transcript_messages = []
     transcript_truncated = False
     if resume_session:
+        from . import heartbeat  # lazy: circular import
         # Full history for the UI — same feed voice mode paints from. The
         # is_summarized_into filter is a MODEL-side concern (what replays to
         # xAI); the user keeps seeing every message even after compaction.
         rows, transcript_truncated = _transcript_rows(
             con, session, limit=config['transcript_display_limit'] or 0)
+        hb_cache = {}
         for m in rows:
             attachments = [
                 {
@@ -2238,6 +2247,9 @@ def start_text_session(con, *, agent, resume_session=None):
                 'xai_call_id': m['xai_call_id'],
                 'is_summary_rollup': bool(m['is_summary_rollup']),
                 'attachments': attachments,
+                # Display grouping for rows a silent heartbeat or an
+                # incoming companion text wrote.
+                'fold': heartbeat.transcript_tag(con, m, hb_cache),
             })
     con.commit()
 

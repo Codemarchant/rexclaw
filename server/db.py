@@ -485,6 +485,15 @@ CREATE TABLE IF NOT EXISTS messages (
     xai_previous_item_id TEXT,
     is_summarized_into INTEGER REFERENCES messages(id) ON DELETE SET NULL,
     is_summary_rollup INTEGER NOT NULL DEFAULT 0,
+    -- Set on every row a silent heartbeat tick wrote (heartbeat.run_heartbeat
+    -- stamps them after the turn). Display grouping only — see
+    -- heartbeats.collapse_in_transcript. NULL for ordinary rows.
+    heartbeat_id INTEGER REFERENCES heartbeats(id) ON DELETE SET NULL,
+    -- Set on the rows an incoming companion text produced in THIS session
+    -- (the tagged text itself, the reply and any tool rows in between):
+    -- the sender's agent id. Same display-grouping role as heartbeat_id;
+    -- always folded in the transcript views.
+    text_from_agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
     created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, sequence, id);
@@ -595,7 +604,8 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     persist_session INTEGER NOT NULL DEFAULT 0,
     session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
     next_run_at TEXT,                        -- naive-UTC ISO, like utcnow()
-    last_run_at TEXT,
+    last_run_at TEXT,                        -- when the last run STARTED
+    last_finished_at TEXT,                   -- when its bookkeeping landed (rows complete)
     past_due INTEGER NOT NULL DEFAULT 0,     -- pending user decision; scheduler skips
     last_error TEXT,                         -- last failed tick, cleared on success
     -- Companion texting during this heartbeat's own tick (off by default —
@@ -612,6 +622,26 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     -- runs out. Companion texting is unaffected (it has its own toggle
     -- above), and a tick that genuinely needs tools can opt back in.
     tools_enabled INTEGER NOT NULL DEFAULT 0,
+    -- Display only: fold the rows a silent tick writes (diary entry, a
+    -- texting exchange) into one collapsed accordion in the transcript
+    -- views, headed by the heartbeat's name. Keeps a "latest" conversation
+    -- from bloating and lets the user choose not to read the companion's
+    -- diary. Read at view time via messages.heartbeat_id, so toggling it
+    -- restyles past ticks too. Call-mode ticks are live conversations and
+    -- are never folded.
+    collapse_in_transcript INTEGER NOT NULL DEFAULT 1,
+    -- What makes the row due. 'schedule': next_run_at, every interval (the
+    -- original model). 'quiet': the user has not sent a real message for one
+    -- interval, evaluated against the latest conversation, and it fires once
+    -- per silence (never again until the user speaks) so a long absence
+    -- gets one check-in, not one per interval. Silent mode only; next_run_at
+    -- and past-due do not apply. See heartbeat.quiet_due.
+    trigger_mode TEXT NOT NULL DEFAULT 'schedule',
+    -- Raise a desktop notification when a silent tick of this row writes
+    -- something (needs the global config.heartbeat_notifications too).
+    -- Off by default: a diary every four hours would just train the user
+    -- to switch the whole feature off.
+    notify INTEGER NOT NULL DEFAULT 0,
     created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_heartbeats_due ON heartbeats (active, past_due, next_run_at);
@@ -854,6 +884,24 @@ MIGRATIONS = (
     # setting: deliberately NOT in routes/misc._AGENT_FIELDS (never
     # exported with a companion package).
     "ALTER TABLE agents ADD COLUMN current_outfit_name TEXT",
+    # Fold a silent tick's rows into one collapsed accordion in the
+    # transcript (see the heartbeats schema comment). On by default for
+    # existing heartbeats too; rows written before this column existed have
+    # no heartbeat_id and keep rendering as plain messages.
+    "ALTER TABLE heartbeats ADD COLUMN collapse_in_transcript INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE messages ADD COLUMN heartbeat_id INTEGER REFERENCES heartbeats(id) ON DELETE SET NULL",
+    # Quiet-period trigger + per-row desktop notification (see the heartbeats
+    # schema comment) and the global notification switch (desktop app only).
+    "ALTER TABLE heartbeats ADD COLUMN trigger_mode TEXT NOT NULL DEFAULT 'schedule'",
+    "ALTER TABLE heartbeats ADD COLUMN notify INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN heartbeat_notifications INTEGER NOT NULL DEFAULT 0",
+    # Incoming companion texts fold in the transcript (see the
+    # messages.text_from_agent_id comment).
+    "ALTER TABLE messages ADD COLUMN text_from_agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL",
+    # Completion stamp for the recent-runs poll: last_run_at is the START
+    # of a run, and a poll during a slow (picture-making) run would move
+    # its cursor past that start and never see the finished rows.
+    "ALTER TABLE heartbeats ADD COLUMN last_finished_at TEXT",
 )
 
 
