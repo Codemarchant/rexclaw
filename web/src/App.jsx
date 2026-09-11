@@ -108,8 +108,12 @@ export default function App() {
     useEffect(() => { heartbeatNotify.start(); }, []);
     // A desktop notification click lands on the Chat tab; TextView takes it
     // from there (and clears the request once it has opened the session).
+    // Read the request at render time: `ns` is the live proxy, and TextView's
+    // effect (child → runs first) has already nulled it by the time this
+    // effect fires, so checking the proxy here would always skip the switch.
     const ns = useReactive(notifyState);
-    useEffect(() => { if (ns.openChat) requestTab("chat"); }, [ns.openChat]);
+    const openChatReq = ns.openChat;
+    useEffect(() => { if (openChatReq) requestTab("chat"); }, [openChatReq]);
     // First-run pointer: nothing works without an xAI key, and a fresh
     // install has no reason to know it lives under Settings. Checked on
     // load and again whenever the tab changes (i.e. after leaving Settings)
