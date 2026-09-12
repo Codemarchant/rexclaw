@@ -109,6 +109,61 @@ def _note_resume_gap(con, session, agent):
     ))
 
 
+# Every affection resync note starts with this (see _note_resume_affection) —
+# how the transcript filter recognises the row.
+AFFECTION_NOTE_PREFIX = '[Affection standing '
+_AFFECTION_NOTE_SCORE_RE = re.compile(r'resumes: (\d+)/')
+
+
+def _note_resume_affection(con, session, agent):
+    """Affection resync on resume (meter on): the score lives on the agent
+    row and moves outside this conversation (the companion form, other
+    sessions, heartbeats), but a resumed conversation still carries what it
+    last saw - old adjust_affection results replay, and the Affection
+    section says to trust the latest one; a live text chain also keeps its
+    original prompt snapshot. Persist a system row with the current
+    standing, but only when that reading is stale, so the notes stay rare:
+    every row replays on every later resume, and voice resumes bill per
+    item."""
+    if not agent['enable_affection_tool']:
+        return
+    score = agent['affection_score'] or 0
+    rows = con.execute(
+        "SELECT role, content, tool_result_json FROM messages"
+        " WHERE session_id = ? AND is_summarized_into IS NULL"
+        " AND ((role = 'tool_result' AND tool_name = 'adjust_affection')"
+        " OR (role = 'system' AND content LIKE ?))"
+        " ORDER BY sequence DESC, id DESC",
+        (session['id'], AFFECTION_NOTE_PREFIX + '%'),
+    )
+    seen = None
+    for row in rows:
+        if row['role'] == 'system':
+            match = _AFFECTION_NOTE_SCORE_RE.search(row['content'] or '')
+            value = int(match.group(1)) if match else None
+        else:
+            try:
+                value = json.loads(row['tool_result_json'] or row['content'] or '').get('score')
+            except (ValueError, AttributeError):
+                value = None
+        if isinstance(value, int):
+            seen = value
+            break
+    if seen == score:
+        return
+    if seen is None and not session['previous_response_id']:
+        # Nothing in the history contradicts the prompt: a voice call or a
+        # fresh text chain is about to be built with the current score.
+        return
+    cfg = affection_tools.config_for(agent)
+    _persist_text_message(con, session, role='system', content=(
+        f'{AFFECTION_NOTE_PREFIX}as this conversation resumes: '
+        f'{score}/{cfg["max_score"]} (level '
+        f'{affection_tools.level_for(score, cfg)} of {cfg["level_count"]}) - '
+        f'this supersedes any earlier figure in the conversation.]'
+    ))
+
+
 def _env_preamble(config, stable=False):
     """Static environmental context prepended to every agent's system prompt.
 
@@ -381,8 +436,9 @@ def _affection_section(agent_row, stable=False):
         f"{cfg['level_size']} points); you change it with the "
         "`adjust_affection` tool. This figure is a snapshot from when "
         "this session's prompt was built - if any `adjust_affection` result "
-        "appears later in the conversation, the most recent one carries the "
-        "true up-to-date score and level; trust it over this line. "
+        "or affection-standing note appears later in the conversation, the "
+        "most recent one carries the true up-to-date score and level; trust "
+        "it over this line. "
         "Unless the rules below say otherwise, never mention the score, "
         "the levels, or this meter to the user - adjustments happen "
         "silently, and the relationship only ever shows through your "
@@ -954,6 +1010,8 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
 
     if resume_session and not call_parent_session:
         _note_resume_gap(con, session, agent)
+    if resume_session:
+        _note_resume_affection(con, session, agent)
 
     activate_vals = {'state': 'active', 'last_active_at': utcnow()}
     if not resume_session:
@@ -1225,8 +1283,8 @@ def _transcript_rows(con, session, limit=None):
     summary rollups themselves are skipped (backend artifact for the model),
     and so are the model-only prompt rows that would otherwise bloat the
     view with boilerplate: the scheduled-heartbeat context block (the diary
-    reply it produced stays) and the time-aware resume note. Both still
-    replay to the model - this is display-only.
+    reply it produced stays), the time-aware resume note and the affection
+    resync note. All still replay to the model - this is display-only.
     Optional `limit` keeps the most-recent N. Returns (rows, truncated).
     Shared by the voice resume feed (_build_transcript_history) and the text
     resume payload (start_text_session) so both surfaces show the same
@@ -1237,8 +1295,10 @@ def _transcript_rows(con, session, limit=None):
         "AND is_summary_rollup = 0"
         " AND NOT (role = 'user' AND content LIKE ?)"
         " AND NOT (role = 'system' AND content LIKE ?)"
+        " AND NOT (role = 'system' AND content LIKE ?)"
     )
-    shown_params = (heartbeat.CONTEXT_PREFIX + '%', RESUME_NOTE_PREFIX + '%')
+    shown_params = (heartbeat.CONTEXT_PREFIX + '%', RESUME_NOTE_PREFIX + '%',
+                    AFFECTION_NOTE_PREFIX + '%')
     if limit and limit > 0:
         recent = con.execute(
             f"SELECT * FROM messages WHERE session_id = ? {shown} "
@@ -2196,6 +2256,7 @@ def start_text_session(con, *, agent, resume_session=None):
 
     if resume_session:
         _note_resume_gap(con, session, agent)
+        _note_resume_affection(con, session, agent)
 
     activate_vals = {'state': 'active', 'last_active_at': utcnow()}
     if not resume_session:
