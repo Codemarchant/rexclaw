@@ -299,6 +299,43 @@ export const JA = {
   "Animated background": "アニメーション背景",
   "Attach images": "画像を添付",
   "Image upload failed: %s": "画像のアップロードに失敗しました: %s",
+  // Settings: local generation (ComfyUI)
+  "Local generation (ComfyUI)": "ローカル生成（ComfyUI）",
+  "Render the companions' image and video tools on your own ComfyUI server instead of Grok Imagine: any model ComfyUI runs, no per-generation billing. A companion's \"Image & video tools\" toggle still decides whether the tools are offered at all; this only picks the engine behind each tool.":
+    "コンパニオンの画像・動画ツールを Grok Imagine の代わりに自分の ComfyUI サーバーで実行します。ComfyUI で動くモデルなら何でも使え、生成ごとの課金もありません。ツール自体を提供するかどうかはコンパニオンの「画像・動画ツール」トグルが決め、ここでは各ツールのエンジンだけを選びます。",
+  "ComfyUI URL": "ComfyUI の URL",
+  "Auth header (optional)": "認証ヘッダー（任意）",
+  "Sent on every request. For a rented pod behind a proxy password or a hosted service's API key. Leave empty for a plain local ComfyUI.":
+    "すべてのリクエストに付加されます。プロキシパスワード付きのレンタル Pod やホスト型サービスの API キー用です。通常のローカル ComfyUI では空欄のままにしてください。",
+  "Test connection": "接続テスト",
+  "Connection failed": "接続に失敗しました",
+  "free": "空き",
+  "no GPU reported": "GPU が報告されていません",
+  "Rexclaw in Docker or WSL while ComfyUI runs on Windows? Start ComfyUI with --listen and use that machine's address (from Docker: http://host.docker.internal:8188).":
+    "Rexclaw を Docker や WSL で、ComfyUI を Windows で動かしている場合は、ComfyUI を --listen 付きで起動し、そのマシンのアドレスを指定してください（Docker からは http://host.docker.internal:8188）。",
+  "Images": "画像",
+  "Videos": "動画",
+  "Backgrounds (voice calls)": "背景（音声通話）",
+  "Grok Imagine (xAI)": "Grok Imagine（xAI）",
+  "Local (ComfyUI)": "ローカル（ComfyUI）",
+  "Workflows": "ワークフロー",
+  "In ComfyUI, load a template for the model you want (Qwen Image Edit for image edits, Wan 2.2 image-to-video for clips, …), run it once so its models download, then Workflow → Export (API) and load that file here. Nothing needs renaming: the prompt, LoadImage, seed, size and length inputs are detected. Put {prompt} inside the positive prompt text to keep the rest as a fixed style prefix.":
+    "ComfyUI で使いたいモデルのテンプレート（画像編集なら Qwen Image Edit、クリップなら Wan 2.2 image-to-video など）を読み込み、モデルをダウンロードするために一度実行してから、Workflow → Export (API) で書き出したファイルをここに読み込みます。名前の変更は不要です：プロンプト、LoadImage、シード、サイズ、長さの入力は自動検出されます。ポジティブプロンプトの中に {prompt} と書くと、残りの部分が固定のスタイル接頭辞として保持されます。",
+  "Text to image": "テキストから画像",
+  "Image edit (references)": "画像編集（参照画像）",
+  "Text to video": "テキストから動画",
+  "Image to video": "画像から動画",
+  "create_image from a prompt alone, and still backgrounds.": "プロンプトのみからの create_image と静止背景。",
+  "create_image featuring you, other companions, your photo or library images. Needs LoadImage node(s).": "あなた自身、他のコンパニオン、あなたの写真やライブラリ画像を使う create_image。LoadImage ノードが必要です。",
+  "create_video from a prompt alone, and animated backgrounds.": "プロンプトのみからの create_video とアニメーション背景。",
+  "create_video from a source image or featuring you: the frame the clip starts from.": "ソース画像またはあなた自身から始まる create_video。クリップの最初のフレームになります。",
+  "prompt": "プロンプト",
+  "no prompt node": "プロンプトノードなし",
+  "not set": "未設定",
+  "loaded": "読み込み済み",
+  "Load JSON": "JSON を読み込む",
+  "That file is not a ComfyUI API-format workflow.": "そのファイルは ComfyUI の API 形式ワークフローではありません。",
+  "Could not read that workflow.": "そのワークフローを読み込めませんでした。",
   "Turn director model": "ターンディレクターモデル",
   "Model for the group-call turn director (a one-token \"who speaks next\" classification on every group-call turn). Latency matters more than intelligence here — use the fastest non-reasoning model available. Empty = fall back to the Text Model.":
     "グループ通話のターンディレクター用モデル（毎ターン「次は誰が話すか」を 1 トークンで判定）。知能より低遅延が重要 — 利用可能な最速の非推論モデルを指定してください。空欄の場合はテキストモデルにフォールバックします。",
@@ -699,11 +736,12 @@ export const JA = {
     "キャプチャツール（自撮り＆画面共有）",
   "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider.":
     "頼まれたときにコンパニオンが自分の写真を撮れるようにします（take_selfie — 通話中はライブのアバター、チャットではポートレート）。また、画面共有を開始していれば、そのスクリーンショットや短いクリップを取得できます（take_screenshot、record_screen_clip）。キャプチャはファイルライブラリに保存され、トランスクリプトや他のツールから利用できます — 何も生成しないため、どのプロバイダーでも使えます。",
-  "Unlocks Grok Imagine media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Every generation is billed by xAI: images cost cents, videos are priced per second.":
-    "Grok Imagine のメディアツールを有効にします：create_image と create_video（プロンプトから、または Imagine ライブラリの画像 — 自撮り、スクリーンショット、アップロード — をリミックス）、さらに音声通話では change_background（アバターの背後に新しいシーンを生成）。生成はすべて xAI により課金されます — 画像は数セント、動画は秒単位の料金です。",
+  "Image & video tools": "画像・動画ツール",
+  "Unlocks the media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Each tool renders on Grok Imagine (billed by xAI: images cost cents, videos are priced per second) or on your own ComfyUI server. Pick the engine per tool in Settings → Local generation.":
+    "メディアツールを有効にします：create_image と create_video（プロンプトから、または Imagine ライブラリの画像（セルフィー、スクリーンショット、アップロード）をリミックス）、さらに音声通話では change_background（アバターの背後に新しいシーンを生成）。各ツールは Grok Imagine（xAI が課金：画像は数セント、動画は秒単位）か、自分の ComfyUI サーバーで実行されます。エンジンはツールごとに 設定 → ローカル生成 で選びます。",
   "Cross-companion Imagine reference": "コンパニオン間 Imagine 参照",
-  "Lets create_image/create_video feature ANOTHER companion by name (and outfit) — their own portrait as a reference image, and (create_video) their own voice id so a clip can have them speak in their actual voice too. Separate from Companion texting on purpose: a companion can be messageable without being depicted this way, or vice versa. Requires Grok Imagine.":
-    "create_image／create_video で、名前（と衣装）を指定して「別の」コンパニオンを登場させられるようにします — 参照画像としてその人自身のポートレート、そして（create_video では）実際の声で話させるためのその人自身のボイス ID も使えます。「コンパニオンテキスト」とは意図的に別設定です：テキストは送れても、この形で登場させたくない（またはその逆の）コンパニオンがいてもよいためです。Grok Imagine が必要です。",
+  "Lets create_image/create_video feature ANOTHER companion by name (and outfit) — their own portrait as a reference image, and (create_video) their own voice id so a clip can have them speak in their actual voice too. Separate from Companion texting on purpose: a companion can be messageable without being depicted this way, or vice versa. Requires Image & video tools.":
+    "create_image／create_video で、名前（と衣装）を指定して「別の」コンパニオンを登場させられるようにします — 参照画像としてその人自身のポートレート、そして（create_video では）実際の声で話させるためのその人自身のボイス ID も使えます。「コンパニオンテキスト」とは意図的に別設定です：テキストは送れても、この形で登場させたくない（またはその逆の）コンパニオンがいてもよいためです。画像・動画ツールが必要です。",
   "xAI pricing":
     "xAI 料金",
   "Lets the companion animate its avatar during voice calls: play gestures (the built-in set plus the avatar's custom ones) and switch between the avatar's outfits (play_gesture, change_outfit). Facial expressions are always available regardless. Unlocks the expression-style notes below.":

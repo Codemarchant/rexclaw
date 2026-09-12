@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, heartbeat, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, transfer, xai_client
+from .. import avatar_packs, heartbeat, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, transfer, xai_client
 from ..db import ASSETS_DIR, FILES_DIR, shipped_column_defaults, utcnow
 from ..wake_models import WAKE_MODELS
 from ..errors import UserError
@@ -35,6 +35,10 @@ _CONFIG_FIELDS = (
     "xai_model", "text_model", "summary_model", "director_model", "imagine_model",
     "imagine_video_model", "multi_agent_model", "multi_agent_effort",
     "delegate_fast_model",
+    "imagine_image_backend", "imagine_video_backend", "imagine_background_backend",
+    "local_gen_url",
+    "local_gen_image_workflow", "local_gen_image_edit_workflow",
+    "local_gen_video_workflow", "local_gen_video_i2v_workflow",
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
     "summary_threshold_tokens", "summary_threshold_tokens_text",
     "summary_keep_recent_messages",
@@ -77,6 +81,9 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     out["api_key_hint"] = (
         f"…{row['xai_api_key'][-4:]}" if row["xai_api_key"] and len(row["xai_api_key"]) > 8 else None
     )
+    # The ComfyUI auth header is a pod password / API key: write-only from
+    # the UI, same as the xAI key.
+    out["has_local_gen_auth"] = bool(row["local_gen_auth_header"])
     out["spend_today_usd"] = row["spend_today_usd"]
     out["spend_lifetime_usd"] = row["spend_lifetime_usd"]
     out["user_photo_url"] = row["user_photo_path"] or None
@@ -99,6 +106,12 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
             updates["xai_api_key"] = None
         elif isinstance(key, str) and key.strip():
             updates["xai_api_key"] = key.strip()
+    if "local_gen_auth_header" in payload:
+        header = payload["local_gen_auth_header"]
+        if header is None:
+            updates["local_gen_auth_header"] = ""
+        elif isinstance(header, str) and header.strip():
+            updates["local_gen_auth_header"] = header.strip()
     if updates:
         cols = ", ".join(f"{k} = ?" for k in updates)
         con.execute(f"UPDATE config SET {cols} WHERE id = 1", tuple(updates.values()))
@@ -257,6 +270,34 @@ _MODEL_DEFAULT_FIELDS = (
     "imagine_video_model", "director_model", "multi_agent_model",
     "delegate_fast_model",
 )
+
+
+@router.post("/local_gen/test")
+def local_gen_test(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Settings "Test connection": is there a ComfyUI at this URL, and
+    what GPU does it see. Takes the unsaved draft URL; the auth header is
+    the draft when one is typed, else the stored one (the UI never reads
+    it back)."""
+    header = payload.get("auth_header")
+    if not (isinstance(header, str) and header.strip()):
+        header = con.execute("SELECT local_gen_auth_header FROM config WHERE id = 1").fetchone()[0]
+    return local_gen.test_connection(payload.get("url"), header)
+
+
+@router.post("/local_gen/inspect")
+def local_gen_inspect(payload: dict = Body(default={})):
+    """Detection summary per workflow slot — {slot: workflow_json_text}
+    in, {slot: summary | {ok: False, error}} out. Validates a freshly
+    loaded file before it is saved and re-describes stored ones."""
+    out = {}
+    for slot, text in (payload.get("workflows") or {}).items():
+        if slot not in local_gen.SLOTS or not isinstance(text, str) or not text.strip():
+            continue
+        try:
+            out[slot] = local_gen.inspect_workflow(text, slot)
+        except UserError as e:
+            out[slot] = {"ok": False, "error": str(e)}
+    return {"slots": out}
 
 
 @router.post("/xai/model_defaults")

@@ -19,6 +19,31 @@ const WAKE_LANGUAGES = [
     ["es", "Español"], ["zh", "中文"], ["ru", "Русский"], ["pt", "Português"],
 ];
 
+// Local generation (ComfyUI). One engine switch per Imagine tool, and one
+// exported workflow per capability — keep the slot ids in sync with SLOTS
+// in server/local_gen.py.
+const LOCAL_GEN_TOOLS = [
+    ["imagine_image_backend", "create_image", "Images"],
+    ["imagine_video_backend", "create_video", "Videos"],
+    ["imagine_background_backend", "change_background", "Backgrounds (voice calls)"],
+];
+const LOCAL_GEN_SLOTS = [
+    ["image", "Text to image", "create_image from a prompt alone, and still backgrounds."],
+    ["image_edit", "Image edit (references)", "create_image featuring you, other companions, your photo or library images. Needs LoadImage node(s)."],
+    ["video", "Text to video", "create_video from a prompt alone, and animated backgrounds."],
+    ["video_i2v", "Image to video", "create_video from a source image or featuring you: the frame the clip starts from."],
+];
+
+/** One-line detection summary of an inspected workflow. */
+function workflowSummary(s) {
+    return [
+        s.prompt ? `${_t("prompt")}: ${s.prompt}${s.prompt_has_marker ? " {prompt}" : ""}` : _t("no prompt node"),
+        `${s.image_inputs} LoadImage`,
+        s.length_inputs ? `${s.fps} fps` : null,
+        s.outputs?.length ? `→ ${s.outputs.join("/")}` : null,
+    ].filter(Boolean).join(" · ");
+}
+
 /** Settings: global app configuration — BYOK key + models, user identity and
  *  context-management thresholds. Companions and avatar packs have their own
  *  tabs (CompanionsView / AvatarsView); stored memories live on Memories. */
@@ -46,6 +71,16 @@ export default function SettingsView({ active }) {
     // gates create_image/create_video's include_user.
     const [photoUploading, setPhotoUploading] = useState(false);
     const photoInputRef = useRef(null);
+    // Local generation: workflow JSON files load through one hidden file
+    // input into the draft config (saved with the rest); the server's
+    // detection summary per slot shows what a companion would drive.
+    const [wfSummaries, setWfSummaries] = useState({});
+    const [wfSlot, setWfSlot] = useState(null);         // slot the file picker was opened for
+    const wfInputRef = useRef(null);
+    const [comfyTest, setComfyTest] = useState(null);   // null | "busy" | {ok, ...} | {error}
+    // Write-only like the API key: the server only reports whether one is
+    // stored; a typed value is sent on Save, null clears it.
+    const [authDraft, setAuthDraft] = useState("");
     const onUserPhotoSelected = async (ev) => {
         const file = ev.target.files?.[0];
         ev.target.value = "";
@@ -89,6 +124,7 @@ export default function SettingsView({ active }) {
                 if (raw && typeof raw === "object") parsed = raw;
             } catch (e) { /* corrupt blob — fall back to the defaults */ }
             setHotkeys(parsed);
+            inspectWorkflows(cfg);
             markDirty(false);   // freshly loaded = pristine
         } catch (e) {
             notification.add(e?.message || _t("Could not load settings"), { type: "danger" });
@@ -163,6 +199,54 @@ export default function SettingsView({ active }) {
     const setField = (key, value) => { markDirty(true); setConfig((c) => ({ ...c, [key]: value })); };
     const changeHotkeys = (next) => { markDirty(true); setHotkeys(next); };
 
+    /** Detection summaries for every stored workflow (advisory — a failure
+     *  just leaves the slot showing "loaded"). */
+    const inspectWorkflows = async (cfg) => {
+        const workflows = {};
+        for (const [slot] of LOCAL_GEN_SLOTS) {
+            if (cfg[`local_gen_${slot}_workflow`]) workflows[slot] = cfg[`local_gen_${slot}_workflow`];
+        }
+        if (!Object.keys(workflows).length) { setWfSummaries({}); return; }
+        try {
+            const res = await rpc("/api/local_gen/inspect", { workflows });
+            setWfSummaries(res.slots || {});
+        } catch (e) { /* summaries are advisory */ }
+    };
+    const pickWorkflow = (slot) => { setWfSlot(slot); wfInputRef.current?.click(); };
+    const onWorkflowSelected = async (ev) => {
+        const file = ev.target.files?.[0];
+        ev.target.value = "";
+        const slot = wfSlot;
+        if (!file || !slot) return;
+        try {
+            const text = await file.text();
+            const res = await rpc("/api/local_gen/inspect", { workflows: { [slot]: text } });
+            const summary = res.slots?.[slot];
+            if (!summary || summary.ok === false) {
+                notification.add(summary?.error || _t("That file is not a ComfyUI API-format workflow."), { type: "danger" });
+                return;
+            }
+            setWfSummaries((s) => ({ ...s, [slot]: summary }));
+            setField(`local_gen_${slot}_workflow`, text);
+        } catch (e) {
+            notification.add(e?.message || _t("Could not read that workflow."), { type: "danger" });
+        }
+    };
+    const clearWorkflow = (slot) => {
+        setWfSummaries((s) => { const next = { ...s }; delete next[slot]; return next; });
+        setField(`local_gen_${slot}_workflow`, "");
+    };
+    const testComfy = async () => {
+        setComfyTest("busy");
+        try {
+            setComfyTest(await rpc("/api/local_gen/test", {
+                url: config.local_gen_url, auth_header: authDraft || "",
+            }));
+        } catch (e) {
+            setComfyTest({ error: e?.message || _t("Connection failed") });
+        }
+    };
+
     const saveConfig = async () => {
         setSaving(true);
         try {
@@ -173,8 +257,12 @@ export default function SettingsView({ active }) {
             delete payload.spend_lifetime_usd;
             payload.hotkeys_json = JSON.stringify(hotkeys);
             if (apiKeyDraft.trim()) payload.xai_api_key = apiKeyDraft.trim();
+            delete payload.has_local_gen_auth;
+            if (authDraft.trim()) payload.local_gen_auth_header = authDraft.trim();
+            else if (authDraft === null) payload.local_gen_auth_header = null;
             await rpc("/api/config/set", payload);
             setApiKeyDraft("");
+            setAuthDraft("");
             // Re-bind immediately — including the OS-wide registration, which
             // only the shell can change.
             applyHotkeys({
@@ -757,6 +845,97 @@ export default function SettingsView({ active }) {
                         </div>
                     </section>
                 )}
+
+                <section>
+                    <h3><i className="fa fa-desktop" /> {_t("Local generation (ComfyUI)")}</h3>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("Render the companions' image and video tools on your own ComfyUI server instead of Grok Imagine: any model ComfyUI runs, no per-generation billing. A companion's \"Image & video tools\" toggle still decides whether the tools are offered at all; this only picks the engine behind each tool.")}
+                    </p>
+                    <div className="rx_row">
+                        <div style={{ flex: 2 }}>
+                            <label>{_t("ComfyUI URL")}</label>
+                            <input type="text" value={config.local_gen_url || ""} placeholder="http://127.0.0.1:8188"
+                                   onChange={(ev) => setField("local_gen_url", ev.target.value)} />
+                        </div>
+                        <div style={{ flex: 2 }}>
+                            <label title={_t("Sent on every request. For a rented pod behind a proxy password or a hosted service's API key. Leave empty for a plain local ComfyUI.")}>
+                                {_t("Auth header (optional)")}
+                                {config.has_local_gen_auth && authDraft !== null && (
+                                    <span className="text-muted"> ({_t("saved")}{" "}
+                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setAuthDraft(null); }}>{_t("remove")}</a>)
+                                    </span>
+                                )}
+                            </label>
+                            <input type="password" value={authDraft || ""}
+                                   placeholder={config.has_local_gen_auth && authDraft !== null
+                                       ? _t("•••••••• (leave blank to keep current header)")
+                                       : "Authorization: Bearer …"}
+                                   onChange={(ev) => { markDirty(true); setAuthDraft(ev.target.value); }} />
+                        </div>
+                        <div style={{ alignSelf: "flex-end" }}>
+                            <button className="btn btn-light" onClick={testComfy} disabled={comfyTest === "busy"}>
+                                <i className={comfyTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test connection")}
+                            </button>
+                        </div>
+                    </div>
+                    {comfyTest && comfyTest !== "busy" && (
+                        <p className={"small " + (comfyTest.ok ? "text-muted" : "text-danger")} style={{ margin: "0.25rem 0 0.5rem" }}>
+                            {comfyTest.ok
+                                ? `ComfyUI ${comfyTest.version || ""} · ${(comfyTest.devices || [])
+                                    .map((d) => `${d.name} (${d.vram_free_gb} / ${d.vram_total_gb} GB VRAM ${_t("free")})`)
+                                    .join(", ") || _t("no GPU reported")}`
+                                : comfyTest.error}
+                        </p>
+                    )}
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("Rexclaw in Docker or WSL while ComfyUI runs on Windows? Start ComfyUI with --listen and use that machine's address (from Docker: http://host.docker.internal:8188).")}
+                    </p>
+                    <div className="rx_row">
+                        {LOCAL_GEN_TOOLS.map(([key, tool, label]) => (
+                            <div key={key}>
+                                <label>{_t(label)} <span className="text-muted">({tool})</span></label>
+                                <select value={config[key] || "xai"} onChange={(ev) => setField(key, ev.target.value)}>
+                                    <option value="xai">{_t("Grok Imagine (xAI)")}</option>
+                                    <option value="local">{_t("Local (ComfyUI)")}</option>
+                                </select>
+                            </div>
+                        ))}
+                    </div>
+                    <label style={{ marginTop: "0.5rem" }}>{_t("Workflows")}</label>
+                    <p className="text-muted small" style={{ margin: "0 0 0.4rem" }}>
+                        {_t("In ComfyUI, load a template for the model you want (Qwen Image Edit for image edits, Wan 2.2 image-to-video for clips, …), run it once so its models download, then Workflow → Export (API) and load that file here. Nothing needs renaming: the prompt, LoadImage, seed, size and length inputs are detected. Put {prompt} inside the positive prompt text to keep the rest as a fixed style prefix.")}
+                    </p>
+                    {LOCAL_GEN_SLOTS.map(([slot, label, hint]) => {
+                        const text = config[`local_gen_${slot}_workflow`];
+                        const s = wfSummaries[slot];
+                        return (
+                            <div key={slot} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.4rem" }}>
+                                <div style={{ flex: 1 }}>
+                                    <strong>{_t(label)}</strong>{" "}
+                                    <span className="text-muted small">{_t(hint)}</span>
+                                    <div className="small">
+                                        {!text && <span className="text-muted">{_t("not set")}</span>}
+                                        {text && !s && _t("loaded")}
+                                        {text && s && (s.ok === false
+                                            ? <span className="text-danger">{s.error}</span>
+                                            : workflowSummary(s))}
+                                        {s?.warnings?.map((w, i) => <div key={i} className="text-danger">{w}</div>)}
+                                    </div>
+                                </div>
+                                <button type="button" className="btn btn-sm" onClick={() => pickWorkflow(slot)}>
+                                    <i className="fa fa-upload" /> {text ? _t("Replace") : _t("Load JSON")}
+                                </button>
+                                {text && (
+                                    <button type="button" className="btn btn-sm btn-link" onClick={() => clearWorkflow(slot)}>
+                                        {_t("Remove")}
+                                    </button>
+                                )}
+                            </div>
+                        );
+                    })}
+                    <input ref={wfInputRef} type="file" accept="application/json,.json"
+                           style={{ display: "none" }} onChange={onWorkflowSelected} />
+                </section>
 
                 <div className="rx_settings_footer">
                     <button className="btn btn-link" onClick={() => setCreditsOpen(true)}>

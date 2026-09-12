@@ -33,15 +33,23 @@ can speak about and the browser can act on:
 
 Video generation is asynchronous on xAI's side (poll-until-done) and priced
 per second, so durations are capped conservatively here.
+
+Each tool's ENGINE is a Settings switch (config.imagine_*_backend): 'xai'
+runs the paths above, 'local' hands the same call to the user's own ComfyUI
+server via local_gen.py, with the tool schema pruned to what the loaded
+workflows can do (no reference-to-video, no extend/edit; include_self on a
+local video becomes its opening frame). The companion never picks the
+engine — model choice is the user's call, not the model's.
 """
 import base64
 import copy
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from textwrap import dedent
 
-from . import xai_client, store
+from . import local_gen, xai_client, store
 from .db import FILES_DIR, get_config, utcnow
 from .errors import UserError
 
@@ -57,16 +65,23 @@ _VIDEO_DEFAULT_RESOLUTION = '720p'
 _VIDEO_ASPECT_RATIOS = ('1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3')
 
 
-_CHANGE_BACKGROUND_TOOL = {
-    'type': 'function',
-    'name': 'change_background',
-    'description': (
+# The animated-option sentence is kept apart so the local-engine builder
+# can drop it together with the parameter (see build_change_background_tool)
+# without a second copy of the text that could drift.
+_CHANGE_BACKGROUND_ANIMATED_SENTENCE = (
+    "Generates a still image by default. Set animated=true ONLY when the "
+    "user explicitly asks for a moving, animated or video background - it "
+    "takes 30-60 seconds to render and interrupts the conversation, so "
+    "never choose it on your own. "
+)
+
+
+def _change_background_description(animated):
+    return (
         "Generate a new scene background and apply it to the user's "
-        "fullscreen view immediately. Generates a still image by default. "
-        "Set animated=true ONLY when the user explicitly asks for a moving, "
-        "animated or video background - it takes 30-60 seconds to render "
-        "and interrupts the conversation, so never choose it on your own. "
-        "Good prompts describe a setting in one short sentence (e.g. 'a "
+        "fullscreen view immediately. "
+        + (_CHANGE_BACKGROUND_ANIMATED_SENTENCE if animated else "Generates a still image. ")
+        + "Good prompts describe a setting in one short sentence (e.g. 'a "
         "minimalist Tokyo office at dusk with soft city bokeh'). Avoid "
         "people, busy foregrounds, and text overlays. Call this ONCE per "
         "scene change - never several calls at the same time: each one "
@@ -74,7 +89,13 @@ _CHANGE_BACKGROUND_TOOL = {
         "Pick the single best description. The result is saved to this "
         "agent's Imagine library and becomes the user's preferred "
         "background until they pick a different one."
-    ),
+    )
+
+
+_CHANGE_BACKGROUND_TOOL = {
+    'type': 'function',
+    'name': 'change_background',
+    'description': _change_background_description(animated=True),
     'parameters': {
         'type': 'object',
         'properties': {
@@ -106,7 +127,9 @@ _CREATE_IMAGE_TOOL = {
         "in the transcript as a clickable thumbnail — NEVER say or write "
         "the URL, file name or link; just react to it in your own words. "
         "To put YOURSELF in the picture set include_self=true - that alone "
-        "answers 'send me a picture of you', no other call is needed. "
+        "answers 'send me a picture of you', no other call is needed - and "
+        "keep your art style in the prompt: stylized anime/cel-shaded 3D, "
+        "NOT photorealistic, unless the user asks for a different style. "
         "Other companions go in via include_companion, the user via "
         "include_user, library images (earlier results, user uploads - "
         "the imagine_image_id refs shown next to them in the conversation) "
@@ -393,6 +416,150 @@ def build_create_video_tool(*, reference=True, selfie=True):
     return tool
 
 
+# ---------------------------------------------------------------------------
+# Engine switch (Settings → Local generation)
+# ---------------------------------------------------------------------------
+
+_BACKEND_COLUMN = {
+    'create_image': 'imagine_image_backend',
+    'create_video': 'imagine_video_backend',
+    'change_background': 'imagine_background_backend',
+}
+
+
+def backend_for(config, tool_name):
+    """'local' (the user's ComfyUI) or 'xai' (Grok Imagine) for a tool."""
+    return 'local' if (config[_BACKEND_COLUMN[tool_name]] or 'xai') == 'local' else 'xai'
+
+
+def _local_slot_ready(config, slot):
+    return bool((config[f'local_gen_{slot}_workflow'] or '').strip())
+
+
+def build_change_background_tool(config):
+    """change_background for a session: on the local engine without a
+    text-to-video workflow the `animated` option is pruned."""
+    tool = copy.deepcopy(_CHANGE_BACKGROUND_TOOL)
+    if backend_for(config, 'change_background') == 'local' and not _local_slot_ready(config, 'video'):
+        del tool['parameters']['properties']['animated']
+        tool['description'] = _change_background_description(animated=False)
+    return tool
+
+
+def build_create_image_tool(config):
+    """create_image for a session: on the local engine without an
+    image-edit workflow every reference input goes (include_self,
+    source_images — and with them the outfit/companion/user params that
+    key off include_self), leaving prompt-only generation."""
+    tool = copy.deepcopy(_CREATE_IMAGE_TOOL)
+    if backend_for(config, 'create_image') == 'local' and not _local_slot_ready(config, 'image_edit'):
+        del tool['parameters']['properties']['source_images']
+        del tool['parameters']['properties']['include_self']
+        tool['description'] = (
+            "Generate an image from a prompt on the user's own local image "
+            "model. The result is saved to the library and appears in the "
+            "transcript as a clickable thumbnail — NEVER say or write the "
+            "URL, file name or link; just react to it in your own words. "
+            "Cannot include you or edit existing images (no reference "
+            "workflow is set up). Does NOT change the avatar background — "
+            "use change_background for that."
+        )
+        tool['parameters']['properties']['prompt']['description'] = 'What to generate.'
+    return tool
+
+
+def build_local_video_tool(config):
+    """create_video on the local engine. Modes follow the workflows the
+    user loaded: Generation needs the text-to-video slot, Image-to-Video
+    the image-to-video slot (where include_self makes the companion's
+    likeness the opening frame — the local counterpart of reference-to-
+    video). No extension, editing, voices or multi-reference: local
+    workflows are one graph each."""
+    t2v = _local_slot_ready(config, 'video')
+    i2v = _local_slot_ready(config, 'video_i2v')
+    modes = []
+    if t2v:
+        modes.append(
+            "  Generation        nothing extra. Invented from the prompt alone.\n"
+            "                    Takes aspect_ratio, duration_seconds."
+        )
+    if i2v:
+        modes.append(
+            "  Image-to-Video    source_image, or include_self=true for a clip\n"
+            "                    of YOU. The clip STARTS from that exact frame.\n"
+            "                    Takes duration_seconds."
+        )
+    description = (
+        "Generate a short video clip from a prompt on the user's own local "
+        "video model. The finished clip appears automatically in the "
+        "transcript as a playable thumbnail — NEVER say or write the URL, "
+        "file name or link; just react to it naturally in your own words. "
+        "Local rendering takes several minutes, so never call this "
+        "silently: say what you are creating as you start, keep chatting "
+        "while it renders, and react when it lands. Only create videos at "
+        "the user's explicit request. Clips are silent.\n\n"
+        "MODES — the optional inputs select exactly one:\n\n"
+        + "\n\n".join(modes) +
+        "\n\nOMIT every parameter you are not using — leave it out of the "
+        "arguments entirely. Never pass a placeholder like \"false\", "
+        "\"none\" or \"\" to say you don't want a mode."
+    )
+    properties = {
+        'prompt': {
+            'type': 'string',
+            'description': (
+                'What happens in the clip. With a source or self frame, '
+                'describe the motion and what changes - the subject and '
+                'setting come from the frame.'
+            ),
+        },
+        'duration_seconds': {
+            'type': 'integer',
+            'description': (
+                f'Clip length in seconds, 1-{_VIDEO_MAX_SECONDS}. Omit to use '
+                'the workflow\'s own default length - longer clips render '
+                'proportionally slower.'
+            ),
+        },
+    }
+    if i2v:
+        properties['source_image'] = {
+            'type': 'string',
+            'description': (
+                'image_url (/files/...) or imagine_image_id of a library '
+                'image to animate: the clip starts from this exact frame. '
+                'Not with include_self.'
+            ),
+        }
+        properties['include_self'] = {
+            'type': 'boolean',
+            'description': (
+                'true = the clip starts from YOUR likeness: on a voice call '
+                'a live snapshot of you on screen (outfit, backdrop), in text '
+                'chat your full-body portrait. That alone answers "make a '
+                'video of you" - no other call is needed. Keep your art '
+                'style - stylized anime/cel-shaded 3D, NOT photorealistic - '
+                'unless the user asks for a different style. Not with '
+                'source_image.'
+            ),
+        }
+    if t2v:
+        properties['aspect_ratio'] = {
+            'type': 'string',
+            'enum': list(_VIDEO_ASPECT_RATIOS),
+            'description': (
+                'Shape of the clip (default: the workflow\'s own). Generation '
+                'only - Image-to-Video takes the frame\'s shape.'
+            ),
+        }
+    return {
+        'type': 'function',
+        'name': 'create_video',
+        'description': description,
+        'parameters': {'type': 'object', 'properties': properties, 'required': ['prompt']},
+    }
+
+
 # Names that mean "the main VRM's look" in an outfit pick, besides the
 # avatar's own main_outfit_name: the generic fallback label, and the label
 # the pickers used before appearance moved onto the avatar record (a
@@ -512,45 +679,54 @@ def _with_user_param(tool, config):
     return tool
 
 
-def build_voice_tools(con, agent):
-    """Imagine function tools for a voice session."""
+def _session_tools(con, agent, *, selfie):
+    """create_image + create_video for a session, each on its configured
+    engine with the likeness/companion/user params layered on. A local
+    video takes only the outfit param: its include_self is a single
+    opening frame, so there is no slot for other people."""
     outfits = store.agent_outfit_dicts(con, agent)
     main_name = store.agent_appearance(con, agent)['main_name']
     other_agents = [a for a in store.list_agents(con) if a['id'] != agent['id']]
     config = get_config(con)
-    return [
-        _CHANGE_BACKGROUND_TOOL,
-        _with_user_param(_with_companion_param(
-            _with_outfit_param(copy.deepcopy(_CREATE_IMAGE_TOOL), outfits, main_name),
-            con, agent, other_agents, include_voice_roster=False), config),
-        _with_user_param(_with_companion_param(
+    image = _with_user_param(_with_companion_param(
+        _with_outfit_param(build_create_image_tool(config), outfits, main_name),
+        con, agent, other_agents, include_voice_roster=False), config)
+    # A local engine with no workflow loaded for a tool can't render anything
+    # — leave that tool out rather than offer one that always errors.
+    if backend_for(config, 'create_image') == 'local' and not (
+            _local_slot_ready(config, 'image') or _local_slot_ready(config, 'image_edit')):
+        image = None
+    if backend_for(config, 'create_video') == 'local':
+        if not (_local_slot_ready(config, 'video') or _local_slot_ready(config, 'video_i2v')):
+            video = None
+        else:
+            video = _with_outfit_param(build_local_video_tool(config), outfits, main_name)
+    else:
+        video = _with_user_param(_with_companion_param(
             _with_outfit_param(
                 build_create_video_tool(reference=video_reference_supported(config),
-                                        selfie=bool(agent['enable_capture_tools'])),
+                                        selfie=selfie),
                 outfits, main_name),
-            con, agent, other_agents, include_voice_roster=True), config),
-    ]
+            con, agent, other_agents, include_voice_roster=True), config)
+    return config, image, video
+
+
+def build_voice_tools(con, agent):
+    """Imagine function tools for a voice session."""
+    config, image, video = _session_tools(con, agent, selfie=bool(agent['enable_capture_tools']))
+    background = build_change_background_tool(config)
+    if backend_for(config, 'change_background') == 'local' and not (
+            _local_slot_ready(config, 'image') or _local_slot_ready(config, 'video')):
+        background = None
+    return [t for t in (background, image, video) if t]
 
 
 def build_text_tools(con, agent):
     """Imagine function tools for a text turn. No take_selfie hint: text has
     no live canvas, so include_self is the only way to feature the
     companion."""
-    outfits = store.agent_outfit_dicts(con, agent)
-    main_name = store.agent_appearance(con, agent)['main_name']
-    other_agents = [a for a in store.list_agents(con) if a['id'] != agent['id']]
-    config = get_config(con)
-    return [
-        _with_user_param(_with_companion_param(
-            _with_outfit_param(copy.deepcopy(_CREATE_IMAGE_TOOL), outfits, main_name),
-            con, agent, other_agents, include_voice_roster=False), config),
-        _with_user_param(_with_companion_param(
-            _with_outfit_param(
-                build_create_video_tool(reference=video_reference_supported(config),
-                                        selfie=False),
-                outfits, main_name),
-            con, agent, other_agents, include_voice_roster=True), config),
-    ]
+    _config, image, video = _session_tools(con, agent, selfie=False)
+    return [t for t in (image, video) if t]
 
 # Tools that only make sense with a live fullscreen canvas — gated out of
 # text mode both in the tool list and at execution time.
@@ -597,55 +773,29 @@ def execute_imagine_tool(con, session, tool_name, arguments):
     prompt = prompt.strip()
 
     config = con.execute("SELECT * FROM config WHERE id = 1").fetchone()
+    arguments = arguments or {}
+    if backend_for(config, tool_name) == 'local':
+        return _execute_local_tool(con, session, agent, config, tool_name, prompt, arguments)
     xai_key = config['xai_api_key']
     if not xai_key:
         return {'error': 'xAI API key is not configured.'}
 
     if tool_name == 'create_video' or (
-            tool_name == 'change_background'
-            and _truthy((arguments or {}).get('animated'))):
+            tool_name == 'change_background' and _truthy(arguments.get('animated'))):
         return _execute_video_tool(con, session, agent, config, xai_key, tool_name,
-                                   prompt, arguments or {})
+                                   prompt, arguments)
 
     # create_image from library sources → the images/edits endpoint with
     # data URIs (restyle/remix/combine). Works in both modes and reaches
     # everything in the Imagine library (generated images, selfies, uploads).
-    source_refs = _library_ref_list((arguments or {}).get('source_images'))
-    include_self = tool_name == 'create_image' and _truthy((arguments or {}).get('include_self'))
-    include_companion = tool_name == 'create_image' and _library_ref_list((arguments or {}).get('include_companion'))
-    include_user = tool_name == 'create_image' and _truthy((arguments or {}).get('include_user'))
-    if tool_name == 'create_image' and (source_refs or include_self or include_companion or include_user):
-        source_uris = []
-        labels = []   # aligned with source_uris; None = plain library source
-        self_note = None
-        companion_note = None
-        if include_self:
-            # The companion's likeness goes first so it is <IMAGE_0>, as the
-            # schema promises; explicit sources follow in the order passed.
-            uri, err, self_note = _self_likeness_data_uri(con, agent, arguments or {})
-            if err:
-                return {'error': err}
-            source_uris.append(uri)
-            labels.append(agent['name'])
-        if include_companion:
-            entries, err, companion_note = _companion_portrait_data_uris(con, agent, include_companion)
-            if err:
-                return {'error': f'include_companion: {err}'}
-            for uri, name in entries:
-                source_uris.append(uri)
-                labels.append(name)
-        if include_user:
-            uri, err = _user_photo_data_uri(config)
-            if err:
-                return {'error': f'include_user: {err}'}
-            source_uris.append(uri)
-            labels.append(_user_label(config))
-        for ref in source_refs or ():
-            uri, err = _library_image_data_uri(con, ref)
-            if err:
-                return {'error': f'source_images: {err}'}
-            source_uris.append(uri)
-            labels.append(None)
+    source_uris, note = [], None
+    if tool_name == 'create_image':
+        source_uris, labels, note, err = _collect_references(
+            con, agent, config, arguments,
+            _library_ref_list(arguments.get('source_images')), 'source_images')
+        if err:
+            return {'error': err}
+    if source_uris:
         try:
             body = xai_client.edit_image(
                 xai_api_key=xai_key,
@@ -663,7 +813,6 @@ def execute_imagine_tool(con, session, tool_name, arguments):
         result = _persist_imagine_result(con, session, agent, config, body, prompt, kind='edit')
         if 'error' not in result:
             result['source_image_count'] = len(source_uris)
-            note = ' '.join(n for n in (self_note, companion_note) if n)
             if note:
                 result['note'] = note
         return result
@@ -1065,8 +1214,7 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
     video_data_uri = None
     aspect_ratio = None
     resolution = _VIDEO_DEFAULT_RESOLUTION
-    self_note = None
-    companion_note = None
+    ref_note = None
     if tool_name == 'change_background':
         kind = 'background_video'
         duration = _BACKGROUND_VIDEO_SECONDS
@@ -1127,34 +1275,10 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             if err:
                 return {'error': f'source_image: {err}'}
         elif reference_refs or include_self or include_companion or include_user:
-            reference_data_uris = []
-            labels = []
-            if include_self:
-                # Likeness first → <IMAGE_0>, as the schema promises.
-                uri, err, self_note = _self_likeness_data_uri(con, agent, arguments)
-                if err:
-                    return {'error': err}
-                reference_data_uris.append(uri)
-                labels.append(agent['name'])
-            if include_companion:
-                entries, err, companion_note = _companion_portrait_data_uris(con, agent, include_companion)
-                if err:
-                    return {'error': f'include_companion: {err}'}
-                for uri, name in entries:
-                    reference_data_uris.append(uri)
-                    labels.append(name)
-            if include_user:
-                uri, err = _user_photo_data_uri(config)
-                if err:
-                    return {'error': f'include_user: {err}'}
-                reference_data_uris.append(uri)
-                labels.append(_user_label(config))
-            for ref in reference_refs or ():
-                uri, err = _library_image_data_uri(con, ref)
-                if err:
-                    return {'error': f'reference_images: {err}'}
-                reference_data_uris.append(uri)
-                labels.append(None)
+            reference_data_uris, labels, ref_note, err = _collect_references(
+                con, agent, config, arguments, reference_refs, 'reference_images')
+            if err:
+                return {'error': err}
             legend = _reference_legend(labels)
         elif extend_ref:
             mode = 'extend'
@@ -1203,29 +1327,198 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         _logger.exception('Imagine video failed for session %s', session['id'])
         return {'error': f'Video generation failed (video model: {config["imagine_video_model"]}): {e}'}
 
-    fname = f'imagine_{uuid.uuid4().hex}.mp4'
+    # The status body hasn't been observed to carry a usage block, but accrue
+    # it if xAI ever adds one — same informational-only tracking as images.
+    raw_body = video.get('raw') or {}
+    store.accrue_usd_ticks(con, store.extract_cost_ticks(raw_body.get('usage') or {}))
+    return _store_video_row(
+        con, session, agent, raw_bytes, 'video/mp4', '.mp4', prompt, kind=kind,
+        model=video.get('model') or config['imagine_video_model'],
+        duration=video.get('duration') or duration, extra_note=ref_note,
+    )
+
+
+def _collect_references(con, agent, config, arguments, library_refs, param_name):
+    """The reference images a create_image / create_video call asks for,
+    as (data_uris, labels, note, error). Order is the one the schemas
+    promise: the companion's own likeness first (<IMAGE_0>), then
+    include_companion portraits, then the user's photo, then the library
+    refs from `param_name` (source_images / reference_images). `labels`
+    is aligned with the URIs — a name for a likeness, None for a plain
+    library source; `note` collects the outfit-fallback remarks."""
+    uris, labels, notes = [], [], []
+    if _truthy(arguments.get('include_self')):
+        uri, err, note = _self_likeness_data_uri(con, agent, arguments)
+        if err:
+            return None, None, None, err
+        uris.append(uri)
+        labels.append(agent['name'])
+        notes.append(note)
+    companions = _library_ref_list(arguments.get('include_companion'))
+    if companions:
+        entries, err, note = _companion_portrait_data_uris(con, agent, companions)
+        if err:
+            return None, None, None, f'include_companion: {err}'
+        for uri, name in entries:
+            uris.append(uri)
+            labels.append(name)
+        notes.append(note)
+    if _truthy(arguments.get('include_user')):
+        uri, err = _user_photo_data_uri(config)
+        if err:
+            return None, None, None, f'include_user: {err}'
+        uris.append(uri)
+        labels.append(_user_label(config))
+    for ref in library_refs or ():
+        uri, err = _library_image_data_uri(con, ref)
+        if err:
+            return None, None, None, f'{param_name}: {err}'
+        uris.append(uri)
+        labels.append(None)
+    return uris, labels, ' '.join(n for n in notes if n) or None, None
+
+
+# ---------------------------------------------------------------------------
+# Local engine (ComfyUI) branches
+# ---------------------------------------------------------------------------
+
+def _local_prompt(prompt, labels):
+    """The prompt as a local edit model wants it: <IMAGE_n> tags become
+    "image n+1" (the phrasing Qwen-Image-Edit and friends were trained
+    on) and the legend names who sits in each slot, same job as
+    _reference_legend does for xAI."""
+    text = re.sub(r'<IMAGE_(\d+)>', lambda m: f'image {int(m.group(1)) + 1}', prompt)
+    if any(labels):
+        legend = ', '.join(f'image {i + 1} is {label or "a source image"}'
+                           for i, label in enumerate(labels))
+        text = f'{legend[0].upper()}{legend[1:]}. {text}'
+    return text
+
+
+def _execute_local_tool(con, session, agent, config, tool_name, prompt, arguments):
+    """Every Imagine tool on the local engine. Same payload / {'error'}
+    contract as the xAI branches, so callers never know the difference."""
+    # A local render takes minutes. The text loop calls this inside the
+    # transaction that persisted the tool_call row, and SQLite would hold
+    # the write lock for the whole render — past every other connection's
+    # busy timeout (heartbeats, config saves, voice tool calls). Land what
+    # is pending first; nothing in it needs to roll back with a failed render.
+    con.commit()
+    animated = tool_name == 'change_background' and _truthy(arguments.get('animated'))
+    if tool_name == 'create_video' or animated:
+        return _execute_local_video(con, session, agent, config, tool_name, prompt, arguments)
+    return _execute_local_image(con, session, agent, config, tool_name, prompt, arguments)
+
+
+def _execute_local_image(con, session, agent, config, tool_name, prompt, arguments):
+    uris, labels, note = [], [], None
+    if tool_name == 'create_image':
+        uris, labels, note, err = _collect_references(
+            con, agent, config, arguments,
+            _library_ref_list(arguments.get('source_images')), 'source_images')
+        if err:
+            return {'error': err}
+    background = tool_name == 'change_background'
+    try:
+        raw_bytes, mimetype, ext = local_gen.generate(
+            config, 'image_edit' if uris else 'image',
+            prompt=_local_prompt(prompt, labels) if uris else prompt,
+            image_data_uris=uris,
+            aspect_ratio='16:9' if background else None,
+        )
+    except UserError as e:
+        return {'error': str(e)}
+    except Exception as e:
+        _logger.exception('Local image generation failed for session %s', session['id'])
+        return {'error': f'Local image generation failed: {e}'}
+    kind = 'background' if background else ('edit' if uris else 'image')
+    result = _store_image_row(con, session, agent, raw_bytes, mimetype, ext, prompt,
+                              kind=kind, model='comfyui')
+    if uris:
+        result['source_image_count'] = len(uris)
+        if note:
+            result['note'] += ' ' + note
+    return result
+
+
+def _execute_local_video(con, session, agent, config, tool_name, prompt, arguments):
+    start_uri = None
+    note = None
+    duration = None
+    aspect_ratio = None
+    if tool_name == 'change_background':
+        kind = 'background_video'
+        aspect_ratio = '16:9'
+    else:
+        kind = 'video'
+        for param in ('reference_images', 'voice_ids', 'extend_video', 'edit_video'):
+            if _library_ref_list(arguments.get(param)):
+                return {'error': (
+                    f'{param} is not available on the local video engine - '
+                    f'use source_image or include_self for an opening frame.'
+                )}
+        source_ref = _library_ref(arguments.get('source_image'))
+        include_self = _truthy(arguments.get('include_self'))
+        if source_ref and include_self:
+            return {'error': 'source_image and include_self are mutually exclusive - pick one opening frame.'}
+        if source_ref:
+            start_uri, err = _library_image_data_uri(con, source_ref)
+            if err:
+                return {'error': f'source_image: {err}'}
+        elif include_self:
+            start_uri, err, note = _self_likeness_data_uri(con, agent, arguments)
+            if err:
+                return {'error': err}
+        if not start_uri:
+            aspect_ratio = arguments.get('aspect_ratio') or None
+        raw_duration = arguments.get('duration_seconds')
+        try:
+            duration = max(1, min(_VIDEO_MAX_SECONDS, int(raw_duration))) if raw_duration else None
+        except (TypeError, ValueError):
+            duration = None
+    try:
+        raw_bytes, mimetype, ext = local_gen.generate(
+            config, 'video_i2v' if start_uri else 'video',
+            prompt=prompt,
+            image_data_uris=[start_uri] if start_uri else (),
+            aspect_ratio=aspect_ratio,
+            duration_seconds=duration,
+        )
+    except UserError as e:
+        return {'error': str(e)}
+    except Exception as e:
+        _logger.exception('Local video generation failed for session %s', session['id'])
+        return {'error': f'Local video generation failed: {e}'}
+    return _store_video_row(con, session, agent, raw_bytes, mimetype, ext, prompt, kind=kind,
+                            model='comfyui', duration=duration, extra_note=note)
+
+
+# ---------------------------------------------------------------------------
+# Persisting results (both engines)
+# ---------------------------------------------------------------------------
+
+def _store_video_row(con, session, agent, raw_bytes, mimetype, ext, prompt, *, kind, model,
+                     duration, extra_note=None):
+    """Write the clip under the data dir, insert its imagine_images row and
+    return the payload the model + browser consume."""
+    fname = f'imagine_{uuid.uuid4().hex}{ext}'
     (FILES_DIR / fname).write_bytes(raw_bytes)
     video_path = f'/files/{fname}'
-    actual_model = video.get('model') or config['imagine_video_model']
     created_at = utcnow()
     cur = con.execute(
         """INSERT INTO imagine_images
                (name, agent_id, session_id, kind, prompt, image_path, mimetype, xai_model, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (_truncate_name(prompt), agent['id'], session['id'], kind, prompt,
-         video_path, 'video/mp4', actual_model, created_at),
+         video_path, mimetype, model, created_at),
     )
-    # The status body hasn't been observed to carry a usage block, but accrue
-    # it if xAI ever adds one — same informational-only tracking as images.
-    raw_body = video.get('raw') or {}
-    store.accrue_usd_ticks(con, store.extract_cost_ticks(raw_body.get('usage') or {}))
     return {
         'imagine_image_id': cur.lastrowid,
         'kind': kind,
         'video_url': video_path,
         'prompt': prompt,
         'name': _truncate_name(prompt),
-        'duration_seconds': video.get('duration') or duration,
+        'duration_seconds': duration,
         'created_at': created_at,
         'note': (
             'The animated background is already applied to the scene — do '
@@ -1233,42 +1526,23 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             if kind == 'background_video' else
             'The clip is already visible in the transcript — do not say '
             'or write the URL or file name, just react to it.'
-        ) + ''.join(f' {n}' for n in (self_note, companion_note) if n),
+        ) + (f' {extra_note}' if extra_note else ''),
     }
 
 
-def _persist_imagine_result(con, session, agent, config, body, prompt, *, kind):
-    """Decode the b64 image in `body`, write the bytes under the data dir,
-    insert an imagine_images row, accrue the xAI-reported cost, and return the
-    small payload shape the model + browser both consume."""
-    first = body['data'][0]
-    b64 = first.get('b64_json')
-    if not b64:
-        # Name the fields that DID arrive — when xAI declines a generation
-        # (e.g. moderation) the refusal often rides in an unexpected field,
-        # and the keys tell the model (and us) where to look.
-        return {'error': 'Image generation returned no inline image data '
-                         f'(response fields: {sorted(first)}).'}
-    try:
-        raw_bytes = base64.b64decode(b64)
-    except Exception as e:
-        _logger.exception('Imagine response b64 decode failed')
-        return {'error': f'Could not decode generated image: {e}'}
-    mimetype = first.get('mime_type') or 'image/jpeg'
-    ext = _EXT_BY_MIME.get(mimetype, '.jpg')
+def _store_image_row(con, session, agent, raw_bytes, mimetype, ext, prompt, *, kind, model):
+    """Image counterpart of _store_video_row."""
     fname = f'imagine_{uuid.uuid4().hex}{ext}'
     (FILES_DIR / fname).write_bytes(raw_bytes)
     image_path = f'/files/{fname}'
-    actual_model = body.get('model') or config['imagine_model']
     created_at = utcnow()
     cur = con.execute(
         """INSERT INTO imagine_images
                (name, agent_id, session_id, kind, prompt, image_path, mimetype, xai_model, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (_truncate_name(prompt), agent['id'], session['id'], kind, prompt,
-         image_path, mimetype, actual_model, created_at),
+         image_path, mimetype, model, created_at),
     )
-    store.accrue_usd_ticks(con, store.extract_cost_ticks(body.get('usage') or {}))
     return {
         'imagine_image_id': cur.lastrowid,
         'kind': kind,
@@ -1284,3 +1558,25 @@ def _persist_imagine_result(con, session, agent, config, body, prompt, *, kind):
             'or write the URL or file name, just react to it.'
         ),
     }
+
+
+def _persist_imagine_result(con, session, agent, config, body, prompt, *, kind):
+    """Decode the b64 image in an xAI response `body`, store it and accrue
+    the xAI-reported cost."""
+    first = body['data'][0]
+    b64 = first.get('b64_json')
+    if not b64:
+        # Name the fields that DID arrive — when xAI declines a generation
+        # (e.g. moderation) the refusal often rides in an unexpected field,
+        # and the keys tell the model (and us) where to look.
+        return {'error': 'Image generation returned no inline image data '
+                         f'(response fields: {sorted(first)}).'}
+    try:
+        raw_bytes = base64.b64decode(b64)
+    except Exception as e:
+        _logger.exception('Imagine response b64 decode failed')
+        return {'error': f'Could not decode generated image: {e}'}
+    mimetype = first.get('mime_type') or 'image/jpeg'
+    store.accrue_usd_ticks(con, store.extract_cost_ticks(body.get('usage') or {}))
+    return _store_image_row(con, session, agent, raw_bytes, mimetype, _EXT_BY_MIME.get(mimetype, '.jpg'),
+                            prompt, kind=kind, model=body.get('model') or config['imagine_model'])

@@ -318,6 +318,30 @@ Then enable **Minecraft bot** for a companion (Companions → Edit) and see
 **Settings → Minecraft bot**. Full setup, configuration, architecture and
 safety notes: **[game_integrations/minecraft/README.md](game_integrations/minecraft/README.md)**.
 
+## 🖥️ Local generation (ComfyUI)
+
+The three media tools (`create_image`, `create_video`, `change_background`)
+can render on your own **ComfyUI** server instead of Grok Imagine. Any
+model ComfyUI runs works, with no per-generation billing.
+**Settings → Local generation**:
+
+1. Enter the **ComfyUI URL** (default `http://127.0.0.1:8188`) and press
+   **Test connection**. A rented pod works too: paste its proxy URL, and
+   an optional auth header covers pods behind a password.
+2. Pick the engine per tool, for example images and videos local and
+   backgrounds still on Grok Imagine.
+3. Load a workflow per capability (text to image, image edit, text to
+   video, image to video). In ComfyUI open a template for the model you
+   want, run it once so its models download, then **Workflow → Export
+   (API)** and load that file. Nothing in the graph needs renaming. Put
+   `{prompt}` inside the positive prompt text to keep the rest as a fixed
+   style prefix.
+
+On the local engine `include_self` on a video becomes the clip's opening
+frame, there is no reference-to-video, extension, editing or voices, and
+rendering takes minutes rather than seconds. The companion's **Image &
+video tools** toggle still decides whether the tools are offered at all.
+
 ## 💰 xAI cost optimisation
 
 - **Voice is billed per minute the call is open, not per minute you talk** —

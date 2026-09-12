@@ -74,6 +74,24 @@ CREATE TABLE IF NOT EXISTS config (
     -- video with reference images and preset voices, native 1080p), and the
     -- plain grok-imagine-video model stopped accepting requests in practice.
     imagine_video_model TEXT NOT NULL DEFAULT 'grok-imagine-video-1.5',
+    -- Engine behind each Imagine tool: 'xai' (Grok Imagine) or 'local'
+    -- (the user's ComfyUI server, see local_gen.py). The companion-level
+    -- "Image & video tools" toggle still decides whether the tools are
+    -- offered at all; this only picks what renders them.
+    imagine_image_backend TEXT NOT NULL DEFAULT 'xai',
+    imagine_video_backend TEXT NOT NULL DEFAULT 'xai',
+    imagine_background_backend TEXT NOT NULL DEFAULT 'xai',
+    local_gen_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:8188',
+    -- Optional "Name: value" header sent on every ComfyUI request — a
+    -- rented pod behind a proxy password, or a hosted service's API key.
+    local_gen_auth_header TEXT NOT NULL DEFAULT '',
+    -- ComfyUI API-format workflow JSON per capability, exported by the
+    -- user from ComfyUI itself. Empty = that capability is unavailable
+    -- on the local backend (its tool parameters are pruned).
+    local_gen_image_workflow TEXT NOT NULL DEFAULT '',
+    local_gen_image_edit_workflow TEXT NOT NULL DEFAULT '',
+    local_gen_video_workflow TEXT NOT NULL DEFAULT '',
+    local_gen_video_i2v_workflow TEXT NOT NULL DEFAULT '',
     default_agent_id INTEGER,
     user_display_name TEXT,
     include_user_name_in_prompt INTEGER NOT NULL DEFAULT 0,
@@ -902,6 +920,17 @@ MIGRATIONS = (
     # of a run, and a poll during a slow (picture-making) run would move
     # its cursor past that start and never see the finished rows.
     "ALTER TABLE heartbeats ADD COLUMN last_finished_at TEXT",
+    # Local generation: per-tool engine switch + the user's ComfyUI server
+    # and exported workflows (see local_gen.py).
+    "ALTER TABLE config ADD COLUMN imagine_image_backend TEXT NOT NULL DEFAULT 'xai'",
+    "ALTER TABLE config ADD COLUMN imagine_video_backend TEXT NOT NULL DEFAULT 'xai'",
+    "ALTER TABLE config ADD COLUMN imagine_background_backend TEXT NOT NULL DEFAULT 'xai'",
+    "ALTER TABLE config ADD COLUMN local_gen_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:8188'",
+    "ALTER TABLE config ADD COLUMN local_gen_auth_header TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN local_gen_image_workflow TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN local_gen_image_edit_workflow TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN local_gen_video_workflow TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN local_gen_video_i2v_workflow TEXT NOT NULL DEFAULT ''",
 )
 
 
