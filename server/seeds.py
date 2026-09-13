@@ -680,10 +680,9 @@ def seed_columns(con, seed):
         "wake_phrase": seed.get("wake"),
         "speech_tag_style": seed.get("speech_tag_style"),
         "expression_style": seed.get("expression_style"),
+        # The crew ship their affection ruleset pre-filled, but the meter
+        # stays off (column default 0) like any companion's - it's opt-in.
         "affection_rules": seed.get("affection_rules"),
-        # A companion that ships its own affection ruleset ships with the
-        # meter on; user-created companions stay opt-in (column default 0).
-        "enable_affection_tool": 1 if seed.get("affection_rules") else 0,
         # The crew open their calls (they have a world to open with);
         # user-created companions default off.
         "speaks_first": 1 if seed.get("speaks_first") else 0,
