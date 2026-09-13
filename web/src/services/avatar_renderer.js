@@ -170,11 +170,10 @@ const CURSOR_FOLLOW_HEAD_PITCH = 0.12;
 // becomes a spring-bone collider — hair, skirts, sleeves and the bust are
 // the VRM's own spring chains, so hovering physically pushes them aside —
 // plus a "wind" from cursor speed that ruffles chains near the cursor even
-// without contact, and a radial impulse on click. Modelled on Animates'
-// cursor collider driver (a MagicaCloth sphere + wind zone that follow a
-// cursor projected onto a camera-facing plane through the character); the
-// VRM spring-bone equivalent is coarser (bone chains, not mesh cloth) but
-// needs no physics engine. Tunables live on one object so they can be
+// without contact, and a radial impulse on click. Collider and wind follow
+// the cursor projected onto a camera-facing plane through the character.
+// Spring bones are coarser than mesh cloth (bone chains) but need no
+// physics engine. Tunables live on one object so they can be
 // tweaked from the console (`__voiceRenderer._touchTuning`).
 //
 // Sizing follows what the avatars themselves author (VRoid exports): the
@@ -223,8 +222,8 @@ const TOUCH_NO_COLLIDE_RE = /bust/i;   // spring chains the cursor sphere passes
 // side. The rim is therefore MToon's own view-dependent parametric rim,
 // written into the avatar's materials (see _applyAvatarLook), the same
 // mechanism VRoid Studio's rim-light setting and VMagicMirror's rim effect
-// use. Colour choices follow Animates' per-time-of-day rigs (white key with
-// a cyan or amber accent).
+// use. Colour choices follow per-time-of-day rigs: a white key with a cyan
+// or amber accent.
 const LIGHTING_PRESETS = {
     default: {
         ambient: { color: 0xffffff, intensity: 0.7 },
@@ -4808,9 +4807,9 @@ class AvatarRenderer {
         this.scene.add(ambient, key, key.target, fill, fill.target, hemi);
 
         // Contact shadow on flat / transparent backdrops: a shadow-only plane
-        // at the avatar's feet (the mascot's transparent window included —
-        // Animates does the same with its ShadowPlane). Hidden while a 3D
-        // room is loaded, whose own floor receives the shadow instead.
+        // at the avatar's feet (the mascot's transparent window included).
+        // Hidden while a 3D room is loaded, whose own floor receives the
+        // shadow instead.
         const catcher = new THREE.Mesh(
             new THREE.PlaneGeometry(8, 8),
             new THREE.ShadowMaterial({ opacity: SHADOW_CATCHER_OPACITY, transparent: true, depthWrite: false }),
