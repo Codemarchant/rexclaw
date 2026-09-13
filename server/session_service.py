@@ -1826,12 +1826,13 @@ def speech_gesture_select(con, *, session, line, recent_ids=()):
     stream in; the clip plays over the idle while the line is still being
     spoken. Deliberate play_gesture calls always pre-empt it client-side.
 
-    Return contract: {'gesture': <clip id>} or {'gesture': None} — None
-    covers "nothing fits", "could not run" and unparseable replies alike;
-    the client simply plays nothing. `reason` names which of those it was:
-    most sentences legitimately get no gesture, and without it a selector
-    that is declining and one that is broken look identical in the browser
-    console.
+    Return contract: {'gesture': <clip id>, 'word': <str or None>} or
+    {'gesture': None} — None covers "nothing fits", "could not run" and
+    unparseable replies alike; the client simply plays nothing. `reason`
+    names which of those it was: most sentences legitimately get no gesture,
+    and without it a selector that is declining and one that is broken look
+    identical in the browser console. `word` is the word of the line the
+    gesture illustrates; the client lands the motion's stroke on it.
     """
     if session['state'] != 'active':
         return {'gesture': None, 'reason': 'session_inactive'}
@@ -1857,7 +1858,7 @@ def speech_gesture_select(con, *, session, line, recent_ids=()):
     last = motion_library.speech_gesture_canonical(candidates, recent[-1:])
     just_played = last[0] if last else None
     try:
-        gesture, usage = xai_client.select_speech_gesture(
+        gesture, word, usage = xai_client.select_speech_gesture(
             xai_api_key=xai_key,
             responses_url=config['xai_responses_url'],
             model=model,
@@ -1900,7 +1901,11 @@ def speech_gesture_select(con, *, session, line, recent_ids=()):
         unseen = [v for v in variants if v['id'] not in recent] or variants
         if unseen:
             gesture = random.choice(unseen)['id']
-    return {'gesture': gesture, 'reason': reason or ('nothing_fits' if not gesture else None)}
+    return {
+        'gesture': gesture,
+        'word': word if gesture else None,
+        'reason': reason or ('nothing_fits' if not gesture else None),
+    }
 
 
 def director_decide(con, *, session, transcript_lines, participants, user_name=None,

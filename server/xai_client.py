@@ -808,7 +808,11 @@ SPEECH_GESTURE_INSTRUCTIONS = (
     'The one marked "just played" is the exception — the character has only '
     'this moment finished performing it, so doing it twice running looks '
     'broken. Pick a different gesture, or nothing. '
-    'Reply with JSON only: {"gesture": "<id>"} or {"gesture": null}.'
+    'With a gesture, also give the word of the line its motion lands on — '
+    'the word the gesture illustrates, copied exactly as it appears in the '
+    'line (a short phrase only when that meaning spans several words). '
+    'Reply with JSON only: {"gesture": "<id>", "word": "<word from the line>"} '
+    'or {"gesture": null}.'
 )
 
 
@@ -819,8 +823,10 @@ def select_speech_gesture(*, xai_api_key, responses_url, model, line,
     :param line: the sentence the companion is saying
     :param library_lines: 'id | motion | tags' rows, the whole library
     :param recent_ids: ids played recently, to steer away from repeats
-    :returns: (gesture_id or None, usage_dict) — None means "no gesture"
-        AND covers unparseable replies, which the caller treats the same.
+    :returns: (gesture_id or None, word or None, usage_dict) — None means
+        "no gesture" AND covers unparseable replies, which the caller treats
+        the same. `word` is the word of the line the gesture illustrates, as
+        the model copied it; the client lands the motion's stroke on it.
     """
     recent = ', '.join(recent_ids) if recent_ids else 'none'
     prompt = (
@@ -846,15 +852,18 @@ def select_speech_gesture(*, xai_api_key, responses_url, model, line,
     )
     text = _strip_json_fences(_extract_response_text(body) or '')
     gesture = None
+    word = None
     try:
         parsed = json.loads(text)
         if isinstance(parsed, dict) and isinstance(parsed.get('gesture'), str):
             gesture = parsed['gesture'].strip() or None
+            if isinstance(parsed.get('word'), str):
+                word = parsed['word'].strip()[:80] or None
     except ValueError:
         # Format drift ("gesture: dlp3d_574") — take the first id-looking token.
         m = re.search(r'[A-Za-z0-9_]+_\d+', text)
         gesture = m.group(0) if m else None
-    return gesture, (body.get('usage') if isinstance(body, dict) else None) or {}
+    return gesture, word, (body.get('usage') if isinstance(body, dict) else None) or {}
 
 
 TITLE_INSTRUCTIONS = (
