@@ -3259,6 +3259,13 @@ class AvatarRenderer {
 
     _resize(host) {
         if (!this.renderer || !host) return;
+        // Pixel ratio of the window the host lives in, re-read every frame
+        // (a compare — no work unless it changed): moving the mascot to a
+        // monitor with different scaling, a browser zoom, or a PiP window on
+        // another screen all change it, and a stale ratio renders soft (or
+        // wastes pixels). setPixelRatio resizes the drawing buffer itself.
+        const dpr = (host.ownerDocument?.defaultView || window).devicePixelRatio || 1;
+        if (this.renderer.getPixelRatio() !== dpr) this.renderer.setPixelRatio(dpr);
         const w = host.clientWidth || 200;
         const h = host.clientHeight || 200;
         this.renderer.setSize(w, h, false);
@@ -4776,19 +4783,33 @@ class AvatarRenderer {
     /** Per-avatar half of a preset: meshes cast and receive the key light's
      *  shadow (rooms only receive — see loadRoom; only visible on shadow
      *  presets), and MToon materials get the preset's parametric rim — or
-     *  their authored rim back when the preset has none. Runs at load and
-     *  on every preset switch. */
+     *  their authored rim back when the preset has none. Every texture also
+     *  gets the GPU's maximum anisotropic filtering, as room textures do
+     *  (see loadRoom), so hair cards and clothing seen at an angle stay
+     *  crisp — a no-op after the first run. Runs at load and on every
+     *  preset switch. */
     _applyAvatarLook(root) {
         const preset = LIGHTING_PRESETS[this._lightingPreset] || LIGHTING_PRESETS.default;
         const rim = preset.rim;
         const saved = this._rimOriginals ||= new WeakMap();
+        const maxAniso = this.renderer?.capabilities.getMaxAnisotropy?.() || 1;
         root?.traverse?.((obj) => {
             if (!obj.isMesh) return;
             obj.castShadow = true;
             obj.receiveShadow = true;
             const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
             for (const m of mats) {
-                if (!m?.isMToonMaterial) continue;
+                if (!m) continue;
+                // MToon keeps its textures in uniforms; standard materials
+                // as plain properties.
+                const values = [...Object.values(m), ...Object.values(m.uniforms || {}).map((u) => u?.value)];
+                for (const tex of values) {
+                    if (tex?.isTexture && tex.anisotropy !== maxAniso) {
+                        tex.anisotropy = maxAniso;
+                        tex.needsUpdate = true;
+                    }
+                }
+                if (!m.isMToonMaterial) continue;
                 let orig = saved.get(m);
                 if (!orig) {
                     orig = {
