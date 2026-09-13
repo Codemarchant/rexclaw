@@ -821,6 +821,39 @@ def _cross_mode_token_vals(config, session, into_mode):
 # Voice mode
 # ---------------------------------------------------------------------------
 
+# Voice sessions: these tools take an optional end_turn flag. Every tool call
+# normally earns a follow-up reply once its result lands
+# (agent_connection._maybeCreateToolReply) — right for a lookup, but then a
+# gesture, an emotion, a saved memory or a Minecraft directive (whose outcome
+# arrives later as [Minecraft] notes anyway) always gets a second line ("there
+# you go!"), and a follow-up that gestures again owes yet another. end_turn
+# lets the model end its turn on the call instead. recall and minecraft_status
+# stay out on purpose: a lookup's answer only matters if the model speaks
+# after it. Text sessions don't get the flag — their tool loop always continues
+# to the written reply — hence a copy, never an edit of the shared definitions.
+_END_TURN_TOOLS = frozenset({'set_emotion', 'play_gesture', 'remember', 'forget',
+                             'minecraft_command'})
+_END_TURN_PARAM = {
+    'type': 'boolean',
+    'description': (
+        'true = this call ends your turn: say your speech first, then make '
+        'the call (e.g. "watch this!", then the spin) - no forced follow-up '
+        'reply comes after it. Leave it off when you want to say more after it.'
+    ),
+}
+
+
+def _with_end_turn(tool):
+    """Copy of a voice tool definition with the optional end_turn flag, for
+    the tools in _END_TURN_TOOLS; any other tool is returned as-is."""
+    if tool.get('name') not in _END_TURN_TOOLS:
+        return tool
+    params = tool.get('parameters') or {'type': 'object', 'properties': {}}
+    return {**tool, 'parameters': {
+        **params, 'properties': {**params.get('properties', {}), 'end_turn': _END_TURN_PARAM},
+    }}
+
+
 def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
                   manual_turn=False, call_parent_session=None, group_peers=None):
     """Mint an ephemeral xAI session and assemble the realtime tools list.
@@ -916,6 +949,16 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         raise
 
     effective_voice = agent['voice']
+    # Speaking pace, xAI's audio.output.speed. Clamped here, at the point of
+    # use: an imported companion package writes the column as-is.
+    try:
+        voice_speed = min(1.5, max(0.7, float(agent['voice_speed'] or 1.0)))
+    except (TypeError, ValueError):
+        voice_speed = 1.0
+    # Transcription key terms. Lenient here — drop what breaks xAI's limits —
+    # where saving is strict, for the same imported-package reason.
+    keyterms = [t for t in xai_client.parse_keyterms(agent['transcription_keyterms'])
+                if len(t) <= xai_client.KEYTERM_MAX_LEN][:xai_client.KEYTERMS_MAX]
     # Browser tool list: set_emotion is static; play_gesture / change_outfit
     # are built per-agent so their enums/descriptions reflect the avatar's
     # wardrobe + custom gesture clips.
@@ -989,9 +1032,14 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
             agent, [a for a in store.list_agents(con) if a['id'] != agent['id']])
         if text_tool is not None:
             native_function_tools.append(text_tool)
+    # Voice only — see _with_end_turn.
+    tools = [_with_end_turn(t) for t in tools]
+    native_function_tools = [_with_end_turn(t) for t in native_function_tools]
 
     session_update = xai_client.build_session_update(
         voice=effective_voice,
+        voice_speed=voice_speed,
+        keyterms=keyterms,
         instructions=(
             _env_preamble(config)
             + _appearance_section(con, agent)

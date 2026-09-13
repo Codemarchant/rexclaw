@@ -53,8 +53,8 @@ _CONFIG_FIELDS = (
 )
 
 _AGENT_FIELDS = (
-    "name", "active", "sequence", "provider", "voice", "system_prompt", "avatar_id",
-    "reasoning_effort",
+    "name", "active", "sequence", "provider", "voice", "voice_speed", "system_prompt", "avatar_id",
+    "reasoning_effort", "transcription_keyterms",
     "enable_code_execution", "enable_gesture_emotion_tools",
     "enable_lore_tool", "expression_style", "speech_tag_style",
     "enable_web_search", "enable_x_search", "enable_grok_imagine_tools", "enable_capture_tools",
@@ -345,6 +345,8 @@ def agents_save(payload: dict = Body(default={}), con=Depends(db_con)):
     seeded companions cover most use; this lets the user tune prompts/voices."""
     agent_id = payload.get("id")
     updates = {k: payload[k] for k in _AGENT_FIELDS if k in payload}
+    if "transcription_keyterms" in updates:
+        updates["transcription_keyterms"] = xai_client.validate_keyterms(updates["transcription_keyterms"])
     if agent_id:
         if updates:
             cols = ", ".join(f"{k} = ?" for k in updates)

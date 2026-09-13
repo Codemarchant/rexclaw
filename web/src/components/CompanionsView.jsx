@@ -263,6 +263,8 @@ export default function CompanionsView({ active }) {
             wake_action: "resume_last",
             time_aware_resume: 1,
             speaks_first: 0,
+            voice_speed: 1,
+            transcription_keyterms: "",
             core_memory_cap: 100,
         });
     };
@@ -768,6 +770,22 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                                onChange={(ev) => setEditingAgent({ ...editingAgent, voice: ev.target.value })} />
                     </div>
                     <div>
+                        <label title={_t("How fast this companion talks on voice calls: 1.0 is the voice's normal pace, lower is slower (down to 0.7), higher is faster (up to 1.5). Takes effect from the next call.")}>{_t("Speech speed")}</label>
+                        <input type="number" min={0.7} max={1.5} step={0.05} style={{ width: "5rem" }}
+                               value={editingAgent.voice_speed ?? 1}
+                               onChange={(ev) => setEditingAgent({
+                                   ...editingAgent,
+                                   voice_speed: ev.target.value === "" ? "" : Number(ev.target.value),
+                               })}
+                               onBlur={() => {
+                                   // Clamp on leaving the field, not per keystroke — typing
+                                   // "0.8" passes through "0", below the minimum.
+                                   const v = Number(editingAgent.voice_speed);
+                                   const speed = Number.isFinite(v) && v > 0 ? Math.min(1.5, Math.max(0.7, v)) : 1;
+                                   setEditingAgent({ ...editingAgent, voice_speed: Math.round(speed * 100) / 100 });
+                               }} />
+                    </div>
+                    <div>
                         <label>{_t("Reasoning effort (text mode)")}</label>
                         <select value={editingAgent.reasoning_effort || "low"}
                                 onChange={(ev) => setEditingAgent({ ...editingAgent, reasoning_effort: ev.target.value })}>
@@ -778,6 +796,12 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                         </select>
                     </div>
                 </div>
+                <label title={_t("Names and words this companion's conversations use, so your speech is transcribed with the right spelling on voice calls — people, places, in-jokes, game words. Comma-separated, up to 100 terms of 50 characters each. Leave empty for none.")}>
+                    {_t("Transcription key terms (comma-separated)")}
+                </label>
+                <input type="text" value={editingAgent.transcription_keyterms || ""}
+                       placeholder={_t("e.g. Minecraft, Mochi, Aldermoor")}
+                       onChange={(ev) => setEditingAgent({ ...editingAgent, transcription_keyterms: ev.target.value })} />
                 <label>{_t("Tools")}</label>
                 <div className="rx_flags">
                     {(PROVIDER_FLAGS[editingAgent.provider] || PROVIDER_FLAGS.grok).map(([key, label, tooltip]) => (

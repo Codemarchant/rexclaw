@@ -19,6 +19,32 @@ const XAI_SERVER_SIDE_TOOLS = new Set([
 // action). Still dispatched normally — we just skip the transcript entries.
 const SILENT_BROWSER_TOOLS = new Set(["play_gesture", "set_emotion", "change_outfit"]);
 
+// Tools the model may call with `end_turn: true` (voice sessions only — the
+// server adds the flag to their schemas, session_service._with_end_turn). The
+// call still runs and its result still goes back; only the follow-up reply is
+// skipped — and only when the reply already spoke (see response.done).
+// Without it every gesture, emotion, saved memory or Minecraft directive earns
+// a second reply ("there you go!"), and a follow-up that gestures again owes
+// another — a chain that can't end on its own.
+const END_TURN_TOOLS = new Set(["set_emotion", "play_gesture", "remember", "forget", "minecraft_command"]);
+
+// Tools that always end the turn, no flag needed: bookkeeping the companion
+// never talks about — the prompt tells it never to mention the affection
+// score, and the transcript hides the call. The same safety net applies: a
+// reply that went straight to the call without speaking still gets its
+// follow-up.
+const ALWAYS_END_TURN_TOOLS = new Set(["adjust_affection"]);
+
+/** Whether a call's arguments ask to end the turn on it. Malformed arguments
+ *  read as "no" — the default, a follow-up reply. */
+function endsTurn(argumentsJson) {
+    try {
+        return JSON.parse(argumentsJson || "{}")?.end_turn === true;
+    } catch (e) {
+        return false;
+    }
+}
+
 // Pre-roll cushion (seconds) applied when (re)starting assistant playback —
 // each turn's first chunk, and after any underrun. Absorbs network jitter so a
 // late-arriving chunk still lands before its scheduled play time. Same spirit
@@ -839,6 +865,16 @@ export class AgentConnection {
                 }
                 this._responseInFlight = false;
                 this.state.thinking = false;
+                // end_turn only ever skips a SECOND line. A reply that went
+                // straight to the call without saying anything still gets its
+                // follow-up — the model doesn't speak after a call within the
+                // same reply, so without it the gesture is all the user gets.
+                // Once only: a follow-up that is itself silent ends there, so a
+                // model stuck calling first can't loop.
+                if (this._endTurnInResponse && !(this._turnAudioSec > 0)
+                    && !this._responseIsToolReply) {
+                    this._pendingToolReply = true;
+                }
                 // Gate for the post-tool follow-up reply — see
                 // _maybeCreateToolReply.
                 this._maybeCreateToolReply();
@@ -915,6 +951,12 @@ export class AgentConnection {
             this._responseInFlight = true;
             this._currentResponseId = msg.response?.id || null;
             this._turnAudioSec = 0;
+            // end_turn bookkeeping, read at response.done: whether this reply
+            // ends its turn on a call, and whether it is itself a post-tool
+            // follow-up.
+            this._endTurnInResponse = false;
+            this._responseIsToolReply = !!this._nextResponseIsToolReply;
+            this._nextResponseIsToolReply = false;
             // Motion director: a reply is being composed — not idle; a fresh
             // transcript starts for the speech gesture selector.
             this.avatarApi?.setConversationState?.({ listening: false, thinking: true, responseStarted: true });
@@ -964,6 +1006,7 @@ export class AgentConnection {
             // User interrupted: abandon any owed tool reply. The context
             // note stays in context, so their turn will cover it.
             this._pendingToolReply = false;
+            this._nextResponseIsToolReply = false;
             this._owedContextResponse = false;
             // Motion director: the user has the floor — not idle. `interrupted`
             // also drops a speech gesture still acting out the cut-off line.
@@ -1321,6 +1364,7 @@ export class AgentConnection {
         this._currentResponseId = null;
         this._assistantTranscriptInProgress = "";
         this._pendingToolReply = false;
+        this._nextResponseIsToolReply = false;
         this._owedContextResponse = false;
         this.state.thinking = false;
         this.avatarApi?.setConversationState?.({ thinking: false });
@@ -1379,6 +1423,10 @@ export class AgentConnection {
                 return;
             }
             console.log(`[voice:${this.connId}] → response.create (post-tool)`);
+            // Marks the reply this creates as a follow-up (see response.done's
+            // end_turn check). Only when it will actually send — a reply
+            // already in flight means someone else's turn, not ours.
+            if (!this._responseInFlight) this._nextResponseIsToolReply = true;
             // Sets _responseInFlight synchronously, so the owes-speech state
             // stays continuous when the finally clears the bridge flag.
             this._maybeCreateResponse();
@@ -1418,8 +1466,13 @@ export class AgentConnection {
             return;
         }
         // This turn now owes a follow-up response.create once the tool
-        // round-trip completes.
-        this._pendingToolReply = true;
+        // round-trip completes — unless this call ends the turn (end_turn,
+        // see END_TURN_TOOLS / ALWAYS_END_TURN_TOOLS).
+        const endTurn = ALWAYS_END_TURN_TOOLS.has(name)
+            || (END_TURN_TOOLS.has(name) && endsTurn(argumentsJson));
+        if (endTurn) this._endTurnInResponse = true;   // checked at response.done
+        else this._pendingToolReply = true;
+        const responseAtCall = this._currentResponseId;
         this.toolDispatcher
             ?.dispatch({ callId, name, argumentsJson })
             .then((result) => {
@@ -1436,6 +1489,15 @@ export class AgentConnection {
                     }
                 } catch (e) {
                     console.error(`[voice:${this.connId}] post-dispatch handling failed for`, name, e);
+                }
+                // end_turn assumed the call would land. When it didn't (a
+                // memory refused, an unknown gesture) the follow-up is owed
+                // after all, so the model can deal with it — but only while
+                // it is still the same turn: once the user has spoken or a
+                // new reply has started, that turn covers it.
+                if (endTurn && (result?.ok === false || result?.error)
+                    && !this._bargedIn && this._currentResponseId === responseAtCall) {
+                    this._pendingToolReply = true;
                 }
                 this._maybeCreateToolReply();
             })

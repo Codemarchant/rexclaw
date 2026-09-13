@@ -302,6 +302,14 @@ CREATE TABLE IF NOT EXISTS agents (
     -- for a future OpenAI provider.
     provider TEXT NOT NULL DEFAULT 'grok',
     voice TEXT NOT NULL DEFAULT 'ara',   -- built-in voice name OR custom xAI voice id
+    -- Speaking pace on voice calls: xAI's audio.output.speed (0.7-1.5,
+    -- 1.0 = the voice's normal pace).
+    voice_speed REAL NOT NULL DEFAULT 1.0,
+    -- Comma-separated words to bias the transcription of the user's speech
+    -- toward on voice calls (xAI audio.input.transcription.keyterms: up to
+    -- 100 terms of 50 characters). Empty = nothing sent. The stock crew
+    -- ship with seeds.CREW_KEYTERMS.
+    transcription_keyterms TEXT NOT NULL DEFAULT '',
     system_prompt TEXT NOT NULL,
     avatar_id INTEGER REFERENCES avatars(id) ON DELETE SET NULL,
     chat_thumbnail_path TEXT,
@@ -931,6 +939,11 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN local_gen_image_edit_workflow TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN local_gen_video_workflow TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN local_gen_video_i2v_workflow TEXT NOT NULL DEFAULT ''",
+    # Per-companion speaking pace (xAI audio.output.speed) — see the agents
+    # schema comment.
+    "ALTER TABLE agents ADD COLUMN voice_speed REAL NOT NULL DEFAULT 1.0",
+    # Per-companion transcription key terms — see the agents schema comment.
+    "ALTER TABLE agents ADD COLUMN transcription_keyterms TEXT NOT NULL DEFAULT ''",
 )
 
 

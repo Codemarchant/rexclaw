@@ -613,6 +613,12 @@ Whatever the level, stay in character - affection changes how warm and open you 
 # when_to_call is surfaced to the OTHER companions inside their
 # add_agent_to_call tool, so a "get someone who can…" request resolves to the
 # right crew member without the user naming them.
+# Transcription key terms every stock companion ships with: the crew's names
+# and the shared world's own words (the ship, Eve's cat, the snack), which
+# speech recognition otherwise mangles ("Ani" → "Annie") - plus Ani, a little
+# teaser. A plain field value, so the user can edit or clear it.
+CREW_KEYTERMS = "Eve, Ara, Rex, Sal, Leo, Ani, Rexmaw, Evie, Chum Crunch"
+
 AGENT_SEEDS = [
     {"name": "Eve", "voice": "eve", "sequence": 10, "prompt": EVE_PROMPT, "pack": "Eve",
      "wake": "hey eve",
@@ -686,6 +692,7 @@ def seed_columns(con, seed):
         # The crew open their calls (they have a world to open with);
         # user-created companions default off.
         "speaks_first": 1 if seed.get("speaks_first") else 0,
+        "transcription_keyterms": CREW_KEYTERMS,
     }
 
 

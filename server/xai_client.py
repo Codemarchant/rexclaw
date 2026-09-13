@@ -457,10 +457,45 @@ def mint_ephemeral_token(*, xai_api_key, client_secrets_url, expires_after_secon
     }
 
 
+# audio.input.transcription.keyterms limits, per xAI's session parameters.
+KEYTERMS_MAX = 100
+KEYTERM_MAX_LEN = 50
+# Commas separate terms — the Japanese 、 and full-width ， too.
+_KEYTERM_SPLIT = re.compile(r'[,，、]')
+
+
+def parse_keyterms(raw):
+    """A companion's comma-separated key terms as a clean list: each trimmed,
+    empties and repeats (case-insensitive) dropped, order kept."""
+    terms, seen = [], set()
+    for part in _KEYTERM_SPLIT.split(str(raw or '')):
+        term = ' '.join(part.split())
+        if term and term.lower() not in seen:
+            seen.add(term.lower())
+            terms.append(term)
+    return terms
+
+
+def validate_keyterms(raw):
+    """Key terms normalised for saving, or UserError naming what breaks xAI's
+    limits. Returns the cleaned comma-separated string ('' for none)."""
+    terms = parse_keyterms(raw)
+    for term in terms:
+        if len(term) > KEYTERM_MAX_LEN:
+            raise UserError(
+                f'Transcription key term too long ({len(term)} characters, '
+                f'max {KEYTERM_MAX_LEN}): "{term}"')
+    if len(terms) > KEYTERMS_MAX:
+        raise UserError(
+            f'Too many transcription key terms ({len(terms)}, max {KEYTERMS_MAX}).')
+    return ', '.join(terms)
+
+
 def build_session_update(*, voice, instructions, browser_tools,
                          mcp_entries=None, native_function_tools=None,
                          enable_web_search=False, enable_x_search=False,
-                         audio_sample_rate=24000, manual_turn=False):
+                         audio_sample_rate=24000, manual_turn=False, voice_speed=1.0,
+                         keyterms=None):
     """Build the `session.update` JSON the browser will send over the WebSocket.
 
     Note: model goes in the WebSocket URL (?model=...), NOT in session.update —
@@ -510,8 +545,23 @@ def build_session_update(*, voice, instructions, browser_tools,
             # input/output rate to the device's native rate eliminates the
             # silent resample pass on every mic frame and playback chunk.
             'audio': {
-                'input': {'format': {'type': 'audio/pcm', 'rate': audio_sample_rate}},
-                'output': {'format': {'type': 'audio/pcm', 'rate': audio_sample_rate}},
+                'input': {
+                    'format': {'type': 'audio/pcm', 'rate': audio_sample_rate},
+                    # Words to bias the transcription of the user's speech
+                    # toward — only when the companion has any (same caution
+                    # as speed below).
+                    **({'transcription': {'keyterms': list(keyterms)}} if keyterms else {}),
+                },
+                'output': {
+                    'format': {'type': 'audio/pcm', 'rate': audio_sample_rate},
+                    # Speaking pace (0.7-1.5), sent only when it isn't the
+                    # default: xAI silently rejects a whole session.update over
+                    # a field it doesn't accept (see `model` above), so a
+                    # companion at the normal pace never depends on it — only
+                    # one with a custom pace could be hit if a voice model ever
+                    # refuses it.
+                    **({'speed': voice_speed} if voice_speed != 1.0 else {}),
+                },
             },
         },
     }

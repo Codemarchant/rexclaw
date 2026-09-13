@@ -602,6 +602,13 @@ export const JA = {
   "All preset companions are already present.": "プリセットコンパニオンはすべて揃っています。",
   "Restore failed": "復元に失敗しました",
   "Voice (built-in name or custom xAI voice id)": "ボイス（組み込み名またはカスタム xAI ボイス ID）",
+  "Speech speed": "話す速さ",
+  "How fast this companion talks on voice calls: 1.0 is the voice's normal pace, lower is slower (down to 0.7), higher is faster (up to 1.5). Takes effect from the next call.":
+    "音声通話でこのコンパニオンが話す速さです。1.0 がボイス本来のペースで、下げるとゆっくり（最小 0.7）、上げると速く（最大 1.5）なります。次の通話から反映されます。",
+  "Transcription key terms (comma-separated)": "文字起こしのキーワード（カンマ区切り）",
+  "Names and words this companion's conversations use, so your speech is transcribed with the right spelling on voice calls — people, places, in-jokes, game words. Comma-separated, up to 100 terms of 50 characters each. Leave empty for none.":
+    "このコンパニオンとの会話で使う名前や言葉です。音声通話であなたの話した言葉が正しい表記で文字起こしされるようにします — 人名、地名、内輪ネタ、ゲーム用語など。カンマ区切りで、1 語 50 文字まで、最大 100 語。空欄なら使いません。",
+  "e.g. Minecraft, Mochi, Aldermoor": "例：Minecraft, Mochi, Aldermoor",
   "Avatar": "アバター",
   "(no avatar)": "（アバターなし）",
   "Reasoning effort (text mode)": "推論エフォート（テキストモード）",
