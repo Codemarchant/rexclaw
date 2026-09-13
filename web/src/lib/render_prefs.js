@@ -1,16 +1,17 @@
-// Renderer look prefs — the lighting preset and the cursor touch physics
-// switch. Per-browser (localStorage), shared by every surface that shows the
-// avatar: the full-screen view, the desktop mascot overlay and the mascot
-// settings window all read the same key, and the renderer applies a change
-// live wherever it happens — same-window edits fire a custom event, other
-// windows (the mascot overlay is its own BrowserWindow on the same origin)
-// get the browser's `storage` event for free.
+// Renderer look prefs — the lighting and effects presets, mood marks and
+// the cursor touch physics switch. Per-browser (localStorage), shared
+// by every surface that shows the avatar: the full-screen view, the desktop
+// mascot overlay and the mascot settings window all read the same key, and
+// the renderer applies a change live wherever it happens — same-window
+// edits fire a custom event, other windows (the mascot overlay is its own
+// BrowserWindow on the same origin) get the browser's `storage` event for
+// free.
 import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "rexclaw.render_prefs";
 const CHANGE_EVENT = "rexclaw:render-prefs";
 
-export const DEFAULT_RENDER_PREFS = { lighting: "default", touch: true };
+export const DEFAULT_RENDER_PREFS = { lighting: "default", effects: "off", moodMarks: true, touch: true };
 
 // [id, English label] — labels go through _t() at the UI. Ids are the keys
 // of LIGHTING_PRESETS in services/avatar_renderer.js.
@@ -26,6 +27,16 @@ export const LIGHTING_PRESET_OPTIONS = [
     ["candlelight", "Candlelight"],
     ["spotlight", "Stage spotlight"],
     ["backlit", "Backlit"],
+];
+
+// [id, English label] — ids are the keys of EFFECTS_PRESETS in
+// services/avatar_renderer.js.
+export const EFFECTS_PRESET_OPTIONS = [
+    ["off", "Off"],
+    ["bloom", "Soft bloom"],
+    ["anime", "Anime colour"],
+    ["portrait", "Portrait"],
+    ["cinematic", "Cinematic"],
 ];
 
 export function loadRenderPrefs() {

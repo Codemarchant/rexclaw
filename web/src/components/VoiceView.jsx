@@ -18,7 +18,7 @@ import { screenCapture } from "../lib/screen_capture";
 import { cameraAwareness } from "../lib/camera_awareness";
 import ShareButton from "./ShareButton.jsx";
 import { refreshStoredOutfit, storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
-import { LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
+import { EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 
 // WASD + arrows → camera-relative movement axes for the manual walk toggle.
 const MOVE_KEY_MAP = {
@@ -1359,6 +1359,23 @@ export default function VoiceView({ active = true }) {
                                         <option key={id} value={id}>{_t(label)}</option>
                                     ))}
                                 </select>
+                            </div>
+                            <div className="o_voice_full_settings_row">
+                                <label htmlFor="rx_fv_effects">{_t("Effects")}</label>
+                                <select id="rx_fv_effects" value={renderPrefs.effects}
+                                        onChange={(ev) => updateRenderPrefs({ effects: ev.target.value })}>
+                                    {EFFECTS_PRESET_OPTIONS.map(([id, label]) => (
+                                        <option key={id} value={id}>{_t(label)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="o_voice_full_settings_row">
+                                <input id="rx_fv_moods" type="checkbox" checked={!!renderPrefs.moodMarks}
+                                       onChange={(ev) => updateRenderPrefs({ moodMarks: ev.target.checked })} />
+                                <label htmlFor="rx_fv_moods"
+                                       title={_t("Manga-style marks pop up by their head when their mood changes — a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed.")}>
+                                    {_t("Mood marks")}
+                                </label>
                             </div>
                             <div className="o_voice_full_settings_row">
                                 <input id="rx_fv_touch" type="checkbox" checked={!!renderPrefs.touch}

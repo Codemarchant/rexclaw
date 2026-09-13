@@ -34,6 +34,8 @@ import {
     emotionSettleTarget,
 } from "../models/avatar_catalog";
 import { IdleMotion } from "./idle_motion";
+import { LookPost } from "./look_post";
+import { MoodMarks } from "./mood_marks";
 
 // Kept async + memoized so the renderer code below stays identical to the
 // CDN-loading version it was ported from.
@@ -324,6 +326,76 @@ const RIM_HAIR_RE = /hair/i;
 const SHADOW_CATCHER_OPACITY = 0.32;
 const SHADOW_MAP_SIZE = 2048;
 
+// Effects presets — the post-processing half of the look prefs. Every
+// number comes from a published reference and means what it means there
+// (the bloom is a port of Unity URP's, so URP values transfer as-is; see
+// services/look_post.js); each preset says whether its source is a
+// shipped product, a professional course or a tutorial. Kept out on
+// purpose: ambient occlusion (Warudo's docs advise against it for anime
+// models — it reads as dirt on toon shading) and filmic tone mapping
+// (ACES washes out anime colour design).
+//
+//   bloom      URP Bloom volume values (look_post.js)
+//   aperture   f-number for the Portrait backdrop blur (see _updatePortraitBlur)
+//   para       { color, reach }: corner tint, multiplied over the frame
+//   vignette   Unreal vignette intensity (see ueVignette)
+//   grain      { scale, opacity }: Perlin noise on Overlay
+// aperture, para, vignette and grain are CSS on the full-screen host only
+// (they have to cover the CSS backdrop too, and on the mascot they would
+// paint over the desktop). `off` costs nothing: no post pass, no overlay.
+//
+// VMagicMirror's shipped bloom defaults (MIT, URP 17.3): bloom on,
+// intensity 50 → 0.5 and threshold 100 → 1.0 (WPF LightSetting.cs),
+// scatter 0.35 and 6 max iterations (MainViewerProfile.asset) — a VRM
+// desktop mascot's own bloom, the closest shipped analogue to rexclaw's.
+const VMM_BLOOM = { threshold: 1.0, intensity: 0.5, scatter: 0.35, maxIterations: 6 };
+const EFFECTS_PRESETS = {
+    off: {},
+    bloom: { bloom: VMM_BLOOM },
+    // Para from Celsys's professional compositing course (CoreRETAS lesson
+    // 2, 1280×720): R −60, G −60, B 0 through a mask on the top-left and
+    // bottom-right corners. Done as a multiply by (195, 195, 255) — what a
+    // cellophane filter physically does; the lesson's mask is hand-drawn,
+    // so fading out at half the diagonal is an estimate. With the
+    // VMagicMirror bloom.
+    anime: { bloom: VMM_BLOOM, para: { color: "rgb(195, 195, 255)", reach: 50 } },
+    // iPhone Portrait mode's default simulated aperture, f/4.5 (Depth
+    // Control, iPhone XS onwards).
+    portrait: { aperture: 4.5 },
+    // Unreal Engine's default vignette (FPostProcessSettings intensity
+    // 0.4), film grain from a CLIP STUDIO tutorial (oekaki28: Perlin noise
+    // scale 5, Overlay 25%), and the VMagicMirror bloom.
+    cinematic: { bloom: VMM_BLOOM, vignette: 0.4, grain: { scale: 5, opacity: 0.25 } },
+};
+
+/** Unreal's vignette as a CSS gradient: the cosine-fourth natural falloff
+ *  of ComputeVignetteMask, m = 1 / (1 + |I·p|²)², on VignetteSpace
+ *  coordinates — a circle whatever the aspect, corners at |p| = √2
+ *  (PostProcessCommon.ush) — so at fraction t of the centre-to-corner
+ *  distance m = 1 / (1 + 2(I·t)²)². Unreal multiplies linear light; the
+ *  overlay darkens in sRGB, so its alpha is 1 − m^(1/2.2). */
+function ueVignette(intensity) {
+    const stops = [];
+    for (let i = 0; i <= 10; i++) {
+        const t = i / 10;
+        const m = 1 / (1 + 2 * (intensity * t) ** 2) ** 2;
+        stops.push(`rgba(0, 0, 0, ${(1 - m ** (1 / 2.2)).toFixed(4)}) ${t * 100}%`);
+    }
+    return `radial-gradient(circle farthest-corner at 50% 50%, ${stops.join(", ")})`;
+}
+
+/** Grain tile: desaturated fractal (Perlin) noise with `scale` px features. */
+function grainTile(scale) {
+    return `url("data:image/svg+xml,${encodeURIComponent(
+        "<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'>"
+        + `<filter id='n'><feTurbulence type='fractalNoise' baseFrequency='${1 / scale}' numOctaves='2' stitchTiles='stitch'/>`
+        + "<feColorMatrix type='saturate' values='0'/></filter>"
+        + "<rect width='100%' height='100%' filter='url(#n)'/></svg>")}")`;
+}
+// Offsets the grain tile jumps between (~12 a second), so it lives like
+// film instead of sitting on the screen like dust.
+const GRAIN_JUMPS = [[0, 0], [-43, 21], [27, -38], [-15, -64], [58, 12], [-71, 47], [36, 69], [-8, 33], [0, 0]];
+
 // Smooth start/stop easing for emotion cross-fades (ported from airi's
 // expression.ts). Reads more natural than a flat linear ramp.
 function easeInOutCubic(t) {
@@ -549,6 +621,12 @@ class AvatarRenderer {
         this._lights = null;              // { ambient, key, rim, fill, hemi } built in _buildLightRig
         this._lightingPreset = "default"; // LIGHTING_PRESETS key in effect
         this._shadowCatcher = null;       // ShadowMaterial plane under the avatar (shadow presets, no room)
+        this._effectsPreset = "off";      // EFFECTS_PRESETS key in effect
+        this._look = null;                // LookPost glow pass, only while the preset uses one
+        this._portraitBlur = null;        // backdrop blur (px) written by the Portrait preset
+        this._lookFxEl = null;            // CSS effects overlay on the full-screen host
+        this._moodMarks = null;           // MoodMarks sprites, while the pref is on
+        this._effectsTuning = EFFECTS_PRESETS; // console: edit a preset, then setEffectsPreset(id) again
         this._touchEnabled = true;
         this._touch = null;               // cursor collider state, built lazily by _ensureTouch
         this._touchTuning = TOUCH_TUNING;
@@ -590,9 +668,13 @@ class AvatarRenderer {
         // settings window and the full view write the same localStorage key).
         const prefs = loadRenderPrefs();
         this.setLightingPreset(prefs.lighting);
+        this.setEffectsPreset(prefs.effects);
+        this.setMoodMarks(prefs.moodMarks);
         this.setTouchPhysics(prefs.touch);
         onRenderPrefsChange((p) => {
             this.setLightingPreset(p.lighting);
+            this.setEffectsPreset(p.effects);
+            this.setMoodMarks(p.moodMarks);
             this.setTouchPhysics(p.touch);
         });
 
@@ -3066,7 +3148,7 @@ class AvatarRenderer {
      *  backgrounds) lives IN the WebGL scene, so it appears either way. */
     async captureSnapshot({ maxSize = 1024, includeBackground = false } = {}) {
         if (!this.renderer || !this.scene || !this.camera) return null;
-        this.renderer.render(this.scene, this.camera);
+        this._draw();
         const src = this.renderer.domElement;
         if (!src.width || !src.height) return null;
         const scale = Math.min(1, maxSize / Math.max(src.width, src.height));
@@ -3080,7 +3162,7 @@ class AvatarRenderer {
             await this._drawBackdropOnto(ctx, w, h);
             // The awaited image load may have let the render loop overwrite
             // the drawing buffer — render again right before reading it.
-            this.renderer.render(this.scene, this.camera);
+            this._draw();
         }
         ctx.drawImage(src, 0, 0, w, h);
         return out.toDataURL("image/png");
@@ -3115,7 +3197,7 @@ class AvatarRenderer {
         const w = x1 - x0 + 1;
         const h = y1 - y0 + 1;
         if (w <= 0 || h <= 0) return none;
-        this.renderer.render(this.scene, this.camera);
+        this._draw();
         const buf = new Uint8Array(w * h * 4);
         // readPixels is bottom-left origin; client coords are top-left.
         gl.readPixels(x0, canvas.height - y0 - h, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
@@ -3244,6 +3326,7 @@ class AvatarRenderer {
         // onto whichever host is now active. _applyBackgroundToActiveHost
         // handles the mini-vs-full distinction internally.
         this._applyBackgroundToActiveHost();
+        this._applyLookToActiveHost();
         // OrbitControls is bound to the canvas DOM element for pointer input.
         // When the canvas reparents (e.g. side panel mini ↔ full view), the old
         // bindings become useless — dispose and rebind to the new host. Also
@@ -3492,8 +3575,12 @@ class AvatarRenderer {
         this._orbitControls = null;
     }
 
-    setEmotion(name, { explicit = true } = {}) {
+    setEmotion(name, { explicit = true, settle = false } = {}) {
         if (!EMOTION_STATES[name]) return;
+        // Mood marks pop for every deliberate change — the LLM's set_emotion
+        // or the manual buttons (those pass explicit: false; `explicit` only
+        // means LLM-driven) — but not for the automatic settle below.
+        if (!settle) this._moodMarks?.show(name);
         this._currentEmotion = name;
         // Decay: settle back toward neutral after the reaction beat unless
         // the avatar's config opts out. Every call cancels the previous
@@ -3508,7 +3595,7 @@ class AvatarRenderer {
         if (settleTo && emotionDecayEnabled(this._currentAvatarPayload)) {
             this._emotionDecayTimer = setTimeout(() => {
                 this._emotionDecayTimer = null;
-                this.setEmotion(settleTo, { explicit: false });
+                this.setEmotion(settleTo, { explicit: false, settle: true });
             }, EMOTION_DECAY_MS);
         }
         // Track when an explicit (LLM-driven) emotion was last set. The voice
@@ -4366,7 +4453,10 @@ class AvatarRenderer {
             }
         }
 
-        this.renderer.render(this.scene, this.camera);
+        this._moodMarks?.update(delta, this.getHeadWorldPosition(),
+            this._xrActive ? this.renderer.xr.getCamera() : this.camera);
+        if (!this._xrActive) this._updatePortraitBlur();
+        this._draw();
     }
 
     // ── WebXR ───────────────────────────────────────────────────────────
@@ -4857,6 +4947,131 @@ class AvatarRenderer {
             if (catcher.visible) {
                 catcher.position.set(ax, (this._meshBottomY ?? 0) + 0.002, az);
             }
+        }
+    }
+
+    // ── Effects presets ──────────────────────────────────────────────────
+    // See EFFECTS_PRESETS. The glow pass (LookPost) only exists while the
+    // preset uses one; the CSS half lives on the full-screen host.
+
+    /** Switch post-processing to an EFFECTS_PRESETS entry (unknown → off).
+     *  Safe before the renderer exists — the id is remembered and applied
+     *  by _initRenderer. */
+    setEffectsPreset(id) {
+        this._effectsPreset = EFFECTS_PRESETS[id] ? id : "off";
+        if (!this.renderer) return;
+        const preset = EFFECTS_PRESETS[this._effectsPreset];
+        if (preset.bloom) {
+            this._look ||= new LookPost(this.libs.THREE, this.renderer);
+            this._look.configure(preset.bloom);
+        } else if (this._look) {
+            this._look.dispose();
+            this._look = null;
+        }
+        this._applyLookToActiveHost();
+    }
+
+    /** Draw the frame onto the canvas — through the glow pass while one is
+     *  on. Every flat-mode render goes through here (the loop, selfies, the
+     *  mascot's alpha hit-test) so the canvas never flips between looks;
+     *  XR renders straight to the headset. */
+    _draw() {
+        if (this._look && !this._xrActive) this._look.render(this.scene, this.camera);
+        else this.renderer.render(this.scene, this.camera);
+    }
+
+    /** Host-dependent half of the effects preset. The glow spills past the
+     *  avatar everywhere but the mascot, where a halo over the desktop reads
+     *  as a smudge and would widen the ghost-mode hit area. The CSS overlay
+     *  (para tint, vignette, grain) covers backdrop and avatar alike, on the
+     *  full-screen host only; it is positioned, so it paints above the
+     *  (static) canvas, and the host's stacking context keeps it below the
+     *  view's controls. The Portrait blur is re-derived for the new host on
+     *  the next frame. Runs on preset switches and on every reparent. */
+    _applyLookToActiveHost() {
+        const host = this.activeCanvas;
+        this._look?.setSpill(!host?.classList?.contains("o_voice_avatar_canvas--mascot"));
+        this._portraitBlur = null;
+        this._lookFxEl?.remove();
+        this._lookFxEl = null;
+        const preset = EFFECTS_PRESETS[this._effectsPreset] || EFFECTS_PRESETS.off;
+        const layers = [];
+        if (preset.para) {
+            const { color, reach } = preset.para;
+            const corner = (at) => `radial-gradient(circle farthest-corner at ${at}, ${color} 0%, transparent ${reach}%)`;
+            layers.push({ background: `${corner("0% 0%")}, ${corner("100% 100%")}`, mixBlendMode: "multiply" });
+        }
+        if (preset.vignette) layers.push({ background: ueVignette(preset.vignette) });
+        if (preset.grain) {
+            layers.push({
+                inset: "-100px", backgroundImage: grainTile(preset.grain.scale),
+                mixBlendMode: "overlay", opacity: String(preset.grain.opacity),
+            });
+        }
+        if (!layers.length || !host?.classList?.contains("o_voice_avatar_canvas--full")) return;
+        const doc = host.ownerDocument;
+        const fx = doc.createElement("div");
+        fx.setAttribute("aria-hidden", "true");
+        Object.assign(fx.style, { position: "absolute", inset: "0", pointerEvents: "none", overflow: "hidden" });
+        for (const layer of layers) {
+            const el = doc.createElement("div");
+            Object.assign(el.style, { position: "absolute", inset: "0" }, layer);
+            fx.appendChild(el);
+        }
+        if (preset.grain) {
+            fx.lastChild.animate?.(
+                GRAIN_JUMPS.map(([x, y]) => ({ transform: `translate(${x}px, ${y}px)`, easing: "steps(1, end)" })),
+                { duration: 700, iterations: Infinity },
+            );
+        }
+        host.appendChild(fx);
+        this._lookFxEl = fx;
+    }
+
+    /** Portrait preset, per frame: blur the backdrop — a CSS layer under
+     *  the transparent canvas, so backdrop-filter on the canvas blurs it
+     *  while the avatar stays sharp — by the defocus a distant background
+     *  gets through the live camera. Thin lens, full-frame equivalent: the
+     *  focal length comes from the vertical FOV on a 24 mm sensor height,
+     *  focus is on the head, the background at infinity, so the blur disc
+     *  is c = f² / (N (s − f)). CSS blur() takes a Gaussian sigma, and a
+     *  uniform disc of diameter D has sigma D/4 per axis. At f/4.5 the face
+     *  view comes out near a 3%-of-frame-height disc, full body near 0.5%.
+     *  Full-screen host only; the style is written only when it changes. */
+    _updatePortraitBlur() {
+        const aperture = EFFECTS_PRESETS[this._effectsPreset]?.aperture;
+        const host = this.activeCanvas;
+        const head = aperture && host?.classList?.contains("o_voice_avatar_canvas--full")
+            ? this.getHeadWorldPosition() : null;
+        let sigma = 0;
+        if (head) {
+            const sensor = 24;
+            const f = sensor / 2 / Math.tan((this.camera.fov * Math.PI) / 360);
+            const s = Math.max(this.camera.position.distanceTo(head) * 1000, f * 1.01);
+            const discPx = (f * f) / (aperture * (s - f)) / sensor * host.clientHeight;
+            sigma = Math.round(discPx) / 4;   // D/4, in quarter-pixel steps
+        }
+        if (sigma === this._portraitBlur) return;
+        this._portraitBlur = sigma;
+        const css = sigma > 0 ? `blur(${sigma}px)` : "";
+        const canvas = this.renderer.domElement;
+        canvas.style.backdropFilter = css;
+        canvas.style.webkitBackdropFilter = css;
+    }
+
+    // ── Mood marks ───────────────────────────────────────────────────────
+    // Manga emotion marks beside the head (services/mood_marks.js).
+
+    /** The mood-marks look pref. The sprite system only exists while it is
+     *  on; before the renderer exists this is a no-op and _initRenderer
+     *  applies the stored pref. */
+    setMoodMarks(on) {
+        if (!this.scene) return;
+        if (on) {
+            this._moodMarks ||= new MoodMarks(this.libs.THREE, this.scene);
+        } else if (this._moodMarks) {
+            this._moodMarks.dispose();
+            this._moodMarks = null;
         }
     }
 

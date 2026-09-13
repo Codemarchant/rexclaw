@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { _t } from "../lib/i18n";
 import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES } from "../lib/mascot_link";
-import { LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
+import { EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 import { EMOTIONS, GESTURES } from "../models/avatar_catalog";
 
 /** Mascot settings window (/#mascot-settings) — the mascot's full control
@@ -378,6 +378,22 @@ export default function MascotSettingsView() {
                                 {_t("Pre-set light rigs — a key light, a coloured rim from behind and, on most of them, a soft shadow under the feet. Also applies to the full-screen view.")}
                             </p>
                         </div>
+                        <div className="rx_mascot_set_item">
+                            <label htmlFor="rx_ms_effects">{_t("Effects")}</label>
+                            <select id="rx_ms_effects" value={renderPrefs.effects}
+                                    onChange={(ev) => updateRenderPrefs({ effects: ev.target.value })}>
+                                {EFFECTS_PRESET_OPTIONS.map(([id, label]) => (
+                                    <option key={id} value={id}>{_t(label)}</option>
+                                ))}
+                            </select>
+                            <p className="rx_mascot_set_desc rx_mascot_set_desc--flush">
+                                {_t("Post-processing looks built from published settings — bloom on the character; colour tints, vignette, grain and the portrait background blur show in the full-screen view only. Off costs nothing; the others use some GPU.")}
+                            </p>
+                        </div>
+                        {check("rx_ms_moods", _t("Mood marks"),
+                            _t("Manga-style marks pop up by their head when their mood changes — a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed."),
+                            renderPrefs.moodMarks,
+                            (v) => updateRenderPrefs({ moodMarks: v }))}
                         {check("rx_ms_touch", _t("Touch physics"),
                             _t("Hair, skirts and other swinging parts move out of the cursor's way, ruffle with quick mouse sweeps, and bounce when clicked."),
                             renderPrefs.touch,

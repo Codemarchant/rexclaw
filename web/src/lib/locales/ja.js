@@ -549,6 +549,16 @@ export const JA = {
     "この背景に切り替えたときに選択されるライティングプリセット。空欄なら現在の選択を維持します。",
   "Pre-set light rigs — a key light, a coloured rim from behind and, on most of them, a soft shadow under the feet. Also applies to the full-screen view.":
     "プリセットの照明 — キーライト、背後からの色付きリムライト、多くのプリセットでは足元のやわらかい影。フルスクリーン表示にも適用されます。",
+  "Effects": "エフェクト",
+  "Soft bloom": "ソフトブルーム",
+  "Anime colour": "アニメ撮影風カラー",
+  "Portrait": "ポートレート",
+  "Cinematic": "シネマティック",
+  "Post-processing looks built from published settings — bloom on the character; colour tints, vignette, grain and the portrait background blur show in the full-screen view only. Off costs nothing; the others use some GPU.":
+    "公開されている設定に基づくポストエフェクト — キャラクターにはブルーム、色味・ビネット・粒子感・ポートレート風の背景ぼかしはフルスクリーン表示のみに適用されます。オフは負荷なし、その他は GPU を少し使います。",
+  "Mood marks": "感情マーク",
+  "Manga-style marks pop up by their head when their mood changes — a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed.":
+    "気分が変わると頭のそばに漫符が現れます — 嬉しいときは♪、怒ると怒りマーク、驚くと「！」、悲しいと雨雲、リラックスするとため息。",
   "Touch physics": "タッチ物理",
   "Hair, skirts and other swinging parts move out of the cursor's way, ruffle with quick mouse sweeps, and bounce when clicked.":
     "髪やスカートなどの揺れる部分がカーソルを避けて動き、素早いマウス操作でなびき、クリックすると弾みます。",
