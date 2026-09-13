@@ -167,6 +167,19 @@ CREATE TABLE IF NOT EXISTS config (
     minecraft_brain_model TEXT NOT NULL DEFAULT '',
     minecraft_brain_model_hard TEXT NOT NULL DEFAULT '',
     minecraft_master TEXT NOT NULL DEFAULT '',
+    -- Live-stream chat for companions' idle events (see live_chat.py): the
+    -- Twitch channel is read anonymously over IRC; a YouTube live stream
+    -- (its link or video id) through the Data API with the user's own key,
+    -- write-only from the UI. Both connect only while a live call's
+    -- companion has a chat-reading idle event. Messages from the ignored
+    -- users or holding a blocked word never reach a companion
+    -- (comma-separated, case-insensitive; the default list is the common
+    -- chat bots).
+    live_chat_twitch_channel TEXT NOT NULL DEFAULT '',
+    live_chat_youtube_video TEXT NOT NULL DEFAULT '',
+    live_chat_youtube_api_key TEXT NOT NULL DEFAULT '',
+    live_chat_ignored_users TEXT NOT NULL DEFAULT 'Nightbot, StreamElements, Streamlabs, Moobot, Fossabot',
+    live_chat_blocked_words TEXT NOT NULL DEFAULT '',
     -- Lifetime/today spend (USD) accrued from xAI's usage.cost_in_usd_ticks.
     -- Informational only in the standalone (it's the user's own key).
     spend_lifetime_usd REAL NOT NULL DEFAULT 0,
@@ -424,7 +437,25 @@ CREATE TABLE IF NOT EXISTS agents (
     time_aware_resume INTEGER NOT NULL DEFAULT 1,
     -- Voice calls: the companion opens the conversation as soon as the call
     -- connects instead of waiting for the user to speak. Opt-in.
-    speaks_first INTEGER NOT NULL DEFAULT 0
+    speaks_first INTEGER NOT NULL DEFAULT 0,
+    -- Idle events (voice calls): once the call has been quiet for a random
+    -- idle_events_min_seconds..max_seconds - nobody talking, the companion's
+    -- last line played out - one enabled event is drawn by weight from
+    -- idle_events and its prompt reaches the companion as a hidden note
+    -- (web/src/lib/idle_events.js runs the clock; server/idle_events.py
+    -- cleans the list). idle_events is a JSON list of {name, prompt, weight,
+    -- type, chat_messages, after_seconds, active}; type 'stream_chat'
+    -- attaches the newest chat_messages unread stream-chat messages (config
+    -- live_chat_*), and 'silent_chat' slips them in as background after
+    -- after_seconds of quiet, outside the weighted draw.
+    -- idle_events_max_unanswered
+    -- pauses them after that many in a row with nobody answering (0 = never,
+    -- for streams). Opt-in.
+    idle_events_enabled INTEGER NOT NULL DEFAULT 0,
+    idle_events_min_seconds INTEGER NOT NULL DEFAULT 10,
+    idle_events_max_seconds INTEGER NOT NULL DEFAULT 10,
+    idle_events_max_unanswered INTEGER NOT NULL DEFAULT 6,
+    idle_events TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS mcp_connections (
@@ -944,6 +975,18 @@ MIGRATIONS = (
     "ALTER TABLE agents ADD COLUMN voice_speed REAL NOT NULL DEFAULT 1.0",
     # Per-companion transcription key terms — see the agents schema comment.
     "ALTER TABLE agents ADD COLUMN transcription_keyterms TEXT NOT NULL DEFAULT ''",
+    # Idle events on voice calls — see the agents schema comment.
+    "ALTER TABLE agents ADD COLUMN idle_events_enabled INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agents ADD COLUMN idle_events_min_seconds INTEGER NOT NULL DEFAULT 10",
+    "ALTER TABLE agents ADD COLUMN idle_events_max_seconds INTEGER NOT NULL DEFAULT 10",
+    "ALTER TABLE agents ADD COLUMN idle_events_max_unanswered INTEGER NOT NULL DEFAULT 6",
+    "ALTER TABLE agents ADD COLUMN idle_events TEXT NOT NULL DEFAULT '[]'",
+    # Live-stream chat for idle events — see the config schema comment.
+    "ALTER TABLE config ADD COLUMN live_chat_twitch_channel TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN live_chat_youtube_video TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN live_chat_youtube_api_key TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN live_chat_ignored_users TEXT NOT NULL DEFAULT 'Nightbot, StreamElements, Streamlabs, Moobot, Fossabot'",
+    "ALTER TABLE config ADD COLUMN live_chat_blocked_words TEXT NOT NULL DEFAULT ''",
 )
 
 

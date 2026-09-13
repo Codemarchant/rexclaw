@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, idle_events, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -1164,6 +1164,10 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # clock — it is the side that knows when anyone last spoke, typed or
         # ran a tool — so the setting rides along with the session start.
         'call_inactivity_minutes': config['call_inactivity_minutes'] or 0,
+        # Idle events: the usable events plus the quiet-time range and the
+        # unanswered cap (None = off). The browser runs the clock, same
+        # reasoning as above - see web/src/lib/idle_events.js.
+        'idle_events': idle_events.call_payload(agent),
     }
 
 
@@ -1331,8 +1335,9 @@ def _transcript_rows(con, session, limit=None):
     summary rollups themselves are skipped (backend artifact for the model),
     and so are the model-only prompt rows that would otherwise bloat the
     view with boilerplate: the scheduled-heartbeat context block (the diary
-    reply it produced stays), the time-aware resume note and the affection
-    resync note. All still replay to the model - this is display-only.
+    reply it produced stays), the time-aware resume note, the affection
+    resync note and idle-event notes. All still replay to the model - this
+    is display-only.
     Optional `limit` keeps the most-recent N. Returns (rows, truncated).
     Shared by the voice resume feed (_build_transcript_history) and the text
     resume payload (start_text_session) so both surfaces show the same
@@ -1344,9 +1349,10 @@ def _transcript_rows(con, session, limit=None):
         " AND NOT (role = 'user' AND content LIKE ?)"
         " AND NOT (role = 'system' AND content LIKE ?)"
         " AND NOT (role = 'system' AND content LIKE ?)"
+        " AND NOT (role = 'system' AND content LIKE ?)"
     )
     shown_params = (heartbeat.CONTEXT_PREFIX + '%', RESUME_NOTE_PREFIX + '%',
-                    AFFECTION_NOTE_PREFIX + '%')
+                    AFFECTION_NOTE_PREFIX + '%', idle_events.NOTE_PREFIX + '%')
     if limit and limit > 0:
         recent = con.execute(
             f"SELECT * FROM messages WHERE session_id = ? {shown} "

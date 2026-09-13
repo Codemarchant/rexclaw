@@ -34,7 +34,10 @@ references a FILE (add it to _iter_manifest_refs so shared-asset refs inline
 into the zip). Importers read only the keys they know and missing keys take
 DB defaults, so additive changes stay compatible in both directions — bump a
 FILE_VERSION only for breaking shape changes. New heartbeat config columns
-join _HEARTBEAT_PORTABLE_FIELDS by hand (state/FK columns stay out).
+join _HEARTBEAT_PORTABLE_FIELDS by hand (state/FK columns stay out). Idle-
+event settings (every idle_events* agent field) travel only when the export
+asks for them and always land switched off - gated by prefix, so a new one
+needs nothing here either.
 """
 import json
 import logging
@@ -588,9 +591,16 @@ def _agent_portable_fields():
     return tuple(k for k in _AGENT_FIELDS if k != "avatar_id")
 
 
+def _idle_event_fields():
+    """The companion's idle-event settings - every idle_events* field, so a
+    new one is covered without touching this file."""
+    return tuple(k for k in _agent_portable_fields() if k.startswith("idle_events"))
+
+
 def export_companion_zip(con, agent_id, out_path, *,
                          include_memories, include_sessions, include_avatar,
-                         include_lore=True, include_heartbeats=False):
+                         include_lore=True, include_heartbeats=False,
+                         include_idle_events=False):
     """Build the companion package at out_path. Returns the agent's name."""
     agent = con.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
     if not agent:
@@ -614,10 +624,15 @@ def export_companion_zip(con, agent_id, out_path, *,
                 "avatar": include_avatar,
                 "lore": bool(include_lore),
                 "heartbeats": bool(include_heartbeats),
+                "idle_events": bool(include_idle_events),
             },
         })
+        # Idle events are off by default too, like heartbeats: silence and
+        # stream-chat prompts are usually the user's own routines (and the
+        # importer lands them switched off regardless).
+        skip = () if include_idle_events else _idle_event_fields()
         _writestr_json(zf, "companion.json", {
-            "agent": {k: agent[k] for k in _agent_portable_fields()},
+            "agent": {k: agent[k] for k in _agent_portable_fields() if k not in skip},
             "avatar": {"pack_key": avatar["pack_key"], "name": avatar["name"]} if avatar else None,
         })
         if include_memories:
@@ -668,10 +683,14 @@ def check_lore_file(payload):
     return stories
 
 
-def import_lore_entries(con, stories):
+def import_lore_entries(con, stories, renamed_to=None):
     """Insert lore stories from a companion package. Dedupe by title
     (case-insensitive): an install importing two companions that share a
-    story gets one copy. Returns (imported, duplicates)."""
+    story gets one copy. `renamed_to` = the imported companion's name when
+    its own was taken here: its stories then come in as the copy's own -
+    new rows tagged with that name only, titles already here included - so
+    the companion it collided with, and anyone sharing its stories, is left
+    exactly as it was. Returns (imported, duplicates)."""
     imported = duplicates = 0
     for entry in stories or []:
         if not isinstance(entry, dict):
@@ -680,16 +699,18 @@ def import_lore_entries(con, stories):
         story = str(entry.get("story") or "").strip()
         if not title or not story:
             continue
-        exists = con.execute(
-            "SELECT 1 FROM lore_entries WHERE title = ? COLLATE NOCASE",
-            (title,)).fetchone()
-        if exists:
+        characters = entry.get("characters")
+        if renamed_to:
+            characters = [renamed_to]
+        elif con.execute(
+                "SELECT 1 FROM lore_entries WHERE title = ? COLLATE NOCASE",
+                (title,)).fetchone():
             duplicates += 1
             continue
         lore_tools.save_entry(con, {
             "title": title,
             "description": entry.get("description"),
-            "characters": entry.get("characters"),
+            "characters": characters,
             "tags": entry.get("tags"),
             "story": story,
             "sequence": entry.get("sequence"),
@@ -717,6 +738,11 @@ def import_companion_zip(con, zip_path):
             if not isinstance(agent_data, dict):
                 raise UserError("Invalid companion file: missing agent settings.")
             vals = {k: agent_data[k] for k in _agent_portable_fields() if k in agent_data}
+            # Idle events land switched off, like heartbeats land inactive:
+            # an imported companion must never start nudging (or reading
+            # stream chat) in calls on its own - the list is there to review.
+            if "idle_events_enabled" in vals:
+                vals["idle_events_enabled"] = 0
             name = str(vals.get("name") or "").strip()
             if not name or not str(vals.get("system_prompt") or "").strip():
                 raise UserError("Companion file has no name or system prompt.")
@@ -726,6 +752,7 @@ def import_companion_zip(con, zip_path):
                     "SELECT 1 FROM agents WHERE name = ?", (candidate,),
                 ).fetchone()
 
+            packaged_name = name
             if taken(name):
                 candidate, n = f"{name} - Imported", 2
                 while taken(candidate):
@@ -782,7 +809,8 @@ def import_companion_zip(con, zip_path):
                         or data.get("version") != LORE_FILE_VERSION:
                     raise UserError("Unsupported lore file in the companion package.")
                 lore_imported, lore_duplicates = import_lore_entries(
-                    con, data.get("stories"))
+                    con, data.get("stories"),
+                    renamed_to=name if name != packaged_name else None)
 
             heartbeats_imported = 0
             if "heartbeats.json" in names:

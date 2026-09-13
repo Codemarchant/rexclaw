@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, heartbeat, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, transfer, xai_client
+from .. import avatar_packs, heartbeat, idle_events, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, transfer, xai_client
 from ..db import ASSETS_DIR, FILES_DIR, shipped_column_defaults, utcnow
 from ..wake_models import WAKE_MODELS
 from ..errors import UserError
@@ -47,6 +47,8 @@ _CONFIG_FIELDS = (
     "wake_word_enabled", "wake_word_language",
     "local_task_workdir",
     "minecraft_brain_model", "minecraft_brain_model_hard", "minecraft_master",
+    "live_chat_twitch_channel", "live_chat_youtube_video",
+    "live_chat_ignored_users", "live_chat_blocked_words",
     "transcript_display_limit", "heartbeat_notifications",
     "transcript_retention_days", "file_default_expiry_seconds",
     "speech_gestures", "idle_fidgets", "fidget_interval",
@@ -70,6 +72,8 @@ _AGENT_FIELDS = (
     "enable_local_tasks", "enable_minecraft",
     "enable_end_call_tool", "wake_phrase", "wake_action",
     "time_aware_resume", "speaks_first",
+    "idle_events_enabled", "idle_events_min_seconds", "idle_events_max_seconds",
+    "idle_events_max_unanswered", "idle_events",
 )
 
 
@@ -84,6 +88,8 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     # The ComfyUI auth header is a pod password / API key: write-only from
     # the UI, same as the xAI key.
     out["has_local_gen_auth"] = bool(row["local_gen_auth_header"])
+    # The YouTube Data API key (live chat): write-only too.
+    out["has_youtube_api_key"] = bool(row["live_chat_youtube_api_key"])
     out["spend_today_usd"] = row["spend_today_usd"]
     out["spend_lifetime_usd"] = row["spend_lifetime_usd"]
     out["user_photo_url"] = row["user_photo_path"] or None
@@ -112,6 +118,12 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
             updates["local_gen_auth_header"] = ""
         elif isinstance(header, str) and header.strip():
             updates["local_gen_auth_header"] = header.strip()
+    if "live_chat_youtube_api_key" in payload:
+        yt_key = payload["live_chat_youtube_api_key"]
+        if yt_key is None:
+            updates["live_chat_youtube_api_key"] = ""
+        elif isinstance(yt_key, str) and yt_key.strip():
+            updates["live_chat_youtube_api_key"] = yt_key.strip()
     if updates:
         cols = ", ".join(f"{k} = ?" for k in updates)
         con.execute(f"UPDATE config SET {cols} WHERE id = 1", tuple(updates.values()))
@@ -347,6 +359,8 @@ def agents_save(payload: dict = Body(default={}), con=Depends(db_con)):
     updates = {k: payload[k] for k in _AGENT_FIELDS if k in payload}
     if "transcription_keyterms" in updates:
         updates["transcription_keyterms"] = xai_client.validate_keyterms(updates["transcription_keyterms"])
+    if "idle_events" in updates:
+        updates["idle_events"] = idle_events.events_json(updates["idle_events"])
     if agent_id:
         if updates:
             cols = ", ".join(f"{k} = ?" for k in updates)
@@ -416,7 +430,7 @@ def agents_duplicate(payload: dict = Body(default={}), con=Depends(db_con)):
 @router.get("/agents/export")
 def agents_export(agent_id: int, memories: int = 1, sessions: int = 1,
                   avatar: int = 1, lore: int = 1, heartbeats: int = 0,
-                  con=Depends(db_con)):
+                  idle_events: int = 0, con=Depends(db_con)):
     """Download a companion package zip (see server/transfer.py for the
     format). GET so the browser/Electron streams it straight to a file —
     packs with VRMs run to hundreds of MB. The zip is built in a temp file
@@ -431,6 +445,7 @@ def agents_export(agent_id: int, memories: int = 1, sessions: int = 1,
             include_avatar=bool(avatar),
             include_lore=bool(lore),
             include_heartbeats=bool(heartbeats),
+            include_idle_events=bool(idle_events),
         )
     except Exception:
         os.unlink(tmp.name)

@@ -379,6 +379,8 @@ export class AgentConnection {
         // and only the mic-bearing leg's start carries the user's config.
         if (this.role === "primary") {
             this.manager.setInactivityLimit?.(payload.call_inactivity_minutes);
+            // Idle events ride along the same way (lib/idle_events.js).
+            this.manager.setIdleEvents?.(payload.idle_events);
         }
         // Compact-budget display (see the original singleton for details).
         this._tokensAtLastSummary = payload.tokens_at_last_summary || 0;
@@ -982,6 +984,8 @@ export class AgentConnection {
         // User transcript — record into the local transcript only. With
         // server_vad active, xAI auto-creates the response itself.
         if (msg.type === "conversation.item.input_audio_transcription.completed") {
+            // Belt and braces for the idle-events flag: the utterance is over.
+            this._userSpeaking = false;
             let text = msg.transcript || "";
             if (text) {
                 text = this._extractNewUserSpeech(text);
@@ -1008,6 +1012,9 @@ export class AgentConnection {
             this._pendingToolReply = false;
             this._nextResponseIsToolReply = false;
             this._owedContextResponse = false;
+            // Idle events hold off while the user has the floor — a long
+            // utterance must not outlast the quiet timer (lib/idle_events.js).
+            this._userSpeaking = true;
             // Motion director: the user has the floor — not idle. `interrupted`
             // also drops a speech gesture still acting out the cut-off line.
             this.avatarApi?.setConversationState?.({
@@ -1042,6 +1049,7 @@ export class AgentConnection {
             // Motion director: the user finished — server VAD will start a
             // reply, so the companion is busy until it does.
             this.avatarApi?.setConversationState?.({ listening: false, thinking: true });
+            this._userSpeaking = false;
             if (msg.type === "input_audio_buffer.committed") {
                 // A user utterance is committed; its transcription arrives
                 // asynchronously — on slow endpoints AFTER the reply is

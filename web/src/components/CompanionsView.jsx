@@ -96,6 +96,46 @@ Levels 9-10 (800-1000) - Devoted. Deep trust and loyalty. You actively invest, p
 
 Whatever the level, stay in character - affection changes how warm and open you are, never who you are.`;
 
+// Idle events (voice calls): the event a companion gets when they're first
+// switched on with an empty list - the silence check-in they were designed
+// around. Model-facing text - deliberately not translated. Key order matches
+// server/idle_events.py's cleaned JSON, so an untouched list never reads as
+// an unsaved edit.
+const EXAMPLE_IDLE_EVENT = {
+    name: "Silence check-in",
+    prompt: "The user hasn't spoken in a while... your turn to speak to the user now.",
+    weight: 100,
+    type: "prompt",
+    chat_messages: 10,
+    after_seconds: 0,
+    active: true,
+};
+// A fresh row for "Add event" - same key order.
+const NEW_IDLE_EVENT = {
+    name: "", prompt: "", weight: 100, type: "prompt", chat_messages: 10, after_seconds: 0, active: true,
+};
+// What an event does (server/idle_events.py TYPES) - room for more later,
+// e.g. donations.
+const IDLE_EVENT_TYPES = [
+    ["prompt", "Prompt only"],
+    ["stream_chat", "Read stream chat"],
+    ["silent_chat", "Silent stream chat injection (standalone)"],
+];
+
+function parseIdleEvents(text) {
+    try {
+        const list = JSON.parse(text || "[]");
+        return Array.isArray(list) ? list : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function clampInt(value, lo, hi, fallback) {
+    const v = parseInt(value, 10);
+    return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
+}
+
 // Capability references shown above the style fields — what the companion
 // can actually do, so the author writes usage guidance against the real
 // roster. Keep in sync with server/browser_tools.py (gestures) and
@@ -167,8 +207,9 @@ export default function CompanionsView({ active }) {
     // Defaults favour sharing the character: avatar + lore on, the user's
     // own memories and transcripts off (a backup is a deliberate two ticks;
     // an accidental share of personal history can't be undone). Heartbeats
-    // off too — scheduled prompts are usually personal routines.
-    const [exportOpts, setExportOpts] = useState({ memories: false, sessions: false, avatar: true, lore: true, heartbeats: false });
+    // and idle events off too — scheduled and stream prompts are usually
+    // personal routines.
+    const [exportOpts, setExportOpts] = useState({ memories: false, sessions: false, avatar: true, lore: true, heartbeats: false, idle_events: false });
     const [importing, setImporting] = useState(false);
     const [deletingId, setDeletingId] = useState(null);     // agent id mid-delete (big histories take seconds)
     const [pastDueHb, setPastDueHb] = useState(0);          // past-due heartbeats across all companions
@@ -265,6 +306,11 @@ export default function CompanionsView({ active }) {
             speaks_first: 0,
             voice_speed: 1,
             transcription_keyterms: "",
+            idle_events_enabled: 0,
+            idle_events_min_seconds: 10,
+            idle_events_max_seconds: 10,
+            idle_events_max_unanswered: 6,
+            idle_events: "[]",
             core_memory_cap: 100,
         });
     };
@@ -340,6 +386,7 @@ export default function CompanionsView({ active }) {
             avatar: exportOpts.avatar ? "1" : "0",
             lore: exportOpts.lore ? "1" : "0",
             heartbeats: exportOpts.heartbeats ? "1" : "0",
+            idle_events: exportOpts.idle_events ? "1" : "0",
         });
         const link = document.createElement("a");
         link.href = `/api/agents/export?${params}`;
@@ -356,6 +403,7 @@ export default function CompanionsView({ active }) {
                     ["memories", _t("Memories"), _t("What the companion remembers about you — personal; leave off when sharing")],
                     ["sessions", _t("Sessions"), _t("Your full conversation transcripts — personal; leave off when sharing")],
                     ["heartbeats", _t("Heartbeats"), _t("Scheduled prompts — imported inactive, ready to review and switch on")],
+                    ["idle_events", _t("Idle events"), _t("Quiet-moment and stream-chat prompts for calls — imported switched off, ready to review and turn on")],
                 ].map(([k, label, hint]) => (
                     <label key={k} className="small" title={hint}
                            style={{ display: "inline-flex", gap: "0.25rem", alignItems: "center", margin: 0 }}>
@@ -426,10 +474,16 @@ export default function CompanionsView({ active }) {
             // Main Save means "save everything on this page": commit open
             // heartbeat/MCP/lore drafts first. An incomplete draft refuses
             // (with its own toast) and keeps the editor open.
+            let patch = {};
             for (const entry of Object.values(childEditors.current)) {
-                if (entry?.dirty && !(await entry.flush())) return false;
+                if (!entry?.dirty) continue;
+                const flushed = await entry.flush();
+                if (!flushed) return false;
+                // A draft living inside the companion itself (an open idle
+                // event) hands back the fields to save with the form.
+                if (typeof flushed === "object") patch = { ...patch, ...flushed };
             }
-            await rpc("/api/agents/save", editingAgent);
+            await rpc("/api/agents/save", { ...editingAgent, ...patch });
             setEditingAgent(null);
             load();
             return true;
@@ -595,6 +649,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
     const regHeartbeats = useCallback((e) => registerChildEditor("heartbeats", e), [registerChildEditor]);
     const regMcp = useCallback((e) => registerChildEditor("mcp", e), [registerChildEditor]);
     const regLore = useCallback((e) => registerChildEditor("lore", e), [registerChildEditor]);
+    const regIdle = useCallback((e) => registerChildEditor("idle_events", e), [registerChildEditor]);
     const [promptPreview, setPromptPreview] = useState(null);
     /** Bundled companions only: load the shipped prompt/voice/avatar/tool
      *  settings into the draft. Nothing is saved here — the unsaved bar
@@ -934,6 +989,32 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 })()}
             </section>
             <section>
+                <h3><i className="fa fa-hourglass-half" /> {_t("Idle events")}</h3>
+                <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
+                    {_t("When a voice call goes quiet, the companion gets one of these prompts, drawn at random by weight: a check-in after a silence, a topic to riff on, or a message from your stream's chat to answer (chat channels are set up in Settings → Live chat). Takes effect from the next call.")}
+                </p>
+                <span className="rx_check">
+                    <input id={`flag-${idScope}-idle_events_enabled`} type="checkbox"
+                           checked={!!editingAgent.idle_events_enabled}
+                           onChange={(ev) => {
+                               const on = ev.target.checked ? 1 : 0;
+                               // First switch-on with an empty list seeds the
+                               // silence check-in; an existing list is kept.
+                               const events = on && !parseIdleEvents(editingAgent.idle_events).length
+                                   ? JSON.stringify([EXAMPLE_IDLE_EVENT])
+                                   : editingAgent.idle_events;
+                               setEditingAgent({ ...editingAgent, idle_events_enabled: on, idle_events: events });
+                           }} />
+                    <label htmlFor={`flag-${idScope}-idle_events_enabled`}>
+                        {_t("Enable idle events on voice calls")}
+                    </label>
+                </span>
+                {!!editingAgent.idle_events_enabled && (
+                    <IdleEventsEditor editingAgent={editingAgent} setEditingAgent={setEditingAgent} idScope={idScope}
+                                      registerEditor={regIdle} />
+                )}
+            </section>
+            <section>
                 {editingAgent.id != null ? (
                     <McpConnections agentId={editingAgent.id} registerEditor={regMcp} />
                 ) : (
@@ -977,6 +1058,213 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 onCancel={cancel}
                 saveDisabled={!editingAgent.name?.trim()}
                 pinned />
+        </>
+    );
+}
+
+/** The idle-events list inside the companion editor, laid out like the
+ *  heartbeat and MCP lists: rows with an inline Active switch, and an edit
+ *  card that works on a copy ("Save event" writes it into the list, Cancel
+ *  drops it). The list itself lives in the companion draft as JSON text
+ *  (agents.idle_events), so the main Save persists it like any other field
+ *  - and commits an open card too (lib/child_editor.js). */
+function IdleEventsEditor({ editingAgent, setEditingAgent, idScope, registerEditor }) {
+    const events = parseIdleEvents(editingAgent.idle_events);
+    // The open card's copy; _index = the row it edits, null = a new event
+    // (added at the top on save, like a new heartbeat draft).
+    const [draft, setDraft] = useState(null);
+    const setD = (patch) => setDraft((d) => ({ ...d, ...patch }));
+    const setEvents = (next) => setEditingAgent({ ...editingAgent, idle_events: JSON.stringify(next) });
+    const setEvent = (i, patch) => setEvents(events.map((e, j) => (j === i ? { ...e, ...patch } : e)));
+    const removeEvent = (i) => {
+        setEvents(events.filter((_, j) => j !== i));
+        // An open card keeps pointing at its own row.
+        setDraft((d) => (d && d._index != null && d._index > i ? { ...d, _index: d._index - 1 } : d));
+    };
+    // A silent chat injection's prompt is an optional note.
+    const draftComplete = (d) => d.type === "silent_chat" || !!(d.prompt || "").trim();
+    /** The list with the open card applied - same key order as
+     *  server/idle_events.py's cleaned JSON. */
+    const withDraft = (d) => {
+        const ev = {
+            name: d.name, prompt: d.prompt, weight: d.weight, type: d.type,
+            chat_messages: d.chat_messages, after_seconds: d.after_seconds, active: d.active,
+        };
+        return d._index == null ? [ev, ...events] : events.map((e, j) => (j === d._index ? ev : e));
+    };
+    const saveDraft = () => {
+        setEvents(withDraft(draft));
+        setDraft(null);
+    };
+    // The companion form's Save commits an open card too - handing the list
+    // back to be saved with the form, since it has no save of its own.
+    useRegisterChildEditor(registerEditor, editorDirty(draft), async () => {
+        if (!draft || !editorDirty(draft)) return true;
+        if (!draftComplete(draft)) {
+            notification.add(
+                _t("The open idle event has no prompt — finish it or cancel it, then save again."),
+                { type: "warning" });
+            return false;
+        }
+        const idle_events = JSON.stringify(withDraft(draft));
+        setDraft(null);
+        return { idle_events };
+    });
+    const preview = (text) => (text.length > 90 ? `${text.slice(0, 89)}…` : text);
+    const typeSeconds = (key, value) => setEditingAgent({ ...editingAgent, [key]: value === "" ? "" : Number(value) });
+    // Clamp on leaving the field, not per keystroke - typing "30" passes
+    // through "3", below a 10-second minimum.
+    const clampSeconds = () => {
+        const lo = clampInt(editingAgent.idle_events_min_seconds, 1, 3600, 10);
+        const hi = clampInt(editingAgent.idle_events_max_seconds, lo, 3600, lo);
+        setEditingAgent({ ...editingAgent, idle_events_min_seconds: lo, idle_events_max_seconds: hi });
+    };
+    // Weight shares over the drawn events, open card included; silent chat
+    // injections aren't drawn, so they take none.
+    const shown = draft ? withDraft(draft) : events;
+    const drawnWeight = (e) => (e.type !== "silent_chat" && e.active !== false && e.weight > 0 ? e.weight : 0);
+    const totalWeight = shown.reduce((sum, e) => sum + drawnWeight(e), 0);
+    const shareOf = (e) => (totalWeight ? Math.round((drawnWeight(e) / totalWeight) * 100) : 0);
+    const summary = (ev) => [
+        _t(IDLE_EVENT_TYPES.find(([id]) => id === ev.type)?.[1] || "Prompt only"),
+        ev.type !== "prompt" && _t("latest %s", ev.chat_messages ?? 10),
+        ev.type === "silent_chat" && _t("after %s s", ev.after_seconds ?? 0),
+        ev.active === false ? _t("inactive") : ev.type !== "silent_chat" && `${shareOf(ev)}%`,
+    ].filter(Boolean).join(" · ");
+    // The edit form: at the top for a NEW event, in place of the row being
+    // edited otherwise - same as the heartbeat and MCP lists.
+    const card = draft && (
+        <div className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+            <div className="rx_row">
+                <div style={{ flex: 2 }}>
+                    <label>{_t("Name")}</label>
+                    <input type="text" value={draft.name || ""} placeholder={_t("e.g. Fish facts")}
+                           onChange={(ev) => setD({ name: ev.target.value })} />
+                </div>
+                {draft.type !== "silent_chat" && (
+                    <div>
+                        <label title={_t("How often this event is picked compared with the others; the percentage is its share while every event can run. Chat events only take part while there is unread chat. 0 never picks it.")}>
+                            {_t("Weight")}{shareOf(draft) ? ` (${shareOf(draft)}%)` : ""}
+                        </label>
+                        <input type="number" min={0} max={1000} step={1}
+                               value={draft.weight ?? 100}
+                               onChange={(ev) => setD({ weight: clampInt(ev.target.value, 0, 1000, 0) })} />
+                    </div>
+                )}
+                <div style={{ flex: 2 }}>
+                    <label title={_t("What the event does. Prompt only: its prompt, drawn by weight once the call goes quiet. Read stream chat: the same, plus the newest unread messages from your stream's chat - Twitch and YouTube together, each with the viewer's name - so the companion can pick what to answer; it waits while there's no unread chat. Silent stream chat injection (standalone): not drawn - after its own quiet time the newest unread chat slips in as background the companion sees before its next reply, without asking for one. Channels are set up in Settings → Live chat.")}>
+                        {_t("Type")}
+                    </label>
+                    <select value={draft.type || "prompt"} onChange={(ev) => setD({ type: ev.target.value })}>
+                        {IDLE_EVENT_TYPES.map(([id, label]) => (
+                            <option key={id} value={id}>{_t(label)}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+            {draft.type !== "prompt" && (
+                <div className="rx_row">
+                    <div>
+                        <label title={_t("How many of the newest unread chat messages to add. Each read catches up: older unread chat is skipped, the way a streamer glances at chat, and no message is read twice.")}>
+                            {_t("Latest messages to read")}
+                        </label>
+                        <input type="number" min={1} max={50} style={{ width: "5.5rem" }}
+                               value={draft.chat_messages ?? 10}
+                               onChange={(ev) => setD({ chat_messages: clampInt(ev.target.value, 1, 50, 10) })} />
+                    </div>
+                    {draft.type === "silent_chat" && (
+                        <div>
+                            <label title={_t("How long after the last line ends before the unread chat slips in - once per quiet stretch. 0 = as soon as the line has finished playing. The companion sees it before its next reply, whether that reply is to you or to an idle event.")}>
+                                {_t("Inject after (seconds of quiet)")}
+                            </label>
+                            <input type="number" min={0} max={3600} style={{ width: "5.5rem" }}
+                                   value={draft.after_seconds ?? 0}
+                                   onChange={(ev) => setD({ after_seconds: clampInt(ev.target.value, 0, 3600, 0) })} />
+                        </div>
+                    )}
+                </div>
+            )}
+            <label>{_t("Prompt")}</label>
+            <textarea rows={3} value={draft.prompt || ""}
+                      placeholder={draft.type === "silent_chat"
+                          ? _t("Optional - e.g. 'Bring it up if something stands out.'")
+                          : _t("e.g. 'Look up a random fact about fish online and share your thoughts on it, in a humorous tone.'")}
+                      onChange={(ev) => setD({ prompt: ev.target.value })} />
+            <span className="rx_check" style={{ marginTop: "0.25rem" }}>
+                <input id={`idle-${idScope}-active`} type="checkbox" checked={draft.active !== false}
+                       onChange={(ev) => setD({ active: ev.target.checked })} />
+                <label htmlFor={`idle-${idScope}-active`}>{_t("Active")}</label>
+            </span>
+            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+                <button className="btn btn-sm" disabled={!draftComplete(draft)} onClick={saveDraft}>
+                    {_t("Save event")}
+                </button>
+                <button className="btn btn-sm" onClick={() => setDraft(null)}>{_t("Cancel")}</button>
+            </div>
+        </div>
+    );
+    return (
+        <>
+            <div className="rx_row">
+                <div>
+                    <label title={_t("How long the call has to stay quiet before an event fires, counted from the end of the companion's last line and started over whenever you speak or type. With two different numbers each quiet stretch picks a random length between them, so events don't land like clockwork.")}>
+                        {_t("Quiet time before an event (seconds)")}
+                    </label>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <input type="number" min={1} max={3600} style={{ width: "5.5rem" }}
+                               value={editingAgent.idle_events_min_seconds ?? 10}
+                               onChange={(ev) => typeSeconds("idle_events_min_seconds", ev.target.value)}
+                               onBlur={clampSeconds} />
+                        <span className="text-muted">{_t("to")}</span>
+                        <input type="number" min={1} max={3600} style={{ width: "5.5rem" }}
+                               value={editingAgent.idle_events_max_seconds ?? 10}
+                               onChange={(ev) => typeSeconds("idle_events_max_seconds", ev.target.value)}
+                               onBlur={clampSeconds} />
+                    </div>
+                </div>
+                <div>
+                    <label title={_t("After this many events in a row with no reply from you - and no new stream chat - the events pause until someone speaks, types or chats. Keeps a forgotten call from talking to an empty room, and lets the idle hang-up in Settings end it. 0 never pauses: for streams where the companion should keep going.")}>
+                        {_t("Pause after this many unanswered events")}
+                    </label>
+                    <input type="number" min={0} max={1000} style={{ width: "5.5rem" }}
+                           value={editingAgent.idle_events_max_unanswered ?? 6}
+                           onChange={(ev) => setEditingAgent({
+                               ...editingAgent,
+                               idle_events_max_unanswered: clampInt(ev.target.value, 0, 1000, 0),
+                           })} />
+                </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "0.75rem 0 0.25rem" }}>
+                <strong>{_t("Events")}</strong>
+                <button className="btn btn-sm"
+                        onClick={() => setDraft(withEditorSnapshot({ ...NEW_IDLE_EVENT, _index: null }))}>
+                    <i className="fa fa-plus" /> {_t("Add event")}
+                </button>
+            </div>
+            {draft && draft._index == null && card}
+            {!events.length && !draft && (
+                <p className="text-muted small" style={{ margin: "0.25rem 0" }}>{_t("No events yet.")}</p>
+            )}
+            {events.map((ev, i) => (draft && draft._index === i) ? (
+                <React.Fragment key={i}>{card}</React.Fragment>
+            ) : (
+                <div key={i} className="rx_memory_row">
+                    <input type="checkbox" checked={ev.active !== false} title={_t("Active")}
+                           onChange={() => setEvent(i, { active: ev.active === false })} />
+                    <strong>{ev.name || _t("(unnamed)")}</strong>
+                    <span className="rx_memory_content text-muted small">
+                        {ev.prompt ? preview(ev.prompt) : _t("(no prompt)")}
+                    </span>
+                    <span className="rx_memory_meta">{summary(ev)}</span>
+                    <button className="btn btn-sm btn-link p-0"
+                            onClick={() => setDraft(withEditorSnapshot({ ...NEW_IDLE_EVENT, ...ev, _index: i }))}>
+                        {_t("Edit")}
+                    </button>
+                    <button className="btn btn-sm btn-link p-0" title={_t("Remove")} onClick={() => removeEvent(i)}>
+                        <i className="fa fa-trash-o" />
+                    </button>
+                </div>
+            ))}
         </>
     );
 }
@@ -1046,6 +1334,18 @@ function McpConnections({ agentId, registerEditor = null }) {
             load();
         } catch (e) {
             notification.add(e?.message || _t("Delete failed"), { type: "danger" });
+        }
+    };
+
+    // In-list switch, like the heartbeats list. The save route validates the
+    // whole connection, so the row goes back complete; the stored bearer is
+    // kept (the list never carries it, and an absent field isn't touched).
+    const toggleActive = async (c) => {
+        try {
+            await rpc("/api/mcp/save", { ...c, active: c.active ? 0 : 1 });
+            load();
+        } catch (e) {
+            notification.add(e?.message || _t("Save failed"), { type: "danger" });
         }
     };
 
@@ -1127,6 +1427,8 @@ function McpConnections({ agentId, registerEditor = null }) {
                 <React.Fragment key={c.id}>{editorForm}</React.Fragment>
             ) : (
                 <div key={c.id} className="rx_memory_row">
+                    <input type="checkbox" checked={!!c.active} title={_t("Active")}
+                           onChange={() => toggleActive(c)} />
                     <strong>{c.server_label}</strong>
                     <span className="rx_memory_content text-muted small">{c.server_url}</span>
                     <span className="rx_memory_meta">

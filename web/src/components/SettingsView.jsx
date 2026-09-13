@@ -81,6 +81,8 @@ export default function SettingsView({ active }) {
     // Write-only like the API key: the server only reports whether one is
     // stored; a typed value is sent on Save, null clears it.
     const [authDraft, setAuthDraft] = useState("");
+    // The YouTube Data API key (Live chat) works the same way.
+    const [ytKeyDraft, setYtKeyDraft] = useState("");
     const onUserPhotoSelected = async (ev) => {
         const file = ev.target.files?.[0];
         ev.target.value = "";
@@ -260,9 +262,13 @@ export default function SettingsView({ active }) {
             delete payload.has_local_gen_auth;
             if (authDraft.trim()) payload.local_gen_auth_header = authDraft.trim();
             else if (authDraft === null) payload.local_gen_auth_header = null;
+            delete payload.has_youtube_api_key;
+            if (ytKeyDraft?.trim()) payload.live_chat_youtube_api_key = ytKeyDraft.trim();
+            else if (ytKeyDraft === null) payload.live_chat_youtube_api_key = null;
             await rpc("/api/config/set", payload);
             setApiKeyDraft("");
             setAuthDraft("");
+            setYtKeyDraft("");
             // Re-bind immediately — including the OS-wide registration, which
             // only the shell can change.
             applyHotkeys({
@@ -769,6 +775,62 @@ export default function SettingsView({ active }) {
                         {_t("Applies when you save. Companions without a wake phrase "
                             + "are simply not listened for.")}
                     </p>
+                </section>
+
+                <section>
+                    <h3><i className="fa fa-comments" /> {_t("Live chat")}</h3>
+                    <p className="text-muted">
+                        {_t("Let companions read your stream's chat through idle events: set a companion's idle event to 'Read stream chat' on the Companions tab. Chat only connects during a call whose companion has such an event, and disconnects a minute after the call ends.")}
+                    </p>
+                    <div className="rx_row">
+                        <div>
+                            <label title={_t("Read anonymously - no Twitch account or token needed. Messages a moderator deletes, and everything from a user they time out or ban, are dropped before a companion reads them.")}>
+                                {_t("Twitch channel")}
+                            </label>
+                            <input type="text" value={config.live_chat_twitch_channel || ""}
+                                   placeholder={_t("channel name or twitch.tv link")}
+                                   onChange={(ev) => setField("live_chat_twitch_channel", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label title={_t("The link (or video id) of the stream that's live right now - each new stream has a new link. Chat is checked every 20 seconds to stay inside YouTube's free daily API quota.")}>
+                                {_t("YouTube live stream")}
+                            </label>
+                            <input type="text" value={config.live_chat_youtube_video || ""}
+                                   placeholder="https://www.youtube.com/watch?v=…"
+                                   onChange={(ev) => setField("live_chat_youtube_video", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label title={_t("A YouTube Data API v3 key from the Google Cloud console (APIs & Services → Credentials). Stored on this machine only.")}>
+                                {_t("YouTube API key")}
+                                {config.has_youtube_api_key && ytKeyDraft !== null && (
+                                    <span className="text-muted"> ({_t("saved")}{" "}
+                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setYtKeyDraft(null); }}>{_t("remove")}</a>)
+                                    </span>
+                                )}
+                            </label>
+                            <input type="password" value={ytKeyDraft || ""}
+                                   placeholder={config.has_youtube_api_key && ytKeyDraft !== null
+                                       ? _t("•••••••• (leave blank to keep current key)")
+                                       : "AIza…"}
+                                   onChange={(ev) => { markDirty(true); setYtKeyDraft(ev.target.value); }} />
+                        </div>
+                    </div>
+                    <div className="rx_row">
+                        <div>
+                            <label title={_t("Messages from these names never reach a companion - chat bots, or anyone you'd rather not hear from. Comma-separated, not case-sensitive.")}>
+                                {_t("Ignored users (comma-separated)")}
+                            </label>
+                            <input type="text" value={config.live_chat_ignored_users || ""}
+                                   onChange={(ev) => setField("live_chat_ignored_users", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label title={_t("A message containing any of these is dropped before a companion reads it - matched anywhere, inside words too. Comma-separated, not case-sensitive. Commands starting with ! are always skipped.")}>
+                                {_t("Blocked words (comma-separated)")}
+                            </label>
+                            <input type="text" value={config.live_chat_blocked_words || ""}
+                                   onChange={(ev) => setField("live_chat_blocked_words", ev.target.value)} />
+                        </div>
+                    </div>
                 </section>
 
                 <section>

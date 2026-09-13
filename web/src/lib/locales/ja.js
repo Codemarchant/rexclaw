@@ -1402,4 +1402,69 @@ export const JA = {
     "あなたは進行中の音声通話に途中から参加します。参加前に話された内容は聞いていません。",
   "[System]: You have just joined the call. Briefly greet the participants in character.":
     "[System]: いま通話に参加しました。キャラクターを保ったまま、参加者に短く挨拶してください。",
+  // Idle events (companion editor) + Live chat (Settings)
+  "Idle events": "アイドルイベント",
+  "When a voice call goes quiet, the companion gets one of these prompts, drawn at random by weight: a check-in after a silence, a topic to riff on, or a message from your stream's chat to answer (chat channels are set up in Settings → Live chat). Takes effect from the next call.":
+    "音声通話が静かになると、コンパニオンにこれらのプロンプトのどれかが重みに応じてランダムに届きます。沈黙のあとの声かけ、話を広げる話題、配信チャットのメッセージへの返答など（チャットのチャンネルは 設定 → ライブチャット で設定します）。次の通話から反映されます。",
+  "Enable idle events on voice calls": "音声通話でアイドルイベントを有効にする",
+  "How long the call has to stay quiet before an event fires, counted from the end of the companion's last line and started over whenever you speak or type. With two different numbers each quiet stretch picks a random length between them, so events don't land like clockwork.":
+    "イベントが発生するまでに通話が静かでなければならない時間です。コンパニオンの最後のセリフが終わった時点から数え、あなたが話したり入力したりするたびに数え直します。2つの値を変えると、静かな時間ごとにその間のランダムな長さが選ばれるので、イベントが機械的な間隔になりません。",
+  "Quiet time before an event (seconds)": "イベントまでの静かな時間（秒）",
+  "to": "〜",
+  "After this many events in a row with no reply from you - and no new stream chat - the events pause until someone speaks, types or chats. Keeps a forgotten call from talking to an empty room, and lets the idle hang-up in Settings end it. 0 never pauses: for streams where the companion should keep going.":
+    "あなたからの返事も新しい配信チャットもないままイベントがこの回数続くと、誰かが話す・入力する・チャットするまでイベントを一時停止します。放置された通話で誰もいない部屋に話し続けるのを防ぎ、設定のアイドル時自動切断で通話が終わるようにします。0 にすると一時停止しません（コンパニオンに話し続けてほしい配信向け）。",
+  "Pause after this many unanswered events": "返事のないイベントがこの回数続いたら一時停止",
+  "Events": "イベント",
+  "No events yet.": "イベントはまだありません。",
+  "(no prompt)": "（プロンプトなし）",
+  "latest %s": "最新 %s 件",
+  "after %s s": "%s 秒後",
+  "Quiet-moment and stream-chat prompts for calls — imported switched off, ready to review and turn on":
+    "通話中の静かな時間や配信チャット向けのプロンプト — オフの状態でインポートされるので、確認してからオンにできます",
+  "Save event": "イベントを保存",
+  "Silent stream chat injection (standalone)": "配信チャットをそっと挿入（単独）",
+  "Inject after (seconds of quiet)": "挿入までの静かな時間（秒）",
+  "How long after the last line ends before the unread chat slips in - once per quiet stretch. 0 = as soon as the line has finished playing. The companion sees it before its next reply, whether that reply is to you or to an idle event.":
+    "最後のセリフが終わってから未読チャットを差し込むまでの時間です（静かな時間ごとに1回）。0 ならセリフの再生が終わった直後。コンパニオンは次の返答の前にそれを目にします — あなたへの返答でも、アイドルイベントへの返答でも。",
+  "Optional - e.g. 'Bring it up if something stands out.'": "任意 — 例：「気になるものがあれば話題にして。」",
+  "The open idle event has no prompt — finish it or cancel it, then save again.":
+    "開いているアイドルイベントにプロンプトがありません。入力するかキャンセルしてから、もう一度保存してください。",
+  "e.g. Fish facts": "例：魚の豆知識",
+  "How often this event is picked compared with the others; the percentage is its share while every event can run. Chat events only take part while there is unread chat. 0 never picks it.":
+    "他のイベントと比べてどれくらい選ばれやすいかです。パーセントは、すべてのイベントが実行できるときの割合です。チャットのイベントは未読のチャットがあるときだけ対象になります。0 にすると選ばれません。",
+  "Weight": "重み",
+  "What the event does. Prompt only: its prompt, drawn by weight once the call goes quiet. Read stream chat: the same, plus the newest unread messages from your stream's chat - Twitch and YouTube together, each with the viewer's name - so the companion can pick what to answer; it waits while there's no unread chat. Silent stream chat injection (standalone): not drawn - after its own quiet time the newest unread chat slips in as background the companion sees before its next reply, without asking for one. Channels are set up in Settings → Live chat.":
+    "イベントの動作です。プロンプトのみ：通話が静かになると、重みに応じて選ばれたプロンプトが届きます。配信チャットを読む：同じく、配信チャットの最新の未読メッセージ（Twitch と YouTube をまとめて、それぞれ視聴者の名前付き）を添え、どれに返答するかはコンパニオンが選べます。未読のチャットがない間は待機します。配信チャットをそっと挿入（単独）：抽選には加わらず、専用の静かな時間のあとに最新の未読チャットを背景情報として差し込みます。コンパニオンは次の返答の前にそれを目にしますが、返答を促しはしません。チャンネルは 設定 → ライブチャット で設定します。",
+  "Type": "種類",
+  "Prompt only": "プロンプトのみ",
+  "Read stream chat": "配信チャットを読む",
+  "How many of the newest unread chat messages to add. Each read catches up: older unread chat is skipped, the way a streamer glances at chat, and no message is read twice.":
+    "添える最新の未読チャットメッセージの数です。読むたびに追いつくので、それより古い未読チャットは配信者がチャットをちらっと見るときのように飛ばされ、同じメッセージが二度読まれることはありません。",
+  "Latest messages to read": "読む最新メッセージ数",
+  "e.g. 'Look up a random fact about fish online and share your thoughts on it, in a humorous tone.'":
+    "例：「ネットで魚についてのランダムな豆知識を調べて、ユーモアたっぷりに感想を話して。」",
+  "Add event": "イベントを追加",
+  "This companion has chat idle events, but no live chat is set up — add a Twitch channel or a YouTube stream in Settings → Live chat.":
+    "このコンパニオンにはチャットのアイドルイベントがありますが、ライブチャットが設定されていません。設定 → ライブチャット で Twitch チャンネルか YouTube 配信を追加してください。",
+  "%s chat: %s": "%s チャット：%s",
+  "Live chat": "ライブチャット",
+  "Let companions read your stream's chat through idle events: set a companion's idle event to 'Read stream chat' on the Companions tab. Chat only connects during a call whose companion has such an event, and disconnects a minute after the call ends.":
+    "アイドルイベントを通じて、コンパニオンが配信のチャットを読めるようにします。コンパニオンタブで、コンパニオンのアイドルイベントの種類を「配信チャットを読む」にしてください。チャットはそのようなイベントを持つコンパニオンとの通話中だけ接続し、通話が終わって1分後に切断します。",
+  "Read anonymously - no Twitch account or token needed. Messages a moderator deletes, and everything from a user they time out or ban, are dropped before a companion reads them.":
+    "匿名で読み取るので、Twitch アカウントやトークンは不要です。モデレーターが削除したメッセージや、タイムアウト・BAN されたユーザーのメッセージは、コンパニオンが読む前に取り除かれます。",
+  "Twitch channel": "Twitch チャンネル",
+  "channel name or twitch.tv link": "チャンネル名または twitch.tv のリンク",
+  "The link (or video id) of the stream that's live right now - each new stream has a new link. Chat is checked every 20 seconds to stay inside YouTube's free daily API quota.":
+    "現在ライブ中の配信のリンク（または動画 ID）です。配信ごとにリンクが変わります。YouTube の無料の1日あたり API 割り当て内に収まるよう、チャットは20秒ごとに確認します。",
+  "YouTube live stream": "YouTube ライブ配信",
+  "A YouTube Data API v3 key from the Google Cloud console (APIs & Services → Credentials). Stored on this machine only.":
+    "Google Cloud コンソール（API とサービス → 認証情報）で作成した YouTube Data API v3 のキーです。このマシンにだけ保存されます。",
+  "YouTube API key": "YouTube API キー",
+  "remove": "削除",
+  "Messages from these names never reach a companion - chat bots, or anyone you'd rather not hear from. Comma-separated, not case-sensitive.":
+    "これらの名前からのメッセージはコンパニオンに届きません。チャットボットや、聞きたくない相手などに。カンマ区切りで、大文字と小文字は区別しません。",
+  "Ignored users (comma-separated)": "無視するユーザー（カンマ区切り）",
+  "A message containing any of these is dropped before a companion reads it - matched anywhere, inside words too. Comma-separated, not case-sensitive. Commands starting with ! are always skipped.":
+    "これらのいずれかを含むメッセージは、コンパニオンが読む前に取り除かれます。単語の途中でも一致します。カンマ区切りで、大文字と小文字は区別しません。! で始まるコマンドは常にスキップされます。",
+  "Blocked words (comma-separated)": "ブロックする語句（カンマ区切り）",
 };

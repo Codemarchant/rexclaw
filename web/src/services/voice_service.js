@@ -7,6 +7,7 @@ import {
     floatToPcm16,
     arrayBufferToBase64,
 } from "../models/agent_connection";
+import { IdleEventScheduler } from "../lib/idle_events";
 
 /**
  * Voice CALL manager (the "voice_companion" registry service).
@@ -119,6 +120,13 @@ class VoiceCallService {
         this._minecraftCursor = null;
         this._minecraftIneligible = false; // set per-call once the server says the companion can't use the bot
         this._minecraftTimer = setInterval(() => this._pumpMinecraftEvents(), MINECRAFT_POLL_MS);
+
+        // Idle events: the companion's prompts for when the call goes quiet
+        // (lib/idle_events.js), armed per call from the primary's start.
+        this.idleEvents = new IdleEventScheduler(this);
+        // Set by queueSilentContext: the primary's next server-VAD reply is
+        // swapped for one that sees the queued note.
+        this._refreshNextAutoReply = false;
 
         // Debug handle, mirroring the renderer's window.__voiceRenderer.
         if (typeof window !== "undefined") {
@@ -431,6 +439,12 @@ class VoiceCallService {
         } catch (e) { /* endpoint gated or server restarting — quiet */ }
     }
 
+    /** Arm this call's idle events from the primary's start payload (null =
+     *  the companion has them off). */
+    setIdleEvents(cfg) {
+        this.idleEvents.configure(cfg);
+    }
+
     /** Adopt the configured idle budget (minutes; 0/absent disables) and arm
      *  the watchdog. Called at session start with the server's config. */
     setInactivityLimit(minutes) {
@@ -528,6 +542,8 @@ class VoiceCallService {
         // idle watchdog) from a user-initiated one after the fact.
         this.state.endReason = reason;
         this._stopInactivityWatch();
+        this.idleEvents.stop();
+        this._refreshNextAutoReply = false;
         // Peers go first (their playback stops and the avatars leave the
         // scene), then the primary leg, then the shared capture graph.
         for (const conn of [...this.connections.values()]) {
@@ -547,6 +563,7 @@ class VoiceCallService {
      *  the LLM director who answers, same as spoken input. */
     sendText(text) {
         this.noteActivity();
+        this.idleEvents.noteUser();
         if (!this.hasPeers()) {
             return this.primary.sendText(text);
         }
@@ -648,6 +665,17 @@ class VoiceCallService {
             : `The user switched your outfit to "${name}" - that is what you have on now.`;
         this.primary.queueDeferredContext(
             `[System] (call context) ${text} No need to comment on it unless it comes up.`);
+    }
+
+    /** Background the primary must see in its very next reply, whoever
+     *  triggers it (an idle event's silent chat). Queued like the outfit
+     *  note - text sent ahead of the user's next spoken turn is hidden from
+     *  the reply to it (see queueDeferredContext) - and the next server-VAD
+     *  reply is refreshed to include it (onAgentResponseStarted). */
+    queueSilentContext(text) {
+        if (!this.primary || this.primary.isTerminal) return;
+        this.primary.queueDeferredContext(text);
+        this._refreshNextAutoReply = true;
     }
 
     _rosterNote() {
@@ -1235,6 +1263,7 @@ class VoiceCallService {
      *  director deliberates so the answer can come from any leg. */
     onUserTranscript(conn, text) {
         this.noteActivity();
+        this.idleEvents.noteUser();
         if (conn !== this.primary || !this.hasPeers()) return;
         this._directorGeneration++;
         const generation = this._directorGeneration;
@@ -1305,6 +1334,7 @@ class VoiceCallService {
      *  local audio) and invalidate any pending director decision. */
     onUserSpeechStarted(conn) {
         this.noteActivity();
+        this.idleEvents.noteUser();
         if (conn !== this.primary) return;
         this._directorGeneration++;
         console.log(`[voice] chatter: VAD speech_started — generation now ${this._directorGeneration} (pending grants invalidated)`);
@@ -1323,6 +1353,17 @@ class VoiceCallService {
             this._suppressPrimaryOnce = false;
             console.log("[voice] suppressing primary auto-response (turn routed to a peer)");
             conn.cancelActiveResponse("routed-away");
+        } else if (conn === this.primary && this._refreshNextAutoReply) {
+            // Silent context was queued for this reply (queueSilentContext).
+            // A reply we created ourselves already flushed it; a server-VAD
+            // one was built without it, so swap it for one created after the
+            // flush - the context refresh group calls do in _routeUserTurn.
+            this._refreshNextAutoReply = false;
+            if (conn._deferredContextItems?.length) {
+                console.log("[voice] refreshing primary auto-response to include queued context");
+                conn.cancelActiveResponse("context-refresh");
+                conn._maybeCreateResponse();
+            }
         }
     }
 

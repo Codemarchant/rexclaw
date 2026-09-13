@@ -4,7 +4,9 @@
 // draft silently dying because the user pressed the main Save instead of
 // the row-level one is a data-loss trap. Panels register their open draft
 // here ({dirty, flush}); the parent flushes on Save and feeds the combined
-// dirtiness into the unsaved-changes guard.
+// dirtiness into the unsaved-changes guard. flush() resolves false to abort
+// the Save; a draft that lives inside the companion form itself (an idle
+// event) resolves to the fields to save along with it.
 import { useEffect, useRef } from "react";
 
 const _strip = (draft) => {
