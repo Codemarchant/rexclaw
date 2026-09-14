@@ -19,6 +19,8 @@
 //   - silent chat injections ('silent_chat') sit outside the draw: after
 //     their own quiet time the newest chat is queued as background for the
 //     companion's next reply, without asking for one.
+//   - a context summary waiting to be applied goes first: nothing new starts
+//     until its swap has run (see AgentConnection._maybeRunCompaction).
 import { rpc } from "./rpc";
 import { _t } from "./i18n";
 import { notification } from "./notification";
@@ -118,6 +120,13 @@ export class IdleEventScheduler {
         if (!this.cfg || this.call.state.status !== "live") return;
         if (this._usesChat && Date.now() - this._chatPolledAt >= CHAT_POLL_MS) this._pollChat();
         if (this._firing) return;
+        // A finished context summary waiting for its swap goes first: start
+        // nothing new until it has run (AgentConnection._maybeRunCompaction
+        // takes the first moment nobody holds the floor).
+        if ([...this.call.connections.values()].some((c) => c.compactionWaiting)) {
+            this._restartQuiet();
+            return;
+        }
         if (this._busy()) {
             this._restartQuiet();
             return;

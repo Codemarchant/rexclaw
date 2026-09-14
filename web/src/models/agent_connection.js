@@ -53,6 +53,26 @@ function endsTurn(argumentsJson) {
 // (chunks chain off the previous chunk's end time).
 const PLAYBACK_JITTER_BUFFER_S = 0.12;
 
+// Compaction swap timing (see _maybeRunCompaction). While a finished summary
+// waits for a free moment it re-checks on its own timer at the idle-event
+// scheduler's cadence (lib/idle_events.js TICK_MS), so no free moment slips
+// past between the instant triggers.
+const COMPACTION_RECHECK_MS = 500;
+// Ceiling on the floor holds (_floorHold). They release on xAI events or
+// the audio clock, so a missing response.done or a suspended playback
+// context would hold the swap forever. Counted from the last free moment,
+// and no single reply comes near it.
+const COMPACTION_FLOOR_WAIT_MS = 5 * 60 * 1000;
+// A running tool holds the swap — its result would be lost across the
+// reconnect — but never longer than the longest limit any tool has: local
+// video generation's 60 min (server/local_gen.py _TIMEOUTS). local_task has
+// no limit by design, so this ceiling is what keeps a hung one from holding
+// the swap forever.
+const COMPACTION_TOOL_WAIT_MS = 60 * 60 * 1000;
+// How long an assistant line is held back for the user's transcript (see
+// _deferOrAppendAssistantFinal). The swap waits out the same hold.
+const AWAIT_USER_TRANSCRIPT_MS = 5000;
+
 // ---- PCM helpers (shared with the call manager for mic capture) ----
 
 export function floatToPcm16(float32) {
@@ -184,6 +204,14 @@ export class AgentConnection {
         this._compactionRollupReady = false;
         this._compactionPromise = null;
         this._compacting = false;
+        // Phase-2 wait bookkeeping (_maybeRunCompaction): the queued
+        // re-check, the last logged hold reason, and the floor / tool hold
+        // clocks (COMPACTION_FLOOR_WAIT_MS, COMPACTION_TOOL_WAIT_MS).
+        this._compactionRecheckTimer = null;
+        this._compactionHeldBy = null;
+        this._compactionFloorHoldSince = null;
+        this._compactionFloorOverridden = false;
+        this._compactionToolHoldSince = null;
         this.lastAgentId = null;
         this._sessionEnded = false;
         // Parallel-init audio buffer: mic frames produced before _onWsOpen
@@ -283,6 +311,11 @@ export class AgentConnection {
         this._recordedMcpCallIds = new Set();
         this._mcpCallArgs = new Map();
         this._bargedIn = false;
+        // Fresh socket, no utterance in progress. A call that ended
+        // mid-utterance never got its speech_stopped, and the stale flag
+        // would hold idle events and the compaction swap until the user
+        // next spoke.
+        this._userSpeaking = false;
         this._currentResponseId = null;
         // Belt-and-braces: end()/_fail() may have exited with a response still
         // in flight. Clear it so the fresh session never thinks a turn from
@@ -1397,7 +1430,9 @@ export class AgentConnection {
         setTimeout(() => {
             if (!this._owedContextResponse) return;
             this._owedContextResponse = false;
-            if (this._bargedIn || this._sessionEnded || this._responseInFlight) return;
+            // Not into a socket a compaction swap is closing.
+            if (this._bargedIn || this._sessionEnded || this._responseInFlight
+                || this.state.compacting) return;
             if (this.state.status !== "live") return;
             if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
             console.log(`[voice:${this.connId}] → response.create (deferred context note)`);
@@ -1655,7 +1690,6 @@ export class AgentConnection {
      *  reply. A timeout releases the hold — worst case the order is off,
      *  but nothing is ever lost. */
     _deferOrAppendAssistantFinal(text) {
-        const AWAIT_USER_TRANSCRIPT_MS = 5000;
         const since = this._awaitingUserTranscript;
         if (since && (Date.now() - since) < AWAIT_USER_TRANSCRIPT_MS) {
             (this._deferredAssistantFinals ??= []).push(text);
@@ -1819,7 +1853,18 @@ export class AgentConnection {
             }
             console.log(`[voice:${this.connId}] background compaction ready (rollup id`, result.rollup_id +
                 ") — awaiting safe restart window");
+            // The call ended or restarted while the summary ran (end() and
+            // start() clear _compactionPending), so nothing waits for this
+            // rollup now. Marking it ready anyway would leave the flag stale
+            // for the next call, which would then count as waiting for a
+            // swap (holding idle events) with no fresh summary behind it.
+            if (!this._compactionPending || this.state.sessionId !== sessionId) return result;
             this._compactionRollupReady = true;
+            // A fresh wait for a free moment (see _maybeRunCompaction).
+            this._compactionHeldBy = null;
+            this._compactionFloorHoldSince = null;
+            this._compactionFloorOverridden = false;
+            this._compactionToolHoldSince = null;
             this._maybeRunCompaction();
             return result;
         } catch (e) {
@@ -1830,16 +1875,26 @@ export class AgentConnection {
         }
     }
 
-    /** Phase 2 of compaction: do the WS restart, but only when the rollup
-     *  is ready AND we hit a natural pause window (no response in flight,
-     *  assistant audio drained, WS open). */
+    /** Phase 2 of compaction: do the WS restart at the first free moment
+     *  once the rollup is ready. Only someone holding the floor delays it
+     *  (_compactionHold). While it waits, idle events start nothing new
+     *  (compactionWaiting), and it re-checks every COMPACTION_RECHECK_MS on
+     *  top of the instant triggers (response.done, audio drained, rollup
+     *  ready), so the first free moment is never missed. */
     _maybeRunCompaction() {
         if (!this._compactionPending) return;
         if (!this._compactionRollupReady) return;
         if (this._compacting) return;
-        if (this._responseInFlight) return;
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-        if (this._assistantAudioActive()) return;
+        const hold = this._compactionHold();
+        if (hold) {
+            if (hold !== this._compactionHeldBy) {
+                this._compactionHeldBy = hold;
+                console.log(`[voice:${this.connId}] compaction ready — waiting (${hold})`);
+            }
+            this._scheduleCompactionRecheck();
+            return;
+        }
+        this._compactionHeldBy = null;
         this._compacting = true;
         this._compactionPending = false;
         // Lock input ONLY for the brief restart window.
@@ -1856,6 +1911,92 @@ export class AgentConnection {
                 this.state.compacting = false;
                 this.state.summarizing = false;
             });
+    }
+
+    /** A finished summary is waiting for its swap. Idle events start
+     *  nothing new while this is true (lib/idle_events.js), so the swap
+     *  goes first. */
+    get compactionWaiting() {
+        return this._compactionPending && this._compactionRollupReady && !this._compacting;
+    }
+
+    /** Why the swap can't run yet, or null once the floor is free.
+     *  Call-wide: while it runs this leg drops mic audio and relayed lines,
+     *  so it waits for everyone on the call. */
+    _compactionHold() {
+        const conns = [...this.manager.connections.values()];
+        // The tool clock runs whatever else holds the swap: it measures how
+        // long a tool round has been going while the summary waited, and
+        // restarts once none is.
+        const toolRunning = conns.some((c) => !c.isTerminal
+            && (c._pendingToolReply || c.toolDispatcher?.hasPending?.()));
+        if (!toolRunning) this._compactionToolHoldSince = null;
+        else this._compactionToolHoldSince ??= Date.now();
+
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return "connection not open";
+        // One swap at a time. Checked before the terminal skip: a leg
+        // mid-swap passes through "ended".
+        if (conns.some((c) => c !== this && c._compacting)) return "another companion's swap";
+        // Floor clock: same shape as the tool clock above.
+        const floor = this._floorHold(conns);
+        if (!floor) {
+            this._compactionFloorHoldSince = null;
+            this._compactionFloorOverridden = false;
+        } else {
+            this._compactionFloorHoldSince ??= Date.now();
+            if (Date.now() - this._compactionFloorHoldSince < COMPACTION_FLOOR_WAIT_MS) return floor;
+            if (!this._compactionFloorOverridden) {
+                this._compactionFloorOverridden = true;
+                console.warn(`[voice:${this.connId}] floor held ("${floor}") for `
+                    + `${COMPACTION_FLOOR_WAIT_MS / 60000} min without a break — `
+                    + `applying the compaction anyway`);
+            }
+        }
+        if (toolRunning) {
+            // A running tool's result would be lost across the reconnect.
+            if (Date.now() - this._compactionToolHoldSince < COMPACTION_TOOL_WAIT_MS) return "tool running";
+            console.warn(`[voice:${this.connId}] a tool is still running after `
+                + `${COMPACTION_TOOL_WAIT_MS / 60000} min — applying the compaction anyway`);
+        }
+        return null;
+    }
+
+    /** Who holds the floor on the call, or null. */
+    _floorHold(conns) {
+        for (const c of conns) {
+            if (c.isTerminal) continue;
+            // Muted, nothing the user says reaches the call — and muting
+            // mid-sentence leaves the flag set with no speech_stopped to come.
+            if (c._userSpeaking && !c.state.muted) return "user speaking";
+            if (c._userTranscriptPending()) return "user transcript pending";
+            // _owedContextResponse: a reaction is about to be asked for
+            // (_flushOwedContextResponse's timer).
+            if (c._responseInFlight || c._assistantAudioActive() || c._toolReplyStarting
+                || c._owedContextResponse) {
+                return "companion speaking";
+            }
+        }
+        // Chat already taken from the pool, a reply about to be asked for.
+        if (this.manager.idleEvents?._firing) return "idle event sending";
+        return null;
+    }
+
+    /** The user's last words are still being transcribed (bounded by
+     *  AWAIT_USER_TRANSCRIPT_MS), or an assistant line is held back waiting
+     *  for them. Swapping now would lose the late transcript with the old
+     *  socket and leave the held line out of the rebuilt context. */
+    _userTranscriptPending() {
+        const since = this._awaitingUserTranscript;
+        if (since && Date.now() - since < AWAIT_USER_TRANSCRIPT_MS) return true;
+        return !!this._deferredAssistantFinals?.length;
+    }
+
+    _scheduleCompactionRecheck() {
+        if (this._compactionRecheckTimer) return;
+        this._compactionRecheckTimer = setTimeout(() => {
+            this._compactionRecheckTimer = null;
+            this._maybeRunCompaction();
+        }, COMPACTION_RECHECK_MS);
     }
 
     /** Restart-on-compaction: close the current WebSocket without ending
