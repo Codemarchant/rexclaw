@@ -7,7 +7,7 @@ import logging
 
 from fastapi import APIRouter, Body, Depends, UploadFile, File
 
-from .. import session_service, store
+from .. import affection_tools, session_service, store
 from ..db import get_config
 from .common import db_con, resolve_agent, resolve_session
 
@@ -192,6 +192,10 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
             "name": a["name"],
             "reasoning_effort": a["reasoning_effort"],
             "chat_thumbnail_url": session_service._agent_thumbnail_url(con, a),
+            # Same one-time affection offer as the voice route: whichever
+            # surface the user reaches first asks, and only before the
+            # first conversation.
+            "affection_offer": sess is None and affection_tools.offer_pending(a),
             "last_resumable_session": (
                 {
                     "id": sess["id"],

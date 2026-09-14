@@ -24,7 +24,8 @@ class TextService {
         this.env = env;
         this.state = makeConversationState();
         this.toolDispatcher = null;
-        this.preferredAgentId = null;
+        // UI-side companion preference — see the preferredAgentId accessors.
+        this._preferredAgentId = null;
         // Files uploaded but not yet attached to a sent message. Cleared after
         // sendText resolves so the next message starts with a clean chip set.
         this.pendingFiles = [];
@@ -35,6 +36,25 @@ class TextService {
         // the server retries every turn without MCP tools while the server
         // is down, but the user only needs telling once.
         this._mcpNoticeShown = false;
+    }
+
+    /** The Chat tab's last-picked companion, remembered across reloads and
+     *  restarts like the Voice tab's (own key: the two tabs keep separate
+     *  picks). Falls back to memory where storage is unavailable. */
+    get preferredAgentId() {
+        try {
+            return Number(localStorage.getItem("rexclaw.preferred_text_agent_id")) || this._preferredAgentId || null;
+        } catch (e) {
+            return this._preferredAgentId || null;
+        }
+    }
+
+    set preferredAgentId(id) {
+        this._preferredAgentId = Number(id) || null;
+        try {
+            if (id) localStorage.setItem("rexclaw.preferred_text_agent_id", String(id));
+            else localStorage.removeItem("rexclaw.preferred_text_agent_id");
+        } catch (e) { /* private mode — in-memory fallback covers this page */ }
     }
 
     /** Start (or resume) a text session. Returns true on success, false if a

@@ -11,6 +11,7 @@ import MascotSettingsView from "./components/MascotSettingsView.jsx";
 import TranscriptWindowView from "./components/TranscriptWindowView.jsx";
 import Toasts from "./components/Toasts.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
+import AffectionOfferDialog from "./components/AffectionOfferDialog.jsx";
 import { UnsavedDialog } from "./components/UnsavedUI.jsx";
 import { unsavedGuard, getUnsavedHandlers, clearUnsaved } from "./lib/unsaved_guard";
 import { uiState, toggleImmersive, MASCOT_MODE, MASCOT_SETTINGS_MODE, MASCOT_SHARE_MODE, TRANSCRIPT_MODE } from "./lib/ui_state";
@@ -246,6 +247,7 @@ export default function App() {
                 onDiscard={() => resolveLeave("discard")}
                 onCancel={() => resolveLeave("cancel")} />
             <ConfirmDialog />
+            <AffectionOfferDialog />
             <Toasts />
         </div>
     );

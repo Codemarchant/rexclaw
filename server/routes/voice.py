@@ -577,6 +577,11 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
             # What they have on right now (this boot's avatar_outfits id,
             # 0 = main) — the pickers hydrate from this; see agents_set_outfit.
             "current_outfit_id": store.current_outfit_id(con, a),
+            # The view puts the one-time affection offer up before the
+            # first call when this is set (answered via /agents/affection_offer).
+            # Only for a companion with no conversation yet: the ask is a
+            # first-impression thing, not a retrofit for existing history.
+            "affection_offer": sess is None and affection_tools.offer_pending(a),
             "last_resumable_session": (
                 {
                     "id": sess["id"],

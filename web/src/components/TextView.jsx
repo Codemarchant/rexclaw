@@ -6,6 +6,7 @@ import { uiState } from "../lib/ui_state";
 import { useReactive as useReactiveUi } from "../lib/reactive";
 import { notification } from "../lib/notification";
 import { confirmAsk } from "../lib/confirm";
+import { offerAffection } from "../lib/affection_offer";
 import Transcript from "./Transcript.jsx";
 import EmojiPickerButton from "./EmojiPickerButton.jsx";
 import { _t } from "../lib/i18n";
@@ -48,7 +49,8 @@ export default function TextView({ active = true }) {
                 const data = await rpc("/api/text/agents", {});
                 const list = data.agents || [];
                 setAgents(list);
-                const candidates = [text.preferredAgentId, data.default_agent_id, list[0]?.id];
+                // Resolution: previous user pick → first in the list.
+                const candidates = [text.preferredAgentId, list[0]?.id];
                 for (const id of candidates) {
                     if (id && list.some((a) => a.id === Number(id))) {
                         setSelectedAgentId(Number(id));
@@ -115,7 +117,21 @@ export default function TextView({ active = true }) {
         });
     };
 
+    /** The one-time affection offer before the first chat, mirroring
+     *  VoiceView (whichever surface the user reaches first asks). Only for
+     *  explicit starts from the buttons here. */
+    const maybeOfferAffection = async () => {
+        const agent = agents.find((a) => a.id === Number(selectedAgentId));
+        if (!agent?.affection_offer) return;
+        await offerAffection(agent);
+        try {
+            const data = await rpc("/api/text/agents", {});
+            setAgents(data.agents || []);
+        } catch (e) { /* silent */ }
+    };
+
     const startSession = async () => {
+        await maybeOfferAffection();
         await text.start(selectedAgentId);
         loadHistory();
     };
@@ -139,6 +155,7 @@ export default function TextView({ active = true }) {
     };
 
     const resumeSession = async (sess) => {
+        await maybeOfferAffection();
         const ok = await text.start(selectedAgentId, sess.id);
         if (ok === false) return;
         if (sess?.agent_id && agents.some((a) => a.id === sess.agent_id)) {

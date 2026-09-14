@@ -222,8 +222,9 @@ body {
         min-height: 100%;
     }
 
-    // Companions / Avatars tabs — full pages of their own, so give the
-    // editors more horizontal room than the settings column gets.
+    // Companions / Avatars / History tabs — full pages of their own (editors,
+    // lists and tables), so they get more horizontal room than the settings
+    // column, which stays narrower for readable form text.
     .rx_settings_inner--wide { max-width: 1200px; }
 
     section {
@@ -887,6 +888,44 @@ body {
     }
     p { margin: 0.35rem 0 0; }
     .rx_savebar { margin-top: 0.5rem; padding: 0.5rem 0 0; box-shadow: none; background: transparent; }
+}
+// Per-session file library: a thumbnail grid of everything generated or
+// shared during the call, each tile opening the file in a new tab.
+.rx_sess_files {
+    margin: 0.4rem 0 0.25rem 1.55rem;
+
+    > p { margin: 0.25rem 0; }
+}
+.rx_sess_files_grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.6rem;
+}
+.rx_sess_file {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    color: inherit;
+    text-decoration: none;
+    min-width: 0;
+
+    img, video {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1;
+        object-fit: cover;
+        border-radius: 0.5rem;
+        background: #e2e8f0;
+        border: 1px solid #e2e8f0;
+    }
+    &:hover img, &:hover video { border-color: #94a3b8; }
+}
+.rx_sess_file_label {
+    font-size: 0.72rem;
+    color: #64748b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 @media (max-width: 560px) {
     .rx_sess_head { flex-wrap: wrap; }

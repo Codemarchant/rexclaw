@@ -369,6 +369,12 @@ CREATE TABLE IF NOT EXISTS agents (
     -- Only score changes of at least this size play the heart effect, so
     -- routine +1/+2 nudges stay invisible. Default = the normal max delta.
     affection_animation_min_delta INTEGER NOT NULL DEFAULT 5,
+    -- The one-time "turn on the affection meter?" offer shown before the
+    -- first call or chat with a companion whose rules are filled in but
+    -- whose meter is off. Flipped once answered or dismissed, whatever the
+    -- answer. State, not configuration: stays out of export and "Reset to
+    -- stock".
+    affection_offered INTEGER NOT NULL DEFAULT 0,
     affection_score INTEGER NOT NULL DEFAULT 150,
     affection_rules TEXT,
     affection_max_score INTEGER NOT NULL DEFAULT 1000,
@@ -856,6 +862,10 @@ MIGRATIONS = (
     "ALTER TABLE agents ADD COLUMN affection_animations INTEGER NOT NULL DEFAULT 1",
     # Sub-setting: minimum |delta| that plays the heart effect.
     "ALTER TABLE agents ADD COLUMN affection_animation_min_delta INTEGER NOT NULL DEFAULT 5",
+    # One-time affection offer before the first call/chat (see the column
+    # comment). Companions that already have a conversation are skipped,
+    # so existing installs only see it for new or imported companions.
+    "ALTER TABLE agents ADD COLUMN affection_offered INTEGER NOT NULL DEFAULT 0",
     # Start bump 100 -> 150 (mid-Guarded). One-shot in practice: only rows
     # whose meter was never enabled still sit at the old untouched default.
     "UPDATE agents SET affection_score = 150 "

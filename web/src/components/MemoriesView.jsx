@@ -185,7 +185,7 @@ export default function MemoriesView({ active }) {
 
     return (
         <div className="rx_settings">
-            <div className="rx_settings_inner">
+            <div className="rx_settings_inner rx_settings_inner--wide">
                 <section>
                     <h3><i className="fa fa-lightbulb-o" /> {_t("Memories")}</h3>
                     <p className="text-muted small" style={{ marginTop: "-0.4rem" }}>

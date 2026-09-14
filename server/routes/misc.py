@@ -379,6 +379,25 @@ def agents_save(payload: dict = Body(default={}), con=Depends(db_con)):
     return {"ok": True, "id": agent_id}
 
 
+@router.post("/agents/affection_offer")
+def agents_affection_offer(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Answer the one-time affection offer (the dialog before a companion's
+    first call/chat). Whatever the answer, the question is spent: dismissing
+    it counts as "not now", never as "ask again next call"."""
+    agent_id = payload.get("id")
+    if not con.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,)).fetchone():
+        raise UserError("Companion not found.")
+    enable = 1 if payload.get("enable") else 0
+    con.execute(
+        "UPDATE agents SET affection_offered = 1,"
+        " enable_affection_tool = CASE WHEN ? THEN 1 ELSE enable_affection_tool END"
+        " WHERE id = ?",
+        (enable, agent_id),
+    )
+    con.commit()
+    return {"ok": True, "enabled": bool(enable)}
+
+
 # What "Reset to stock" leaves alone: the companion's relationship progress
 # is state, not configuration. (History, memories, lore and MCP rows are
 # separate tables and untouched by construction.)
@@ -999,11 +1018,24 @@ def memories_import(payload: dict = Body(default={}), con=Depends(db_con)):
 
 @router.post("/imagine/list")
 def imagine_list(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Generated and shared files (images, videos, uploads, screenshots).
+    Optional `session_ids` narrows to what came out of those sessions —
+    the Sessions tab passes a call plus its group-call peer legs."""
+    where, params = "", []
+    session_ids = payload.get("session_ids")
+    if isinstance(session_ids, list):
+        ids = [int(x) for x in session_ids if str(x).strip().lstrip("-").isdigit()]
+        if not ids:
+            return []
+        where = f" WHERE i.session_id IN ({','.join('?' * len(ids))})"
+        params.extend(ids)
+    params.append(int(payload.get("limit") or 100))
     rows = con.execute(
         "SELECT i.*, a.name AS agent_name FROM imagine_images i"
         " JOIN agents a ON a.id = i.agent_id"
+        + where +
         " ORDER BY i.created_at DESC, i.id DESC LIMIT ?",
-        (int(payload.get("limit") or 100),),
+        params,
     ).fetchall()
     return [
         {

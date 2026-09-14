@@ -62,6 +62,19 @@ def level_for(score, cfg):
     return min(cfg['level_count'], max(0, score or 0) // cfg['level_size'] + 1)
 
 
+def offer_pending(agent_row):
+    """Should the UI ask, once, whether to turn the meter on for this
+    companion? Only when there are rules to run it with (the crew ship
+    theirs pre-filled; a user-made companion has none until they write
+    some, by which point they know the feature exists), the meter is off,
+    and the question has never been put."""
+    return bool(
+        (agent_row['affection_rules'] or '').strip()
+        and not agent_row['enable_affection_tool']
+        and not agent_row['affection_offered']
+    )
+
+
 def _impl_adjust_affection(con, session, arguments):
     row = con.execute(
         "SELECT * FROM agents WHERE id = ?", (session['agent_id'],)

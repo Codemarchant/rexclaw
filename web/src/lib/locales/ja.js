@@ -627,6 +627,15 @@ export const JA = {
 
   // Affection meter
   "Affection": "好感度",
+  // One-time offer before the first call/chat (AffectionOfferDialog)
+  "Affection meter": "好感度メーター",
+  "this companion": "このコンパニオン",
+  "%s can keep an affection score that carries across calls. They start a little reserved and warm up as you get to know them, and how you treat them matters.":
+    "%s は通話をまたいで持ち越される好感度スコアを持てます。最初は少し控えめで、あなたを知るにつれて打ち解けていきます。あなたの接し方が影響します。",
+  "It adds their affection rules to every prompt plus an occasional silent tool call, so it uses a few more tokens. You can change this any time in the companion's settings.":
+    "毎回のプロンプトに好感度ルールが追加され、ときどき無音のツール呼び出しが入るため、トークンを少し多く消費します。コンパニオンの設定からいつでも変更できます。",
+  "Turn on the affection meter for %s": "%s の好感度メーターをオンにする",
+  "Continue": "続行",
   "Enable affection meter": "好感度メーターを有効化",
   "Gives the companion a persistent affection score it adjusts in small steps via the adjust_affection tool as your relationship warms or cools. The current score and your affection rules below are injected into every session prompt, and score changes play a heart effect around the avatar.":
     "コンパニオンに永続的な好感度スコアを持たせます。関係が温まったり冷めたりすると adjust_affection ツールで少しずつ調整されます。現在のスコアと下の好感度ルールは毎セッションのプロンプトに注入され、スコアが変化するとアバターの周りにハートのエフェクトが再生されます。",
@@ -969,6 +978,10 @@ export const JA = {
   "Read transcript": "トランスクリプトを読む",
   "Hide transcript": "トランスクリプトを隠す",
   "Resume this session": "このセッションを再開",
+  "Images and videos from this session": "このセッションの画像と動画",
+  "Hide files": "ファイルを隠す",
+  "No images or videos came out of this session.": "このセッションで生成された画像や動画はありません。",
+  "Could not load the session's files": "セッションのファイルを読み込めませんでした",
   "Rename": "名前を変更",
   "Rename failed": "名前の変更に失敗しました",
   "Delete session": "セッションを削除",

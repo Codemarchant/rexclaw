@@ -154,8 +154,8 @@ export default function MascotView() {
                 const data = await rpc("/api/voice/agents", {});
                 const list = data.agents || [];
                 setAgents(list);
-                // Same resolution as VoiceView: previous pick → default → first.
-                const candidates = [voice.preferredAgentId, data.default_agent_id, list[0]?.id];
+                // Same resolution as VoiceView: previous pick → first.
+                const candidates = [voice.preferredAgentId, list[0]?.id];
                 for (const id of candidates) {
                     if (id && list.some((a) => a.id === Number(id))) {
                         setSelectedAgentId(Number(id));

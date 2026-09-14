@@ -36,7 +36,7 @@ export default function HistoryView({ active }) {
             </div>
             <div style={{ flex: 1, minHeight: 0, display: sub === "lore" ? "" : "none" }}>
                 <div className="rx_settings">
-                    <div className="rx_settings_inner">
+                    <div className="rx_settings_inner rx_settings_inner--wide">
                         <section>
                             <LoreStoriesPanel />
                         </section>

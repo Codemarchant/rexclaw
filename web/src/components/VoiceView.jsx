@@ -7,6 +7,7 @@ import { voice, avatarRenderer, notification } from "../services";
 import { uiState, toggleImmersive, exitImmersive } from "../lib/ui_state";
 import { registerHotkeyHandlers } from "../lib/hotkeys";
 import { wakeState } from "../lib/wake_word";
+import { offerAffection } from "../lib/affection_offer";
 import { EMOTIONS, EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
 import { VRManager } from "../vr/vr_manager";
 import AvatarCanvas from "./AvatarCanvas.jsx";
@@ -163,8 +164,8 @@ export default function VoiceView({ active = true }) {
                 const data = await rpc("/api/voice/agents", {});
                 const list = data.agents || [];
                 setAgents(list);
-                // Resolution: previous user pick → configured default → first.
-                const candidates = [voice.preferredAgentId, data.default_agent_id, list[0]?.id];
+                // Resolution: previous user pick → first in the list.
+                const candidates = [voice.preferredAgentId, list[0]?.id];
                 for (const id of candidates) {
                     if (id && list.some((a) => a.id === Number(id))) {
                         setSelectedAgentId(Number(id));
@@ -493,7 +494,20 @@ export default function VoiceView({ active = true }) {
 
     // ---- session actions ----------------------------------------------------
 
-    const startSession = async () => {
+    /** The one-time affection offer, put up before the session opens (the
+     *  call bills from connection). Only for explicit starts from this
+     *  view: hands-free entries (VR, wake word, heartbeats, the Sessions
+     *  tab) skip it and the question simply waits for the next click. */
+    const maybeOfferAffection = async (offer) => {
+        if (!offer) return;
+        const agent = findAgent(selectedAgentId);
+        if (!agent?.affection_offer) return;
+        await offerAffection(agent);
+        await refreshAgents();
+    };
+
+    const startSession = async ({ offer = true } = {}) => {
+        await maybeOfferAffection(offer);
         await voice.start(selectedAgentId);
         loadHistory();
     };
@@ -503,7 +517,8 @@ export default function VoiceView({ active = true }) {
         await Promise.all([loadHistory(), refreshAgents()]);
     };
 
-    const resumeSession = async (sess) => {
+    const resumeSession = async (sess, { offer = true } = {}) => {
+        await maybeOfferAffection(offer);
         const ok = await voice.start(selectedAgentId, sess.id);
         if (ok === false) return;
         if (sess?.agent_id && agents.some((a) => a.id === sess.agent_id)) {
@@ -617,17 +632,19 @@ export default function VoiceView({ active = true }) {
      *  last conversation when there is one, else start fresh. Deliberately
      *  not awaited by callers — requestSession must spend the click's
      *  transient activation in the same tick. */
-    const startCallIfIdle = () => {
+    const startCallIfIdle = (opts) => {
         const st = voice.state.status;
         if (st === "live" || st === "connecting") return;
         // Group-call peers restore automatically: the resume payload
         // carries the last call roster and voice.start() re-adds them.
-        (lastResumableSession ? resumeSession(lastResumableSession) : startSession())
+        (lastResumableSession ? resumeSession(lastResumableSession, opts) : startSession(opts))
             .catch((e) => console.error("[voice] VR call auto-start failed", e));
     };
 
     const enterVR = async () => {
-        startCallIfIdle();
+        // No affection offer here: a modal would hold the call back while
+        // the user is already in the headset.
+        startCallIfIdle({ offer: false });
         try {
             await avatarRenderer.enterXR(XR_MODE);
         } catch (e) {
@@ -1512,7 +1529,7 @@ export default function VoiceView({ active = true }) {
                                 )}
                                 {!isLive && !isConnecting && (
                                     <button className={"btn btn-lg " + (lastResumableSession ? "btn-secondary" : "btn-primary")}
-                                            onClick={startSession}>
+                                            onClick={() => startSession()}>
                                         {/* "Start new" only beside Resume — that's when plain
                                             "Start" turns ambiguous. Alone, it's just Start. */}
                                         <i className="fa fa-microphone" /> {_t(lastResumableSession ? "Start new" : "Start")}

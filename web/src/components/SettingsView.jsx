@@ -51,7 +51,6 @@ export default function SettingsView({ active }) {
     const wk = useReactive(wakeState);
     const [config, setConfig] = useState(null);
     const [apiKeyDraft, setApiKeyDraft] = useState("");
-    const [agents, setAgents] = useState([]);
     const [saving, setSaving] = useState(false);
     const [headset, setHeadset] = useState(null);   // desktop shell only: HTTPS-on-WiFi state
     const [startInMascot, setStartInMascot] = useState(null);  // desktop shell only
@@ -114,12 +113,8 @@ export default function SettingsView({ active }) {
 
     const load = async () => {
         try {
-            const [cfg, ags] = await Promise.all([
-                rpc("/api/config/get", {}),
-                rpc("/api/agents/list", {}),
-            ]);
+            const cfg = await rpc("/api/config/get", {});
             setConfig(cfg);
-            setAgents(ags);
             let parsed = {};
             try {
                 const raw = cfg.hotkeys_json ? JSON.parse(cfg.hotkeys_json) : null;
@@ -317,15 +312,6 @@ export default function SettingsView({ active }) {
                             <label>{_t("Display name (optional)")}</label>
                             <input type="text" value={config.user_display_name || ""}
                                    onChange={(ev) => setField("user_display_name", ev.target.value)} />
-                        </div>
-                        <div>
-                            <label>{_t("Default companion")}</label>
-                            <select value={config.default_agent_id ?? ""}
-                                    onChange={(ev) => setField("default_agent_id", parseInt(ev.target.value, 10) || null)}>
-                                {agents.map((a) => (
-                                    <option key={a.id} value={a.id}>{a.name}</option>
-                                ))}
-                            </select>
                         </div>
                         <div>
                             <label>{_t("Language")}</label>

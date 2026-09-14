@@ -34,6 +34,10 @@ export default function SessionsView({ active }) {
     const [summaryOpen, setSummaryOpen] = useState(() => new Set());  // ids showing the full summary
     const [summaryEdit, setSummaryEdit] = useState(null);   // null | {id, text, baseline}
     const [savingSummary, setSavingSummary] = useState(false);
+    // Per-session file library (images, videos, uploads, screenshots that
+    // came out of the call): ids showing the panel, and id → rows once loaded.
+    const [filesOpen, setFilesOpen] = useState(() => new Set());
+    const [files, setFiles] = useState({});
 
     const load = async () => {
         setLoading(true);
@@ -70,6 +74,27 @@ export default function SessionsView({ active }) {
             } catch (e) {
                 notification.add(e?.message || _t("Could not load the transcript"), { type: "danger" });
             }
+        }
+    };
+
+    /** Show/hide the session's file library. A group call's peer legs
+     *  generate into their own sessions, so the parent's panel gathers
+     *  those too (the same nesting the list shows). */
+    const toggleFiles = async (s, peers) => {
+        setFilesOpen((prev) => {
+            const next = new Set(prev);
+            if (next.has(s.id)) next.delete(s.id); else next.add(s.id);
+            return next;
+        });
+        if (files[s.id]) return;
+        try {
+            const rows = await rpc("/api/imagine/list", {
+                session_ids: [s.id, ...peers.map((p) => p.id)],
+                limit: 500,
+            });
+            setFiles((f0) => ({ ...f0, [s.id]: rows }));
+        } catch (e) {
+            notification.add(e?.message || _t("Could not load the session's files"), { type: "danger" });
         }
     };
 
@@ -189,7 +214,7 @@ export default function SessionsView({ active }) {
 
     return (
         <div className="rx_settings">
-            <div className="rx_settings_inner">
+            <div className="rx_settings_inner rx_settings_inner--wide">
                 <section>
                     <h3><i className="fa fa-archive" /> {_t("Sessions")}</h3>
                     <p className="text-muted small" style={{ marginTop: "-0.4rem" }}>
@@ -242,7 +267,10 @@ export default function SessionsView({ active }) {
                     {pager.slice(rows).map(({ session: s, child }) => {
                         const isOpen = expanded.has(s.id);
                         const t = transcripts[s.id];
-                        const hasPeers = (childrenOf.get(s.id) || []).length > 0;
+                        const peers = childrenOf.get(s.id) || [];
+                        const hasPeers = peers.length > 0;
+                        const showFiles = filesOpen.has(s.id);
+                        const sessFiles = files[s.id];
                         const summary = s.summary || "";
                         const summaryLong = summary.length > SUMMARY_CLAMP_CHARS || summary.split("\n").length > 2;
                         const summaryShown = summaryOpen.has(s.id);
@@ -279,6 +307,11 @@ export default function SessionsView({ active }) {
                                                 title={isOpen ? _t("Hide transcript") : _t("Read transcript")}
                                                 onClick={() => toggleExpand(s.id)}>
                                             <i className={"fa " + (isOpen ? "fa-chevron-up" : "fa-book")} />
+                                        </button>
+                                        <button className="btn btn-sm btn-link p-0"
+                                                title={showFiles ? _t("Hide files") : _t("Images and videos from this session")}
+                                                onClick={() => toggleFiles(s, peers)}>
+                                            <i className={"fa " + (showFiles ? "fa-picture-o text-primary" : "fa-picture-o")} />
                                         </button>
                                         <button className="btn btn-sm btn-link p-0" title={_t("Resume this session")}
                                                 onClick={() => resume(s)}>
@@ -334,6 +367,33 @@ export default function SessionsView({ active }) {
                                         </div>
                                     </div>
                                 ) : null}
+                                {showFiles && (
+                                    <div className="rx_sess_files">
+                                        {!sessFiles && <p className="text-muted small">{_t("Loading…")}</p>}
+                                        {sessFiles && !sessFiles.length && (
+                                            <p className="text-muted small">{_t("No images or videos came out of this session.")}</p>
+                                        )}
+                                        {sessFiles && !!sessFiles.length && (
+                                            <div className="rx_sess_files_grid">
+                                                {sessFiles.map((f) => {
+                                                    const isVideo = (f.mimetype || "").startsWith("video/");
+                                                    const tip = [f.kind, f.agent_name, f.prompt].filter(Boolean).join(" · ");
+                                                    return (
+                                                        <a key={f.id} className="rx_sess_file" href={f.image_url}
+                                                           target="_blank" rel="noopener noreferrer" title={tip}>
+                                                            {isVideo
+                                                                ? <video src={f.image_url} muted preload="metadata" playsInline />
+                                                                : <img src={f.image_url} alt={f.name} loading="lazy" />}
+                                                            <span className="rx_sess_file_label">
+                                                                {isVideo && <i className="fa fa-video-camera" />} {f.name}
+                                                            </span>
+                                                        </a>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 {isOpen && (
                                     <div className="rx_sess_transcript">
                                         {!t && <p className="text-muted small" style={{ padding: "0.5rem" }}>{_t("Loading…")}</p>}
