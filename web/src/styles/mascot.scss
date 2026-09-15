@@ -27,7 +27,8 @@ html.rx_mascot_mode {
     .o_voice_avatar_canvas--mascot {
         transition: opacity 0.25s ease;
 
-        &.is-ghost-faded { opacity: 0.15; }
+        // --ghost-fade: the settings window's slider (MascotView).
+        &.is-ghost-faded { opacity: var(--ghost-fade, 0.15); }
     }
 
     // Desktop mascot: the island is fully hidden until the cursor enters the
@@ -271,6 +272,20 @@ html.rx_mascot_mode {
     }
 
     .rx_mascot_set_item + .rx_mascot_set_item { margin-top: 0.7rem; }
+    // Same rhythm where rows cross a fieldset edge: Behavior splits its
+    // fieldset round the Touch physics row, which must stay enabled.
+    fieldset + .rx_mascot_set_item,
+    .rx_mascot_set_item + fieldset { margin-top: 0.7rem; }
+
+    // Ghost mode's fade slider: indented under its checkbox like a
+    // description line, full width, tucked close to the row above.
+    .rx_mascot_set_range {
+        margin-left: 1.55rem;
+
+        label { margin: 0.2rem 0 0.1rem; font-weight: 500; }
+        input[type="range"] { width: 100%; }
+    }
+    .rx_mascot_set_item + .rx_mascot_set_range { margin-top: 0.2rem; }
 
     .rx_mascot_set_desc {
         margin: 0.15rem 0 0 1.55rem;

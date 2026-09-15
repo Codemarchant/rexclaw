@@ -12,6 +12,7 @@ import { registerHotkeyHandlers } from "../lib/hotkeys";
 import { wakeState } from "../lib/wake_word";
 import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES as SIZES } from "../lib/mascot_link";
 import { EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
+import { backgroundPickerEntries, currentBackgroundKey, resolveDefaultBackground } from "../lib/background_picker";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 
 // The island toggles (ghost, pin, view, size preset) persist across pop-outs:
@@ -81,9 +82,21 @@ export default function MascotView() {
         return Number.isInteger(idx) && idx >= 0 && idx < SIZES.length ? idx : 0;
     });
     const [ghost, setGhost] = useState(() => !!loadMascotPrefs().ghost);
+    // How far ghost mode fades the avatar under the cursor, as opacity
+    // (settings window slider). 0.15 was the fixed fade before the slider;
+    // 0 hides it entirely, which still works: the hit test reads the
+    // rendered pixels, not the faded page.
+    const [ghostFade, setGhostFade] = useState(() => {
+        const v = Number(loadMascotPrefs().ghostFade);
+        return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 0.15;
+    });
     // Gaze cursor-follow: eyes (and a little head) track the desktop cursor.
     // Ships off — eye contact is the default persona.
     const [cursorFollow, setCursorFollowPref] = useState(() => !!loadMascotPrefs().cursorFollow);
+    // "Show a background" (settings window): paint the companion's active
+    // background behind them instead of floating see-through. Ships off —
+    // the transparent character on the desktop is the mascot's whole point.
+    const [backdrop, setBackdrop] = useState(() => !!loadMascotPrefs().backdrop);
     // Tray "Hide avatar controls": the island doesn't render at all — not
     // even on hover. Escape hatches stay in the tray (uncheck it, pop back).
     const [controlsHidden, setControlsHidden] = useState(false);
@@ -117,6 +130,17 @@ export default function MascotView() {
         if (fullBody) avatarRenderer.setFullBodyMode?.(true);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // The renderer flag is read on every host (re)apply, so this covers the
+    // restored pref on mount as well as live flips; the unmount cleanup in
+    // the agents effect below clears it with the other mascot-only modes.
+    useEffect(() => { avatarRenderer.setMascotBackdrop?.(backdrop); }, [backdrop]);
+
+    // The ghost fade level rides a CSS variable into the .is-ghost-faded
+    // rule (mascot.scss).
+    useEffect(() => {
+        rootRef.current?.style.setProperty("--ghost-fade", String(ghostFade));
+    }, [ghostFade]);
 
     // Group calls: widen the window per extra character (the camera fits
     // the row horizontally, so extra width means bigger characters instead
@@ -168,6 +192,7 @@ export default function MascotView() {
         })();
         return () => {
             avatarRenderer.setFullBodyMode?.(false);
+            avatarRenderer.setMascotBackdrop?.(false);
         };
     }, []);
 
@@ -198,10 +223,12 @@ export default function MascotView() {
         bridge?.onMascotHideIdle?.((v) => setHideIdle(!!v));
     }, []);
 
-    // Avatar hydration, minus everything mascot mode suppresses (backgrounds
-    // paint nothing on a --mascot host). The stored outfit preference DOES
-    // apply — without it this fresh page snapped back to the default outfit
-    // even when the main window had another one selected.
+    // Avatar hydration. The background resolves exactly like the main view's
+    // so the settings window's picker shows the right one — it only PAINTS
+    // with the backdrop on (a see-through --mascot host draws nothing). The
+    // stored outfit preference applies too — without it this fresh page
+    // snapped back to the default outfit even when the main window had
+    // another one selected.
     useEffect(() => {
         const avatar = currentAgent?.avatar;
         if (!avatar || !avatar.vrm_url) {
@@ -217,6 +244,10 @@ export default function MascotView() {
         if (loadedAvatarId.current === loadKey) return;
         loadedAvatarId.current = loadKey;
         avatarRenderer.resetExpression?.();
+        const resolvedBg = resolveDefaultBackground(currentAgent, voice.state);
+        voice.state.activeBackground = resolvedBg;
+        voice.state.backgroundPickedByUser = false;
+        avatarRenderer.setBackground?.(resolvedBg);
         const outfit = storedOutfit(currentAgent);
         if (outfit) voice.state.selectedOutfitId = Number(outfit.id);
         avatarRenderer.loadVRM(outfit?.vrm_url || avatar.vrm_url).catch((e) => {
@@ -245,6 +276,23 @@ export default function MascotView() {
         voice.noteOutfitChange?.(outfit?.name, { isMain: Number(id) === 0 });
         avatarRenderer.setOutfit(outfit?.vrm_url || avatar.vrm_url, avatar.vrma_idle_url || null)
             .catch((e) => console.error("[mascot] outfit load failed", e));
+    };
+
+    // Background picks arrive from the settings window too (it shows the
+    // list this page publishes below). Same bookkeeping as the main view's
+    // dropdown: a user pick outlives the next session start.
+    const applyBackground = (key) => {
+        const entry = backgroundPickerEntries(currentAgent, voice.state).find((e) => e.key === key);
+        if (!entry) return;
+        avatarRenderer.setBackground?.(entry.bg);
+        voice.state.activeBackground = entry.bg;
+        voice.state.backgroundPickedByUser = true;
+    };
+
+    const toggleBackdrop = () => {
+        const next = !backdrop;
+        setBackdrop(next);
+        saveMascotPref({ backdrop: next });
     };
 
     const startOrResume = async () => {
@@ -420,8 +468,13 @@ export default function MascotView() {
             lastTs = now;
             const base = pending || { width: window.innerWidth, height: window.innerHeight };
             const wanted = ev.deltaY < 0 ? 1.05 : 1 / 1.05;
+            // Ceiling: the display's work area, the shell's own bound, which
+            // the whole-screen preset sits exactly at. A fixed ceiling below
+            // it snapped that preset to half size on the first notch.
+            const maxW = window.screen?.availWidth || base.width;
+            const maxH = window.screen?.availHeight || base.height;
             const factor = Math.min(
-                Math.min(1000 / base.width, 1400 / base.height),
+                Math.min(maxW / base.width, maxH / base.height),
                 Math.max(Math.max(220 / base.width, 320 / base.height), wanted),
             );
             pending = {
@@ -544,6 +597,7 @@ export default function MascotView() {
     settingsSync.current = {
         publish: () => {
             const avatar = currentAgent?.avatar;
+            const bgEntries = backgroundPickerEntries(currentAgent, voice.state);
             settingsChannel.current?.postMessage({
                 type: "state",
                 // Call state — the window's Companion & call section.
@@ -556,6 +610,7 @@ export default function MascotView() {
                 share: localShareState(scap, awareState, shareError),
                 // Page-owned prefs.
                 ghost,
+                ghostFade,
                 cursorFollow,
                 pinned,
                 fullBody,
@@ -566,6 +621,11 @@ export default function MascotView() {
                     ? (avatar.outfits || []).map((o) => ({ id: Number(o.id), name: o.name }))
                     : [],
                 outfitId: Number(voice.state.selectedOutfitId || 0),
+                // Backdrop switch + the background list it selects from
+                // (labels only — this side resolves the pick).
+                backdrop,
+                backgrounds: bgEntries.map(({ key, label }) => ({ key, label })),
+                backgroundKey: currentBackgroundKey(currentAgent, voice.state, bgEntries),
                 // Motion library switches — global config, held live by the
                 // director on this side.
                 motion: services.motion_director?.motionSettings?.() || null,
@@ -612,6 +672,7 @@ export default function MascotView() {
                 }
                 case "popback": popBackIn(); return;
                 case "outfit": applyOutfit(msg.id); return;
+                case "background": applyBackground(msg.key); return;
                 case "size": {
                     const idx = Number(msg.idx);
                     if (Number.isInteger(idx) && idx >= 0 && idx < SIZES.length) applySizeIdx(idx);
@@ -650,12 +711,21 @@ export default function MascotView() {
                     rpc("/api/motion/settings", patch).catch(() => {});
                     return;
                 }
+                case "ghostFade": {
+                    const v = Number(msg.value);
+                    if (!Number.isFinite(v)) return;
+                    const fade = Math.min(1, Math.max(0, v));
+                    setGhostFade(fade);
+                    saveMascotPref({ ghostFade: fade });
+                    return;
+                }
                 case "set": {
                     const want = !!msg.value;
                     if (msg.key === "ghost" && want !== ghost) toggleGhost();
                     else if (msg.key === "cursorFollow" && want !== cursorFollow) toggleCursorFollow();
                     else if (msg.key === "pinned" && want !== pinned) togglePin();
                     else if (msg.key === "fullBody" && want !== fullBody) toggleFullBody();
+                    else if (msg.key === "backdrop" && want !== backdrop) toggleBackdrop();
                     return;
                 }
                 default:
@@ -677,8 +747,8 @@ export default function MascotView() {
     const shareKey = JSON.stringify(localShareState(scap, awareState, shareError));
     useEffect(() => { settingsSync.current.publish(); },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [ghost, cursorFollow, pinned, fullBody, sizeIdx, currentAgent, sv.selectedOutfitId,
-         agents, selectedAgentId, sv.status, sv.muted, shareKey]);
+        [ghost, ghostFade, cursorFollow, pinned, fullBody, sizeIdx, backdrop, currentAgent, sv.selectedOutfitId,
+         sv.activeBackground, agents, selectedAgentId, sv.status, sv.muted, shareKey]);
 
     // ---- hotkey call feedback -----------------------------------------------
     // A hotkey press has no visual echo here: the island only shows on
@@ -896,7 +966,7 @@ export default function MascotView() {
                 <button className={fullBody ? "is-active" : ""} onClick={toggleFullBody}
                         title={fullBody
                             ? _t("Switch to face view")
-                            : _t("Switch to full body (drag to rotate, scroll to zoom)")}>
+                            : _t("Switch to full body (drag to rotate, scroll to zoom, Ctrl + drag to move)")}>
                     <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
                 </button>
                 <button className={pinned ? "is-active" : ""} onClick={togglePin}

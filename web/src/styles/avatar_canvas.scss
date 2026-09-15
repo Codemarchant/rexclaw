@@ -1,7 +1,10 @@
+// The studio stage — the default backdrop wherever the avatar paints one.
+$stage-gradient: radial-gradient(ellipse 80% 90% at 50% 35%, #3b424f 0%, #1c2230 55%, #0a0d14 100%);
+
 .o_voice_avatar_canvas {
     width: 100%;
     height: 100%;
-    background: radial-gradient(ellipse 80% 90% at 50% 35%, #3b424f 0%, #1c2230 55%, #0a0d14 100%);
+    background: $stage-gradient;
     overflow: hidden;
     position: relative;
     // Own stacking context so the animated-background <video> (z-index -1,
@@ -26,9 +29,16 @@
     }
 
     // Desktop mascot overlay — the Electron window is transparent, so the
-    // host paints nothing at all (the avatar floats on the desktop).
+    // host paints nothing at all (the avatar floats on the desktop)…
     &--mascot {
         background: transparent;
         border-radius: 0;
+
+        // …unless "Show a background" is on in the mascot settings: the
+        // renderer stamps is-backdrop and the host paints like the
+        // full-screen one.
+        &.is-backdrop {
+            background: $stage-gradient;
+        }
     }
 }

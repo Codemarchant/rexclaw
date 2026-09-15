@@ -19,7 +19,12 @@ import { screenCapture } from "../lib/screen_capture";
 import { cameraAwareness } from "../lib/camera_awareness";
 import ShareButton from "./ShareButton.jsx";
 import { refreshStoredOutfit, storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
-import { EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
+import { AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
+import {
+    backgroundPickerEntries as pickerEntries,
+    currentBackgroundKey as pickerCurrentKey,
+    resolveDefaultBackground,
+} from "../lib/background_picker";
 
 // WASD + arrows → camera-relative movement axes for the manual walk toggle.
 const MOVE_KEY_MAP = {
@@ -259,16 +264,8 @@ export default function VoiceView({ active = true }) {
         avatarRenderer.resetExpression?.();
         setCurrentEmotion("neutral");
         // Resolve the initial background with the SAME precedence the server
-        // uses at session start: tagged default → newest Imagine (still and
-        // animated are parallel "latest" tracks; most recent wins) → first.
-        const bgs = avatar.backgrounds || [];
-        const imagineStill = voice.state.latestImagineBackgroundByAgent?.[agentId]
-            || agent?.latest_imagine_background || null;
-        const imagineVideo = voice.state.latestImagineVideoBackgroundByAgent?.[agentId]
-            || agent?.latest_imagine_video_background || null;
-        const imagine = [imagineStill, imagineVideo].filter(Boolean)
-            .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0] || null;
-        const resolved = bgs.find((b) => b.is_default) || imagine || bgs[0] || null;
+        // uses at session start (lib/background_picker).
+        const resolved = resolveDefaultBackground(agent, voice.state);
         voice.state.activeBackground = resolved;
         voice.state.backgroundPickedByUser = false;
         avatarRenderer.setBackground?.(resolved);
@@ -947,8 +944,6 @@ export default function VoiceView({ active = true }) {
     const allowedBase = avatarForGestures?.restrict_base_gestures
         ? new Set(avatarForGestures.base_gestures || []) : null;
     const builtinGestures = allowedBase ? GESTURES.filter((g) => allowedBase.has(g.id)) : GESTURES;
-    const currentBackgrounds = currentAgent?.avatar?.backgrounds || [];
-
     // Unified gesture list for the VR panel's Gestures tab: the built-in pack
     // plus the current agent's custom VRMA gestures. Shape: {id,label,url,loop}
     // — combo customs additionally carry their full payload record in `combo`
@@ -965,55 +960,11 @@ export default function VoiceView({ active = true }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentAgent]);
 
-    const currentImagineBackground = (() => {
-        const active = sv.activeBackground;
-        if (active && active.type === "imagine") return active;
-        const inSession = sv.latestImagineBackgroundByAgent?.[selectedAgentId];
-        if (inSession) return inSession;
-        return currentAgent?.latest_imagine_background || null;
-    })();
-
-    // Parallel slot for the newest ANIMATED Imagine background — still and
-    // animated coexist in the picker as separate entries.
-    const currentImagineVideoBackground = (() => {
-        const active = sv.activeBackground;
-        if (active && active.type === "imagine_video") return active;
-        const inSession = sv.latestImagineVideoBackgroundByAgent?.[selectedAgentId];
-        if (inSession) return inSession;
-        return currentAgent?.latest_imagine_video_background || null;
-    })();
-
-    const backgroundPickerEntries = (() => {
-        const entries = [];
-        const imagine = currentImagineBackground;
-        const imagineVideo = currentImagineVideoBackground;
-        if ((imagine || imagineVideo) && !currentBackgrounds.length) {
-            entries.push({ key: "default", label: _t("Default Background"), bg: null });
-        }
-        if (imagine) {
-            const label = imagine.name ? `Imagine — ${imagine.name}` : _t("Imagine background");
-            entries.push({ key: "imagine", label, bg: imagine });
-        }
-        if (imagineVideo) {
-            const label = imagineVideo.name
-                ? `Imagine ▶ ${imagineVideo.name}` : _t("Animated background");
-            entries.push({ key: "imagine-video", label, bg: imagineVideo });
-        }
-        for (const bg of currentBackgrounds) {
-            entries.push({ key: `bg-${bg.id}`, label: bg.name, bg });
-        }
-        return entries;
-    })();
-
-    const currentBackgroundKey = (() => {
-        const active = sv.activeBackground;
-        if (active && active.type === "imagine") return "imagine";
-        if (active && active.type === "imagine_video") return "imagine-video";
-        if (active && active.id) return `bg-${active.id}`;
-        const defaultBg = currentBackgrounds.find((b) => b.is_default) || currentBackgrounds[0];
-        if (defaultBg) return `bg-${defaultBg.id}`;
-        return backgroundPickerEntries.some((e) => e.key === "default") ? "default" : "";
-    })();
+    // Background picker (shared with the mascot settings window —
+    // lib/background_picker): the avatar's backgrounds plus the newest
+    // still and animated Imagine ones as separate entries.
+    const backgroundPickerEntries = pickerEntries(currentAgent, sv);
+    const currentBackgroundKey = pickerCurrentKey(currentAgent, sv, backgroundPickerEntries);
 
     const onBackgroundChange = (ev) => {
         const key = ev?.target?.value;
@@ -1304,7 +1255,7 @@ export default function VoiceView({ active = true }) {
                         )}
                         <button className={"btn btn-light" + (fullBody ? " active" : "")}
                                 onClick={toggleFullBody}
-                                title={fullBody ? _t("Switch to face view") : _t("Switch to full body (drag to rotate, scroll to zoom)")}>
+                                title={fullBody ? _t("Switch to face view") : _t("Switch to full body (drag to rotate, scroll to zoom, Ctrl + drag to move)")}>
                             <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
                         </button>
                         {canMoveMode && (
@@ -1387,10 +1338,28 @@ export default function VoiceView({ active = true }) {
                                 </select>
                             </div>
                             <div className="o_voice_full_settings_row">
+                                <label htmlFor="rx_fv_ambience">{_t("Ambience")}</label>
+                                <select id="rx_fv_ambience" value={renderPrefs.ambience}
+                                        title={_t("Weather and atmosphere around your companion: rain, snow, drifting cherry petals, fireflies, rising embers or manga focus lines. They show on the desktop mascot too.")}
+                                        onChange={(ev) => updateRenderPrefs({ ambience: ev.target.value })}>
+                                    {AMBIENCE_OPTIONS.map(([id, label]) => (
+                                        <option key={id} value={id}>{_t(label)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="o_voice_full_settings_row">
+                                <input id="rx_fv_moodamb" type="checkbox" checked={!!renderPrefs.moodAmbience}
+                                       onChange={(ev) => updateRenderPrefs({ moodAmbience: ev.target.checked })} />
+                                <label htmlFor="rx_fv_moodamb"
+                                       title={_t("Their mood picks the ambience: petals when happy, rain when sad, embers when angry, fireflies when relaxed, focus lines when surprised, then back to your choice.")}>
+                                    {_t("Mood-reactive ambience")}
+                                </label>
+                            </div>
+                            <div className="o_voice_full_settings_row">
                                 <input id="rx_fv_moods" type="checkbox" checked={!!renderPrefs.moodMarks}
                                        onChange={(ev) => updateRenderPrefs({ moodMarks: ev.target.checked })} />
                                 <label htmlFor="rx_fv_moods"
-                                       title={_t("Manga-style marks pop up by their head when their mood changes — a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed.")}>
+                                       title={_t("Manga-style marks pop up by their head when their mood changes: a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed.")}>
                                     {_t("Mood marks")}
                                 </label>
                             </div>
@@ -1697,7 +1666,7 @@ export default function VoiceView({ active = true }) {
                         <button className={fullBody ? "is-active" : ""} onClick={toggleFullBody}
                                 title={fullBody
                                     ? _t("Switch to face view")
-                                    : _t("Switch to full body (drag to rotate, scroll to zoom)")}>
+                                    : _t("Switch to full body (drag to rotate, scroll to zoom, Ctrl + drag to move)")}>
                             <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
                         </button>
                         <button onClick={openTranscriptWindow}

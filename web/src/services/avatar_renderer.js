@@ -36,6 +36,7 @@ import {
 import { IdleMotion } from "./idle_motion";
 import { LookPost } from "./look_post";
 import { MoodMarks } from "./mood_marks";
+import { Ambience, MOOD_AMBIENCE } from "./ambience";
 
 // Kept async + memoized so the renderer code below stays identical to the
 // CDN-loading version it was ported from.
@@ -555,6 +556,7 @@ class AvatarRenderer {
         this._sceneDefaultPlacement = null; // {x, z, yaw} authored spawn for the current scene, or null (no scene / none set)
         this._bgVideoEl = null;           // looping <video> backdrop for 'imagine_video' backgrounds
         this._bgVideoUrl = null;          // its url — idempotency for repeated applies/reparents
+        this._mascotBackdrop = false;     // desktop mascot paints its background (setMascotBackdrop) instead of floating see-through
 
         // Locomotion state (see the MOVE_* constants above).
         this._moveMode = false;           // manual (WASD) input enabled by the full view toggle
@@ -625,6 +627,9 @@ class AvatarRenderer {
         this._portraitBlur = null;        // backdrop blur (px) written by the Portrait preset
         this._lookFxEl = null;            // CSS effects overlay on the full-screen host
         this._moodMarks = null;           // MoodMarks sprites, while the pref is on
+        this._ambience = null;            // Ambience particles (services/ambience.js), once any is picked
+        this._ambiencePref = "off";       // the user's Look → Ambience pick
+        this._moodAmbience = false;       // a deliberate emotion briefly plays its ambience (MOOD_AMBIENCE)
         this._effectsTuning = EFFECTS_PRESETS; // console: edit a preset, then setEffectsPreset(id) again
         this._touchEnabled = true;
         this._touch = null;               // cursor collider state, built lazily by _ensureTouch
@@ -670,11 +675,15 @@ class AvatarRenderer {
         this.setEffectsPreset(prefs.effects);
         this.setMoodMarks(prefs.moodMarks);
         this.setTouchPhysics(prefs.touch);
+        this.setAmbience(prefs.ambience);
+        this.setMoodAmbience(prefs.moodAmbience);
         onRenderPrefsChange((p) => {
             this.setLightingPreset(p.lighting);
             this.setEffectsPreset(p.effects);
             this.setMoodMarks(p.moodMarks);
             this.setTouchPhysics(p.touch);
+            this.setAmbience(p.ambience);
+            this.setMoodAmbience(p.moodAmbience);
         });
 
         this.camera = new THREE.PerspectiveCamera(FACE_FOV, 1, 0.1, 100);
@@ -3004,18 +3013,22 @@ class AvatarRenderer {
     _applyBackgroundToActiveHost() {
         const host = this.activeCanvas;
         if (!host) return;
-        // Desktop mascot overlay: the window itself is transparent, so the
-        // host never paints a backdrop of any kind (the --mascot modifier
-        // also suppresses the SCSS default gradient), and 3D rooms / video
-        // backdrops tear down like on a mini host.
-        if (host.classList?.contains("o_voice_avatar_canvas--mascot")) {
+        // Desktop mascot overlay: the window itself is transparent, so by
+        // default the host never paints a backdrop of any kind (the --mascot
+        // modifier also suppresses the SCSS default gradient), and 3D rooms /
+        // video backdrops tear down like on a mini host. With the backdrop
+        // switched on (is-backdrop, which the SCSS turns into the default
+        // gradient) it paints exactly like the full-screen host.
+        const mascot = host.classList?.contains("o_voice_avatar_canvas--mascot");
+        if (mascot) host.classList.toggle("is-backdrop", this._mascotBackdrop);
+        if (mascot && !this._mascotBackdrop) {
             host.style.background = "";
             host.style.backgroundImage = "";
             this._removeBackgroundVideo();
             this.clearRoom();
             return;
         }
-        const isFull = host.classList?.contains("o_voice_avatar_canvas--full");
+        const isFull = this._hostPaintsBackdrop(host);
         // Clear inline styles first so the SCSS default can take over for
         // anything we don't override below (e.g. mini hosts in image mode).
         host.style.background = "";
@@ -3092,6 +3105,31 @@ class AvatarRenderer {
         } else if (bg.type === "static" && bg.preset_style && BACKGROUND_PRESETS[bg.preset_style]) {
             host.style.background = BACKGROUND_PRESETS[bg.preset_style];
         }
+    }
+
+    /** Whether `host` paints the full backdrop treatment (image / scene /
+     *  video backgrounds, the effects overlay, the Portrait blur): the
+     *  full-screen host always, the desktop mascot only with its backdrop
+     *  on. Mini hosts never do. */
+    _hostPaintsBackdrop(host) {
+        const cl = host?.classList;
+        if (!cl) return false;
+        return cl.contains("o_voice_avatar_canvas--full")
+            || (this._mascotBackdrop && cl.contains("o_voice_avatar_canvas--mascot"));
+    }
+
+    /** Desktop mascot: paint the active background behind the character
+     *  (true) or leave the window see-through (false, the default). On, the
+     *  mascot host behaves like the full-screen one for backgrounds and the
+     *  effects overlay. Safe before the lazy init — the flag is read on
+     *  every host (re)apply. */
+    setMascotBackdrop(on) {
+        on = !!on;
+        if (this._mascotBackdrop === on) return;
+        this._mascotBackdrop = on;
+        if (!this.activeCanvas || !this.renderer) return;
+        this._applyBackgroundToActiveHost();
+        this._applyLookToActiveHost();
     }
 
     /** Mount (or move) the looping backdrop <video> into `host`, behind the
@@ -3378,6 +3416,7 @@ class AvatarRenderer {
      *  its own expression catalog on the first explicit emotion call. */
     resetExpression() {
         this._currentEmotion = "neutral";
+        this._ambience?.clearBurst();
         if (this._emotionDecayTimer) {
             clearTimeout(this._emotionDecayTimer);
             this._emotionDecayTimer = null;
@@ -3581,6 +3620,7 @@ class AvatarRenderer {
         // means LLM-driven) — but not for the automatic settle below.
         if (!settle) this._moodMarks?.show(name);
         this._currentEmotion = name;
+        if (!settle) this._playMoodAmbience(name);
         // Decay: settle back toward neutral after the reaction beat unless
         // the avatar's config opts out. Every call cancels the previous
         // pending settle, so a happy → angry transition isn't clobbered back
@@ -4454,6 +4494,14 @@ class AvatarRenderer {
 
         this._moodMarks?.update(delta, this.getHeadWorldPosition(),
             this._xrActive ? this.renderer.xr.getCamera() : this.camera);
+        if (this._ambience?.active) {
+            // Camera + head for screen-anchored systems (the focus lines).
+            const view = (this._ambienceView ||= { camera: null, head: null });
+            view.camera = this._xrActive ? this.renderer.xr.getCamera() : this.camera;
+            view.head = this.getHeadWorldPosition(this._ambienceHead ||= new this.libs.THREE.Vector3());
+            this._ambience.update(delta, this.vrm?.scene.position || null,
+                this.renderer.getDrawingBufferSize(this._sizeScratch ||= new this.libs.THREE.Vector2()).y, view);
+        }
         if (!this._xrActive) this._updatePortraitBlur();
         this._draw();
     }
@@ -4980,16 +5028,18 @@ class AvatarRenderer {
     }
 
     /** Host-dependent half of the effects preset. The glow spills past the
-     *  avatar everywhere but the mascot, where a halo over the desktop reads
-     *  as a smudge and would widen the ghost-mode hit area. The CSS overlay
-     *  (para tint, vignette, grain) covers backdrop and avatar alike, on the
-     *  full-screen host only; it is positioned, so it paints above the
-     *  (static) canvas, and the host's stacking context keeps it below the
-     *  view's controls. The Portrait blur is re-derived for the new host on
-     *  the next frame. Runs on preset switches and on every reparent. */
+     *  avatar everywhere but the see-through mascot, where a halo over the
+     *  desktop reads as a smudge and would widen the ghost-mode hit area.
+     *  The CSS overlay (para tint, vignette, grain) covers backdrop and
+     *  avatar alike, on hosts that paint a backdrop only (the full-screen
+     *  view, the mascot with its backdrop on); it is positioned, so it
+     *  paints above the (static) canvas, and the host's stacking context
+     *  keeps it below the view's controls. The Portrait blur is re-derived
+     *  for the new host on the next frame. Runs on preset switches and on
+     *  every reparent. */
     _applyLookToActiveHost() {
         const host = this.activeCanvas;
-        this._look?.setSpill(!host?.classList?.contains("o_voice_avatar_canvas--mascot"));
+        this._look?.setSpill(!host?.classList?.contains("o_voice_avatar_canvas--mascot") || this._mascotBackdrop);
         this._portraitBlur = null;
         this._lookFxEl?.remove();
         this._lookFxEl = null;
@@ -5007,7 +5057,7 @@ class AvatarRenderer {
                 mixBlendMode: "overlay", opacity: String(preset.grain.opacity),
             });
         }
-        if (!layers.length || !host?.classList?.contains("o_voice_avatar_canvas--full")) return;
+        if (!layers.length || !this._hostPaintsBackdrop(host)) return;
         const doc = host.ownerDocument;
         const fx = doc.createElement("div");
         fx.setAttribute("aria-hidden", "true");
@@ -5036,11 +5086,12 @@ class AvatarRenderer {
      *  is c = f² / (N (s − f)). CSS blur() takes a Gaussian sigma, and a
      *  uniform disc of diameter D has sigma D/4 per axis. At f/4.5 the face
      *  view comes out near a 3%-of-frame-height disc, full body near 0.5%.
-     *  Full-screen host only; the style is written only when it changes. */
+     *  Backdrop-painting hosts only (see _hostPaintsBackdrop); the style is
+     *  written only when it changes. */
     _updatePortraitBlur() {
         const aperture = EFFECTS_PRESETS[this._effectsPreset]?.aperture;
         const host = this.activeCanvas;
-        const head = aperture && host?.classList?.contains("o_voice_avatar_canvas--full")
+        const head = aperture && this._hostPaintsBackdrop(host)
             ? this.getHeadWorldPosition() : null;
         let sigma = 0;
         if (head) {
@@ -5072,6 +5123,43 @@ class AvatarRenderer {
             this._moodMarks.dispose();
             this._moodMarks = null;
         }
+    }
+
+    // ── Ambience ─────────────────────────────────────────────────────────
+    // Weather / atmosphere particles (services/ambience.js) behind the Look →
+    // Ambience pref, plus the mood-reactive switch: a deliberate emotion
+    // plays its ambience over the user's choice for as long as the face
+    // holds it, then fades back. Both no-op before the renderer exists;
+    // _initRenderer applies the stored prefs.
+
+    /** Look → Ambience: 'off' | 'rain' | 'snow' | 'petals' | 'fireflies' | 'embers' | 'focus'.
+     *  A changed pick also ends a mood burst still playing, so the choice
+     *  shows at once. (The prefs event re-sends every look pref on any
+     *  edit, hence the change check.) */
+    setAmbience(id) {
+        id = id || "off";
+        const changed = id !== this._ambiencePref;
+        this._ambiencePref = id;
+        if (!this.scene) return;
+        if (id !== "off") this._ambience ||= new Ambience(this.libs.THREE, this.scene);
+        if (changed) this._ambience?.clearBurst();
+        this._ambience?.set(id);
+    }
+
+    setMoodAmbience(on) {
+        this._moodAmbience = !!on;
+        if (!on) this._ambience?.clearBurst();
+    }
+
+    /** Mood-reactive: a deliberate emotion (never the automatic settle)
+     *  plays its ambience at full strength for the face's reaction beat,
+     *  EMOTION_DECAY_MS, then fades back to the user's pick. Lazy like
+     *  setAmbience: the layer only exists once something asks for it. */
+    _playMoodAmbience(name) {
+        const id = this._moodAmbience && this.scene ? MOOD_AMBIENCE[name] : null;
+        if (!id) return;
+        this._ambience ||= new Ambience(this.libs.THREE, this.scene);
+        this._ambience.burst(id, EMOTION_DECAY_MS / 1000);
     }
 
     // ── Cursor touch physics ─────────────────────────────────────────────

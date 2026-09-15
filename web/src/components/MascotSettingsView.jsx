@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { _t } from "../lib/i18n";
 import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES } from "../lib/mascot_link";
-import { EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
+import { AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 import { EMOTIONS, GESTURES } from "../models/avatar_catalog";
 
 /** Mascot settings window (/#mascot-settings) — the mascot's full control
@@ -278,27 +278,52 @@ export default function MascotSettingsView() {
                                     </select>
                                 </div>
                             )}
+                            {check("rx_ms_fullbody", _t("Full body view"),
+                                _t("Show the whole character instead of the face view. "
+                                    + "Drag rotates, scroll zooms, Ctrl + drag moves the avatar around."),
+                                mascot?.fullBody,
+                                (v) => send({ type: "set", key: "fullBody", value: v }))}
                             {check("rx_ms_ghost", _t("Ghost mode"),
                                 _t("Clicks pass through the window to whatever is behind it, "
                                     + "and the avatar fades out of the cursor's way. The "
                                     + "controls island stays clickable."),
                                 mascot?.ghost,
                                 (v) => send({ type: "set", key: "ghost", value: v }))}
+                            {mascot?.ghost && (() => {
+                                // Opacity under the cursor, shown as a percentage.
+                                const pct = Math.round((mascot.ghostFade ?? 0.15) * 100);
+                                return (
+                                    <div className="rx_mascot_set_item rx_mascot_set_range">
+                                        <label htmlFor="rx_ms_ghostfade">{_t("Fade to")} {pct}%</label>
+                                        <input id="rx_ms_ghostfade" type="range" min="0" max="100" step="5"
+                                               value={pct}
+                                               onChange={(ev) => {
+                                                   const v = Number(ev.target.value) / 100;
+                                                   setMascot((m) => (m ? { ...m, ghostFade: v } : m));
+                                                   send({ type: "ghostFade", value: v });
+                                               }} />
+                                    </div>
+                                );
+                            })()}
                             {check("rx_ms_follow", _t("Follow the cursor"),
                                 _t("Eyes and head track your mouse across the desktop; when "
                                     + "it rests, they return to eye contact."),
                                 mascot?.cursorFollow,
                                 (v) => send({ type: "set", key: "cursorFollow", value: v }))}
+                        </fieldset>
+                        {/* A shared look pref (localStorage, read by the overlay
+                            and the full-screen view), not overlay state, so it
+                            stays live with the avatar popped back in. */}
+                        {check("rx_ms_touch", _t("Touch physics"),
+                            _t("Hair, skirts and other swinging parts move out of the cursor's way, ruffle with quick mouse sweeps, and bounce when clicked."),
+                            renderPrefs.touch,
+                            (v) => updateRenderPrefs({ touch: v }))}
+                        <fieldset disabled={!alive}>
                             {check("rx_ms_pin", _t("Always on top"),
                                 _t("Keep the avatar above every other window, fullscreen "
                                     + "apps included."),
                                 mascot?.pinned,
                                 (v) => send({ type: "set", key: "pinned", value: v }))}
-                            {check("rx_ms_fullbody", _t("Full body view"),
-                                _t("Show the whole character instead of the face view — "
-                                    + "drag rotates, scroll zooms."),
-                                mascot?.fullBody,
-                                (v) => send({ type: "set", key: "fullBody", value: v }))}
                         </fieldset>
                     </section>
 
@@ -366,6 +391,23 @@ export default function MascotSettingsView() {
 
                     <section>
                         <h3><i className="fa fa-lightbulb-o" /> {_t("Look")}</h3>
+                        {/* Overlay-owned (the mascot page paints it), unlike
+                            the look prefs below — greyed out with it closed. */}
+                        {check("rx_ms_backdrop", _t("Show a background"), null,
+                            mascot?.backdrop,
+                            (v) => send({ type: "set", key: "backdrop", value: v }),
+                            !alive)}
+                        {alive && mascot?.backdrop && (mascot.backgrounds || []).length > 1 && (
+                            <div className="rx_mascot_set_item">
+                                <label htmlFor="rx_ms_background">{_t("Background")}</label>
+                                <select id="rx_ms_background" value={mascot.backgroundKey || ""}
+                                        onChange={(ev) => send({ type: "background", key: ev.target.value })}>
+                                    {mascot.backgrounds.map((b) => (
+                                        <option key={b.key} value={b.key}>{b.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                         <div className="rx_mascot_set_item">
                             <label htmlFor="rx_ms_lighting">{_t("Lighting")}</label>
                             <select id="rx_ms_lighting" value={renderPrefs.lighting}
@@ -374,9 +416,6 @@ export default function MascotSettingsView() {
                                     <option key={id} value={id}>{_t(label)}</option>
                                 ))}
                             </select>
-                            <p className="rx_mascot_set_desc rx_mascot_set_desc--flush">
-                                {_t("Pre-set light rigs — a key light, a coloured rim from behind and, on most of them, a soft shadow under the feet. Also applies to the full-screen view.")}
-                            </p>
                         </div>
                         <div className="rx_mascot_set_item">
                             <label htmlFor="rx_ms_effects">{_t("Effects")}</label>
@@ -386,18 +425,24 @@ export default function MascotSettingsView() {
                                     <option key={id} value={id}>{_t(label)}</option>
                                 ))}
                             </select>
-                            <p className="rx_mascot_set_desc rx_mascot_set_desc--flush">
-                                {_t("Post-processing looks built from published settings — bloom on the character; colour tints, vignette, grain and the portrait background blur show in the full-screen view only. Off costs nothing; the others use some GPU.")}
-                            </p>
                         </div>
+                        <div className="rx_mascot_set_item">
+                            <label htmlFor="rx_ms_ambience">{_t("Ambience")}</label>
+                            <select id="rx_ms_ambience" value={renderPrefs.ambience}
+                                    onChange={(ev) => updateRenderPrefs({ ambience: ev.target.value })}>
+                                {AMBIENCE_OPTIONS.map(([id, label]) => (
+                                    <option key={id} value={id}>{_t(label)}</option>
+                                ))}
+                            </select>
+                        </div>
+                        {check("rx_ms_moodamb", _t("Mood-reactive ambience"),
+                            _t("Their mood picks the ambience: petals when happy, rain when sad, embers when angry, fireflies when relaxed, focus lines when surprised, then back to your choice."),
+                            renderPrefs.moodAmbience,
+                            (v) => updateRenderPrefs({ moodAmbience: v }))}
                         {check("rx_ms_moods", _t("Mood marks"),
-                            _t("Manga-style marks pop up by their head when their mood changes — a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed."),
+                            _t("Manga-style marks pop up by their head when their mood changes: a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed."),
                             renderPrefs.moodMarks,
                             (v) => updateRenderPrefs({ moodMarks: v }))}
-                        {check("rx_ms_touch", _t("Touch physics"),
-                            _t("Hair, skirts and other swinging parts move out of the cursor's way, ruffle with quick mouse sweeps, and bounce when clicked."),
-                            renderPrefs.touch,
-                            (v) => updateRenderPrefs({ touch: v }))}
                     </section>
 
                     <section>
@@ -409,7 +454,7 @@ export default function MascotSettingsView() {
                             controlsHidden,
                             (v) => setShell(bridge.setMascotControlsHidden, setControlsHidden, v))}
                         {check("rx_ms_hideidle", _t("Hide the avatar between calls"),
-                            _t("In mascot mode, the avatar disappears from the desktop while no call is live and pops back up (without stealing focus) when one starts. Pairs naturally with voice activation: the companion waits dormant and appears when you call their wake phrase. While hidden, the tray icon is the way back — click it or its \"Show Rexclaw\" entry."),
+                            _t("In mascot mode, the avatar disappears from the desktop while no call is live and pops back up (without stealing focus) when one starts. Pairs naturally with voice activation: the companion waits dormant and appears when you call their wake phrase. While hidden, the tray icon is the way back: click it or its \"Show Rexclaw\" entry."),
                             hideIdle,
                             (v) => setShell(bridge.setMascotHideIdle, setHideIdle, v))}
                         {check("rx_ms_startup", _t("Open in mascot mode"),

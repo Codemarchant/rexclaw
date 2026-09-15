@@ -619,9 +619,11 @@ function alignMascot(corner) {
     const { screen } = require("electron");
     const b = mascotWindow.getBounds();
     const wa = screen.getDisplayMatching(b).workArea;
-    const m = 24;
-    const x = corner.endsWith("left") ? wa.x + m : wa.x + wa.width - b.width - m;
-    const y = corner.startsWith("top") ? wa.y + m : wa.y + wa.height - b.height - m;
+    // Flush with the work area's edges: the face view crops the character
+    // at the window's bottom edge, so any gap left the cropped body
+    // floating above the taskbar.
+    const x = corner.endsWith("left") ? wa.x : wa.x + wa.width - b.width;
+    const y = corner.startsWith("top") ? wa.y : wa.y + wa.height - b.height;
     mascotWindow.setPosition(x, y);
 }
 
@@ -1511,11 +1513,12 @@ ipcMain.handle("mascot-size", (event, size) => {
             return false;
         }
     }
-    // Width cap 1600, not 1000: group calls in the mascot widen the window
-    // per extra character; the work-area clamp below still bounds it to the
-    // actual screen.
-    let width = Math.round(Math.min(1600, Math.max(220, Number(size && size.width) || 0)));
-    let height = Math.round(Math.min(1400, Math.max(320, Number(size && size.height) || 0)));
+    // No fixed caps: the work-area clamp below bounds every request to the
+    // actual screen. The whole-screen preset sits exactly at it, so
+    // scroll-to-resize has to step down from (and back up to) there, and
+    // group calls widen the window per extra character.
+    let width = Math.round(Math.max(220, Number(size && size.width) || 0));
+    let height = Math.round(Math.max(320, Number(size && size.height) || 0));
     if (!width || !height) return false;
     // Clamp to the current display's work area — the biggest presets are
     // taller than a 1080p screen, and with the bottom edge pinned the

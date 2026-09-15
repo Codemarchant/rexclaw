@@ -103,8 +103,8 @@ export const JA = {
   "Could not refresh the prompt": "プロンプトを更新できませんでした",
   "Show history": "履歴を表示",
   "Switch to face view": "顔アップ表示に切り替え",
-  "Switch to full body (drag to rotate, scroll to zoom)":
-    "全身表示に切り替え（ドラッグで回転、スクロールでズーム）",
+  "Switch to full body (drag to rotate, scroll to zoom, Ctrl + drag to move)":
+    "全身表示に切り替え（ドラッグで回転、スクロールでズーム、Ctrl＋ドラッグで移動）",
   "Disable walk mode": "歩行モードを無効化",
   "Enable walk mode (WASD / arrow keys — number keys pick which character to move in a group call)":
     "歩行モードを有効化（WASD／矢印キー — グループ通話中は数字キーで操作キャラを選択）",
@@ -496,8 +496,8 @@ export const JA = {
     "マスコットモードとは、ポップアウトしたアバターのことです。アプリの枠がない、小さく透明な最前面ウィンドウとして表示されます。これを有効にすると、Rexclaw はアプリウィンドウではなくデスクトップ上のコンパニオンとして起動します。通常のウィンドウには、アバターの操作パネルかトレイアイコンから「戻す」だけでいつでも切り替えられます。次回の起動から反映されます（「設定を保存」とは独立して適用されます）。",
   "Open in mascot mode": "マスコットモードで起動する",
   "Hide the avatar between calls": "通話していない間はアバターを隠す",
-  "In mascot mode, the avatar disappears from the desktop while no call is live and pops back up (without stealing focus) when one starts. Pairs naturally with voice activation: the companion waits dormant and appears when you call their wake phrase. While hidden, the tray icon is the way back — click it or its \"Show Rexclaw\" entry.":
-    "マスコットモードで、通話していない間はアバターがデスクトップから消え、通話が始まると（フォーカスを奪わずに）再び現れます。音声起動と自然に組み合わせられます：コンパニオンは裏で待機し、ウェイクフレーズを呼ぶと現れます。非表示の間はトレイアイコンが戻る手段です — アイコンをクリックするか「Show Rexclaw」を選んでください。",
+  "In mascot mode, the avatar disappears from the desktop while no call is live and pops back up (without stealing focus) when one starts. Pairs naturally with voice activation: the companion waits dormant and appears when you call their wake phrase. While hidden, the tray icon is the way back: click it or its \"Show Rexclaw\" entry.":
+    "マスコットモードで、通話していない間はアバターがデスクトップから消え、通話が始まると（フォーカスを奪わずに）再び現れます。音声起動と自然に組み合わせられます：コンパニオンは裏で待機し、ウェイクフレーズを呼ぶと現れます。非表示の間はトレイアイコンが戻る手段です：アイコンをクリックするか「Show Rexclaw」を選んでください。",
   "The mascot's own options — call controls, ghost mode, cursor follow, emotions and more — live in its settings window: the ⚙ on the avatar's controls, or \"Full mascot settings\" in the tray menu.":
     "マスコット自体のオプション — 通話操作、ゴーストモード、カーソル追従、感情など — は専用の設定ウィンドウにあります。アバターの操作パネルの ⚙、またはトレイメニューの「Full mascot settings」から開けます。",
   "Could not save that.": "保存できませんでした。",
@@ -529,9 +529,11 @@ export const JA = {
   "Keep the avatar above every other window, fullscreen apps included.":
     "アバターを常に他のすべてのウィンドウ（フルスクリーンアプリ含む）の前面に表示します。",
   "Full body view": "全身ビュー",
-  "Show the whole character instead of the face view — drag rotates, scroll zooms.":
-    "顔のアップではなく全身を表示します — ドラッグで回転、スクロールでズーム。",
+  "Fade to": "フェード時の不透明度",
+  "Show the whole character instead of the face view. Drag rotates, scroll zooms, Ctrl + drag moves the avatar around.":
+    "顔のアップではなく全身を表示します。ドラッグで回転、スクロールでズーム、Ctrl＋ドラッグでアバターを移動。",
   "Look": "見た目",
+  "Show a background": "背景を表示",
   "Lighting": "ライティング",
   "Studio": "スタジオ",
   "Sunny day": "晴れの日",
@@ -547,18 +549,26 @@ export const JA = {
   "None (keep current)": "なし（現在の設定を維持）",
   "Lighting preset selected whenever this background is switched to. Leave blank to keep the current selection.":
     "この背景に切り替えたときに選択されるライティングプリセット。空欄なら現在の選択を維持します。",
-  "Pre-set light rigs — a key light, a coloured rim from behind and, on most of them, a soft shadow under the feet. Also applies to the full-screen view.":
-    "プリセットの照明 — キーライト、背後からの色付きリムライト、多くのプリセットでは足元のやわらかい影。フルスクリーン表示にも適用されます。",
   "Effects": "エフェクト",
   "Soft bloom": "ソフトブルーム",
   "Anime colour": "アニメ撮影風カラー",
   "Portrait": "ポートレート",
   "Cinematic": "シネマティック",
-  "Post-processing looks built from published settings — bloom on the character; colour tints, vignette, grain and the portrait background blur show in the full-screen view only. Off costs nothing; the others use some GPU.":
-    "公開されている設定に基づくポストエフェクト — キャラクターにはブルーム、色味・ビネット・粒子感・ポートレート風の背景ぼかしはフルスクリーン表示のみに適用されます。オフは負荷なし、その他は GPU を少し使います。",
+  "Ambience": "アンビエンス",
+  "Rain": "雨",
+  "Snow": "雪",
+  "Cherry petals": "桜の花びら",
+  "Fireflies": "蛍",
+  "Embers": "火の粉",
+  "Focus lines": "集中線",
+  "Weather and atmosphere around your companion: rain, snow, drifting cherry petals, fireflies, rising embers or manga focus lines. They show on the desktop mascot too.":
+    "コンパニオンの周りの天気と雰囲気：雨、雪、舞う桜の花びら、蛍、舞い上がる火の粉、漫画の集中線。デスクトップマスコットにも表示されます。",
+  "Mood-reactive ambience": "気分に反応するアンビエンス",
+  "Their mood picks the ambience: petals when happy, rain when sad, embers when angry, fireflies when relaxed, focus lines when surprised, then back to your choice.":
+    "気分がアンビエンスを選びます。嬉しいと花びら、悲しいと雨、怒ると火の粉、リラックスすると蛍、驚くと集中線。その後はあなたの選択に戻ります。",
   "Mood marks": "感情マーク",
-  "Manga-style marks pop up by their head when their mood changes — a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed.":
-    "気分が変わると頭のそばに漫符が現れます — 嬉しいときは♪、怒ると怒りマーク、驚くと「！」、悲しいと雨雲、リラックスするとため息。",
+  "Manga-style marks pop up by their head when their mood changes: a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed.":
+    "気分が変わると頭のそばに漫符が現れます：嬉しいときは♪、怒ると怒りマーク、驚くと「！」、悲しいと雨雲、リラックスするとため息。",
   "Touch physics": "タッチ物理",
   "Hair, skirts and other swinging parts move out of the cursor's way, ruffle with quick mouse sweeps, and bounce when clicked.":
     "髪やスカートなどの揺れる部分がカーソルを避けて動き、素早いマウス操作でなびき、クリックすると弾みます。",

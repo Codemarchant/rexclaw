@@ -1,5 +1,6 @@
-// Renderer look prefs — the lighting and effects presets, mood marks and
-// the cursor touch physics switch. Per-browser (localStorage), shared
+// Renderer look prefs — the lighting, effects and ambience presets, the
+// mood-reactive ambience switch, mood marks and the cursor touch physics
+// switch. Per-browser (localStorage), shared
 // by every surface that shows the avatar: the full-screen view, the desktop
 // mascot overlay and the mascot settings window all read the same key, and
 // the renderer applies a change live wherever it happens — same-window
@@ -11,7 +12,9 @@ import { useEffect, useState } from "react";
 const STORAGE_KEY = "rexclaw.render_prefs";
 const CHANGE_EVENT = "rexclaw:render-prefs";
 
-export const DEFAULT_RENDER_PREFS = { lighting: "default", effects: "off", moodMarks: true, touch: true };
+export const DEFAULT_RENDER_PREFS = {
+    lighting: "default", effects: "off", ambience: "off", moodAmbience: false, moodMarks: true, touch: true,
+};
 
 // [id, English label] — labels go through _t() at the UI. Ids are the keys
 // of LIGHTING_PRESETS in services/avatar_renderer.js.
@@ -30,22 +33,37 @@ export const LIGHTING_PRESET_OPTIONS = [
 ];
 
 // [id, English label] — ids are the keys of EFFECTS_PRESETS in
-// services/avatar_renderer.js.
+// services/avatar_renderer.js. The bare "Soft bloom" entry was retired
+// (too subtle on its own; the bloom lives on inside Anime colour and
+// Cinematic) — a stored pick of it reads back as Off.
 export const EFFECTS_PRESET_OPTIONS = [
     ["off", "Off"],
-    ["bloom", "Soft bloom"],
     ["anime", "Anime colour"],
     ["portrait", "Portrait"],
     ["cinematic", "Cinematic"],
 ];
 
+// [id, English label] — ids are the systems in services/ambience.js.
+export const AMBIENCE_OPTIONS = [
+    ["off", "Off"],
+    ["rain", "Rain"],
+    ["snow", "Snow"],
+    ["petals", "Cherry petals"],
+    ["fireflies", "Fireflies"],
+    ["embers", "Embers"],
+    ["focus", "Focus lines"],
+];
+
 export function loadRenderPrefs() {
+    let prefs;
     try {
         const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-        return { ...DEFAULT_RENDER_PREFS, ...(raw && typeof raw === "object" ? raw : {}) };
+        prefs = { ...DEFAULT_RENDER_PREFS, ...(raw && typeof raw === "object" ? raw : {}) };
     } catch (e) {
-        return { ...DEFAULT_RENDER_PREFS };
+        prefs = { ...DEFAULT_RENDER_PREFS };
     }
+    if (!EFFECTS_PRESET_OPTIONS.some(([id]) => id === prefs.effects)) prefs.effects = "off";
+    return prefs;
 }
 
 /** Merge `patch` into the stored prefs and notify this window's subscribers.
