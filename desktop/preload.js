@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     closeMascot: (opts) => ipcRenderer.invoke("mascot-close", opts || {}),
     setMascotPin: (flag) => ipcRenderer.invoke("mascot-pin", !!flag),
     setMascotSize: (size) => ipcRenderer.invoke("mascot-size", size || {}),
+    // Right-click menu: the tray's items, popped over the mascot.
+    mascotMenu: () => ipcRenderer.invoke("mascot-menu"),
     // Ghost mode: while on, the shell streams global cursor positions
     // (window-relative) and the page decides per-region/per-pixel whether
     // the window should ignore mouse events.
@@ -106,6 +108,15 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
         ipcRenderer.removeAllListeners("mascot-controls-hidden");
         ipcRenderer.on("mascot-controls-hidden", (event, flag) => cb(flag));
     },
+    // Unsaved-changes guard: the page reports its dirty state, the shell
+    // turns the X button into a close-requested ping while dirty, and the
+    // page closes for real once its Save / Discard prompt resolves.
+    setUnsaved: (dirty) => ipcRenderer.invoke("window-unsaved", !!dirty),
+    onCloseRequested: (cb) => {
+        ipcRenderer.removeAllListeners("close-requested");
+        ipcRenderer.on("close-requested", () => cb());
+    },
+    closeWindow: () => ipcRenderer.invoke("window-close"),
     // Push channels. Re-registering replaces the previous callback (single
     // subscriber — survives React remounts/HMR).
     onMascotReturned: (cb) => {

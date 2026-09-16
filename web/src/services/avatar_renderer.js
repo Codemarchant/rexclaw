@@ -17,7 +17,9 @@
 // block third-party scripts (Brave shields, strict tracking protection).
 // Bundling also makes the avatar work fully offline.
 import * as THREE_NS from "three";
-import { loadRenderPrefs, onRenderPrefsChange, saveRenderPrefs } from "../lib/render_prefs";
+import {
+    AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, loadRenderPrefs, onRenderPrefsChange, saveRenderPrefs,
+} from "../lib/render_prefs";
 import {
     VRMLoaderPlugin,
     VRMUtils,
@@ -106,6 +108,10 @@ const BACKGROUND_PRESETS = {
     vignette_navy: "radial-gradient(ellipse 80% 90% at 50% 35%, #1e3a8a 0%, #1e293b 55%, #0a0f24 100%)",
     solid_dark: "#0f172a",
     solid_light: "#f5f5f5",
+    // Pure black for hologram devices (Pepper's-ghost pyramids, LED fans,
+    // transparent-LCD boxes): black pixels are invisible there, so the
+    // character floats. solid_dark's navy would show as a faint glow.
+    solid_black: "#000000",
 };
 
 // Animation constants.
@@ -2971,14 +2977,19 @@ class AvatarRenderer {
     setBackground(bg) {
         const prev = this._currentBackground;
         this._currentBackground = bg || null;
-        // A background with a default lighting preset selects it on the way
-        // in (through the shared pref, so every window and the Look
-        // dropdown follow); the user can still change it afterwards. Only
-        // on a genuine switch — re-applies of the same background (host
-        // reparents, hydration) must not undo a manual pick.
+        // A background with default look picks (lighting preset, effects
+        // preset, ambience layer) selects them on the way in (through the
+        // shared pref, so every window and the Look dropdowns follow); the
+        // user can still change them afterwards. Only on a genuine switch —
+        // re-applies of the same background (host reparents, hydration)
+        // must not undo a manual pick.
         const key = (b) => (b ? `${b.id ?? ""}|${b.name ?? ""}|${b.scene_url || b.image_url || b.preset_style || ""}` : "");
-        if (bg?.lighting && LIGHTING_PRESETS[bg.lighting] && key(bg) !== key(prev)) {
-            saveRenderPrefs({ lighting: bg.lighting });
+        if (bg && key(bg) !== key(prev)) {
+            const picks = {};
+            if (bg.lighting && LIGHTING_PRESETS[bg.lighting]) picks.lighting = bg.lighting;
+            if (bg.effects && EFFECTS_PRESET_OPTIONS.some(([id]) => id === bg.effects)) picks.effects = bg.effects;
+            if (bg.ambience && AMBIENCE_OPTIONS.some(([id]) => id === bg.ambience)) picks.ambience = bg.ambience;
+            if (Object.keys(picks).length) saveRenderPrefs(picks);
         }
         this._applyBackgroundToActiveHost();
     }
@@ -3078,11 +3089,11 @@ class AvatarRenderer {
             this._settleAvatarForBackgroundChange();
         }
 
-        // 'imagine_video' (change_background with animated=true) — a muted
-        // looping <video> layered between the host's CSS backdrop and the
-        // WebGL canvas. Full-only like image backgrounds; the mini host
-        // keeps its default.
-        if (bg && bg.type === "imagine_video" && bg.video_url) {
+        // 'imagine_video' (change_background with animated=true) and 'video'
+        // (uploaded in the avatar pack) — a muted looping <video> layered
+        // between the host's CSS backdrop and the WebGL canvas. Full-only
+        // like image backgrounds; the mini host keeps its default.
+        if (bg && (bg.type === "imagine_video" || bg.type === "video") && bg.video_url) {
             if (isFull) {
                 this._ensureBackgroundVideo(host, bg.video_url);
             } else {

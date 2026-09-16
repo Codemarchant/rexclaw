@@ -198,12 +198,15 @@ data/avatars/Kira/
     {"name": "Beach", "type": "scene", "glb": "beach.glb",
      "scale": 1.0, "offset": [0, 0, 0], "rotation_y": 0, "is_default": true},
     {"name": "Loft", "type": "scene", "glb": "/user-assets/loft.glb"},
-    {"name": "Poster", "type": "image", "image": "poster.jpg"}
+    {"name": "Poster", "type": "image", "image": "poster.jpg"},
+    {"name": "Rain", "type": "video", "video": "rain.mp4"}
   ]
 }
 ```
 
-Notes: file references are pack-relative filenames, or absolute web paths —
+Notes: `video` backgrounds (`.mp4`/`.webm`) play as a muted loop behind the
+companion, like an animated Imagine background. File references are
+pack-relative filenames, or absolute web paths —
 `/user-assets/…` for your shared `data/assets/` library (like `Loft` above),
 `/assets/…` for bundled assets. Packs are re-scanned on every server start.
 

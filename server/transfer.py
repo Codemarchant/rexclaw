@@ -229,6 +229,7 @@ def _iter_manifest_refs(manifest):
     for b in manifest.get("backgrounds") or []:
         if isinstance(b, dict):
             yield b, "image"
+            yield b, "video"
             yield b, "glb"
             yield b, "scene"
 

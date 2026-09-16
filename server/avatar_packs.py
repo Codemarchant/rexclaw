@@ -47,7 +47,8 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
         {"name": "Beach", "type": "scene", "glb": "beach.glb",
          "scale": 1.0, "offset": [0, 0, 0], "rotation_y": 0,
          "is_default": false},
-        {"name": "Poster", "type": "image", "image": "poster.jpg"}
+        {"name": "Poster", "type": "image", "image": "poster.jpg"},
+        {"name": "Rain loop", "type": "video", "video": "rain.mp4"}   // muted, looping
       ]
     }
 
@@ -89,7 +90,7 @@ _RESERVED_GESTURES = set(_BUILTIN_GESTURE_IDS) | {"idle"}
 _KNOWN_PRESETS = {
     "gradient_indigo", "gradient_slate", "gradient_studio",
     "vignette_charcoal", "vignette_studio", "vignette_navy",
-    "solid_dark", "solid_light",
+    "solid_dark", "solid_light", "solid_black",
 }
 
 
@@ -328,6 +329,13 @@ def _scan_pack(con, pack_dir, url_root):
                                   pack=pack_key, field=f"backgrounds[{i}].image")
             if not image_path:
                 continue
+        elif btype == "video":
+            # Same column as images — the payload maps it to video_url, the
+            # way imagine_images does for animated Imagine backgrounds.
+            image_path = _resolve(b.get("video"), pack_dir, url_base,
+                                  pack=pack_key, field=f"backgrounds[{i}].video")
+            if not image_path:
+                continue
         elif btype == "scene":
             scene_path = _resolve(b.get("glb") or b.get("scene"), pack_dir, url_base,
                                   pack=pack_key, field=f"backgrounds[{i}].glb")
@@ -344,14 +352,16 @@ def _scan_pack(con, pack_dir, url_root):
         con.execute(
             "INSERT INTO avatar_backgrounds (avatar_id, name, sequence, type, preset_style,"
             " image_path, scene_path, scene_scale, scene_offset_x, scene_offset_y, scene_offset_z,"
-            " scene_rotation_y, is_default, default_pos_x, default_pos_z, default_yaw, lighting)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " scene_rotation_y, is_default, default_pos_x, default_pos_z, default_yaw,"
+            " lighting, effects, ambience)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (avatar_id, name, (i + 1) * 10, btype, preset, image_path, scene_path,
              float(b.get("scale") or 1.0), float(offset[0]), float(offset[1]), float(offset[2]),
              float(b.get("rotation_y") or 0.0), int(is_default),
              float(b.get("default_x") or 0.0), float(b.get("default_z") or 0.0),
              float(b.get("default_yaw") or 0.0),
-             (str(b.get("lighting")).strip() or None) if b.get("lighting") else None),
+             *((str(b.get(k)).strip() or None) if b.get(k) else None
+               for k in ("lighting", "effects", "ambience"))),
         )
 
     return avatar_id
@@ -420,6 +430,7 @@ _ALLOWED_UPLOAD_EXT = {
     "vrma": {".vrma"},
     "scene": {".glb", ".gltf"},
     "image": {".png", ".jpg", ".jpeg", ".webp"},
+    "video": {".mp4", ".webm"},
 }
 MAX_UPLOAD_BYTES = 120 * 1024 * 1024  # generous — VRMs run 10-30 MB
 
@@ -516,7 +527,7 @@ def pack_file_path(pack_key, filename):
 
 def save_upload(pack_key, kind, filename, content_bytes):
     """Save an uploaded file into the pack folder, return the stored filename.
-    `kind` (vrm/vrma/scene/image) gates the allowed extension."""
+    `kind` (vrm/vrma/scene/image/video) gates the allowed extension."""
     pack_dir = _require_editable(pack_key)
     if len(content_bytes) > MAX_UPLOAD_BYTES:
         raise UserError(f"File too large ({len(content_bytes) // (1024*1024)} MB). Max is 120 MB.")
@@ -636,6 +647,8 @@ def _validate_manifest(pack_dir, m):
                 raise UserError(f"Background '{b.get('name')}': pick a valid preset.")
         elif btype == "image":
             _check_file(b.get("image"), f"Background '{b.get('name')}' image")
+        elif btype == "video":
+            _check_file(b.get("video"), f"Background '{b.get('name')}' video")
         elif btype == "scene":
             _check_file(b.get("glb") or b.get("scene"), f"Background '{b.get('name')}' GLB")
         else:

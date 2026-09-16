@@ -215,11 +215,21 @@ export default function TextView({ active = true }) {
     // new companion's portrait.
     const previewSessionIdRef = useRef(null);
     useEffect(() => {
-        if (isLive || isConnecting || st.status === "ending") return;
+        if (isLive || isConnecting || st.status === "ending") {
+            // A session (started here or resumed from a notification) has
+            // taken over the transcript — no preview is showing any more.
+            // Left set, a later switch to the previewed companion matched
+            // the stale id and skipped the fetch: portrait changed, chat
+            // didn't.
+            previewSessionIdRef.current = null;
+            return;
+        }
         const sess = lastResumableSession;
-        // The session that just ended is still on screen in full — keep it.
-        if (sess && text.state.sessionId === sess.id) return;
-        if ((sess?.id || null) === previewSessionIdRef.current) return;
+        // The session that just ended is still on screen in full — keep it
+        // while its companion stays selected. Matched by companion, not
+        // session id: the history rail may not have refreshed yet.
+        if (text.state.sessionId && Number(text.state.agentId) === Number(selectedAgentId)) return;
+        if (sess && sess.id === previewSessionIdRef.current) return;
         let cancelled = false;
         (async () => {
             let messages = [];
@@ -241,7 +251,7 @@ export default function TextView({ active = true }) {
         })();
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isLive, isConnecting, st.status, lastResumableSession?.id]);
+    }, [isLive, isConnecting, st.status, lastResumableSession?.id, selectedAgentId]);
 
     const pickFile = () => fileInputRef.current?.click();
 

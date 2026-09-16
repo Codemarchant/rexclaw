@@ -269,9 +269,9 @@ CREATE TABLE IF NOT EXISTS avatar_backgrounds (
     avatar_id INTEGER NOT NULL REFERENCES avatars(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     sequence INTEGER NOT NULL DEFAULT 10,
-    type TEXT NOT NULL DEFAULT 'static',   -- image | static | scene
+    type TEXT NOT NULL DEFAULT 'static',   -- image | video | static | scene
     preset_style TEXT,
-    image_path TEXT,
+    image_path TEXT,                        -- image OR video file (by type)
     scene_path TEXT,
     scene_scale REAL NOT NULL DEFAULT 1.0,
     scene_offset_x REAL NOT NULL DEFAULT 0,
@@ -286,7 +286,11 @@ CREATE TABLE IF NOT EXISTS avatar_backgrounds (
     default_yaw REAL NOT NULL DEFAULT 0,
     -- Lighting preset id (web LIGHTING_PRESETS) selected when this
     -- background is switched to; NULL leaves the user's pick alone.
-    lighting TEXT
+    lighting TEXT,
+    -- Same idea for the Effects preset and the Ambience layer (ids from
+    -- web render_prefs option lists; 'off' is a real pick, NULL = keep).
+    effects TEXT,
+    ambience TEXT
 );
 
 -- Where a companion was last hand-placed (walk mode) inside one specific
@@ -925,6 +929,8 @@ MIGRATIONS = (
     "ALTER TABLE avatar_backgrounds ADD COLUMN default_yaw REAL NOT NULL DEFAULT 0",
     # Per-background default lighting preset (see the schema comment).
     "ALTER TABLE avatar_backgrounds ADD COLUMN lighting TEXT",
+    "ALTER TABLE avatar_backgrounds ADD COLUMN effects TEXT",
+    "ALTER TABLE avatar_backgrounds ADD COLUMN ambience TEXT",
     # create_image/create_video featuring ANOTHER companion by name — a
     # separate opt-in from enable_companion_texting (see the agents schema
     # comment above).

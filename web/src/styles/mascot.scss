@@ -257,6 +257,10 @@ html.rx_mascot_mode {
 // rows, and the "avatar not popped out" banner.
 
 .rx_mascot_settings {
+    // .rx_settings drops its bottom padding for the pinned save bar; this
+    // window has none, so give the last section room to breathe.
+    padding-bottom: 1.5rem;
+
     // fieldset is only a native enable/disable wrapper — no chrome.
     fieldset {
         border: 0;
@@ -322,6 +326,12 @@ html.rx_mascot_mode {
         flex-wrap: wrap;
 
         .btn-light { border: 1px solid #cbd5e1; }
+    }
+
+    .rx_mascot_set_custom {
+        align-items: center;
+
+        input[type="number"] { width: 5.5rem; }
     }
 
     // Call controls row: status dot + label, then the action buttons.

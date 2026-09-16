@@ -28,9 +28,16 @@ def background_payload(row):
         'preset_style': row['preset_style'] or False,
         'image_url': row['image_path'] or False,
         'is_default': bool(row['is_default']),
-        # Lighting preset applied on switching to this background (False = none).
+        # Look defaults applied on switching to this background (False = keep
+        # the current pick): lighting preset, effects preset, ambience layer.
         'lighting': row['lighting'] or False,
+        'effects': row['effects'] or False,
+        'ambience': row['ambience'] or False,
     }
+    if row['type'] == 'video':
+        # Uploaded loop: the renderer keys the <video> layer off video_url,
+        # same as an animated Imagine background.
+        payload['video_url'] = payload.pop('image_url')
     if row['type'] == 'scene':
         payload.update({
             'scene_url': row['scene_path'] or False,

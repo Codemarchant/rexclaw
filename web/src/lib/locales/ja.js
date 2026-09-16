@@ -496,8 +496,8 @@ export const JA = {
     "マスコットモードとは、ポップアウトしたアバターのことです。アプリの枠がない、小さく透明な最前面ウィンドウとして表示されます。これを有効にすると、Rexclaw はアプリウィンドウではなくデスクトップ上のコンパニオンとして起動します。通常のウィンドウには、アバターの操作パネルかトレイアイコンから「戻す」だけでいつでも切り替えられます。次回の起動から反映されます（「設定を保存」とは独立して適用されます）。",
   "Open in mascot mode": "マスコットモードで起動する",
   "Hide the avatar between calls": "通話していない間はアバターを隠す",
-  "In mascot mode, the avatar disappears from the desktop while no call is live and pops back up (without stealing focus) when one starts. Pairs naturally with voice activation: the companion waits dormant and appears when you call their wake phrase. While hidden, the tray icon is the way back: click it or its \"Show Rexclaw\" entry.":
-    "マスコットモードで、通話していない間はアバターがデスクトップから消え、通話が始まると（フォーカスを奪わずに）再び現れます。音声起動と自然に組み合わせられます：コンパニオンは裏で待機し、ウェイクフレーズを呼ぶと現れます。非表示の間はトレイアイコンが戻る手段です：アイコンをクリックするか「Show Rexclaw」を選んでください。",
+  "The avatar hides while no call is live and pops back up when one starts. Pairs well with voice activation. While hidden, the tray icon brings it back.":
+    "通話していない間はアバターが消え、通話が始まると再び現れます。音声起動と相性抜群。非表示の間はトレイアイコンから戻せます。",
   "The mascot's own options — call controls, ghost mode, cursor follow, emotions and more — live in its settings window: the ⚙ on the avatar's controls, or \"Full mascot settings\" in the tray menu.":
     "マスコット自体のオプション — 通話操作、ゴーストモード、カーソル追従、感情など — は専用の設定ウィンドウにあります。アバターの操作パネルの ⚙、またはトレイメニューの「Full mascot settings」から開けます。",
   "Could not save that.": "保存できませんでした。",
@@ -505,33 +505,31 @@ export const JA = {
   // ── Mascot settings window ────────────────────────────────────────────
   "Mascot settings": "マスコット設定",
   "Open mascot settings": "マスコット設定を開く",
-  "Everything about the desktop avatar in one place. Changes apply immediately.":
-    "デスクトップアバターに関する設定をここにまとめました。変更は即時に反映されます。",
-  "The desktop mascot is part of the desktop app — open this window from there.":
-    "デスクトップマスコットはデスクトップアプリの機能です — このウィンドウはそちらから開いてください。",
-  "The avatar isn't popped out right now — everything except Visibility & startup comes alive when it is.":
-    "アバターは今ポップアウトされていません — 「表示と起動」以外の設定はポップアウトすると有効になります。",
+  "The desktop mascot is part of the desktop app. Open this window from there.":
+    "デスクトップマスコットはデスクトップアプリの機能です。このウィンドウはそちらから開いてください。",
+  "The avatar isn't popped out. Most settings come alive when it is.":
+    "アバターはポップアウトされていません。ほとんどの設定はポップアウトすると有効になります。",
   "Pop out avatar": "アバターをポップアウト",
   "Emotions & gestures": "感情とジェスチャー",
   "Companion & call": "コンパニオンと通話",
   "Share screen": "画面共有",
   "Pop back in": "アプリウィンドウに戻す",
   "Transcript window": "トランスクリプトウィンドウ",
-  "Manual triggers, same as the full-screen view — they play on the desktop avatar right away, call or no call.":
-    "フルスクリーンビューと同じ手動トリガーです — 通話の有無にかかわらず、デスクトップのアバターで即座に再生されます。",
+  "Play on the desktop avatar right away, call or no call.":
+    "通話の有無にかかわらず、デスクトップのアバターで即座に再生されます。",
   "Behavior": "動作",
   "Ghost mode": "ゴーストモード",
-  "Clicks pass through the window to whatever is behind it, and the avatar fades out of the cursor's way. The controls island stays clickable.":
-    "クリックはウィンドウを素通りして背後のアプリに届き、アバターはカーソルを避けてフェードします。操作パネルはクリック可能のままです。",
+  "Clicks pass through to whatever is behind the window, and the avatar fades out of the cursor's way.":
+    "クリックはウィンドウを素通りして背後のアプリに届き、アバターはカーソルを避けてフェードします。",
   "Follow the cursor": "カーソルを追う",
-  "Eyes and head track your mouse across the desktop; when it rests, they return to eye contact.":
-    "目と頭がデスクトップ上のマウスを追いかけます。マウスが止まるとアイコンタクトに戻ります。",
-  "Keep the avatar above every other window, fullscreen apps included.":
-    "アバターを常に他のすべてのウィンドウ（フルスクリーンアプリ含む）の前面に表示します。",
+  "Eyes and head track your mouse across the desktop.":
+    "目と頭がデスクトップ上のマウスを追いかけます。",
+  "Keep the avatar above every other window.":
+    "アバターを常に他のすべてのウィンドウの前面に表示します。",
   "Full body view": "全身ビュー",
   "Fade to": "フェード時の不透明度",
-  "Show the whole character instead of the face view. Drag rotates, scroll zooms, Ctrl + drag moves the avatar around.":
-    "顔のアップではなく全身を表示します。ドラッグで回転、スクロールでズーム、Ctrl＋ドラッグでアバターを移動。",
+  "Whole character instead of the face. Drag to rotate, scroll to zoom, Ctrl + drag to move.":
+    "顔のアップではなく全身を表示。ドラッグで回転、スクロールでズーム、Ctrl＋ドラッグで移動。",
   "Look": "見た目",
   "Show a background": "背景を表示",
   "Lighting": "ライティング",
@@ -546,6 +544,12 @@ export const JA = {
   "Stage spotlight": "ステージスポット",
   "Backlit": "逆光",
   "Default lighting": "デフォルトのライティング",
+  "Default effects": "デフォルトのエフェクト",
+  "Default ambience": "デフォルトのアンビエンス",
+  "Effects preset selected whenever this background is switched to. Leave blank to keep the current selection.":
+    "この背景に切り替えるたびに選択されるエフェクトプリセット。空欄なら現在の選択を維持します。",
+  "Ambience layer selected whenever this background is switched to. Leave blank to keep the current selection.":
+    "この背景に切り替えるたびに選択されるアンビエンスレイヤー。空欄なら現在の選択を維持します。",
   "None (keep current)": "なし（現在の設定を維持）",
   "Lighting preset selected whenever this background is switched to. Leave blank to keep the current selection.":
     "この背景に切り替えたときに選択されるライティングプリセット。空欄なら現在の選択を維持します。",
@@ -567,6 +571,12 @@ export const JA = {
   "Their mood picks the ambience: petals when happy, rain when sad, embers when angry, fireflies when relaxed, focus lines when surprised, then back to your choice.":
     "気分がアンビエンスを選びます。嬉しいと花びら、悲しいと雨、怒ると火の粉、リラックスすると蛍、驚くと集中線。その後はあなたの選択に戻ります。",
   "Mood marks": "感情マーク",
+  "Their mood picks the ambience, then back to your pick.":
+    "気分がアンビエンスを選び、その後はあなたの選択に戻ります。",
+  "Manga-style marks by their head when their mood changes.":
+    "気分が変わると頭のそばに漫符が現れます。",
+  "Hair and clothes dodge the cursor, ruffle on quick sweeps and bounce when clicked.":
+    "髪や服がカーソルを避け、素早い操作でなびき、クリックすると弾みます。",
   "Manga-style marks pop up by their head when their mood changes: a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed.":
     "気分が変わると頭のそばに漫符が現れます：嬉しいときは♪、怒ると怒りマーク、驚くと「！」、悲しいと雨雲、リラックスするとため息。",
   "Touch physics": "タッチ物理",
@@ -575,16 +585,25 @@ export const JA = {
   "Window size": "ウィンドウサイズ",
   "Or scroll on the avatar (face view) for fine control.":
     "アバター上でスクロールしても微調整できます（フェイスビュー時）。",
+  "Custom size": "カスタムサイズ",
+  "Width (px)": "幅（px）",
+  "Height (px)": "高さ（px）",
+  "Apply": "適用",
+  "Screen width": "画面の幅",
+  "Set the width to this display's full width": "幅をこのディスプレイいっぱいに設定",
+  "Screen height": "画面の高さ",
+  "Set the height to this display's full height (taskbar excluded)":
+    "高さをこのディスプレイいっぱいに設定（タスクバーを除く）",
   "Outfit": "衣装",
   "Placement": "配置",
   "Snap to corner": "コーナーに配置",
   "Next monitor": "次のモニターへ",
   "Visibility & startup": "表示と起動",
   "Hide avatar controls": "アバターの操作パネルを隠す",
-  "The floating controls island never shows, even on hover. The tray menu and hotkeys stay available — including this window.":
-    "フローティング操作パネルをホバーしても一切表示しません。トレイメニューとホットキー（このウィンドウを含む）は引き続き使えます。",
-  "Rexclaw starts as the companion on your desktop instead of an app window. Takes effect on the next launch.":
-    "Rexclaw がアプリウィンドウではなくデスクトップ上のコンパニオンとして起動します。次回の起動から反映されます。",
+  "The floating controls never show, even on hover. Right-click the avatar or use the tray to get back here.":
+    "フローティング操作パネルをホバーしても一切表示しません。ここに戻るにはアバターを右クリックするかトレイを使ってください。",
+  "Start as the desktop companion instead of the app window. From the next launch.":
+    "アプリウィンドウではなくデスクトップのコンパニオンとして起動します。次回の起動から。",
   "Call ended after %s minutes with nothing happening.":
     "%s 分間なにも操作がなかったため通話を終了しました。",
 
@@ -963,6 +982,16 @@ export const JA = {
   "Preset": "プリセット",
   "Image": "画像",
   "3D scene (GLB)": "3D シーン（GLB）",
+  "Video (muted loop)": "動画（無音ループ）",
+  "Indigo gradient": "インディゴ グラデーション",
+  "Slate gradient": "スレート グラデーション",
+  "Studio gradient (light)": "スタジオ グラデーション（明）",
+  "Charcoal vignette": "チャコール ビネット",
+  "Studio vignette (light)": "スタジオ ビネット（明）",
+  "Navy vignette": "ネイビー ビネット",
+  "Solid dark": "単色ダーク",
+  "Solid light": "単色ライト",
+  "Solid black (hologram devices)": "単色ブラック（ホログラム機器向け）",
   "Placement of the GLB scene ITSELF, in metres (avatar ≈ 1.5 m tall) — aligning an arbitrarily-exported room so its floor/scale/facing line up. Scale, X/Y/Z offset, and Y-axis rotation in degrees.":
     "GLB シーン自体の配置（メートル単位、アバターは約 1.5 m）— 任意の形式でエクスポートされたルームの床・スケール・向きを合わせるためのものです。スケール、X/Y/Z オフセット、Y 軸回転（度）。",
   "Room": "ルーム",
@@ -1379,8 +1408,10 @@ export const JA = {
     "発話中の自動ジェスチャー（実験的）",
   "Your companion gestures along with what they're saying: a bow for thanks, a shrug for \"oh well\". Each sentence is matched by the turn director model set below, so it adds a little to your usage.":
     "コンパニオンが話している内容に合わせてジェスチャーします。お礼にはお辞儀、「まあいいか」には肩をすくめる、といった具合です。文ごとに下のターンディレクターモデルが選ぶため、その分の利用量が少し増えます。",
-  "Your companion gestures along with what they're saying. Each sentence is matched by the turn director model, so it adds a little to your usage.":
-    "コンパニオンが話している内容に合わせてジェスチャーします。文ごとにターンディレクターモデルが選ぶため、その分の利用量が少し増えます。",
+  "Gestures along with what they're saying. Matched per sentence by the director model, so it adds a little usage.":
+    "話している内容に合わせてジェスチャーします。文ごとにディレクターモデルが選ぶため、利用量が少し増えます。",
+  "Small movements while they stand quietly: a weight shift, folded arms, a touch of their hair.":
+    "静かに立っている間の小さな動き：重心を移す、腕を組む、髪に触れる。",
   "Idle fidgets": "待機中の小さな動き",
   "Small movements while your companion stands there quietly: a shift of weight, folded arms, a touch of their hair.":
     "コンパニオンが静かに立っている間の小さな動きです。重心を移す、腕を組む、髪に触れる、といったものです。",

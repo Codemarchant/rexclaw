@@ -92,6 +92,16 @@ export default function MascotSettingsView() {
     }, []);
 
     const send = (msg) => chRef.current?.postMessage(msg);
+    // Custom size draft: seeded from the overlay's live window size and
+    // re-synced whenever that changes (a preset click, a scroll resize), so
+    // the fields always read what's on screen until the user types.
+    const [custom, setCustom] = useState({ width: "", height: "" });
+    const liveW = mascot?.windowSize?.width;
+    const liveH = mascot?.windowSize?.height;
+    useEffect(() => {
+        if (liveW && liveH) setCustom({ width: String(liveW), height: String(liveH) });
+    }, [liveW, liveH]);
+    const applyCustom = () => send({ type: "customSize", width: Number(custom.width), height: Number(custom.height) });
     // Motion switches are global config rather than overlay prefs, but they
     // travel the same way: the overlay owns the director, so it applies and
     // persists them and pushes the new state back.
@@ -121,7 +131,7 @@ export default function MascotSettingsView() {
                     <section>
                         <h3><i className="fa fa-cog" /> {_t("Mascot settings")}</h3>
                         <p className="text-muted">
-                            {_t("The desktop mascot is part of the desktop app — open this window from there.")}
+                            {_t("The desktop mascot is part of the desktop app. Open this window from there.")}
                         </p>
                     </section>
                 </div>
@@ -167,10 +177,6 @@ export default function MascotSettingsView() {
                             </button>
                         )}
                     </h3>
-                    <p className="text-muted">
-                        {_t("Everything about the desktop avatar in one place. Changes "
-                            + "apply immediately.")}
-                    </p>
                     <div className="rx_mascot_set_tabs">
                         <button className={"btn btn-sm " + (tab === "settings" ? "btn-primary" : "btn-light")}
                                 onClick={() => setTab("settings")}>
@@ -183,8 +189,7 @@ export default function MascotSettingsView() {
                     </div>
                     {!alive && (
                         <div className="rx_mascot_set_offline">
-                            <span>{_t("The avatar isn't popped out right now — everything "
-                                + "except Visibility & startup comes alive when it is.")}</span>
+                            <span>{_t("The avatar isn't popped out. Most settings come alive when it is.")}</span>
                             <button className="btn btn-sm btn-primary"
                                     onClick={() => bridge.runHotkeyAction?.("mascot.toggle")}>
                                 <i className="fa fa-external-link" /> {_t("Pop out avatar")}
@@ -279,14 +284,11 @@ export default function MascotSettingsView() {
                                 </div>
                             )}
                             {check("rx_ms_fullbody", _t("Full body view"),
-                                _t("Show the whole character instead of the face view. "
-                                    + "Drag rotates, scroll zooms, Ctrl + drag moves the avatar around."),
+                                _t("Whole character instead of the face. Drag to rotate, scroll to zoom, Ctrl + drag to move."),
                                 mascot?.fullBody,
                                 (v) => send({ type: "set", key: "fullBody", value: v }))}
                             {check("rx_ms_ghost", _t("Ghost mode"),
-                                _t("Clicks pass through the window to whatever is behind it, "
-                                    + "and the avatar fades out of the cursor's way. The "
-                                    + "controls island stays clickable."),
+                                _t("Clicks pass through to whatever is behind the window, and the avatar fades out of the cursor's way."),
                                 mascot?.ghost,
                                 (v) => send({ type: "set", key: "ghost", value: v }))}
                             {mascot?.ghost && (() => {
@@ -306,8 +308,7 @@ export default function MascotSettingsView() {
                                 );
                             })()}
                             {check("rx_ms_follow", _t("Follow the cursor"),
-                                _t("Eyes and head track your mouse across the desktop; when "
-                                    + "it rests, they return to eye contact."),
+                                _t("Eyes and head track your mouse across the desktop."),
                                 mascot?.cursorFollow,
                                 (v) => send({ type: "set", key: "cursorFollow", value: v }))}
                         </fieldset>
@@ -315,43 +316,16 @@ export default function MascotSettingsView() {
                             and the full-screen view), not overlay state, so it
                             stays live with the avatar popped back in. */}
                         {check("rx_ms_touch", _t("Touch physics"),
-                            _t("Hair, skirts and other swinging parts move out of the cursor's way, ruffle with quick mouse sweeps, and bounce when clicked."),
+                            _t("Hair and clothes dodge the cursor, ruffle on quick sweeps and bounce when clicked."),
                             renderPrefs.touch,
                             (v) => updateRenderPrefs({ touch: v }))}
                         <fieldset disabled={!alive}>
                             {check("rx_ms_pin", _t("Always on top"),
-                                _t("Keep the avatar above every other window, fullscreen "
-                                    + "apps included."),
+                                _t("Keep the avatar above every other window."),
                                 mascot?.pinned,
                                 (v) => send({ type: "set", key: "pinned", value: v }))}
                         </fieldset>
                     </section>
-
-                    {mascot?.motion && (
-                        <section>
-                            <h3><i className="fa fa-child" /> {_t("Background Avatar Motion")}</h3>
-                            {!mascot.motionAvailable && (
-                                <p className="rx_mascot_set_desc">
-                                    {_t("No motion library installed, so these have nothing to play yet.")}
-                                </p>
-                            )}
-                            <fieldset disabled={!alive}>
-                                {check("rx_ms_speechgest",
-                                    _t("Automated background gestures while speaking (experimental)"),
-                                    _t("Your companion gestures along with what they're "
-                                        + "saying. Each sentence is matched by the turn "
-                                        + "director model, so it adds a little to your usage."),
-                                    mascot.motion.speech_gestures,
-                                    (v) => sendMotion({ speech_gestures: v }))}
-                                {check("rx_ms_fidgets", _t("Idle fidgets"),
-                                    _t("Small movements while your companion stands there "
-                                        + "quietly: a shift of weight, folded arms, a touch "
-                                        + "of their hair."),
-                                    mascot.motion.idle_fidgets,
-                                    (v) => sendMotion({ idle_fidgets: v }))}
-                            </fieldset>
-                        </section>
-                    )}
 
                     <section>
                         <h3><i className="fa fa-arrows" /> {_t("Placement")}</h3>
@@ -371,6 +345,35 @@ export default function MascotSettingsView() {
                             <p className="rx_mascot_set_desc rx_mascot_set_desc--flush">
                                 {_t("Or scroll on the avatar (face view) for fine control.")}
                             </p>
+                            <label>{_t("Custom size")}</label>
+                            <div className="rx_mascot_set_sizes rx_mascot_set_custom">
+                                <input type="number" min={220} step={10} value={custom.width}
+                                       title={_t("Width (px)")}
+                                       onChange={(ev) => setCustom((c) => ({ ...c, width: ev.target.value }))}
+                                       onKeyDown={(ev) => { if (ev.key === "Enter") applyCustom(); }} />
+                                <span>×</span>
+                                <input type="number" min={320} step={10} value={custom.height}
+                                       title={_t("Height (px)")}
+                                       onChange={(ev) => setCustom((c) => ({ ...c, height: ev.target.value }))}
+                                       onKeyDown={(ev) => { if (ev.key === "Enter") applyCustom(); }} />
+                                <button className={"btn btn-sm "
+                                            + (alive && mascot?.sizeIdx === -1 ? "btn-primary" : "btn-light")}
+                                        onClick={applyCustom}>
+                                    {_t("Apply")}
+                                </button>
+                                <button className="btn btn-sm btn-light"
+                                        title={_t("Set the width to this display's full width")}
+                                        disabled={!mascot?.screenSize?.width}
+                                        onClick={() => setCustom((c) => ({ ...c, width: String(mascot.screenSize.width) }))}>
+                                    <i className="fa fa-arrows-h" /> {_t("Screen width")}
+                                </button>
+                                <button className="btn btn-sm btn-light"
+                                        title={_t("Set the height to this display's full height (taskbar excluded)")}
+                                        disabled={!mascot?.screenSize?.height}
+                                        onClick={() => setCustom((c) => ({ ...c, height: String(mascot.screenSize.height) }))}>
+                                    <i className="fa fa-arrows-v" /> {_t("Screen height")}
+                                </button>
+                            </div>
                             <label>{_t("Snap to corner")}</label>
                             <div className="rx_mascot_set_corners">
                                 {[["top-left", "↖"], ["top-right", "↗"],
@@ -436,11 +439,11 @@ export default function MascotSettingsView() {
                             </select>
                         </div>
                         {check("rx_ms_moodamb", _t("Mood-reactive ambience"),
-                            _t("Their mood picks the ambience: petals when happy, rain when sad, embers when angry, fireflies when relaxed, focus lines when surprised, then back to your choice."),
+                            _t("Their mood picks the ambience, then back to your pick."),
                             renderPrefs.moodAmbience,
                             (v) => updateRenderPrefs({ moodAmbience: v }))}
                         {check("rx_ms_moods", _t("Mood marks"),
-                            _t("Manga-style marks pop up by their head when their mood changes: a ♪ when happy, an anger mark when angry, an exclamation mark when surprised, a rain cloud when sad, a sigh puff when relaxed."),
+                            _t("Manga-style marks by their head when their mood changes."),
                             renderPrefs.moodMarks,
                             (v) => updateRenderPrefs({ moodMarks: v }))}
                     </section>
@@ -448,29 +451,48 @@ export default function MascotSettingsView() {
                     <section>
                         <h3><i className="fa fa-eye-slash" /> {_t("Visibility & startup")}</h3>
                         {check("rx_ms_controls", _t("Hide avatar controls"),
-                            _t("The floating controls island never shows, even on hover. "
-                                + "The tray menu and hotkeys stay available — including "
-                                + "this window."),
+                            _t("The floating controls never show, even on hover. Right-click the avatar or use the tray to get back here."),
                             controlsHidden,
                             (v) => setShell(bridge.setMascotControlsHidden, setControlsHidden, v))}
                         {check("rx_ms_hideidle", _t("Hide the avatar between calls"),
-                            _t("In mascot mode, the avatar disappears from the desktop while no call is live and pops back up (without stealing focus) when one starts. Pairs naturally with voice activation: the companion waits dormant and appears when you call their wake phrase. While hidden, the tray icon is the way back: click it or its \"Show Rexclaw\" entry."),
+                            _t("The avatar hides while no call is live and pops back up when one starts. Pairs well with voice activation. While hidden, the tray icon brings it back."),
                             hideIdle,
                             (v) => setShell(bridge.setMascotHideIdle, setHideIdle, v))}
                         {check("rx_ms_startup", _t("Open in mascot mode"),
-                            _t("Rexclaw starts as the companion on your desktop instead of "
-                                + "an app window. Takes effect on the next launch."),
+                            _t("Start as the desktop companion instead of the app window. From the next launch."),
                             startInMascot,
                             (v) => setShell(bridge.setStartupMascot, setStartInMascot, v))}
                     </section>
+
+                    {/* Last on purpose: the least-used section, and a niche one. */}
+                    {mascot?.motion && (
+                        <section>
+                            <h3><i className="fa fa-child" /> {_t("Background Avatar Motion")}</h3>
+                            {!mascot.motionAvailable && (
+                                <p className="rx_mascot_set_desc">
+                                    {_t("No motion library installed, so these have nothing to play yet.")}
+                                </p>
+                            )}
+                            <fieldset disabled={!alive}>
+                                {check("rx_ms_speechgest",
+                                    _t("Automated background gestures while speaking (experimental)"),
+                                    _t("Gestures along with what they're saying. Matched per sentence by the director model, so it adds a little usage."),
+                                    mascot.motion.speech_gestures,
+                                    (v) => sendMotion({ speech_gestures: v }))}
+                                {check("rx_ms_fidgets", _t("Idle fidgets"),
+                                    _t("Small movements while they stand quietly: a weight shift, folded arms, a touch of their hair."),
+                                    mascot.motion.idle_fidgets,
+                                    (v) => sendMotion({ idle_fidgets: v }))}
+                            </fieldset>
+                        </section>
+                    )}
                 </>}
 
                 {tab === "emotions" && <>
                     <section>
                         <h3><i className="fa fa-smile-o" /> {_t("Emotions")}</h3>
                         <p className="text-muted">
-                            {_t("Manual triggers, same as the full-screen view — they play "
-                                + "on the desktop avatar right away, call or no call.")}
+                            {_t("Play on the desktop avatar right away, call or no call.")}
                         </p>
                         <fieldset disabled={!alive}>
                             <div className="rx_mascot_set_grid">

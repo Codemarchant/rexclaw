@@ -76,11 +76,20 @@ export default function MascotView() {
     // step and the group-call widening base.
     const [pinned, setPinned] = useState(() => loadMascotPrefs().pinned !== false);
     const [fullBody, setFullBody] = useState(() => !!loadMascotPrefs().fullBody);
-    // Index 0 matches the shell's MASCOT_DEFAULT_SIZE (380×560).
+    // Index 0 matches the shell's MASCOT_DEFAULT_SIZE (380×560); -1 is the
+    // user's own width × height from the settings window (customSize).
+    const [customSize, setCustomSize] = useState(() => {
+        const c = loadMascotPrefs().customSize;
+        return c && Number(c.width) >= 220 && Number(c.height) >= 320
+            ? { width: Number(c.width), height: Number(c.height) } : null;
+    });
     const [sizeIdx, setSizeIdx] = useState(() => {
         const idx = Number(loadMascotPrefs().sizeIdx);
+        if (idx === -1) return loadMascotPrefs().customSize ? -1 : 0;
         return Number.isInteger(idx) && idx >= 0 && idx < SIZES.length ? idx : 0;
     });
+    // Preset or custom entry the size controls scale from.
+    const sizeBase = sizeIdx === -1 && customSize ? customSize : SIZES[Math.max(0, sizeIdx)];
     const [ghost, setGhost] = useState(() => !!loadMascotPrefs().ghost);
     // How far ghost mode fades the avatar under the cursor, as opacity
     // (settings window slider). 0.15 was the fixed fade before the slider;
@@ -157,7 +166,7 @@ export default function MascotView() {
             setFullBody(true);
             avatarRenderer.setFullBodyMode?.(true);
         }
-        const base = SIZES[sizeIdx];
+        const base = sizeBase;
         // Whole-screen preset: already as wide as it gets.
         if (base.full) return;
         const width = Math.round(base.width * (1 + 0.55 * peerCount));
@@ -495,6 +504,32 @@ export default function MascotView() {
         };
     }, [fullBody]);
 
+    // ---- right-click menu ---------------------------------------------------
+    // The tray menu, without the trip to the tray: the only in-app route to
+    // the shell toggles and the settings window once the controls island is
+    // hidden. Skipped after a right-DRAG so a full-body orbit pan (right
+    // button) doesn't end in a menu. Ghost mode never sees the click — the
+    // window passes it through — so the tray stays the way back from there.
+    useEffect(() => {
+        const bridge = window.rexclawDesktop;
+        const el = rootRef.current;
+        if (!el || !bridge?.mascotMenu) return;
+        let down = null;
+        const onDown = (ev) => { if (ev.button === 2) down = { x: ev.screenX, y: ev.screenY }; };
+        const onMenu = (ev) => {
+            ev.preventDefault();
+            const moved = down && (Math.abs(ev.screenX - down.x) > 4 || Math.abs(ev.screenY - down.y) > 4);
+            down = null;
+            if (!moved) bridge.mascotMenu();
+        };
+        el.addEventListener("pointerdown", onDown);
+        el.addEventListener("contextmenu", onMenu);
+        return () => {
+            el.removeEventListener("pointerdown", onDown);
+            el.removeEventListener("contextmenu", onMenu);
+        };
+    }, []);
+
     // ---- grab-the-character dragging ---------------------------------------
     // Face view only: full-body view gives the pointer to OrbitControls, and
     // ghost mode passes clicks through the avatar entirely. Manual because
@@ -557,12 +592,9 @@ export default function MascotView() {
         window.rexclawDesktop?.setMascotPin?.(next);
     };
 
-    const applySizeIdx = (next) => {
-        setSizeIdx(next);
-        saveMascotPref({ sizeIdx: next });
-        // Apply the group-call widening here too — cycling mid-call used to
-        // snap back to the solo preset width and clip the outer characters.
-        const base = SIZES[next];
+    // Apply the group-call widening here too — cycling mid-call used to
+    // snap back to the solo preset width and clip the outer characters.
+    const applySizeBase = (base) => {
         window.rexclawDesktop?.setMascotSize?.(peerCount > 0 && !base.full
             ? {
                 width: Math.round(base.width * (1 + 0.55 * peerCount)),
@@ -570,6 +602,26 @@ export default function MascotView() {
                 anchor: "bottom-center",
             }
             : base);
+    };
+
+    const applySizeIdx = (next) => {
+        setSizeIdx(next);
+        saveMascotPref({ sizeIdx: next });
+        applySizeBase(SIZES[next]);
+    };
+
+    // Settings window's custom width × height: remembered as its own entry
+    // (sizeIdx -1) so the group widening and the cycle key know where they
+    // are. The shell clamps it to the work area like any preset.
+    const applyCustomSize = ({ width, height }) => {
+        const w = Math.round(Number(width));
+        const h = Math.round(Number(height));
+        if (!(w >= 220) || !(h >= 320)) return;
+        const next = { width: w, height: h };
+        setCustomSize(next);
+        setSizeIdx(-1);
+        saveMascotPref({ sizeIdx: -1, customSize: next });
+        applySizeBase(next);
     };
 
     const cycleSize = () => applySizeIdx((sizeIdx + 1) % SIZES.length);
@@ -615,6 +667,15 @@ export default function MascotView() {
                 pinned,
                 fullBody,
                 sizeIdx,
+                customSize,
+                // Live window + display size, so the settings window's custom
+                // fields start from what's actually showing (after a scroll
+                // resize too) and "screen height" means THIS display.
+                windowSize: { width: window.innerWidth, height: window.innerHeight },
+                screenSize: {
+                    width: window.screen?.availWidth || window.innerWidth,
+                    height: window.screen?.availHeight || window.innerHeight,
+                },
                 // The avatar payload's outfit list already leads with the
                 // main outfit (id 0) under its own name.
                 outfits: avatar?.vrm_url
@@ -676,6 +737,10 @@ export default function MascotView() {
                 case "size": {
                     const idx = Number(msg.idx);
                     if (Number.isInteger(idx) && idx >= 0 && idx < SIZES.length) applySizeIdx(idx);
+                    return;
+                }
+                case "customSize": {
+                    applyCustomSize(msg);
                     return;
                 }
                 case "emotion": {
@@ -747,8 +812,15 @@ export default function MascotView() {
     const shareKey = JSON.stringify(localShareState(scap, awareState, shareError));
     useEffect(() => { settingsSync.current.publish(); },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [ghost, ghostFade, cursorFollow, pinned, fullBody, sizeIdx, backdrop, currentAgent, sv.selectedOutfitId,
-         sv.activeBackground, agents, selectedAgentId, sv.status, sv.muted, shareKey]);
+        [ghost, ghostFade, cursorFollow, pinned, fullBody, sizeIdx, customSize, backdrop, currentAgent,
+         sv.selectedOutfitId, sv.activeBackground, agents, selectedAgentId, sv.status, sv.muted, shareKey]);
+    // Window size rides in the snapshot too — republish when the shell
+    // resizes us (presets, scroll, group widening) so the fields track it.
+    useEffect(() => {
+        const onResize = () => settingsSync.current.publish();
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+    }, []);
 
     // ---- hotkey call feedback -----------------------------------------------
     // A hotkey press has no visual echo here: the island only shows on

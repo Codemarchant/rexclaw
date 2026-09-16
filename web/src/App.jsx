@@ -35,6 +35,10 @@ const TABS = [
     { id: "settings", label: "Settings", icon: "fa-cog" },
 ];
 
+// `pendingTab` value for "the desktop shell's X button" — the leave prompt
+// resolves by closing the window instead of switching tabs.
+const CLOSE_WINDOW = "__close__";
+
 export default function App() {
     const [tab, setTab] = useState("voice");
     // Odoo-style unsaved-changes guard. `pendingTab` holds the tab we're
@@ -67,17 +71,31 @@ export default function App() {
         clearUnsaved();
         const next = pendingTab;
         setPendingTab(null);
-        if (next) setTab(next);
+        if (next === CLOSE_WINDOW) window.rexclawDesktop?.closeWindow?.();
+        else if (next) setTab(next);
     };
 
-    // Browser / Electron window close: the native prompt is the only guard
-    // available here (no custom Save/Discard on unload).
+    // Browser window close: the native prompt is the only guard available
+    // here (no custom Save/Discard on unload).
     useEffect(() => {
         const onBeforeUnload = (e) => {
             if (unsavedGuard.dirty) { e.preventDefault(); e.returnValue = ""; }
         };
         window.addEventListener("beforeunload", onBeforeUnload);
         return () => window.removeEventListener("beforeunload", onBeforeUnload);
+    }, []);
+    // Desktop shell: Electron cancels a beforeunload-blocked close silently,
+    // so the X button looked dead while a form was dirty. The shell mirrors
+    // the dirty flag and, while set, turns the X into a close-requested ping
+    // that opens the same Save / Discard / Cancel prompt as the tab bar.
+    useEffect(() => { window.rexclawDesktop?.setUnsaved?.(!!guard.dirty); }, [guard.dirty]);
+    useEffect(() => {
+        const bridge = window.rexclawDesktop;
+        if (!bridge?.onCloseRequested) return;
+        bridge.onCloseRequested(() => {
+            if (unsavedGuard.dirty) setPendingTab(CLOSE_WINDOW);
+            else bridge.closeWindow?.();
+        });
     }, []);
     // Subscribing App to the locale makes a language switch re-render the
     // whole mounted tree in place — children aren't memoized, and nothing

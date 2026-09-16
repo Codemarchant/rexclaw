@@ -202,12 +202,15 @@ data/avatars/Kira/
     {"name": "Beach", "type": "scene", "glb": "beach.glb",
      "scale": 1.0, "offset": [0, 0, 0], "rotation_y": 0, "is_default": true},
     {"name": "Loft", "type": "scene", "glb": "/user-assets/loft.glb"},
-    {"name": "Poster", "type": "image", "image": "poster.jpg"}
+    {"name": "Poster", "type": "image", "image": "poster.jpg"},
+    {"name": "Rain", "type": "video", "video": "rain.mp4"}
   ]
 }
 ```
 
-補足：ファイル参照はパック相対のファイル名、または絶対 Web パスです —
+補足：`video` 背景（`.mp4`/`.webm`）は、アニメーション Imagine 背景と同様に
+コンパニオンの後ろで無音ループ再生されます。ファイル参照はパック相対の
+ファイル名、または絶対 Web パスです —
 `/user-assets/…` は共有ライブラリ `data/assets/` のファイル（上の `Loft`
 の例）、`/assets/…` は同梱アセット。パックはサーバー起動のたびに
 再スキャンされます。

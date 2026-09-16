@@ -8,7 +8,7 @@ import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { useListSort } from "../lib/list_sort";
 import { EditorBar } from "./UnsavedUI.jsx";
 import Portrait from "./Portrait.jsx";
-import { LIGHTING_PRESET_OPTIONS } from "../lib/render_prefs";
+import { AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS } from "../lib/render_prefs";
 import { avatarRenderer } from "../services/avatar_renderer";
 import { GESTURES } from "../models/avatar_catalog";
 
@@ -21,8 +21,20 @@ import { GESTURES } from "../models/avatar_catalog";
 const PRESETS = [
     "gradient_indigo", "gradient_slate", "gradient_studio",
     "vignette_charcoal", "vignette_studio", "vignette_navy",
-    "solid_dark", "solid_light",
+    "solid_dark", "solid_light", "solid_black",
 ];
+// Dropdown labels — the manifest keeps the key.
+const PRESET_LABELS = {
+    gradient_indigo: "Indigo gradient",
+    gradient_slate: "Slate gradient",
+    gradient_studio: "Studio gradient (light)",
+    vignette_charcoal: "Charcoal vignette",
+    vignette_studio: "Studio vignette (light)",
+    vignette_navy: "Navy vignette",
+    solid_dark: "Solid dark",
+    solid_light: "Solid light",
+    solid_black: "Solid black (hologram devices)",
+};
 
 const BLANK_MANIFEST = {
     name: "", vrm: "", vrma_idle: "",
@@ -961,18 +973,23 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                                 onChange={(ev) => setList("backgrounds", i, { type: ev.target.value })}>
                             <option value="static">{_t("Preset")}</option>
                             <option value="image">{_t("Image")}</option>
+                            <option value="video">{_t("Video (muted loop)")}</option>
                             <option value="scene">{_t("3D scene (GLB)")}</option>
                         </select>
                         <div className="rx_bg_controls">
                             {b.type === "static" && (
                                 <select value={b.preset || ""}
                                         onChange={(ev) => setList("backgrounds", i, { preset: ev.target.value })}>
-                                    {PRESETS.map((p) => <option key={p} value={p}>{p}</option>)}
+                                    {PRESETS.map((p) => <option key={p} value={p}>{_t(PRESET_LABELS[p] || p)}</option>)}
                                 </select>
                             )}
                             {b.type === "image" && (
                                 <FileField library={library} kind="image" packKey={pack_key} value={b.image} accept=".png,.jpg,.jpeg,.webp"
                                            onUploaded={(fn) => setList("backgrounds", i, { image: fn })} />
+                            )}
+                            {b.type === "video" && (
+                                <FileField library={library} kind="video" packKey={pack_key} value={b.video} accept=".mp4,.webm"
+                                           onUploaded={(fn) => setList("backgrounds", i, { video: fn })} />
                             )}
                             {b.type === "scene" && (
                                 <FileField library={library} kind="scene" packKey={pack_key} value={b.glb} accept=".glb,.gltf"
@@ -996,6 +1013,29 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                                     onChange={(ev) => setList("backgrounds", i, { lighting: ev.target.value || "" })}>
                                 <option value="">{_t("None (keep current)")}</option>
                                 {LIGHTING_PRESET_OPTIONS.map(([id, label]) => (
+                                    <option key={id} value={id}>{_t(label)}</option>
+                                ))}
+                            </select>
+                        </span>
+                        {/* Same for the Effects preset and the Ambience layer. "Off"
+                            is a real pick here (a hologram-black backdrop wants no
+                            rain), blank keeps the current selection. */}
+                        <span className="rx_scene_xform" title={_t("Effects preset selected whenever this background is switched to. Leave blank to keep the current selection.")}>
+                            <strong className="rx_scene_xform_label">{_t("Default effects")}</strong>
+                            <select value={b.effects || ""}
+                                    onChange={(ev) => setList("backgrounds", i, { effects: ev.target.value || "" })}>
+                                <option value="">{_t("None (keep current)")}</option>
+                                {EFFECTS_PRESET_OPTIONS.map(([id, label]) => (
+                                    <option key={id} value={id}>{_t(label)}</option>
+                                ))}
+                            </select>
+                        </span>
+                        <span className="rx_scene_xform" title={_t("Ambience layer selected whenever this background is switched to. Leave blank to keep the current selection.")}>
+                            <strong className="rx_scene_xform_label">{_t("Default ambience")}</strong>
+                            <select value={b.ambience || ""}
+                                    onChange={(ev) => setList("backgrounds", i, { ambience: ev.target.value || "" })}>
+                                <option value="">{_t("None (keep current)")}</option>
+                                {AMBIENCE_OPTIONS.map(([id, label]) => (
                                     <option key={id} value={id}>{_t(label)}</option>
                                 ))}
                             </select>

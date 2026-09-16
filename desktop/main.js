@@ -483,9 +483,39 @@ function createWindow(port, { show = true } = {}) {
         return { action: "deny" };
     });
 
-    mainWindow.on("closed", () => { mainWindow = null; });
+    // X button while a form holds unsaved edits: the page's beforeunload
+    // would cancel the close SILENTLY (Electron shows no prompt, unlike a
+    // browser), which reads as a dead button. Hand it to the page's own
+    // Save / Discard / Cancel dialog instead — it calls window-close once
+    // resolved. Tray Quit (quitting) and that forced close pass straight
+    // through.
+    mainWindow.on("close", (e) => {
+        if (quitting || mainCloseForced || !mainUnsaved) return;
+        e.preventDefault();
+        mainWindow.webContents.send("close-requested");
+    });
+    mainWindow.on("closed", () => { mainWindow = null; mainUnsaved = false; mainCloseForced = false; });
     mainWindow.loadURL(`${serverScheme}://127.0.0.1:${port}/`);
 }
+
+// Unsaved-changes guard mirror for the close interception above.
+let mainUnsaved = false;
+let mainCloseForced = false;
+
+ipcMain.handle("window-unsaved", (event, dirty) => {
+    if (mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents) {
+        mainUnsaved = !!dirty;
+    }
+    return true;
+});
+
+ipcMain.handle("window-close", (event) => {
+    const w = BrowserWindow.fromWebContents(event.sender);
+    if (!w || w.isDestroyed()) return false;
+    if (w === mainWindow) mainCloseForced = true;
+    w.close();
+    return true;
+});
 
 // ---------------------------------------------------------------------------
 // Desktop mascot (pop-out avatar overlay)
@@ -1130,10 +1160,13 @@ function trayIconPath() {
 // Deliberately short: every mascot option lives in the settings window now,
 // so the tray keeps only the essentials — surface the app, swap between
 // mascot and app window, open the full settings, quit.
-function rebuildTrayMenu() {
-    if (!tray) return;
+/** The tray menu's items — also popped by a right-click on the mascot, so
+ *  the shell-owned toggles stay reachable without a trip to the tray even
+ *  with the controls island hidden. Built fresh per use: the checkboxes
+ *  read the current settings. */
+function trayMenuTemplate() {
     const mascotOpen = !!(mascotWindow && !mascotWindow.isDestroyed());
-    tray.setContextMenu(Menu.buildFromTemplate([
+    return [
         {
             label: "Show Rexclaw",
             click: () => {
@@ -1184,8 +1217,21 @@ function rebuildTrayMenu() {
         // to the mascot settings window (the island's ⚙ never renders).
         { label: "Full mascot settings", click: createMascotSettingsWindow },
         { label: "Quit Rexclaw", click: () => app.quit() },
-    ]));
+    ];
 }
+
+function rebuildTrayMenu() {
+    if (!tray) return;
+    tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate()));
+}
+
+// Right-click on the mascot: the tray menu, in place. The page decides when
+// (it skips the end of a right-drag orbit pan), the shell just pops it.
+ipcMain.handle("mascot-menu", () => {
+    if (!mascotWindow || mascotWindow.isDestroyed()) return false;
+    Menu.buildFromTemplate(trayMenuTemplate()).popup({ window: mascotWindow });
+    return true;
+});
 
 function createTray() {
     const iconPath = trayIconPath();

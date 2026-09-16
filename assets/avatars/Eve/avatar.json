@@ -82,6 +82,11 @@
       "preset": "vignette_charcoal"
     },
     {
+      "name": "Hologram (black)",
+      "type": "static",
+      "preset": "solid_black"
+    },
+    {
       "name": "Grid Playground",
       "type": "scene",
       "glb": "/assets/glb/grid_playground.glb"
