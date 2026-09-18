@@ -84,6 +84,16 @@ export default function VoiceView({ active = true }) {
     const [selectedAgentId, setSelectedAgentId] = useState(null);
     const [showHistory, setShowHistory] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
+    // Shared-library .vrma files for the manual-triggers picker. Fetched the
+    // first time the panel opens (null = not fetched yet); a failed fetch
+    // leaves it empty, which just hides the picker.
+    const [libraryGestures, setLibraryGestures] = useState(null);
+    useEffect(() => {
+        if (!showSettings || libraryGestures) return;
+        rpc("/api/avatars/shared_assets", { kind: "vrma" })
+            .then((files) => setLibraryGestures((files || []).filter((f) => f.kind === "vrma")))
+            .catch(() => setLibraryGestures([]));
+    }, [showSettings]);
     // Look prefs (lighting preset, cursor touch physics) — per-browser,
     // shared with the mascot; the renderer applies them itself.
     const [renderPrefs, updateRenderPrefs] = useRenderPrefs();
@@ -91,9 +101,9 @@ export default function VoiceView({ active = true }) {
     const [showControls, setShowControls] = useState(true);
     const [fullBody, setFullBody] = useState(false);
     const [moveMode, setMoveMode] = useState(false);
-    // "walk" (default, eases back to face the camera on stop), "walk-no-snap"
-    // (same locomotion, skips that — for posing companions in a scene), or
-    // "camera" (WASD flies the camera instead; companions untouched).
+    // "walk" (default; the companion stays facing however it stopped), "auto"
+    // (same walking, with the camera directing itself), or "camera" (WASD
+    // flies the camera instead; companions untouched).
     const [moveKind, setMoveKindState] = useState("walk");
     // Walk mode's settings panel — collapsed by default (minimal UI once
     // you've set what you want); the little arrow button next to the
@@ -369,15 +379,15 @@ export default function VoiceView({ active = true }) {
         });
     }, [fullBody, clearMoveInput]);
 
-    /** Switch what WASD does while walk mode is on — walk / walk-no-snap /
-     *  camera (see the moveKind state comment). */
+    /** Switch what WASD does while walk mode is on — walk / camera / auto
+     *  (see the moveKind state comment). */
     const setMoveKindOn = useCallback((kind) => {
         avatarRenderer.setMoveKind?.(kind);
         setMoveKindState(kind);
     }, []);
 
     // Placement persistence: remember where a companion was last hand-placed
-    // (walk / walk-no-snap) in each GLB scene, per agent, so re-entering that
+    // (walk / auto) in each GLB scene, per agent, so re-entering that
     // scene restores it instead of always respawning at the origin. Read the
     // reactive state directly (not the destructured `sv`) so these
     // long-lived callbacks always see the CURRENT agent/background rather
@@ -1414,6 +1424,24 @@ export default function VoiceView({ active = true }) {
                                 </div>
                             </div>
                         )}
+                        {(libraryGestures || []).length > 0 && (
+                            <div className="o_voice_full_settings_section">
+                                <strong>{_t("Library animations")}</strong>
+                                <div className="o_voice_full_settings_row">
+                                    {/* value stays "" so the same entry can be picked again to replay it */}
+                                    <select value=""
+                                            title={_t("Play any animation from the shared asset library once, even if it is not one of this avatar's gestures")}
+                                            onChange={(ev) => { if (ev.target.value) triggerGesture(ev.target.value); }}>
+                                        <option value="">{_t("Library…")}</option>
+                                        {libraryGestures.map((f) => (
+                                            <option key={f.url} value={f.url}>
+                                                {f.name}{f.source === "bundled" ? " " + _t("(bundled)") : ""}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -1423,9 +1451,9 @@ export default function VoiceView({ active = true }) {
                             <strong>{_t("Movement mode")}</strong>
                             <div className="o_voice_full_settings_grid">
                                 {[
-                                    ["walk", _t("Walk"), _t("Moves the companion; faces you again on stop")],
-                                    ["walk-no-snap", _t("No snap-back"), _t("Same, but leaves it facing however it stopped — for posing")],
+                                    ["walk", _t("Walk"), _t("Moves the companion. It stays facing however it stopped, so you can pose it")],
                                     ["camera", _t("Camera"), _t("Flies the camera itself; companions untouched")],
+                                    ["auto", _t("Camera - auto follow"), _t("Walks the companion like Walk, while the camera directs itself: it follows them and changes shot (face, waist-up, full body) when they finish a line or set off walking. Drag or zoom to take the camera back until the next shot")],
                                 ].map(([id, label, hint]) => (
                                     <button key={id}
                                             className={"btn btn-sm " + (moveKind === id ? "btn-primary" : "btn-outline-light")}

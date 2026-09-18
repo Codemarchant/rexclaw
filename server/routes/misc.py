@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, heartbeat, idle_events, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, transfer, xai_client
+from .. import avatar_packs, heartbeat, idle_events, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client
 from ..db import ASSETS_DIR, FILES_DIR, shipped_column_defaults, utcnow
 from ..wake_models import WAKE_MODELS
 from ..errors import UserError
@@ -39,6 +39,8 @@ _CONFIG_FIELDS = (
     "local_gen_url",
     "local_gen_image_workflow", "local_gen_image_edit_workflow",
     "local_gen_video_workflow", "local_gen_video_i2v_workflow",
+    "gesture_gen_enabled", "gesture_gen_url", "gesture_gen_engine", "gesture_gen_planner",
+    "gesture_gen_speed", "gesture_gen_model",
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
     "summary_threshold_tokens", "summary_threshold_tokens_text",
     "summary_keep_recent_messages",
@@ -51,7 +53,7 @@ _CONFIG_FIELDS = (
     "live_chat_ignored_users", "live_chat_blocked_words",
     "transcript_display_limit", "heartbeat_notifications",
     "transcript_retention_days", "file_default_expiry_seconds",
-    "speech_gestures", "idle_fidgets", "fidget_interval",
+    "speech_gestures", "idle_fidgets", "fidget_interval", "gesture_zoom_out",
 )
 
 _AGENT_FIELDS = (
@@ -69,7 +71,7 @@ _AGENT_FIELDS = (
     "enable_call_agents_tool", "when_to_call_description",
     "enable_companion_texting", "texting_tools_enabled",
     "enable_delegate_tool", "enable_multi_agent_delegation",
-    "enable_local_tasks", "enable_minecraft",
+    "enable_local_tasks", "enable_minecraft", "enable_gesture_gen", "enable_move_tool",
     "enable_end_call_tool", "wake_phrase", "wake_action",
     "time_aware_resume", "speaks_first",
     "idle_events_enabled", "idle_events_min_seconds", "idle_events_max_seconds",
@@ -88,6 +90,8 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     # The ComfyUI auth header is a pod password / API key: write-only from
     # the UI, same as the xAI key.
     out["has_local_gen_auth"] = bool(row["local_gen_auth_header"])
+    # The Text-To-VRMA access token: write-only too.
+    out["has_gesture_gen_token"] = bool(row["gesture_gen_token"])
     # The YouTube Data API key (live chat): write-only too.
     out["has_youtube_api_key"] = bool(row["live_chat_youtube_api_key"])
     out["spend_today_usd"] = row["spend_today_usd"]
@@ -118,6 +122,12 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
             updates["local_gen_auth_header"] = ""
         elif isinstance(header, str) and header.strip():
             updates["local_gen_auth_header"] = header.strip()
+    if "gesture_gen_token" in payload:
+        token = payload["gesture_gen_token"]
+        if token is None:
+            updates["gesture_gen_token"] = ""
+        elif isinstance(token, str) and token.strip():
+            updates["gesture_gen_token"] = token.strip()
     if "live_chat_youtube_api_key" in payload:
         yt_key = payload["live_chat_youtube_api_key"]
         if yt_key is None:
@@ -137,10 +147,10 @@ def motion_settings_set(payload: dict = Body(default={}), con=Depends(db_con)):
 
     The mascot window flips these mid-call and has no business round-
     tripping the whole config to do it (it would clobber anything unsaved
-    in the Settings tab). Same three fields as /config/set, on their own.
+    in the Settings tab). The same motion fields as /config/set, on their own.
     """
     sets, vals = [], []
-    for key in ("speech_gestures", "idle_fidgets"):
+    for key in ("speech_gestures", "idle_fidgets", "gesture_zoom_out"):
         if key in payload:
             sets.append(f"{key} = ?")
             vals.append(1 if payload[key] else 0)
@@ -159,6 +169,7 @@ def motion_settings_set(payload: dict = Body(default={}), con=Depends(db_con)):
         "speech_gestures": bool(row["speech_gestures"]),
         "idle_fidgets": bool(row["idle_fidgets"]),
         "fidget_interval": float(row["fidget_interval"] or 60),
+        "gesture_zoom_out": bool(row["gesture_zoom_out"]),
     }
 
 
@@ -212,6 +223,7 @@ def motion_libraries(con=Depends(db_con)):
             "speech_gestures": bool(row["speech_gestures"]),
             "idle_fidgets": bool(row["idle_fidgets"]),
             "fidget_interval": float(row["fidget_interval"] or 60),
+            "gesture_zoom_out": bool(row["gesture_zoom_out"]),
         },
     }
 
@@ -294,6 +306,17 @@ def local_gen_test(payload: dict = Body(default={}), con=Depends(db_con)):
     if not (isinstance(header, str) and header.strip()):
         header = con.execute("SELECT local_gen_auth_header FROM config WHERE id = 1").fetchone()[0]
     return local_gen.test_connection(payload.get("url"), header)
+
+
+@router.post("/gesture_gen/test")
+def gesture_gen_test(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Settings "Test connection": is the Text-To-VRMA API at this URL, does
+    it accept the token, and which engines can it run. Draft URL + token,
+    falling back to the stored token like /local_gen/test."""
+    token = payload.get("token")
+    if not (isinstance(token, str) and token.strip()):
+        token = con.execute("SELECT gesture_gen_token FROM config WHERE id = 1").fetchone()[0]
+    return text_to_vrma.test_connection(payload.get("url"), token)
 
 
 @router.post("/local_gen/inspect")

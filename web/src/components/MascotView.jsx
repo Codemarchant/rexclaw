@@ -766,6 +766,14 @@ export default function MascotView() {
                     }
                     return;
                 }
+                // Any .vrma from the shared asset library, picked in the
+                // settings window: played once, by url.
+                case "libraryGesture": {
+                    const url = msg.url;
+                    if (typeof url !== "string" || !url.startsWith("/") || !url.toLowerCase().endsWith(".vrma")) return;
+                    avatarRenderer.playGesture?.(url);
+                    return;
+                }
                 // Motion library switches (Settings → Background Avatar Motion, mirrored
                 // here so they can be flipped mid-call). Global config, so
                 // this persists as well as applying live.

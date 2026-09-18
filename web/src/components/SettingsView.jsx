@@ -82,6 +82,9 @@ export default function SettingsView({ active }) {
     const [authDraft, setAuthDraft] = useState("");
     // The YouTube Data API key (Live chat) works the same way.
     const [ytKeyDraft, setYtKeyDraft] = useState("");
+    // So does the Text-To-VRMA access token (Gesture generation).
+    const [vrmaTokenDraft, setVrmaTokenDraft] = useState("");
+    const [vrmaTest, setVrmaTest] = useState(null);     // null | "busy" | {ok, ...} | {error}
     const onUserPhotoSelected = async (ev) => {
         const file = ev.target.files?.[0];
         ev.target.value = "";
@@ -243,6 +246,16 @@ export default function SettingsView({ active }) {
             setComfyTest({ error: e?.message || _t("Connection failed") });
         }
     };
+    const testVrma = async () => {
+        setVrmaTest("busy");
+        try {
+            setVrmaTest(await rpc("/api/gesture_gen/test", {
+                url: config.gesture_gen_url, token: vrmaTokenDraft || "",
+            }));
+        } catch (e) {
+            setVrmaTest({ error: e?.message || _t("Connection failed") });
+        }
+    };
 
     const saveConfig = async () => {
         setSaving(true);
@@ -260,10 +273,14 @@ export default function SettingsView({ active }) {
             delete payload.has_youtube_api_key;
             if (ytKeyDraft?.trim()) payload.live_chat_youtube_api_key = ytKeyDraft.trim();
             else if (ytKeyDraft === null) payload.live_chat_youtube_api_key = null;
+            delete payload.has_gesture_gen_token;
+            if (vrmaTokenDraft?.trim()) payload.gesture_gen_token = vrmaTokenDraft.trim();
+            else if (vrmaTokenDraft === null) payload.gesture_gen_token = null;
             await rpc("/api/config/set", payload);
             setApiKeyDraft("");
             setAuthDraft("");
             setYtKeyDraft("");
+            setVrmaTokenDraft("");
             // Re-bind immediately — including the OS-wide registration, which
             // only the shell can change.
             applyHotkeys({
@@ -279,6 +296,7 @@ export default function SettingsView({ active }) {
                 speech_gestures: !!config.speech_gestures,
                 idle_fidgets: !!config.idle_fidgets,
                 fidget_interval: config.fidget_interval,
+                gesture_zoom_out: !!config.gesture_zoom_out,
             });
             markDirty(false);
             load();
@@ -401,6 +419,23 @@ export default function SettingsView({ active }) {
                             </div>
                         </div>
                     )}
+                    <div className="rx_check">
+                        <input id="rx_gesture_zoom_out" type="checkbox"
+                               checked={!!config.gesture_zoom_out}
+                               onChange={(ev) => setField("gesture_zoom_out", ev.target.checked ? 1 : 0)} />
+                        <label htmlFor="rx_gesture_zoom_out">{_t("Zoom out for manual gestures in face view")}</label>
+                    </div>
+                    <p className="text-muted">
+                        {_t("The face view only shows your companion from the collarbone up, so a "
+                            + "clap, a spin or a dance would happen out of shot. With this on, the "
+                            + "camera pulls out while a gesture plays (to the waist for hand "
+                            + "gestures, to the full body for the rest) and eases back in "
+                            + "afterwards. Manual means a gesture someone chose: the companion's "
+                            + "own play_gesture and generate_gesture calls, and the manual trigger "
+                            + "buttons. The automated gestures and fidgets above never move the "
+                            + "camera. Drag or zoom while it is out to keep the camera where you "
+                            + "put it. The full-body view and walk mode are not affected.")}
+                    </p>
                 </section>
 
                 {startInMascot !== null && (
@@ -983,6 +1018,112 @@ export default function SettingsView({ active }) {
                     })}
                     <input ref={wfInputRef} type="file" accept="application/json,.json"
                            style={{ display: "none" }} onChange={onWorkflowSelected} />
+                </section>
+
+                <section>
+                    <h3><i className="fa fa-magic" /> {_t("Gesture generation (Text-To-VRMA)")}</h3>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("Lets companions invent brand-new avatar motions from a description during voice calls (generate_gesture), made by the free, open-source Text-To-VRMA app running on your computer.")}{" "}
+                        <a href="https://github.com/Kirakun0328/text-to-vrma/releases" target="_blank" rel="noreferrer">{_t("Download Text-To-VRMA")}</a>.{" "}
+                        {_t("In that app open Advanced settings → Local HTTP API and switch it on, then copy the address and the access token it shows into the fields below. Its local ARDY engine is free and needs no key (press \"Start engine\" in the app first); the OpenAI, Claude and Codex engines use the keys or login saved in that app.")}
+                    </p>
+                    <div className="rx_check">
+                        <input id="rx_gesture_gen_enabled" type="checkbox"
+                               checked={!!config.gesture_gen_enabled}
+                               onChange={(ev) => setField("gesture_gen_enabled", ev.target.checked ? 1 : 0)} />
+                        <label htmlFor="rx_gesture_gen_enabled">
+                            {_t("Enable gesture generation")}
+                        </label>
+                    </div>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("The master switch. Each companion also needs \"Gesture generation\" switched on in the Companions tab, and the tool is only offered while the app is answering.")}
+                    </p>
+                    <div className="rx_row">
+                        <div style={{ flex: 2 }}>
+                            <label>{_t("Text-To-VRMA API URL")}</label>
+                            <input type="text" value={config.gesture_gen_url || ""} placeholder="http://127.0.0.1:8787"
+                                   onChange={(ev) => setField("gesture_gen_url", ev.target.value)} />
+                        </div>
+                        <div style={{ flex: 2 }}>
+                            <label title={_t("The access token Text-To-VRMA shows once its Local HTTP API is enabled. Fixed per install; if you regenerate it in the app, paste the new one here.")}>
+                                {_t("Access token")}
+                                {config.has_gesture_gen_token && vrmaTokenDraft !== null && (
+                                    <span className="text-muted"> ({_t("saved")}{" "}
+                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setVrmaTokenDraft(null); }}>{_t("remove")}</a>)
+                                    </span>
+                                )}
+                            </label>
+                            <input type="password" value={vrmaTokenDraft || ""}
+                                   placeholder={config.has_gesture_gen_token && vrmaTokenDraft !== null
+                                       ? _t("•••••••• (leave blank to keep current token)")
+                                       : ""}
+                                   onChange={(ev) => { markDirty(true); setVrmaTokenDraft(ev.target.value); }} />
+                        </div>
+                        <div style={{ alignSelf: "flex-end" }}>
+                            <button className="btn btn-light" onClick={testVrma} disabled={vrmaTest === "busy"}>
+                                <i className={vrmaTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test connection")}
+                            </button>
+                        </div>
+                    </div>
+                    {vrmaTest && vrmaTest !== "busy" && (
+                        <p className={"small " + (vrmaTest.ok ? "text-muted" : "text-danger")} style={{ margin: "0.25rem 0 0.5rem" }}>
+                            {vrmaTest.ok
+                                ? `Text-To-VRMA · ${_t("engines")}: ${(vrmaTest.engines || []).join(", ")} · `
+                                    + `OpenAI ${_t("key")}: ${vrmaTest.openai_key ? _t("set") : _t("not set")} · `
+                                    + `Claude ${_t("key")}: ${vrmaTest.claude_key ? _t("set") : _t("not set")}`
+                                : vrmaTest.error}
+                        </p>
+                    )}
+                    <div className="rx_row">
+                        <div>
+                            <label title={_t("What makes the motion, same choice as in the app. ARDY is NVIDIA's motion model running locally: free, a few seconds per motion on a GPU, best at full-body movement. The others have a language model write the keyframes: slower, billed by that provider (Codex uses your ChatGPT subscription).")}>
+                                {_t("Engine")}
+                            </label>
+                            <select value={config.gesture_gen_engine || "ardy"}
+                                    onChange={(ev) => setField("gesture_gen_engine", ev.target.value)}>
+                                <option value="ardy">{_t("ARDY local engine (free)")}</option>
+                                <option value="openai">OpenAI API</option>
+                                <option value="claude">Claude API</option>
+                                <option value="codex">{_t("Codex (ChatGPT subscription)")}</option>
+                            </select>
+                        </div>
+                        {(config.gesture_gen_engine || "ardy") === "ardy" ? (
+                            <div>
+                                <label title={_t("Optionally let a language model read the description first and split it into steps for ARDY (\"run, then jump\"). None sends the description straight to ARDY: fastest, no key needed.")}>
+                                    {_t("ARDY planner")}
+                                </label>
+                                <select value={config.gesture_gen_planner || "none"}
+                                        onChange={(ev) => setField("gesture_gen_planner", ev.target.value)}>
+                                    <option value="none">{_t("None (fastest)")}</option>
+                                    <option value="codex">Codex</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="claude">Claude</option>
+                                </select>
+                            </div>
+                        ) : (config.gesture_gen_engine === "openai" || config.gesture_gen_engine === "codex") ? (
+                            <div>
+                                <label title={_t("Fast keeps the model's thinking and keyframe count down and skips the second review pass, the right choice mid-conversation. Quality thinks longer.")}>
+                                    {_t("Speed")}
+                                </label>
+                                <select value={config.gesture_gen_speed || "fast"}
+                                        onChange={(ev) => setField("gesture_gen_speed", ev.target.value)}>
+                                    <option value="fast">{_t("Fast")}</option>
+                                    <option value="balanced">{_t("Balanced")}</option>
+                                    <option value="quality">{_t("Quality")}</option>
+                                </select>
+                            </div>
+                        ) : <div />}
+                        <div>
+                            <label title={_t("Model id for the chosen engine or planner, as you would pick it in the app. Empty = the app's default.")}>
+                                {_t("Model (optional)")}
+                            </label>
+                            <input type="text" value={config.gesture_gen_model || ""}
+                                   onChange={(ev) => setField("gesture_gen_model", ev.target.value)} />
+                        </div>
+                    </div>
+                    <p className="text-muted small" style={{ margin: "0.5rem 0 0" }}>
+                        {_t("Rexclaw in Docker or WSL while Text-To-VRMA runs on Windows? The app only listens on 127.0.0.1, so it has to be on the same machine as the Rexclaw server (the desktop app and run.bat are). Generated motions land in data/assets/generated/text_to_vrma/ and show up in every avatar's Library picker.")}
+                    </p>
                 </section>
 
                 <div className="rx_settings_footer">

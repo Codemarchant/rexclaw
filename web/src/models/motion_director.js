@@ -228,6 +228,10 @@ export class MotionDirector {
         this._speechGestures = false;   // all three from config, see applySettings
         this._fidgets = false;
         this._fidgetInterval = DEFAULT_INTERVAL_S;
+        // Not the director's own business (the renderer does it — see its
+        // gesture zoom-out), but it rides the same global motion settings,
+        // so it is carried here and handed straight on.
+        this._gestureZoomOut = true;
         this._leadMs = SPEECH_LEAD_SEED_MS;   // rolling selector round trip
         this._rate = { ...SPEECH_RATE_SEED };  // chars/sec of voice, per script
 
@@ -318,6 +322,7 @@ export class MotionDirector {
             speech_gestures: this._speechGestures,
             idle_fidgets: this._fidgets,
             fidget_interval: this._fidgetInterval,
+            gesture_zoom_out: this._gestureZoomOut,
         };
     }
 
@@ -331,6 +336,10 @@ export class MotionDirector {
             const n = Number(s.fidget_interval);
             this._fidgetInterval = Number.isFinite(n) && n > 0
                 ? Math.max(MIN_INTERVAL_S, n) : DEFAULT_INTERVAL_S;
+        }
+        if ("gesture_zoom_out" in s) {
+            this._gestureZoomOut = !!s.gesture_zoom_out;
+            this.renderer?.setGestureZoomOut?.(this._gestureZoomOut);
         }
     }
 

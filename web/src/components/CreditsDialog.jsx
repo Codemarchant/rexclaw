@@ -37,6 +37,15 @@ const CREDITS = [
         ],
     },
     {
+        title: "Gesture generation",
+        items: [
+            ["Text-To-VRMA",
+             "https://github.com/Kirakun0328/text-to-vrma",
+             "MIT, Kiratchi. The separate app that makes the generate_gesture motions "
+             + "over its local HTTP API. Not bundled: you install and run it yourself."],
+        ],
+    },
+    {
         title: "Voice activation",
         items: [
             ["Vosk",

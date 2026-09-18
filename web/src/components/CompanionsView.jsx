@@ -155,25 +155,34 @@ const GROK_WRAPPING_TAGS =
 // Tools that work regardless of which LLM backend drives the companion.
 const GENERAL_FLAGS = [
     ["enable_gesture_emotion_tools", "Avatar control tools",
-     "Lets the companion animate its avatar during voice calls: play gestures (the built-in set plus the avatar's custom ones) and switch between the avatar's outfits (play_gesture, change_outfit). Facial expressions are always available regardless. Unlocks the expression-style notes below."],
+     "Lets the companion animate its avatar during voice calls: set its facial emotion, play gestures (the built-in set plus the avatar's custom ones) and switch between the avatar's outfits (set_emotion, play_gesture, change_outfit). Blinking, lip sync and idle motion work regardless. Unlocks the expression-style notes below."],
     ["enable_lore_tool", "Lore stories (recall_stories)",
-     "Lets the companion look up its lore stories on demand. Only offered when at least one story below is tagged with the companion's name."],
+     "Lets the companion look up its lore stories on demand (recall_stories). Only offered when at least one story below is tagged with the companion's name."],
     ["enable_call_agents_tool", "Call-companion tool (group calls)",
      "Lets the companion bring other companions into the current voice call and send them away again (add_agent_to_call, remove_agent_from_call), e.g. when you ask to talk to someone else or want a group conversation. Voice mode only."],
     ["enable_companion_texting", "Companion texting (text_companion)",
-     "Lets the companion send an async text to another companion and get their reply back, mid voice call or chat — e.g. checking in on someone or passing along news. The message lands in the other companion's own conversation, clearly marked as coming from a companion rather than you. One reply per text; it doesn't turn into an unsupervised back-and-forth."],
+     "Lets the companion send an async text to another companion and get their reply back (text_companion), mid voice call or chat — e.g. checking in on someone or passing along news. The message lands in the other companion's own conversation, clearly marked as coming from a companion rather than you. One reply per text; it doesn't turn into an unsupervised back-and-forth."],
     ["texting_tools_enabled", "Let this companion use tools when texted",
-     "When ANOTHER companion texts this one, let this one use its own tools (memory, pictures, delegated tasks, Minecraft, MCP servers) while writing the reply — so a companion can ask this one to do something it isn't equipped for itself. Two things to know: the sender waits for the whole reply, so a slow tool here is silence in their live call, and anything generated lands in this companion's own chat and the library rather than coming back to the sender. Turn it off for a companion whose tools are slow or expensive."],
+     "When ANOTHER companion texts this one (affects text_companion), let this one use its own tools (memory, pictures, delegated tasks, Minecraft, MCP servers) while writing the reply — so a companion can ask this one to do something it isn't equipped for itself. Two things to know: the sender waits for the whole reply, so a slow tool here is silence in their live call, and anything generated lands in this companion's own chat and the library rather than coming back to the sender. Turn it off for a companion whose tools are slow or expensive."],
     ["enable_delegate_tool", "Task delegation (delegate_task)",
-     "Lets the companion hand complex work (reading documents or images, research, long coding tasks) to a hidden background text session with the full tool stack, and report the result back. Works from voice calls too, where the realtime model can't see files itself. Quick looks at images and clips can run on the fast text model set in Settings. Each task is billed as extra text-model usage."],
+     "Lets the companion hand complex work (reading documents or images, research, long coding tasks) to a hidden background text session with the full tool stack, and report the result back (delegate_task). Works from voice calls too, where the realtime model can't see files itself. Quick looks at images and clips can run on the fast text model set in Settings. Each task is billed as extra text-model usage."],
     ["enable_memory_tools", "Memory",
      "Gives the companion long-term memory tools (remember, recall, forget): it can save facts about you and your conversations, search them later, and delete ones you ask it to drop. Memories persist across sessions and appear in the Memories tab."],
     ["enable_capture_tools", "Capture tools (selfie & screen share)",
-     "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider."],
-    ["enable_minecraft", "Minecraft bot (directs the game sidecar — see the Games tab)",
-     "Lets the companion drive the Minecraft bot set up in the Games tab from voice and text sessions: give it goals and commands, check what it's doing. The tools are only offered while the bot sidecar is connected."],
+     "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, analyze_screen, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider."],
     ["enable_end_call_tool", "End-call tool (hang up on request)",
      "Lets the companion end the voice call itself (end_call) when you say goodbye or ask it to hang up, instead of waiting for you to press the button. Voice mode only."],
+    ["enable_move_tool", "Locomotion tools",
+     "Lets the companion walk about on its own during voice calls (move_around): come right up close to you, step back to its usual spot, wander or pace a little, follow your view as you move the camera, and turn to face you. Recommended only with a 3D scene background, where there is a room to move through. Not offered in group calls."],
+];
+
+// Tools backed by a separate app on the user's computer. Provider-agnostic
+// like GENERAL_FLAGS, but each is only offered while its app is connected.
+const THIRD_PARTY_FLAGS = [
+    ["enable_minecraft", "Minecraft bot (directs the game sidecar — see the Games tab)",
+     "Lets the companion drive the Minecraft bot set up in the Games tab from voice and text sessions: give it goals and commands, check what it's doing (minecraft_command, minecraft_status). The tools are only offered while the bot sidecar is connected."],
+    ["enable_gesture_gen", "Gesture generation (Text-To-VRMA)",
+     "Lets the companion invent brand-new avatar motions from a description during voice calls (generate_gesture), for anything its gesture list doesn't cover. Made by the free Text-To-VRMA app running on your computer: connect it and switch it on in Settings → Gesture generation. The tool is only offered while that app's local API is answering. Motions are saved to data/assets/generated/text_to_vrma/ and can be added to an avatar's custom gestures from the Library picker."],
 ];
 
 // Provider-specific settings/tools, keyed by agents.provider. Only Grok
@@ -182,17 +191,17 @@ const PROVIDERS = [["grok", "Grok (xAI)"]];
 const PROVIDER_FLAGS = {
     grok: [
         ["enable_web_search", "Web search",
-         "Lets the companion search the web for current information (news, facts, prices) in both voice and text sessions. Searches are billed by xAI per call."],
+         "Lets the companion search the web (web_search) for current information (news, facts, prices) in both voice and text sessions. Searches are billed by xAI per call."],
         ["enable_x_search", "X search",
-         "Lets the companion search posts on X (Twitter) in both voice and text sessions. Searches are billed by xAI per call."],
+         "Lets the companion search posts on X (Twitter) in both voice and text sessions (x_search). Searches are billed by xAI per call."],
         ["enable_grok_imagine_tools", "Image & video tools",
          "Unlocks the media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Each tool renders on Grok Imagine (billed by xAI: images cost cents, videos are priced per second) or on your own ComfyUI server. Pick the engine per tool in Settings → Local generation."],
         ["enable_cross_companion_imagine", "Cross-companion Imagine reference",
          "Lets create_image/create_video feature ANOTHER companion by name (and outfit) — their own portrait as a reference image, and (create_video) their own voice id so a clip can have them speak in their actual voice too. Separate from Companion texting on purpose: a companion can be messageable without being depicted this way, or vice versa. Requires Image & video tools."],
         ["enable_code_execution", "Code execution (text)",
-         "Lets the companion run Python in xAI's sandboxed code interpreter to calculate, analyse data or test snippets. Text sessions only; the voice model has no code tool."],
+         "Lets the companion run Python in xAI's sandboxed code interpreter (code_interpreter) to calculate, analyse data or test snippets. Text sessions only; the voice model has no code tool."],
         ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)",
-         "Allows delegated tasks to run on xAI's multi-agent model (several coordinated agents on one task) when the companion asks for it. Noticeably more expensive per task than a plain delegation; requires Task delegation."],
+         "Allows delegated tasks (affects delegate_task) to run on xAI's multi-agent model (several coordinated agents on one task) when the companion asks for it. Noticeably more expensive per task than a plain delegation; requires Task delegation."],
         ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)",
          "Lets the companion hand tasks to the xAI Grok Build CLI on THIS computer (local_task): it creates and edits real files and runs shell commands, auto-approved, in the folder it's given. Powerful, so only enable it for companions you trust with that. Requires the `grok` CLI on your PATH; never offered in Docker."],
     ],
@@ -768,6 +777,20 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
             <label>{_t("Tools")}</label>
             <div className="rx_flags">
                 {GENERAL_FLAGS.map(([key, label, tooltip]) => (
+                    <span key={key} className="rx_check">
+                        <input id={`flag-${idScope}-${key}`} type="checkbox"
+                               checked={!!editingAgent[key]}
+                               onChange={(ev) => setEditingAgent({ ...editingAgent, [key]: ev.target.checked ? 1 : 0 })} />
+                        <label htmlFor={`flag-${idScope}-${key}`} title={tooltip ? _t(tooltip) : undefined}>{_t(label)}</label>
+                    </span>
+                ))}
+            </div>
+            <label>{_t("Third Party Integration Tools")}</label>
+            <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
+                {_t("Tools that need a separate app running on your computer. Each is only offered to the companion while that app is connected.")}
+            </p>
+            <div className="rx_flags">
+                {THIRD_PARTY_FLAGS.map(([key, label, tooltip]) => (
                     <span key={key} className="rx_check">
                         <input id={`flag-${idScope}-${key}`} type="checkbox"
                                checked={!!editingAgent[key]}

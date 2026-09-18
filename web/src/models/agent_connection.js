@@ -17,7 +17,7 @@ const XAI_SERVER_SIDE_TOOLS = new Set([
 // Tools whose calls/results are visually noisy in the transcript but carry
 // no information the user cares about (the avatar visibly performs the
 // action). Still dispatched normally — we just skip the transcript entries.
-const SILENT_BROWSER_TOOLS = new Set(["play_gesture", "set_emotion", "change_outfit"]);
+const SILENT_BROWSER_TOOLS = new Set(["play_gesture", "set_emotion", "change_outfit", "move_around"]);
 
 // Tools the model may call with `end_turn: true` (voice sessions only — the
 // server adds the flag to their schemas, session_service._with_end_turn). The
@@ -26,7 +26,8 @@ const SILENT_BROWSER_TOOLS = new Set(["play_gesture", "set_emotion", "change_out
 // Without it every gesture, emotion, saved memory or Minecraft directive earns
 // a second reply ("there you go!"), and a follow-up that gestures again owes
 // another — a chain that can't end on its own.
-const END_TURN_TOOLS = new Set(["set_emotion", "play_gesture", "remember", "forget", "minecraft_command"]);
+const END_TURN_TOOLS = new Set(["set_emotion", "play_gesture", "generate_gesture", "move_around", "remember",
+    "forget", "minecraft_command"]);
 
 // Tools that always end the turn, no flag needed: bookkeeping the companion
 // never talks about — the prompt tells it never to mention the affection

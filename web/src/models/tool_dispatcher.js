@@ -60,6 +60,12 @@ const NATIVE_TOOL_NAMES = new Set([
     // session and runs a headless turn there. Same slow server-side shape as
     // delegate_task/local_task.
     "text_companion",
+    // Gesture generation: the server asks the user's Text-To-VRMA app for a
+    // new .vrma (seconds on its local engine, longer on an LLM one). The call
+    // waits for it on purpose: the clip is played in dispatch() the moment it
+    // lands and the result goes back with it, so whatever the companion says
+    // next lines up with the motion instead of running ahead of it.
+    "generate_gesture",
 ]);
 
 export class ToolDispatcher {
@@ -79,6 +85,7 @@ export class ToolDispatcher {
             isGestureBusy: () => !!avatarRenderer.isGestureBusy?.(),
             setOutfit: (u, i) => avatarRenderer.setOutfit?.(u, i),
             setBackground: (bg) => avatarRenderer.setBackground?.(bg),
+            stageMove: (action) => avatarRenderer.stageMove?.(action),
         } : null);
         this.sendWs = sendWs;
         this.conversationState = conversationState;
@@ -130,6 +137,14 @@ export class ToolDispatcher {
             }
             if (name === "adjust_affection" && result.ok) {
                 this._applyAffection(result);
+            }
+            if (name === "generate_gesture" && result.vrma_url) {
+                // Same path as play_gesture: the companion's own choice owns
+                // the body, and a loop runs until 'idle' or another gesture.
+                // keepTravel: a generated motion can really walk somewhere —
+                // in a 3D scene they stay where it took them (renderer's call).
+                this.avatarApi?.noteExpressionTool?.();
+                this.avatarApi?.playGesture?.(result.vrma_url, { loop: !!result.loop, keepTravel: true });
             }
         }
         this._pending.delete(callId);
@@ -254,6 +269,8 @@ export class ToolDispatcher {
                 return this._setEmotion(args);
             case "play_gesture":
                 return this._playGesture(args);
+            case "move_around":
+                return this._moveAround(args);
             case "change_outfit":
                 return this._changeOutfit(args);
             case "take_selfie":
@@ -616,6 +633,29 @@ export class ToolDispatcher {
         if (!url) return { ok: false, error: `Unknown gesture: ${gesture}` };
         this.avatarApi?.playGesture?.(url, { loop });
         return { ok: true, gesture };
+    }
+
+    /** move_around: the companion walking about on its own (the renderer's
+     *  stageMove). Answered at once with how long the walk takes rather than
+     *  held for the arrival — people talk while they walk. */
+    _moveAround({ action }) {
+        if (!action) return { ok: false, error: "move_around requires `action`." };
+        if (!this.avatarApi?.stageMove) {
+            return { ok: false, error: "Only the main companion of a call can move around." };
+        }
+        this.avatarApi?.noteExpressionTool?.();
+        const res = this.avatarApi.stageMove(action) || { ok: false, error: "The avatar is not on screen." };
+        if (!res.ok) return res;
+        const notes = {
+            come_close: "You are walking right up to the user now. step_back takes you back to your usual spot.",
+            step_back: "You are walking back to your usual spot.",
+            wander: "You are strolling to another spot.",
+            pace: "You are pacing to and fro, and end up back at your usual spot.",
+            follow_camera: "You now keep walking over to wherever the user's view moves. Any other move ends it.",
+            stay: "You stopped where you are.",
+            face_user: "You turned to face the user.",
+        };
+        return { ok: true, action, ...(res.seconds ? { takes_seconds: res.seconds } : {}), note: notes[action] };
     }
 
     /** Swap the avatar's VRM to the chosen outfit. outfit_id=0 reverts to the

@@ -32,6 +32,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
     EMOTION_DECAY_MS,
+    UPPER_BODY_GESTURE_URLS,
     emotionDecayEnabled,
     emotionSettleTarget,
 } from "../models/avatar_catalog";
@@ -448,6 +449,79 @@ const WALK_FADE_OUT = 0.35;           // s — walk → idle settle
 // in ~0.6 s — a soft trailing dolly rather than a rigid lock.
 const CAM_FOLLOW_RATE = 5;
 
+// Staging: the companion moving about on its own (move_around tool, see
+// stageMove). Numbers trace to a source; what could not be sourced says so.
+// Its own walks are a stroll, not the purposeful MOVE_SPEED: 1.25 m/s is the
+// patrol speed of Epic's Behavior Tree Quick Start NPC, inside the preferred
+// human walking range (1.10-1.65 m/s).
+const STAGE_SPEED = 1.25;
+// People reach walking speed by about their third step and stop in about two
+// (gait-initiation studies); at ~0.55 s a step that is ~1.0 m/s² up. Stopping
+// is Reynolds' "arrival": speed ramps down linearly inside a slowing radius,
+// here ~1 m = those two steps.
+const STAGE_ACCEL = 1.0;              // m/s²
+const STAGE_SLOW_RADIUS = 1.0;        // m
+const STAGE_MIN_SPEED = 0.25;         // m/s — floor of the ramp, so it arrives (unsourced)
+// "Close" is how near a virtual human may come before people back away:
+// 0.51 m mean minimum frontal distance in Bailenson et al. 2003 (immersive
+// VR), Hall's intimate/personal boundary being 0.46 m. That is a headset
+// figure; on a screen apparent closeness also depends on the lens, so it is
+// taken as the look of 0.5 m through the full-body lens (FULL_FOV) and the
+// distance is scaled to keep that look under whatever FOV is live.
+const STAGE_CLOSE_DISTANCE = 0.5;     // m at FULL_FOV
+const STAGE_CLOSE_OFF_CENTRE = 0.10;  // of the frame width, to one side (Jonathan's call, by eye)
+// A pause between the legs of a wander: Wait 4 s ± 1 (same Quick Start NPC).
+const STAGE_PAUSE_MIN = 3.0;          // s
+const STAGE_PAUSE_MAX = 5.0;          // s
+// Wander and pace stay inside the central 80% of the frame — Cinemachine's
+// composer hard-limit rect (0.8 x 0.8 of the screen).
+const STAGE_FRAME_LIMIT = 0.8;
+const STAGE_BODY_HALF_WIDTH = 0.25;   // m — shoulders, kept inside that rect (unsourced)
+const STAGE_WALK_TIMEOUT_MS = 20000;  // a leg that never arrives stops counting
+// Follow-the-camera: re-walk only once the companion has drifted out of the
+// composer's dead zone (0.2 of the frame width, Cinemachine default size) and
+// the camera has been still for the recentering wait (1 s, same source).
+const FOLLOW_DEAD_ZONE = 0.2;
+const FOLLOW_SETTLE_S = 1.0;
+
+// Auto-follow camera (movement mode "auto"): a small rule-driven director.
+// Shots and their weights are DanceXR Auto Cam's documented defaults (close
+// up 1, middle 0.25, far 0.25); the off-axis angle per shot size is
+// neural-avatar-pipeline's preset table (face 0°, torso 20°, full 35°).
+const AUTO_SHOTS = [
+    { id: "face",  weight: 1.0,  yaw: 0 },
+    { id: "waist", weight: 0.25, yaw: 20 * Math.PI / 180 },
+    { id: "full",  weight: 0.25, yaw: 35 * Math.PI / 180 },
+];
+const AUTO_WAIST_BLEND = 0.5;         // waist-up = halfway from the face shot to the full one (unsourced)
+// Timing is Rui/Gupta/Grudin/He 2004 ("Automating lecture capture and
+// broadcast"): no shot shorter than 5 s, a wide shot no longer than 10 s,
+// consecutive shots must differ, and a change wants a motive — here the
+// companion finishing a line, or starting to walk.
+const AUTO_MIN_SHOT_S = 5;
+const AUTO_MAX_WIDE_S = 10;
+const AUTO_SPEECH_END_S = 0.6;        // silence that counts as the end of a line (unsourced)
+// Movement is Cinemachine's defaults: shots blend EaseInOut over 2 s, and the
+// held shot trails the companion with 1 s position damping, where damping is
+// the time to close 99% of the gap: k = 1 - exp(-4.605 dt / T).
+const AUTO_BLEND_S = 2.0;
+const AUTO_POS_DAMPING_S = 1.0;
+// Gesture zoom-out (face view only, setting gesture_zoom_out): the face view
+// frames the collarbone up, so a deliberate gesture pulls the camera out for
+// as long as it plays. Out is quick — Cinemachine's 0.5 s blend for a
+// state-driven cut; a 2 s ease would still be on its way when a clap is over
+// — and back in is the gentle default 2 s. Once out it stays at least 3 s,
+// the low end of a minimum shot in Rui et al., so a short clip does not
+// yo-yo the camera and a run of gestures plays out in one shot.
+const GESTURE_ZOOM_OUT_S = 0.5;
+const GESTURE_ZOOM_BACK_S = 2.0;
+const GESTURE_ZOOM_MIN_S = 3.0;
+
+// Swinging round to the front of wherever the companion now faces: 2 s,
+// Cinemachine's axis-recentering time (its default for bringing an orbit
+// back behind/in front of a target's heading).
+const AUTO_TURN_DAMPING_S = 2.0;
+
 // Parsed walking.vrma, shared across avatar swaps (module-level: the FILE is
 // avatar-independent; the AnimationClip built from it is not — see
 // _ensureWalkAction, which re-binds per VRM).
@@ -566,12 +640,20 @@ class AvatarRenderer {
 
         // Locomotion state (see the MOVE_* constants above).
         this._moveMode = false;           // manual (WASD) input enabled by the full view toggle
-        // 'walk' (drives the actor, eases back to face the camera on stop),
-        // 'walk-no-snap' (same, but skips the return-facing ease — for
-        // posing companions in a scene without them turning back around),
-        // or 'camera' (WASD flies the camera + orbit target instead;
-        // companions are untouched). Only meaningful while _moveMode is on.
+        // 'walk' (WASD drives the actor, which stays facing however it
+        // stopped — see _stopWalkAnim), 'auto' (the same walking, with the
+        // camera directed for you — see _updateAutoCamera), or 'camera'
+        // (WASD flies the camera + orbit target instead; companions are
+        // untouched). Only meaningful while _moveMode is on.
         this._moveKind = "walk";
+        this._autoCam = null;             // auto-follow director state, built lazily
+        // Staging: the companion's own movement (move_around tool) — see
+        // stageMove. While one is in play the follow camera stands still,
+        // so the move reads as the companion moving, not the room sliding.
+        this._staging = null;             // { close, walk: {resolve, startedAt} | null }
+        this._followCam = false;          // keep walking to the spot in front of the camera
+        this._gestureZoomOut = true;      // config.gesture_zoom_out (setGestureZoomOut)
+        this._gestureZoom = null;         // a pull-out in progress — see _updateGestureZoom
         this._moveActorId = "base";       // which character WASD drives: "base" or a peer id (number keys)
         this._moveInput = { x: 0, z: 0 }; // camera-relative manual direction (x = strafe right, z = forward)
         this._moveTarget = null;          // THREE.Vector3 — walkTo() destination, or null
@@ -866,6 +948,11 @@ class AvatarRenderer {
                 head.getWorldPosition(worldPos);
                 this._headWorldY = worldPos.y;
             }
+            // Eye line, for framing a close-up (_updateStaging). Eye bones
+            // are optional in VRM; the head bone stands in for a model
+            // without them.
+            const eye = vrm.humanoid?.getNormalizedBoneNode?.("leftEye");
+            this._eyeWorldY = eye ? eye.getWorldPosition(new THREE.Vector3()).y : (this._headWorldY ?? null);
             // Rest hips translation. VRMA clips animate it (they carry root
             // motion), and nothing else ever writes it — without restoring
             // this each idle frame the character keeps whatever offset the
@@ -982,7 +1069,11 @@ class AvatarRenderer {
      *  (e.g. a swaying dance, a breathing-heavy stance). The loop owns the body
      *  until another gesture/emotion replaces it or the VRM is reloaded
      *  (outfit/agent swap). Default (`loop: false`) is the original one-shot. */
-    async playGesture(url, { loop = false, auto = false } = {}) {
+    /** `keepTravel`: a one-shot clip that walks the hips somewhere (generated
+     *  motions do; the built-in gestures stay on the spot) leaves the avatar
+     *  standing where the clip ended instead of easing back to where it
+     *  started — see _commitTravel. Only honoured inside a 3D scene. */
+    async playGesture(url, { loop = false, auto = false, keepTravel = false } = {}) {
         if (!this.vrm || !this.mixer || !url) return;
         // Locomotion owns the body while walking — drop body gestures rather
         // than fight the walk clip for bones (face/emotion blendshapes still
@@ -1060,6 +1151,7 @@ class AvatarRenderer {
         // Hold the last frame until the "finished" event releases the clip —
         // the release reads that held pose as the start of the return.
         action.clampWhenFinished = true;
+        action.__rxKeepTravel = !!keepTravel;
         action.reset().fadeIn(FADE_IN).play();
         this._gestureAction = action;
         this._currentGestureUrl = url;
@@ -1143,6 +1235,7 @@ class AvatarRenderer {
      *  snapshot into the live idle. */
     _releaseToIdle(actor, action) {
         this._snapshotPose(actor);
+        if (action.__rxKeepTravel) this._commitTravel(actor);
         try { action.stop(); } catch (e) { /* */ }
         // Drop it from the mixer's caches. Trimmed library clips are built
         // per play (AnimationUtils.subclip makes a new clip with a new uuid),
@@ -1182,6 +1275,49 @@ class AvatarRenderer {
             hipsPos: hips ? hips.position.clone() : null,
             t: 0,
         };
+    }
+
+    /** Keep the ground a clip covered (playGesture's keepTravel). A clip
+     *  moves the avatar by translating the HIPS inside a rig whose root
+     *  (vrm.scene) never moved, so the return blend would ease the hips —
+     *  and the whole body with them — back to the rest offset: the avatar
+     *  walks three metres across the room and then slides home. Instead, fold the
+     *  hips' horizontal offset into the root, the way locomotion places the
+     *  avatar, and take it out of the snapshot so the blend has nothing left
+     *  to slide. Both happen on the release frame, so the body does not move
+     *  on screen. Height is left to the blend (a clip that ends mid-crouch
+     *  still stands up), and so is facing: they turn back the way they faced.
+     *  Only inside a 3D scene — against a flat backdrop there is no "there"
+     *  to have walked to, and only the base avatar (peers release through a
+     *  plain crossfade, see playPeerGesture). */
+    _commitTravel(actor) {
+        const st = actor._returnBlend;
+        const base = actor._hipsBasePos;
+        if (actor !== this || !this._room || !st?.hips || !st.hipsPos || !base || !this.libs) return;
+        const { THREE } = this.libs;
+        const d = new THREE.Vector3(st.hipsPos.x - base.x, 0, st.hipsPos.z - base.z);
+        if (d.lengthSq() < 0.0004) return;   // under 2 cm: a gesture on the spot
+        // Hips-local offset → world: the parent chain carries the root's
+        // facing (_setMoveYaw ∘ _baseQuat) and any model scale.
+        const parent = st.hips.parent;
+        if (!parent) return;
+        parent.updateWorldMatrix(true, false);
+        d.multiply(parent.getWorldScale(new THREE.Vector3()))
+            .applyQuaternion(parent.getWorldQuaternion(new THREE.Quaternion()));
+        const pos = actor.vrm.scene.position;
+        pos.x += d.x;
+        pos.z += d.z;
+        const r = Math.hypot(pos.x, pos.z);
+        if (r > MOVE_BOUNDS_RADIUS) {
+            pos.x *= MOVE_BOUNDS_RADIUS / r;
+            pos.z *= MOVE_BOUNDS_RADIUS / r;
+        }
+        st.hipsPos.x = base.x;
+        st.hipsPos.z = base.z;
+        // Deliberately NOT _notifyBasePlacementSettled: that persists the
+        // spot per companion + scene, which is the user's call (they walked
+        // the avatar there). A generated clip can end anywhere, furniture included
+        // — it holds for this session and the saved placement stands.
     }
 
     /** Per frame, after the idle has posed the bones: on the first frame
@@ -2213,16 +2349,22 @@ class AvatarRenderer {
      *  _moveKind field comment for the three behaviours. Settling any actor
      *  mid-walk first so switching into camera mode never leaves a
      *  companion frozen mid-stride (camera mode drives no actor at all).
-     *  Switching INTO an actor-driving mode (walk / walk-no-snap) resets the
+     *  Switching INTO an actor-driving mode (walk / auto) resets the
      *  camera framing back to its default preset — camera mode can fly it
      *  arbitrarily far away, and coming back to "normal" walking shouldn't
      *  leave you stuck controlling a companion you can't see. */
     setMoveKind(kind) {
-        if (kind !== "walk" && kind !== "walk-no-snap" && kind !== "camera") return;
+        if (kind === "walk-no-snap") kind = "walk";   // retired: walk no longer snaps back
+        if (kind !== "walk" && kind !== "camera" && kind !== "auto") return;
         if (kind === this._moveKind) return;
-        if (kind === "camera") this.stopMoving();
+        // Camera mode hands the camera over as it stands — with nothing of a
+        // close-up lift or a staged move left acting on it.
+        if (kind === "camera") { this.stopMoving(); this._dropLift(); if (this._staging) this._staging.queue = []; }
         else this._applyCameraPreset();
         this._moveKind = kind;
+        // The director starts from whatever is on screen and takes its
+        // first shot at the next cue — never a jump on the mode switch.
+        this._autoCam = null;
     }
 
     /** Current position + facing of the base companion — for placement
@@ -2235,19 +2377,24 @@ class AvatarRenderer {
     }
 
     /** Instantly place the base companion (no walk animation) — used to
-     *  restore a saved placement once a scene has loaded. Re-anchors the
-     *  follow camera on the new spot so it doesn't dolly to "catch up". */
+     *  restore a saved placement once a scene has loaded. The camera is
+     *  re-framed on the new spot: by then loadRoom has already framed the
+     *  scene's DEFAULT spawn, and merely re-anchoring the follow camera (as
+     *  this used to) left it looking at that empty spot with the companion
+     *  standing somewhere off screen, until something else happened to
+     *  re-apply the framing. */
     setBasePlacement({ x, z, yaw } = {}) {
         if (!this.vrm) return;
         this.vrm.scene.position.x = x || 0;
         this.vrm.scene.position.z = z || 0;
         this._setMoveYaw(this, yaw || 0);
-        this._camFollowPos = null;
+        this._camFollowPos = null;   // (also for XR, where the preset is skipped)
+        this._applyCameraPreset();
     }
 
     /** Register a callback fired with {x, z, yaw} whenever manual WASD
-     *  walking settles the BASE companion to a stop ('walk' or
-     *  'walk-no-snap' — camera mode drives no actor so never fires this).
+     *  walking settles the BASE companion to a stop ('walk' or 'auto' —
+     *  camera mode drives no actor so never fires this).
      *  Returns an unsubscribe fn. */
     addBasePlacementSettledCallback(cb) {
         this._placementSettledCallbacks.add(cb);
@@ -2497,12 +2644,14 @@ class AvatarRenderer {
             }, WALK_FADE_OUT * 1000);
         }
         this._fadeIdleIn(actor, WALK_FADE_OUT);
-        // A companion turns to face you when she stops — not frozen
-        // mid-stride aimed at a wall. Eased per-frame in _applyReturnFacing.
-        // In XR "you" is the headset, not the flat camera. Skipped entirely
-        // in walk-no-snap mode: the whole point there is posing a companion
-        // without it turning back around on its own.
-        if (actor.vrm && !(this._moveMode && this._moveKind === "walk-no-snap")) {
+        // A companion that walked somewhere on its own (walkTo: the VR
+        // pointer, the move_around tool) turns to face you when it stops —
+        // not frozen mid-stride aimed at a wall. Eased per-frame in
+        // _applyReturnFacing. In XR "you" is the headset, not the flat
+        // camera. Never after the user steered it by hand (WASD): a
+        // hand-placed companion stays facing however it was left, so it can
+        // be posed — turning it back around is one more key press away.
+        if (actor.vrm && !actor._walkManual) {
             const p = actor.vrm.scene.position;
             let cx = null, cz = null;
             if (this._xrActive && this.renderer?.xr?.getCamera && this.libs) {
@@ -2542,6 +2691,7 @@ class AvatarRenderer {
     _updateCameraFly(delta) {
         const dir = this._cameraRelativeMoveDir();
         if (!dir || !this.camera) return;
+        this._dropLift();   // the user is flying the camera: it is theirs
         dir.multiplyScalar(CAMERA_FLY_SPEED * delta);
         this.camera.position.add(dir);
         if (this._orbitControls) {
@@ -2565,25 +2715,30 @@ class AvatarRenderer {
     /** Per-frame locomotion. Manual input wins over a walkTo target. Steering
      *  is kinematic: rotate toward the travel direction at
      *  MOVE_TURN_SPEED while advancing at MOVE_SPEED — the walk clip plays in
-     *  place; THIS is what moves the avatar. Camera mode is an entirely
-     *  separate path (_updateCameraFly) since it drives no actor at all. */
+     *  place; THIS is what moves the avatar. In camera mode the keys fly the
+     *  camera instead (_updateCameraFly) and steer no actor — but a walkTo
+     *  target still plays out, which is what lets a companion follow the
+     *  camera around (stageMove "follow_camera"). */
     _updateMovement(delta) {
-        if (this._moveMode && this._moveKind === "camera") {
-            this._updateCameraFly(delta);
-            return;
-        }
+        const flying = this._moveMode && this._moveKind === "camera";
+        if (flying) this._updateCameraFly(delta);
         const actor = this._moveActor();
         if (!actor.vrm || !this.libs) return;
         const { THREE } = this.libs;
         let dir = null;
+        let targetDist = Infinity;
 
-        if (this._moveMode && (this._moveInput.x || this._moveInput.z)) {
+        if (!flying && this._moveMode && (this._moveInput.x || this._moveInput.z)) {
             dir = this._cameraRelativeMoveDir();
             this._moveTarget = null;  // live input overrides a queued walkTo
+            actor._walkManual = true;   // see _stopWalkAnim
+            if (actor === this) { this._staging = null; this._followCam = false; }   // the user took over
         } else if (this._moveTarget) {
+            actor._walkManual = false;
             const d = new THREE.Vector3().subVectors(this._moveTarget, actor.vrm.scene.position);
             d.y = 0;
-            if (d.length() < MOVE_ARRIVAL_THRESHOLD) {
+            targetDist = d.length();
+            if (targetDist < MOVE_ARRIVAL_THRESHOLD) {
                 this.stopMoving();
                 return;
             }
@@ -2614,8 +2769,22 @@ class AvatarRenderer {
             ? targetYaw
             : actor._moveYaw + Math.sign(diff) * turnStep);
 
+        // The companion's own walks (stageMove) stroll: ease up to speed,
+        // and slow into the stop (Reynolds arrival). The walk clip's rate
+        // follows the ground speed so the feet keep pace with the floor.
+        // Hand-steered walking stays at the flat MOVE_SPEED.
+        let speed = MOVE_SPEED;
+        const leg = actor === this && this._moveTarget ? this._staging?.walk : null;
+        if (leg) {
+            const cap = Math.max(STAGE_MIN_SPEED,
+                STAGE_SPEED * Math.min(1, targetDist / STAGE_SLOW_RADIUS));
+            leg.speed = Math.min(cap, (leg.speed || 0) + STAGE_ACCEL * delta);
+            speed = leg.speed;
+        }
+        actor._walkAction?.setEffectiveTimeScale(speed / MOVE_SPEED);
+
         const pos = actor.vrm.scene.position;
-        pos.addScaledVector(dir, MOVE_SPEED * delta);
+        pos.addScaledVector(dir, speed * delta);
         const r = Math.hypot(pos.x, pos.z);
         if (r > MOVE_BOUNDS_RADIUS) {
             pos.x *= MOVE_BOUNDS_RADIUS / r;
@@ -2665,10 +2834,19 @@ class AvatarRenderer {
         const actor = this._moveActor();
         if (!actor.vrm || !this.camera || !this.libs) return;
         const { THREE } = this.libs;
-        const p = actor.vrm.scene.position;
-        if (!this._camFollowPos) {
-            // (Re-)anchor without moving the camera — set by VRM load and
-            // _applyCameraPreset, both of which place the camera absolutely.
+        // The body, not the root: a clip that walks the avatar somewhere is
+        // followed while it happens (see _actorGround).
+        const p = this._actorGround(actor);
+        // Two cases where the dolly stands still and merely keeps its anchor
+        // current, so it never lurches when it takes over again: the
+        // companion is moving on its own (staging — the move has to read as
+        // the companion crossing the room, not the room sliding past), or
+        // the auto-follow director is placing the camera itself.
+        const st = this._staging;
+        const staged = st && (st.walk || st.queue.length || st.close || this._followCam);
+        if (!this._camFollowPos || staged || this._autoCamDriving()) {
+            // (Re-)anchor without moving the camera — also set by VRM load
+            // and _applyCameraPreset, which place the camera absolutely.
             this._camFollowPos = new THREE.Vector3(p.x, 0, p.z);
             return;
         }
@@ -2684,6 +2862,625 @@ class AvatarRenderer {
         }
         this._camFollowPos.x += dx;
         this._camFollowPos.z += dz;
+    }
+
+    // ------------------------------------------------------------------
+    // Staging: the companion moving about on its own (move_around tool)
+    // ------------------------------------------------------------------
+
+    /** True while a clip (a gesture, a library clip, or the blend out of
+     *  one) may be carrying the body away from its root: only then do the
+     *  hips say more about where the avatar is than the root does. Never
+     *  while walking — the walk clip is stripped to run in place. */
+    _clipOwnsBody(actor) {
+        if (actor._moving) return false;
+        return !!(actor._gestureAction?.isRunning() || actor._layerAction?.isRunning() || actor._returnBlend);
+    }
+
+    /** Where the avatar's body actually is on the floor. A clip that walks
+     *  somewhere moves the HIPS inside a rig whose root stays put until the
+     *  clip ends (_commitTravel), so a camera that watches the root sees
+     *  nothing happen for the whole walk. This is the root plus the hips'
+     *  horizontal travel. The two agree again the moment the travel is
+     *  committed (the root jumps by exactly what the hips give back), so a
+     *  camera following this never sees that hand-over. */
+    _actorGround(actor) {
+        const p = actor.vrm.scene.position;
+        const base = actor._hipsBasePos;
+        const hips = this._clipOwnsBody(actor) && base
+            ? actor.vrm.humanoid?.getNormalizedBoneNode?.("hips") : null;
+        if (!hips?.parent || !this.libs) return { x: p.x, z: p.z };
+        const { THREE } = this.libs;
+        const d = new THREE.Vector3(hips.position.x - base.x, 0, hips.position.z - base.z);
+        if (d.lengthSq() < 1e-6) return { x: p.x, z: p.z };
+        d.multiply(hips.parent.getWorldScale(new THREE.Vector3()))
+            .applyQuaternion(hips.parent.getWorldQuaternion(new THREE.Quaternion()));
+        return { x: p.x + d.x, z: p.z + d.z };
+    }
+
+    /** Which way the avatar faces, as a world yaw (0 = +Z): the root's yaw,
+     *  and deliberately nothing else. A clip turns the HIPS — a spin takes
+     *  them full circle, a backflip pitches them past vertical so their
+     *  "forward" flips over — and a camera that read its bearing off them
+     *  was thrown about by every such gesture. Whatever turn a clip makes
+     *  is also gone when it ends (the body blends back to the root's
+     *  facing), so there is nothing there for a camera to settle on. */
+    _actorFacing(actor) {
+        return actor._moveYaw || 0;
+    }
+
+    /** Where the camera stands on the floor and which way it looks along it
+     *  — everything staging does is relative to the viewer, not the room. */
+    _cameraGround() {
+        const { THREE } = this.libs;
+        const cam = this.camera.position;
+        const fwd = new THREE.Vector3();
+        if (this._orbitControls) fwd.subVectors(this._orbitControls.target, cam);
+        else this.camera.getWorldDirection(fwd);
+        fwd.y = 0;
+        if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1);   // looking straight down
+        return { x: cam.x, z: cam.z, fwd: fwd.normalize() };
+    }
+
+    /** The camera a move is staged FOR: where it stands, which way it looks,
+     *  its lens, and how far off it normally holds the companion ("the usual
+     *  spot" is that far in front of it). Normally the live camera under the
+     *  view's own face/full framing. Under the auto-follow director it is
+     *  the wide shot the director has gone to for the move (_autoStageWide)
+     *  — never whatever close-up happened to be live when the tool fired,
+     *  in which there is no room to walk anywhere. */
+    _stageView() {
+        if (this._autoCamOn() && this._autoCam?.stage) return this._autoCam.stage;
+        const preset = this._cameraPreset();
+        return {
+            ...this._cameraGround(),
+            fov: this.camera?.fov || FULL_FOV,
+            normal: Math.hypot(preset.position[0] - preset.target[0], preset.position[2] - preset.target[2]),
+        };
+    }
+
+    _stageNormalDistance() {
+        return this._stageView().normal;
+    }
+
+    /** See STAGE_CLOSE_DISTANCE: 0.5 m as the full-body lens shows it. */
+    _stageCloseDistance() {
+        const half = (deg) => Math.tan((deg * Math.PI) / 360);
+        return STAGE_CLOSE_DISTANCE * half(FULL_FOV) / half(this._stageView().fov);
+    }
+
+    /** Half the visible width at `depth` in front of the camera, less the
+     *  frame margin and the companion's own shoulders — how far to either
+     *  side of the camera's axis it can stand and still be in shot. */
+    _stageLateralRoom(depth) {
+        const halfTanH = Math.tan((this._stageView().fov * Math.PI) / 360) * (this.camera?.aspect || 1);
+        return depth * halfTanH * STAGE_FRAME_LIMIT - STAGE_BODY_HALF_WIDTH;
+    }
+
+    /** A floor point `depth` in front of the camera and `lateral` to its right. */
+    _stagePoint(depth, lateral = 0) {
+        const g = this._stageView();
+        // Right of the camera's forward on the floor: (fwd.z, -fwd.x) is left
+        // in three's right-handed XZ, so right is its negation.
+        return { x: g.x + g.fwd.x * depth - g.fwd.z * lateral, z: g.z + g.fwd.z * depth + g.fwd.x * lateral };
+    }
+
+    /** The companion's own movement, by intent — never coordinates (the
+     *  model has no map of the room; every project that lets an LLM move a
+     *  character ends up here: Jai World, Convai, neural-avatar-pipeline).
+     *  Answers at once with how long the walk takes: people talk while they
+     *  walk, so the reply is not held for the arrival.
+     *
+     *    come_close     walk up to the camera, a touch off centre
+     *    step_back      back to the usual spot in front of the camera
+     *    wander         one stroll to somewhere else in shot
+     *    pace           a few legs to and fro, then back to the usual spot
+     *    follow_camera  keep returning to the usual spot as the camera moves
+     *    stay           stop walking, stop following
+     *    face_user      turn to the camera
+     *
+     *  Base avatar only, flat view only: a group call lays its characters out
+     *  in a row that a walk would break, and in VR the viewer places them. */
+    stageMove(action) {
+        if (!this.vrm || !this.camera || !this.libs) return { ok: false, error: "There is no avatar on screen to move." };
+        if (this._xrActive) return { ok: false, error: "Not available in VR." };
+        if (this._peers.size) return { ok: false, error: "Not available during a group call." };
+        const moves = ["come_close", "step_back", "wander", "pace", "follow_camera", "stay", "face_user"];
+        if (!moves.includes(action)) return { ok: false, error: `Unknown action: ${action}` };
+        const auto = this._autoCamOn();
+        if (action === "follow_camera" && auto) {
+            return { ok: false, error: "The camera is already following you around by itself right now." };
+        }
+        // Under the auto-follow director a walk is staged for its wide shot:
+        // go there first, so the room is measured in the framing the move
+        // will actually be seen in.
+        const walks = action !== "stay" && action !== "face_user";
+        if (auto && walks) this._autoStageWide();
+        const normal = this._stageNormalDistance();
+        if ((action === "wander" || action === "pace") && this._stageLateralRoom(normal) < 0.3) {
+            return { ok: false, error: "There is no room to walk about in this close-up view; it needs the full-body view." };
+        }
+        // Only now: a refused move must leave nothing behind (the staging
+        // record is what holds the follow camera still and lifts its aim).
+        const st = (this._staging ||= { close: false, walk: null, queue: [], pauseUntil: 0, yOffset: 0, baseY: null });
+        const p = this.vrm.scene.position;
+
+        if (action === "stay" || action === "face_user") {
+            if (action === "stay") this._followCam = false;
+            st.queue = [];
+            st.walk = null;
+            this._moveTarget = null;
+            if (this._moving) this._stopWalkAnim(this);
+            else this._faceCamera(this);
+            return { ok: true, action };
+        }
+        if (action === "follow_camera") {
+            this._followCam = true;
+            st.queue = [this._stagePoint(normal)];
+            st.close = false;
+            return this._stageGo(st, action);
+        }
+        // Any other move ends a follow, the way every such system does it.
+        this._followCam = false;
+        if (action === "come_close") {
+            // A touch off centre, not square-on in mid-frame — measured in
+            // FRAME, because at this range the frame is barely a face wide.
+            // (A 20° off-axis stop, from the HRI finding that people dislike
+            // a robot's frontal approach, came out at ~30% of the frame and
+            // read as a face shoved to one side.) It stays on the side of the
+            // axis it is already on; a coin toss when it is dead ahead.
+            const g = this._stageView();
+            const d = this._stageCloseDistance();
+            const side = (p.x - g.x) * -g.fwd.z + (p.z - g.z) * g.fwd.x;
+            const sign = Math.abs(side) > 0.05 ? Math.sign(side) : (Math.random() < 0.5 ? -1 : 1);
+            const frameWidth = 2 * d * Math.tan((g.fov * Math.PI) / 360) * (this.camera?.aspect || 1);
+            st.queue = [this._stagePoint(d, sign * STAGE_CLOSE_OFF_CENTRE * frameWidth)];
+            st.close = true;
+            return this._stageGo(st, action);
+        }
+        if (action === "step_back") {
+            st.queue = [this._stagePoint(normal)];
+            st.close = false;
+            return this._stageGo(st, action);
+        }
+        if (action === "wander" || action === "pace") {
+            const legs = [];
+            if (action === "wander") {
+                legs.push(this._stageRandomSpot(normal, p));
+            } else {
+                // To one side, across to the other, and home: a pace.
+                const room = this._stageLateralRoom(normal);
+                const first = Math.random() < 0.5 ? -1 : 1;
+                legs.push(this._stagePoint(normal, first * room), this._stagePoint(normal, -first * room),
+                    this._stagePoint(normal));
+            }
+            st.queue = legs;
+            st.close = false;
+            return this._stageGo(st, action);
+        }
+        return { ok: false, error: `Unknown action: ${action}` };
+    }
+
+    /** Somewhere else in shot, at least a couple of steps from `from`. Depth
+     *  stays within a quarter of the usual distance (unsourced — enough to
+     *  read as depth without leaving the framing). */
+    _stageRandomSpot(normal, from) {
+        let best = null;
+        for (let i = 0; i < 8; i++) {
+            const depth = normal * (0.75 + Math.random() * 0.5);
+            const room = Math.max(0, this._stageLateralRoom(depth));
+            const spot = this._stagePoint(depth, (Math.random() * 2 - 1) * room);
+            const far = Math.hypot(spot.x - from.x, spot.z - from.z);
+            if (!best || far > best.far) best = { ...spot, far };
+            if (far >= 1.0) break;
+        }
+        return best;
+    }
+
+    /** Start the first queued leg and answer the tool call. */
+    _stageGo(st, action) {
+        const p = this.vrm.scene.position;
+        let metres = 0, x = p.x, z = p.z;
+        for (const leg of st.queue) { metres += Math.hypot(leg.x - x, leg.z - z); x = leg.x; z = leg.z; }
+        const pauses = Math.max(0, st.queue.length - 1) * (STAGE_PAUSE_MIN + STAGE_PAUSE_MAX) / 2;
+        st.walk = null;
+        st.pauseUntil = 0;
+        this._stageNextLeg(st);
+        return { ok: true, action, seconds: Math.round(metres / STAGE_SPEED + pauses + 1) };
+    }
+
+    _stageNextLeg(st) {
+        const leg = st.queue.shift();
+        if (!leg) return;
+        this._moveActorId = "base";
+        st.walk = { startedAt: performance.now(), speed: 0 };
+        this.walkTo(leg.x, leg.z);
+    }
+
+    /** Turn an actor to the camera where it stands (same ease the end of a
+     *  walk uses). */
+    _faceCamera(actor) {
+        if (!actor.vrm || !this.camera) return;
+        const p = actor.vrm.scene.position;
+        actor._returnFacingY = Math.atan2(this.camera.position.x - p.x, this.camera.position.z - p.z);
+    }
+
+    /** Per frame: run the leg queue, keep a follow going, and lift the
+     *  camera's gaze to the face as the companion comes close. */
+    _updateStaging(delta) {
+        const st = this._staging;
+        if (!st || !this.vrm || !this.camera || this._xrActive) return;
+        const nowMs = performance.now();
+        if (st.walk && !this._moveTarget && !this._moving) {
+            // Arrived (or stopped short). Pause before the next leg.
+            st.walk = null;
+            st.pauseUntil = nowMs + 1000 * (STAGE_PAUSE_MIN + Math.random() * (STAGE_PAUSE_MAX - STAGE_PAUSE_MIN));
+        } else if (st.walk && nowMs - st.walk.startedAt > STAGE_WALK_TIMEOUT_MS) {
+            st.walk = null;
+            st.queue = [];
+            this.stopMoving();
+        }
+        if (!st.walk && st.queue.length && nowMs >= st.pauseUntil) this._stageNextLeg(st);
+
+        const p = this.vrm.scene.position;
+        if (this._followCam && !st.walk && !st.queue.length) {
+            // Camera still for the recentering wait, companion out of the
+            // dead zone: walk back to the usual spot.
+            const cam = this.camera.position;
+            const moved = st.lastCam && Math.hypot(cam.x - st.lastCam.x, cam.z - st.lastCam.z) > 0.01;
+            st.lastCam = { x: cam.x, z: cam.z };
+            st.camStillFor = moved ? 0 : (st.camStillFor || 0) + delta;
+            const normal = this._stageNormalDistance();
+            const spot = this._stagePoint(normal);
+            const halfTanH = Math.tan((this.camera.fov * Math.PI) / 360) * (this.camera.aspect || 1);
+            const deadZone = FOLLOW_DEAD_ZONE * 2 * normal * halfTanH;
+            if (st.camStillFor >= FOLLOW_SETTLE_S && Math.hypot(spot.x - p.x, spot.z - p.z) > deadZone) {
+                st.queue = [spot];
+            }
+        }
+
+        // Raise the focus when close (DanceXR's "Raise Focus When Close"): a
+        // full-body camera looks at the waist, which is the wrong thing to
+        // be looking at from half a metre. Camera and orbit target rise
+        // together, so the orbit distance — and its limits — are untouched.
+        // Only ever for a come_close (and its unwinding): the lift is
+        // measured against where the camera looked when it STARTED, never
+        // against where it looks now — re-reading the live height every
+        // frame turned this into a spring that dragged the camera back
+        // whenever the user moved it up or down.
+        if (!this._orbitControls) return;
+        if (!st.close && Math.abs(st.yOffset) < 1e-4) { st.yOffset = 0; st.baseY = null; return; }
+        const driving = this._autoCamDriving();
+        if (st.baseY == null) {
+            st.baseY = (driving && this._autoCam.hold ? this._autoCam.hold.target.y : this._orbitControls.target.y) - st.yOffset;
+        }
+        const g = this._stageView();
+        const dist = Math.hypot(p.x - g.x, p.z - g.z);
+        const normal = g.normal;
+        const close = this._stageCloseDistance();
+        const nearness = st.close && normal > close
+            ? Math.max(0, Math.min(1, (normal - dist) / (normal - close))) : 0;
+        // Up close the frame is about a face tall, so the aim follows the
+        // headroom rule rather than the face shot's centre (which is lower,
+        // on the collarbone, and would crop the forehead): eyes a third of
+        // the way down the frame, i.e. a sixth of its height above centre.
+        const visible = 2 * close * Math.tan((g.fov * Math.PI) / 360);
+        const eyeY = this._eyeWorldY ?? this._headWorldY ?? FACE_FALLBACK_HEAD_Y;
+        const faceY = eyeY - visible / 6;
+        const goal = (faceY - st.baseY) * nearness;
+        const step = (goal - st.yOffset) * (1 - Math.exp(-4.605 * delta / 0.5));   // 0.5 s: Cinemachine aim damping
+        st.yOffset += step;
+        // Under the director the lift rides on the shot it writes each frame
+        // (_updateAutoCamera adds yOffset); otherwise nudge the live camera.
+        if (!driving && Math.abs(step) > 1e-5) {
+            this.camera.position.y += step;
+            this._orbitControls.target.y += step;
+        }
+    }
+
+    /** The user moved the camera themselves (flew it, dragged it): it is
+     *  theirs now. Forget the close-up lift instead of easing it back out
+     *  from under them, and let the follow camera resume from here. */
+    _dropLift() {
+        const st = this._staging;
+        if (!st) return;
+        st.yOffset = 0;
+        st.baseY = null;
+        st.close = false;
+    }
+
+    // ------------------------------------------------------------------
+    // Auto-follow camera (movement mode "auto") — see the AUTO_* constants
+    // ------------------------------------------------------------------
+
+    /** True while the director, not the follow dolly or the user, is the
+     *  one placing the camera. */
+    _autoCamDriving() {
+        return !!(this._autoCam?.shot && !this._autoCam.user);
+    }
+
+    _autoCamOn() {
+        return !!(this._moveMode && this._moveKind === "auto" && !this._xrActive
+            && !this._peers.size && this.vrm && this.camera && this.libs);
+    }
+
+    _autoCamState() {
+        return (this._autoCam ||= { shot: null, side: 1, held: 0, blend: null, user: false, spoke: false, silentFor: 0 });
+    }
+
+    /** A staged move (stageMove) under the director: go to the wide shot and
+     *  HOLD it — same framing, camera standing still — until the move is
+     *  over. Staging is laid out against a fixed camera (a walk across the
+     *  frame, a walk up to the lens); a camera that kept re-framing the
+     *  companion would cancel the very thing being staged. Returns the view
+     *  the move is laid out for (see _stageView). A move that follows on
+     *  from another (step_back after come_close) keeps the first one's
+     *  camera — re-framing around a companion who is up at the lens would
+     *  make "back to the usual spot" mean "stay where you are". */
+    _autoStageWide() {
+        const ac = this._autoCamState();
+        if (ac.hold && ac.stage) return ac.stage;
+        const full = AUTO_SHOTS.find((s) => s.id === "full");
+        if (ac.shot !== full) { ac.shot = full; ac.held = 0; }
+        ac.user = false;
+        const o = this._autoShotOrbit(full, ac.side);
+        ac.hold = o;
+        ac.orbit = null;
+        ac.blend = { t: 0, from: this._cameraOrbit() };
+        const sx = Math.sin(o.az), sz = Math.cos(o.az);
+        ac.stage = {
+            x: o.target.x + sx * o.dist, z: o.target.z + sz * o.dist,
+            fwd: { x: -sx, z: -sz }, fov: o.fov, normal: o.dist,
+        };
+        return ac.stage;
+    }
+
+    /** A shot as an ORBIT around the companion: what it looks at, from which
+     *  compass bearing (`az`, 0 = from +Z), how far out, how far above the
+     *  look-at point, and the lens. Kept in this form so the camera moves
+     *  between shots by swinging AROUND the companion — interpolating two
+     *  camera positions in a straight line cuts across the circle, through
+     *  the companion when the swing is wide.
+     *
+     *  The bearing is measured from the way the companion FACES, not from
+     *  the room: a face shot is square on to the face wherever they have
+     *  turned, and the wider shots sit their angle (`side` = left or right)
+     *  off that. Waist-up has no measured framing of its own, so it is taken
+     *  between the two presets that do. */
+    _autoShotOrbit(shot, side) {
+        const { THREE } = this.libs;
+        const face = this._cameraPreset("face");
+        const full = this._cameraPreset("full");
+        const t = shot.id === "face" ? 0 : shot.id === "full" ? 1 : AUTO_WAIST_BLEND;
+        const mix = (a, b) => a + (b - a) * t;
+        const target = new THREE.Vector3(...face.target.map((v, i) => mix(v, full.target[i])));
+        const dist = mix(Math.hypot(face.position[0] - face.target[0], face.position[2] - face.target[2]),
+            Math.hypot(full.position[0] - full.target[0], full.position[2] - full.target[2]));
+        return {
+            target, dist,
+            az: this._actorFacing(this) + shot.yaw * side,
+            rise: mix(face.position[1] - face.target[1], full.position[1] - full.target[1]),
+            fov: mix(face.fov, full.fov),
+        };
+    }
+
+    /** The orbit the camera is on right now, whoever put it there. */
+    _cameraOrbit() {
+        const { THREE } = this.libs;
+        const target = this._orbitControls ? this._orbitControls.target.clone()
+            : this.camera.position.clone().add(this.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(2));
+        const off = this.camera.position.clone().sub(target);
+        return { target, az: Math.atan2(off.x, off.z), dist: Math.hypot(off.x, off.z), rise: off.y, fov: this.camera.fov };
+    }
+
+    _updateAutoCamera(delta) {
+        if (!this._autoCamOn()) { this._autoCam = null; return; }
+        const ac = this._autoCamState();
+        ac.held += delta;
+
+        // A staged move holds the wide shot (_autoStageWide) until it is
+        // over: nothing walking, nothing queued, nobody up at the lens. The
+        // wide shot's clock starts again from there, so it lingers a moment
+        // on where they ended up before going back in.
+        const st = this._staging;
+        if (ac.hold && !(st && (st.walk || st.queue.length || st.close))) {
+            ac.hold = null;
+            ac.stage = null;
+            ac.held = 0;
+        }
+
+        // Cues. A change of shot wants a motive (Rui et al.): the companion
+        // finishing a line, setting off somewhere, or starting a gesture —
+        // body language wants the body in frame. A wide shot also runs out
+        // on its own. Nothing changes during a staged move.
+        if (this._rawSpeakingIntensity > 0.02) { ac.spoke = true; ac.silentFor = 0; }
+        else ac.silentFor += delta;
+        const lineEnded = ac.spoke && ac.silentFor >= AUTO_SPEECH_END_S;
+        if (lineEnded) ac.spoke = false;
+        // On the move = walking, or a clip that has carried the body more
+        // than a body's width from where it started.
+        const ground = this._actorGround(this);
+        const root = this.vrm.scene.position;
+        const travelling = this._moving
+            || Math.hypot(ground.x - root.x, ground.z - root.z) > 2 * STAGE_BODY_HALF_WIDTH;
+        // A deliberate gesture (play_gesture, generate_gesture, a manual
+        // trigger) — not the little clip an emotion plays on its own.
+        const performing = travelling || this.isGestureBusy();
+        let next = null;
+        if (ac.hold) {
+            next = null;
+        } else if (performing && ac.shot?.id !== "full") {
+            next = AUTO_SHOTS.find((s) => s.id === "full");
+        } else if (!ac.shot   // switching the mode on is its own motive
+                || (lineEnded && ac.held >= AUTO_MIN_SHOT_S && !performing)
+                || (ac.shot.id === "full" && ac.held >= AUTO_MAX_WIDE_S && !performing)) {
+            // Weighted pick among the OTHER shots — consecutive shots differ.
+            const pool = AUTO_SHOTS.filter((s) => s !== ac.shot);
+            let roll = Math.random() * pool.reduce((sum, s) => sum + s.weight, 0);
+            next = pool.find((s) => (roll -= s.weight) <= 0) || pool[0];
+        }
+        if (next) {
+            ac.shot = next;
+            ac.side = Math.random() < 0.5 ? -1 : 1;
+            ac.held = 0;
+            ac.user = false;   // a new shot takes the camera back from the user
+            ac.orbit = null;
+            ac.blend = { t: 0, from: this._cameraOrbit() };
+        }
+        if (!this._autoCamDriving()) { ac.idle = true; return; }
+        if (ac.idle) {
+            // Taking the camera back (they stepped away from the lens):
+            // blend from wherever it was left, never a jump.
+            ac.idle = false;
+            if (!ac.blend) {
+                ac.orbit = null;
+                ac.blend = { t: 0, from: this._cameraOrbit() };
+            }
+        }
+
+        // The held shot trails the companion: where they stand with 1 s
+        // damping, and round to the front of wherever they now FACE over
+        // 2 s. Except while they are WALKING: steered with the keys, those
+        // are camera-relative, so a camera that swung round mid-stride would
+        // bend the walk into a circle; walking on their own they face the
+        // way they go, turning about at every leg of a pace, and a camera
+        // chasing that would whirl. Same while a clip owns the body (a
+        // gesture, and the blend back out of it): the camera keeps its
+        // bearing and only follows where the body goes. It comes round to
+        // the face once they are standing again. A staged move holds its
+        // whole shot still instead (ac.hold).
+        const goal = ac.hold || this._autoShotOrbit(ac.shot, ac.side);
+        const steering = (this._moving || this._clipOwnsBody(this)) && !ac.hold;   // a held shot's bearing is fixed anyway
+        const turn = (from, to, k) => from + Math.atan2(Math.sin(to - from), Math.cos(to - from)) * k;   // shortest way round
+        if (!ac.orbit) {
+            ac.orbit = { ...goal, target: goal.target.clone() };
+            if (steering) ac.orbit.az = ac.blend ? ac.blend.from.az : this._cameraOrbit().az;
+        } else {
+            const k = 1 - Math.exp(-4.605 * delta / AUTO_POS_DAMPING_S);
+            ac.orbit.target.lerp(goal.target, k);
+            ac.orbit.dist += (goal.dist - ac.orbit.dist) * k;
+            ac.orbit.rise += (goal.rise - ac.orbit.rise) * k;
+            ac.orbit.fov = goal.fov;
+            if (!steering) ac.orbit.az = turn(ac.orbit.az, goal.az, 1 - Math.exp(-4.605 * delta / AUTO_TURN_DAMPING_S));
+        }
+        // A new shot is blended into over 2 s, EaseInOut, along the orbit.
+        let o = ac.orbit;
+        if (ac.blend) {
+            ac.blend.t = Math.min(1, ac.blend.t + delta / AUTO_BLEND_S);
+            const s = ac.blend.t * ac.blend.t * (3 - 2 * ac.blend.t);
+            const f = ac.blend.from;
+            o = {
+                target: f.target.clone().lerp(o.target, s),
+                az: turn(f.az, o.az, s),
+                dist: f.dist + (o.dist - f.dist) * s,
+                rise: f.rise + (o.rise - f.rise) * s,
+                fov: f.fov + (o.fov - f.fov) * s,
+            };
+            if (ac.blend.t >= 1) ac.blend = null;
+        }
+        // The close-up lift (_updateStaging) rides on top of the shot: camera
+        // and look-at rise together as the companion comes up to the lens.
+        const lookAt = o.target.clone();
+        lookAt.y += this._staging?.yOffset || 0;
+        this.camera.position.set(
+            lookAt.x + Math.sin(o.az) * o.dist, lookAt.y + o.rise, lookAt.z + Math.cos(o.az) * o.dist);
+        if (Math.abs(this.camera.fov - o.fov) > 1e-3) {
+            this.camera.fov = o.fov;
+            this.camera.updateProjectionMatrix();
+        }
+        if (this._orbitControls) this._orbitControls.target.copy(lookAt);
+        else this.camera.lookAt(lookAt);
+    }
+
+    // ------------------------------------------------------------------
+    // Gesture zoom-out (face view) — see the GESTURE_ZOOM_* constants
+    // ------------------------------------------------------------------
+
+    setGestureZoomOut(enabled) {
+        this._gestureZoomOut = !!enabled;
+    }
+
+    /** Put the camera on an orbit (see _autoShotOrbit for the form). */
+    _applyOrbit(o) {
+        this.camera.position.set(
+            o.target.x + Math.sin(o.az) * o.dist, o.target.y + o.rise, o.target.z + Math.cos(o.az) * o.dist);
+        if (Math.abs(this.camera.fov - o.fov) > 1e-3) {
+            this.camera.fov = o.fov;
+            this.camera.updateProjectionMatrix();
+        }
+        if (this._orbitControls) this._orbitControls.target.copy(o.target);
+        else this.camera.lookAt(o.target);
+    }
+
+    /** Between two orbits, eased (EaseInOut) and the short way round. */
+    _mixOrbit(a, b, t) {
+        const s = t * t * (3 - 2 * t);
+        return {
+            target: a.target.clone().lerp(b.target, s),
+            az: a.az + Math.atan2(Math.sin(b.az - a.az), Math.cos(b.az - a.az)) * s,
+            dist: a.dist + (b.dist - a.dist) * s,
+            rise: a.rise + (b.rise - a.rise) * s,
+            fov: a.fov + (b.fov - a.fov) * s,
+        };
+    }
+
+    /** Face view only: while a deliberate gesture plays (play_gesture,
+     *  generate_gesture, a manual trigger — not the small clip an emotion
+     *  plays by itself, not fidgets or speech gestures, which the face view
+     *  shows well enough), pull out to where the gesture can be seen —
+     *  waist-up for the hand gestures, full body for the rest — and ease
+     *  back to the framing it started from, wherever the user had put it.
+     *  Straight back along the same bearing, no swing. Taking hold of the
+     *  camera while it is out keeps it: nothing is eased back from under a
+     *  drag. The full-body view, walk mode, group calls, combos and VR all
+     *  frame the body already, so none of this applies there. */
+    _updateGestureZoom(delta) {
+        const gz = this._gestureZoom;
+        const eligible = this._gestureZoomOut && !this._fullBody && !this._moveMode && !this._xrActive
+            && !this._peers.size && !this._comboPartner && !this._comboLivePeer
+            && this.vrm && this.camera && this.libs;
+        if (!eligible || gz?.user) { this._gestureZoom = null; return; }
+        const busy = this.isGestureBusy();
+        if (!gz && !busy) return;
+        const ground = this._actorGround(this);
+        if (!gz) {
+            const from = this._cameraOrbit();
+            this._gestureZoom = { phase: "out", t: 0, age: 0, home: from, homeGround: ground, from, shotId: null };
+            return;
+        }
+        gz.age += delta;
+        // How far out: read while a gesture is actually playing and kept
+        // after it ends — the hold must not change size when the clip stops.
+        // A full-body gesture following a hand one widens the shot; it never
+        // narrows mid-shot.
+        if (busy) {
+            const want = UPPER_BODY_GESTURE_URLS.has(this._currentGestureUrl) ? "waist" : "full";
+            if (!gz.shotId || want === "full") gz.shotId = want;
+        }
+        // Home is the framing to go back to — carried along with the body,
+        // so a gesture that travelled ends framed the way it started.
+        const home = { ...gz.home, target: gz.home.target.clone() };
+        home.target.x += ground.x - gz.homeGround.x;
+        home.target.z += ground.z - gz.homeGround.z;
+        // Same bearing as home: straight out, not round.
+        const out = { ...this._autoShotOrbit({ id: gz.shotId || "full", yaw: 0 }, 1), az: gz.home.az };
+        if (gz.phase === "out") {
+            gz.t = Math.min(1, gz.t + delta / GESTURE_ZOOM_OUT_S);
+            this._applyOrbit(this._mixOrbit(gz.from, out, gz.t));
+            if (gz.t >= 1) gz.phase = "held";
+        } else if (gz.phase === "held") {
+            this._applyOrbit(out);
+            if (!busy && gz.age >= GESTURE_ZOOM_MIN_S) { gz.phase = "back"; gz.t = 0; gz.from = out; }
+        } else if (busy) {
+            // Another gesture while easing back in: out again from here.
+            gz.phase = "out";
+            gz.t = 0;
+            gz.from = this._cameraOrbit();
+        } else {
+            gz.t = Math.min(1, gz.t + delta / GESTURE_ZOOM_BACK_S);
+            this._applyOrbit(this._mixOrbit(gz.from, home, gz.t));
+            if (gz.t >= 1) this._gestureZoom = null;
+        }
     }
 
     /** Settle the base companion for a background change — either direction
@@ -3471,8 +4268,12 @@ class AvatarRenderer {
      *  chest → top of mesh; full-body = feet → top of mesh), pad it, then
      *  solve for the camera distance that makes that region fill the FOV.
      *  This automatically handles tall hair, hats, horns, and other things
-     *  that extend above the head bone — they're part of the mesh box. */
-    _cameraPreset() {
+     *  that extend above the head bone — they're part of the mesh box.
+     *
+     *  `shot` overrides the view's own face/full toggle — the auto-follow
+     *  director asks for "face" or "full" by name (see _autoShotOrbit). */
+    _cameraPreset(shot = null) {
+        const wantFull = shot ? shot === "full" : this._fullBody;
         const headY = this._headWorldY ?? FACE_FALLBACK_HEAD_Y;
         // Sensible fallbacks if the VRM hasn't loaded yet or the bounding
         // box capture failed — keeps the pre-load camera roughly framed.
@@ -3482,8 +4283,10 @@ class AvatarRenderer {
         // it's no longer pinned to the origin, and a preset re-apply (face ↔
         // full toggle) must not snap the camera back to an empty spawn point.
         // (The captured Y heights stay valid: walking never changes Y.)
-        let ax = this.vrm?.scene?.position?.x || 0;
-        let az = this.vrm?.scene?.position?.z || 0;
+        // "Stands" means the body: mid-clip that can be away from the root.
+        const ground = this.vrm ? this._actorGround(this) : { x: 0, z: 0 };
+        let ax = ground.x;
+        let az = ground.z;
 
         // Group calls: frame the whole row of characters. Centre on the
         // group midpoint and remember the half-width so the distance solve
@@ -3534,7 +4337,7 @@ class AvatarRenderer {
             return Math.max(distance, halfWidth / halfTanH);
         };
 
-        if (this._fullBody) {
+        if (wantFull) {
             const center = (meshTopY + meshBottomY) / 2;
             const height = (meshTopY - meshBottomY) * FULL_FRAME_PADDING;
             const distance = fitWidth(FULL_FOV, Math.max(
@@ -3594,6 +4397,13 @@ class AvatarRenderer {
         // re-anchors at the avatar's current spot instead of re-applying the
         // displacement on top.
         this._camFollowPos = null;
+        // The framing is fresh: whatever staging had done to it (the lift
+        // for a close-up) is gone with the old one. A running follow keeps
+        // going from the new framing.
+        this._staging = this._followCam
+            ? { close: false, walk: null, queue: [], pauseUntil: 0, yOffset: 0 } : null;
+        if (this._autoCam) { this._autoCam.orbit = null; this._autoCam.blend = null; }
+        this._gestureZoom = null;   // a pull-out has no framing left to return to
     }
 
     _enableOrbit() {
@@ -3613,6 +4423,13 @@ class AvatarRenderer {
         controls.minPolarAngle = Math.PI * 0.1;
         controls.maxPolarAngle = Math.PI * 0.85;
         controls.update();
+        // Any drag or wheel hands the camera to the user: the auto-follow
+        // director stands aside until its next shot (see _updateAutoCamera).
+        controls.addEventListener("start", () => {
+            if (this._autoCam) this._autoCam.user = true;
+            if (this._gestureZoom) this._gestureZoom.user = true;
+            this._dropLift();
+        });
         this._orbitControls = controls;
     }
 
@@ -4489,6 +5306,9 @@ class AvatarRenderer {
         if (!this._xrActive) {
             // After movement so the follow-cam tracks the freshly advanced position.
             this._updateFollowCamera(delta);
+            this._updateStaging(delta);
+            this._updateAutoCamera(delta);
+            this._updateGestureZoom(delta);
         } else {
             // Place the viewer in front of the avatar on the first frame the
             // reference space is available (it can be null at sessionstart).

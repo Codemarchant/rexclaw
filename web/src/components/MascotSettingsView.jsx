@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES } from "../lib/mascot_link";
 import { AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
@@ -41,6 +42,16 @@ export default function MascotSettingsView() {
     // change up through the storage event — so they work with it closed too.
     const [renderPrefs, updateRenderPrefs] = useRenderPrefs();
     const chRef = useRef(null);
+    // Shared-library .vrma files for the Emotions & gestures picker. Fetched
+    // the first time that tab opens (null = not fetched yet); a failed fetch
+    // leaves it empty, which just hides the picker.
+    const [libraryGestures, setLibraryGestures] = useState(null);
+    useEffect(() => {
+        if (tab !== "emotions" || libraryGestures) return;
+        rpc("/api/avatars/shared_assets", { kind: "vrma" })
+            .then((files) => setLibraryGestures((files || []).filter((f) => f.kind === "vrma")))
+            .catch(() => setLibraryGestures([]));
+    }, [tab]);
 
     useEffect(() => { document.title = _t("Mascot settings"); }, []);
 
@@ -483,6 +494,10 @@ export default function MascotSettingsView() {
                                     _t("Small movements while they stand quietly: a weight shift, folded arms, a touch of their hair."),
                                     mascot.motion.idle_fidgets,
                                     (v) => sendMotion({ idle_fidgets: v }))}
+                                {check("rx_ms_gesturezoom", _t("Zoom out for manual gestures in face view"),
+                                    _t("Pulls the camera out while a chosen gesture plays (the companion's own, or a manual trigger), so the body is in shot, and eases back in afterwards. The automated ones above never move the camera."),
+                                    mascot.motion.gesture_zoom_out,
+                                    (v) => sendMotion({ gesture_zoom_out: v }))}
                             </fieldset>
                         </section>
                     )}
@@ -536,6 +551,24 @@ export default function MascotSettingsView() {
                                         </button>
                                     ))}
                                 </div>
+                            </fieldset>
+                        </section>
+                    )}
+                    {(libraryGestures || []).length > 0 && (
+                        <section>
+                            <h3><i className="fa fa-folder-open-o" /> {_t("Library animations")}</h3>
+                            <fieldset disabled={!alive}>
+                                {/* value stays "" so the same entry can be picked again to replay it */}
+                                <select value=""
+                                        title={_t("Play any animation from the shared asset library once, even if it is not one of this avatar's gestures")}
+                                        onChange={(ev) => { if (ev.target.value) send({ type: "libraryGesture", url: ev.target.value }); }}>
+                                    <option value="">{_t("Library…")}</option>
+                                    {libraryGestures.map((f) => (
+                                        <option key={f.url} value={f.url}>
+                                            {f.name}{f.source === "bundled" ? " " + _t("(bundled)") : ""}
+                                        </option>
+                                    ))}
+                                </select>
                             </fieldset>
                         </section>
                     )}

@@ -237,6 +237,45 @@ RECORD_SCREEN_CLIP_TOOL = {
 # Hang up on request. Disconnection is deliberately delayed browser-side
 # until the post-tool spoken reply has fully played out — the goodbye IS the
 # point; cutting it off would feel like the companion hung up on the user.
+# move_around: the companion walking about on its own. Intents, never
+# coordinates — the model has no map of the room, and every system that lets
+# an LLM move a character ends up with named intents and relative moves (Jai
+# World, Convai, neural-avatar-pipeline). Executed by the renderer's stageMove
+# (web/src/services/avatar_renderer.js), which is where the distances, speeds
+# and their sources live. No restraint wording here, same rule as
+# play_gesture: the tool text is the strongest cue the model reads.
+MOVE_AROUND_TOOL = {
+    "name": "move_around",
+    "description": (
+        "Walk about on your own two feet - you are standing in a space in "
+        "front of the user and you can use it. The call answers at once and "
+        "you walk while you keep talking. Pick: 'come_close' walks right up "
+        "to the user until your face fills their view - e.g. to whisper "
+        "something, to peer at them, a playful or affectionate moment; "
+        "'step_back' walks back to your usual spot - e.g. after coming "
+        "close, or to give them room; 'wander' strolls over to another spot "
+        "- e.g. a quiet stretch, thinking something over, a change of mood; "
+        "'pace' walks to and fro and ends back at your usual spot - e.g. "
+        "restless, excited, working through a problem out loud; "
+        "'follow_camera' keeps walking over to wherever the user moves "
+        "their view, until your next move - e.g. they are looking around "
+        "the room and you tag along; 'stay' stops you where you are; "
+        "'face_user' turns you to look at them."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["come_close", "step_back", "wander", "pace",
+                         "follow_camera", "stay", "face_user"],
+                "description": "Which move to make.",
+            },
+        },
+        "required": ["action"],
+    },
+}
+
 END_CALL_TOOL = {
     "name": "end_call",
     "description": (
@@ -310,7 +349,7 @@ _PLAY_GESTURE_OUTRO = (
 )
 
 
-def build_play_gesture_tool(custom_gestures, allow=None):
+def build_play_gesture_tool(custom_gestures, allow=None, loop_stop=False):
     """Return the play_gesture tool entry, with the avatar's custom VRMA
     gestures appended to the enum and described inline.
 
@@ -320,6 +359,8 @@ def build_play_gesture_tool(custom_gestures, allow=None):
         plays.
     :param allow: built-in whitelist from store.allowed_base_gestures —
         None offers every built-in; a list (even empty) offers only those.
+    :param loop_stop: offer the 'idle' loop-stop even when no listed gesture
+        loops — generate_gesture can start a loop of its own.
     """
     from . import store  # local import — store imports nothing from here
 
@@ -369,7 +410,8 @@ def build_play_gesture_tool(custom_gestures, allow=None):
             description = description + "\n" + "\n".join(extra_lines)
     # Only surface the loop-stop affordance when a looping gesture actually
     # exists for this avatar — otherwise it's noise in the enum/description.
-    if has_loop:
+    # (loop_stop never conjures a tool out of 'idle' alone: see `not enum`.)
+    if has_loop or (loop_stop and enum):
         if "idle" not in enum:
             enum.append("idle")
         description = description + (

@@ -92,6 +92,21 @@ CREATE TABLE IF NOT EXISTS config (
     local_gen_image_edit_workflow TEXT NOT NULL DEFAULT '',
     local_gen_video_workflow TEXT NOT NULL DEFAULT '',
     local_gen_video_i2v_workflow TEXT NOT NULL DEFAULT '',
+    -- generate_gesture: the user's Text-To-VRMA app, over its local HTTP
+    -- API (see text_to_vrma.py). The token is the access token the app
+    -- shows once its API is enabled. Engine / planner / speed / model
+    -- mirror the app's own pickers: planner applies to ardy, speed to
+    -- openai + codex, model (empty = the app's default) to whichever LLM
+    -- is involved. gesture_gen_enabled is the global switch: off (the
+    -- default) means no companion is offered the tool and the app is never
+    -- probed, whatever the per-companion enable_gesture_gen says.
+    gesture_gen_enabled INTEGER NOT NULL DEFAULT 0,
+    gesture_gen_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:8787',
+    gesture_gen_token TEXT NOT NULL DEFAULT '',
+    gesture_gen_engine TEXT NOT NULL DEFAULT 'ardy',
+    gesture_gen_planner TEXT NOT NULL DEFAULT 'none',
+    gesture_gen_speed TEXT NOT NULL DEFAULT 'fast',
+    gesture_gen_model TEXT NOT NULL DEFAULT '',
     default_agent_id INTEGER,
     user_display_name TEXT,
     include_user_name_in_prompt INTEGER NOT NULL DEFAULT 0,
@@ -156,6 +171,11 @@ CREATE TABLE IF NOT EXISTS config (
     speech_gestures INTEGER NOT NULL DEFAULT 0,
     idle_fidgets INTEGER NOT NULL DEFAULT 0,
     fidget_interval REAL NOT NULL DEFAULT 60,
+    -- Face view only: pull the camera out while a deliberate gesture plays
+    -- (waist-up for hand gestures, full body for the rest) and ease back in
+    -- after. On by default — the face view frames the collarbone up, so
+    -- without it most of what play_gesture does happens out of shot.
+    gesture_zoom_out INTEGER NOT NULL DEFAULT 1,
     -- local_task working directory — the Grok Build CLI's blast-radius
     -- boundary. Empty = <data>/workspace (created on demand).
     local_task_workdir TEXT NOT NULL DEFAULT '',
@@ -398,6 +418,14 @@ CREATE TABLE IF NOT EXISTS agents (
     -- (game_integrations/minecraft/ folder).
     -- Runs LLM-generated scripts against the user's world → opt-in.
     enable_minecraft INTEGER NOT NULL DEFAULT 0,
+    -- generate_gesture: new avatar motions from a description, made by the
+    -- user's Text-To-VRMA app (text_to_vrma.py). Needs that app → opt-in.
+    enable_gesture_gen INTEGER NOT NULL DEFAULT 0,
+    -- move_around: the companion walks about the space on its own (come
+    -- close, step back, wander, pace, follow the camera). Only reads well
+    -- in a 3D scene background, where there is a room to move through →
+    -- opt-in.
+    enable_move_tool INTEGER NOT NULL DEFAULT 0,
     -- Group voice calls: enable_call_agents_tool exposes the
     -- add_agent_to_call / remove_agent_from_call browser tools so this agent
     -- can manage the group call; when_to_call_description is shown to OTHER
@@ -1003,6 +1031,19 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN live_chat_youtube_api_key TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN live_chat_ignored_users TEXT NOT NULL DEFAULT 'Nightbot, StreamElements, Streamlabs, Moobot, Fossabot'",
     "ALTER TABLE config ADD COLUMN live_chat_blocked_words TEXT NOT NULL DEFAULT ''",
+    # generate_gesture via the user's Text-To-VRMA app (see text_to_vrma.py).
+    "ALTER TABLE agents ADD COLUMN enable_gesture_gen INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN gesture_gen_enabled INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN gesture_gen_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:8787'",
+    "ALTER TABLE config ADD COLUMN gesture_gen_token TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN gesture_gen_engine TEXT NOT NULL DEFAULT 'ardy'",
+    "ALTER TABLE config ADD COLUMN gesture_gen_planner TEXT NOT NULL DEFAULT 'none'",
+    "ALTER TABLE config ADD COLUMN gesture_gen_speed TEXT NOT NULL DEFAULT 'fast'",
+    "ALTER TABLE config ADD COLUMN gesture_gen_model TEXT NOT NULL DEFAULT ''",
+    # Face view pulls out for gestures (see the config schema comment).
+    "ALTER TABLE config ADD COLUMN gesture_zoom_out INTEGER NOT NULL DEFAULT 1",
+    # move_around: the companion walking about on its own (browser_tools.py).
+    "ALTER TABLE agents ADD COLUMN enable_move_tool INTEGER NOT NULL DEFAULT 0",
 )
 
 

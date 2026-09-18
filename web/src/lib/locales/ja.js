@@ -111,11 +111,11 @@ export const JA = {
   "Hide walk mode settings": "歩行モード設定を隠す",
   "Walk mode settings (mode, reset, position)": "歩行モード設定（モード・リセット・位置）",
   "Walk": "歩行",
-  "No snap-back": "スナップバックなし",
-  "Moves the companion; faces you again on stop":
-    "コンパニオンを移動させます。停止するとあなたの方を向き直します",
-  "Same, but leaves it facing however it stopped — for posing":
-    "同様ですが、停止した向きのままにします — ポーズ付けに便利です",
+  "Moves the companion. It stays facing however it stopped, so you can pose it":
+    "コンパニオンを移動させます。停止した向きのままになるので、ポーズ付けができます",
+  "Camera - auto follow": "カメラ（自動追従）",
+  "Walks the companion like Walk, while the camera directs itself: it follows them and changes shot (face, waist-up, full body) when they finish a line or set off walking. Drag or zoom to take the camera back until the next shot":
+    "「歩行」と同じようにコンパニオンを歩かせながら、カメラが自動で演出します。コンパニオンを追いかけ、話し終えたときや歩き始めたときにショット（顔、上半身、全身）を切り替えます。ドラッグやズームをすると、次のショットまでカメラを自分で操作できます",
   "Camera": "カメラ",
   "Flies the camera itself; companions untouched":
     "カメラ自体を移動させます。コンパニオンには影響しません",
@@ -773,8 +773,8 @@ export const JA = {
   "Hide": "隠す",
   "Story title": "ストーリータイトル",
   "Lore stories (recall_stories)": "ロアストーリー（recall_stories）",
-  "Lets the companion look up its lore stories on demand. Only offered when at least one story below is tagged with the companion's name.":
-    "コンパニオンが必要に応じてロアストーリーを参照できるようにします。下のストーリーにコンパニオンの名前がタグ付けされている場合にのみ提供されます。",
+  "Lets the companion look up its lore stories on demand (recall_stories). Only offered when at least one story below is tagged with the companion's name.":
+    "コンパニオンが必要に応じてロアストーリーを参照できるようにします（recall_stories）。下のストーリーにコンパニオンの名前がタグ付けされている場合にのみ提供されます。",
   "Built-in xAI voice names such as ara work as-is. For a custom voice, create or clone one in the xAI console (console.x.ai) and paste its voice id here.":
     "ara などの xAI 組み込みボイス名はそのまま使えます。カスタムボイスは xAI コンソール（console.x.ai）で作成またはクローンし、そのボイス ID をここに貼り付けてください。",
   "Fast text model (delegate tool)":
@@ -789,8 +789,8 @@ export const JA = {
     "モデル料金：",
   "Capture tools (selfie & screen share)":
     "キャプチャツール（自撮り＆画面共有）",
-  "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider.":
-    "頼まれたときにコンパニオンが自分の写真を撮れるようにします（take_selfie — 通話中はライブのアバター、チャットではポートレート）。また、画面共有を開始していれば、そのスクリーンショットや短いクリップを取得できます（take_screenshot、record_screen_clip）。キャプチャはファイルライブラリに保存され、トランスクリプトや他のツールから利用できます — 何も生成しないため、どのプロバイダーでも使えます。",
+  "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, analyze_screen, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider.":
+    "頼まれたときにコンパニオンが自分の写真を撮れるようにします（take_selfie — 通話中はライブのアバター、チャットではポートレート）。また、画面共有を開始していれば、そのスクリーンショットや短いクリップを取得できます（take_screenshot、analyze_screen、record_screen_clip）。キャプチャはファイルライブラリに保存され、トランスクリプトや他のツールから利用できます — 何も生成しないため、どのプロバイダーでも使えます。",
   "Image & video tools": "画像・動画ツール",
   "Unlocks the media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Each tool renders on Grok Imagine (billed by xAI: images cost cents, videos are priced per second) or on your own ComfyUI server. Pick the engine per tool in Settings → Local generation.":
     "メディアツールを有効にします：create_image と create_video（プロンプトから、または Imagine ライブラリの画像（セルフィー、スクリーンショット、アップロード）をリミックス）、さらに音声通話では change_background（アバターの背後に新しいシーンを生成）。各ツールは Grok Imagine（xAI が課金：画像は数セント、動画は秒単位）か、自分の ComfyUI サーバーで実行されます。エンジンはツールごとに 設定 → ローカル生成 で選びます。",
@@ -799,28 +799,28 @@ export const JA = {
     "create_image／create_video で、名前（と衣装）を指定して「別の」コンパニオンを登場させられるようにします — 参照画像としてその人自身のポートレート、そして（create_video では）実際の声で話させるためのその人自身のボイス ID も使えます。「コンパニオンテキスト」とは意図的に別設定です：テキストは送れても、この形で登場させたくない（またはその逆の）コンパニオンがいてもよいためです。画像・動画ツールが必要です。",
   "xAI pricing":
     "xAI 料金",
-  "Lets the companion animate its avatar during voice calls: play gestures (the built-in set plus the avatar's custom ones) and switch between the avatar's outfits (play_gesture, change_outfit). Facial expressions are always available regardless. Unlocks the expression-style notes below.":
-    "音声通話中にコンパニオンがアバターを動かせるようにします：ジェスチャーの再生（組み込みセットとアバター固有のカスタムジェスチャー）と、アバターの衣装の切り替え（play_gesture、change_outfit）。表情はこの設定に関係なく常に使えます。下の表現スタイル欄が有効になります。",
+  "Lets the companion animate its avatar during voice calls: set its facial emotion, play gestures (the built-in set plus the avatar's custom ones) and switch between the avatar's outfits (set_emotion, play_gesture, change_outfit). Blinking, lip sync and idle motion work regardless. Unlocks the expression-style notes below.":
+    "音声通話中にコンパニオンがアバターを動かせるようにします：表情の切り替え、ジェスチャーの再生（組み込みセットとアバター固有のカスタムジェスチャー）、アバターの衣装の切り替え（set_emotion、play_gesture、change_outfit）。まばたき、リップシンク、待機モーションはこの設定に関係なく動きます。下の表現スタイル欄が有効になります。",
   "Lets the companion bring other companions into the current voice call and send them away again (add_agent_to_call, remove_agent_from_call), e.g. when you ask to talk to someone else or want a group conversation. Voice mode only.":
     "コンパニオンが現在の音声通話に他のコンパニオンを呼び入れたり退出させたりできるようにします（add_agent_to_call、remove_agent_from_call）— 別のコンパニオンと話したいときやグループ会話をしたいときに。ボイスモードのみ。",
-  "Lets the companion send an async text to another companion and get their reply back, mid voice call or chat — e.g. checking in on someone or passing along news. The message lands in the other companion's own conversation, clearly marked as coming from a companion rather than you. One reply per text; it doesn't turn into an unsupervised back-and-forth.":
-    "コンパニオンが、音声通話やチャットの最中に別のコンパニオンへ非同期でテキストを送り、返信を受け取れるようにします — 例えば様子を伺ったり近況を伝えたりする用途です。メッセージは相手コンパニオン自身の会話に届き、あなたではなくコンパニオンからのものだと明確に分かるようになっています。返信は1通のみで、際限のない自動応酬にはなりません。",
+  "Lets the companion send an async text to another companion and get their reply back (text_companion), mid voice call or chat — e.g. checking in on someone or passing along news. The message lands in the other companion's own conversation, clearly marked as coming from a companion rather than you. One reply per text; it doesn't turn into an unsupervised back-and-forth.":
+    "コンパニオンが、音声通話やチャットの最中に別のコンパニオンへ非同期でテキストを送り、返信を受け取れるようにします（text_companion） — 例えば様子を伺ったり近況を伝えたりする用途です。メッセージは相手コンパニオン自身の会話に届き、あなたではなくコンパニオンからのものだと明確に分かるようになっています。返信は1通のみで、際限のない自動応酬にはなりません。",
   "Gives the companion long-term memory tools (remember, recall, forget): it can save facts about you and your conversations, search them later, and delete ones you ask it to drop. Memories persist across sessions and appear in the Memories tab.":
     "コンパニオンに長期記憶ツール（remember、recall、forget）を与えます：あなたや会話についての事実を保存し、後で検索し、頼まれたものを削除できます。メモリはセッションをまたいで保持され、メモリタブに表示されます。",
-  "Lets the companion drive the Minecraft bot set up in the Games tab from voice and text sessions: give it goals and commands, check what it's doing. The tools are only offered while the bot sidecar is connected.":
-    "ゲームタブで設定した Minecraft ボットをコンパニオンが操作できるようにします — 目標や指示を出したり状況を確認したり — ボイス／テキストの両セッションから。ツールはボットのサイドカーが接続されている間のみ提供されます。",
+  "Lets the companion drive the Minecraft bot set up in the Games tab from voice and text sessions: give it goals and commands, check what it's doing (minecraft_command, minecraft_status). The tools are only offered while the bot sidecar is connected.":
+    "ゲームタブで設定した Minecraft ボットをコンパニオンが操作できるようにします — 目標や指示を出したり状況を確認したり（minecraft_command、minecraft_status） — ボイス／テキストの両セッションから。ツールはボットのサイドカーが接続されている間のみ提供されます。",
   "Lets the companion end the voice call itself (end_call) when you say goodbye or ask it to hang up, instead of waiting for you to press the button. Voice mode only.":
     "あなたが別れを告げたり切るよう頼んだりしたとき、ボタンを押すのを待たずにコンパニオン自身が通話を終了できるようにします（end_call）。ボイスモードのみ。",
-  "Lets the companion search the web for current information (news, facts, prices) in both voice and text sessions. Searches are billed by xAI per call.":
-    "コンパニオンがボイス／テキストの両セッションで最新情報（ニュース、事実、価格など）をウェブ検索できるようにします。検索は xAI により 1 回ごとに課金されます。",
-  "Lets the companion search posts on X (Twitter) in both voice and text sessions. Searches are billed by xAI per call.":
-    "コンパニオンがボイス／テキストの両セッションで X（Twitter）の投稿を検索できるようにします。検索は xAI により 1 回ごとに課金されます。",
-  "Lets the companion run Python in xAI's sandboxed code interpreter to calculate, analyse data or test snippets. Text sessions only; the voice model has no code tool.":
-    "コンパニオンが xAI のサンドボックス化されたコードインタープリタで Python を実行し、計算やデータ分析、スニペットのテストを行えるようにします。テキストセッションのみ — ボイスモデルにはコードツールがありません。",
-  "Lets the companion hand complex work (reading documents or images, research, long coding tasks) to a hidden background text session with the full tool stack, and report the result back. Works from voice calls too, where the realtime model can't see files itself. Quick looks at images and clips can run on the fast text model set in Settings. Each task is billed as extra text-model usage.":
-    "文書や画像の読み取り、リサーチ、長いコーディング作業などの複雑な仕事を、フルツール構成の非表示のバックグラウンドテキストセッションに任せ、結果を報告させられるようにします。リアルタイムモデル自身がファイルを見られない音声通話からも使えます。タスクごとにテキストモデルの追加使用量として課金されます。",
-  "Allows delegated tasks to run on xAI's multi-agent model (several coordinated agents on one task) when the companion asks for it. Noticeably more expensive per task than a plain delegation; requires Task delegation.":
-    "コンパニオンが求めた場合に、委任タスクを xAI のマルチエージェントモデル（1 つのタスクに複数のエージェントが連携）で実行できるようにします。通常の委任よりタスクあたりのコストが明らかに高くなります。タスク委任が必要です。",
+  "Lets the companion search the web (web_search) for current information (news, facts, prices) in both voice and text sessions. Searches are billed by xAI per call.":
+    "コンパニオンがボイス／テキストの両セッションで最新情報（ニュース、事実、価格など）をウェブ検索できるようにします（web_search）。検索は xAI により 1 回ごとに課金されます。",
+  "Lets the companion search posts on X (Twitter) in both voice and text sessions (x_search). Searches are billed by xAI per call.":
+    "コンパニオンがボイス／テキストの両セッションで X（Twitter）の投稿を検索できるようにします（x_search）。検索は xAI により 1 回ごとに課金されます。",
+  "Lets the companion run Python in xAI's sandboxed code interpreter (code_interpreter) to calculate, analyse data or test snippets. Text sessions only; the voice model has no code tool.":
+    "コンパニオンが xAI のサンドボックス化されたコードインタープリタ（code_interpreter）で Python を実行し、計算やデータ分析、スニペットのテストを行えるようにします。テキストセッションのみ — ボイスモデルにはコードツールがありません。",
+  "Lets the companion hand complex work (reading documents or images, research, long coding tasks) to a hidden background text session with the full tool stack, and report the result back (delegate_task). Works from voice calls too, where the realtime model can't see files itself. Quick looks at images and clips can run on the fast text model set in Settings. Each task is billed as extra text-model usage.":
+    "文書や画像の読み取り、リサーチ、長いコーディング作業などの複雑な仕事を、フルツール構成の非表示のバックグラウンドテキストセッションに任せ、結果を報告させられるようにします（delegate_task）。リアルタイムモデル自身がファイルを見られない音声通話からも使えます。タスクごとにテキストモデルの追加使用量として課金されます。",
+  "Allows delegated tasks (affects delegate_task) to run on xAI's multi-agent model (several coordinated agents on one task) when the companion asks for it. Noticeably more expensive per task than a plain delegation; requires Task delegation.":
+    "コンパニオンが求めた場合に、委任タスク（delegate_task に影響）を xAI のマルチエージェントモデル（1 つのタスクに複数のエージェントが連携）で実行できるようにします。通常の委任よりタスクあたりのコストが明らかに高くなります。タスク委任が必要です。",
   "Lets the companion hand tasks to the xAI Grok Build CLI on THIS computer (local_task): it creates and edits real files and runs shell commands, auto-approved, in the folder it's given. Powerful, so only enable it for companions you trust with that. Requires the `grok` CLI on your PATH; never offered in Docker.":
     "コンパニオンがこのコンピュータ上の xAI Grok Build CLI にタスクを任せられるようにします（local_task）：指定フォルダ内で実際のファイルを作成・編集し、シェルコマンドを確認なしで実行します。強力な機能です — それを任せられると信頼できるコンパニオンにのみ有効にしてください。PATH 上に `grok` CLI が必要で、Docker では提供されません。",
   "Tags (optional, comma-separated)": "タグ（任意、カンマ区切り）",
@@ -1521,4 +1521,82 @@ export const JA = {
   "A message containing any of these is dropped before a companion reads it - matched anywhere, inside words too. Comma-separated, not case-sensitive. Commands starting with ! are always skipped.":
     "これらのいずれかを含むメッセージは、コンパニオンが読む前に取り除かれます。単語の途中でも一致します。カンマ区切りで、大文字と小文字は区別しません。! で始まるコマンドは常にスキップされます。",
   "Blocked words (comma-separated)": "ブロックする語句（カンマ区切り）",
+
+  // ── Gesture generation (Text-To-VRMA) ─────────────────────────────────
+  "Gesture generation (Text-To-VRMA)": "ジェスチャー生成（Text-To-VRMA）",
+  "Gesture generation": "ジェスチャー生成",
+  "Lets companions invent brand-new avatar motions from a description during voice calls (generate_gesture), made by the free, open-source Text-To-VRMA app running on your computer.":
+    "音声通話中に、コンパニオンが説明文からまったく新しいアバターのモーションを作れるようにします（generate_gesture）。モーションは、お使いのパソコンで動く無料のオープンソースアプリ Text-To-VRMA が生成します。",
+  "Download Text-To-VRMA": "Text-To-VRMA をダウンロード",
+  "In that app open Advanced settings → Local HTTP API and switch it on, then copy the address and the access token it shows into the fields below. Its local ARDY engine is free and needs no key (press \"Start engine\" in the app first); the OpenAI, Claude and Codex engines use the keys or login saved in that app.":
+    "アプリ側で「詳細設定 → ローカルHTTP API」を開いて有効にし、表示されるアドレスとアクセストークンを下の欄にコピーしてください。ARDY ローカルエンジンは無料でキーも不要です（先にアプリで「エンジンを起動」を押してください）。OpenAI、Claude、Codex の各エンジンは、アプリに保存したキーまたはログインを使います。",
+  "Enable gesture generation": "ジェスチャー生成を有効にする",
+  "The master switch. Each companion also needs \"Gesture generation\" switched on in the Companions tab, and the tool is only offered while the app is answering.":
+    "全体のスイッチです。さらに「コンパニオン」タブで各コンパニオンの「ジェスチャー生成」をオンにする必要があります。ツールはアプリが応答している間だけ提供されます。",
+  "Text-To-VRMA API URL": "Text-To-VRMA API の URL",
+  "The access token Text-To-VRMA shows once its Local HTTP API is enabled. Fixed per install; if you regenerate it in the app, paste the new one here.":
+    "ローカルHTTP API を有効にすると Text-To-VRMA に表示されるアクセストークンです。インストールごとに固定です。アプリで再生成した場合は、新しいトークンをここに貼り付けてください。",
+  "Access token": "アクセストークン",
+  "•••••••• (leave blank to keep current token)": "••••••••（空欄のままなら現在のトークンを維持）",
+  "engines": "エンジン",
+  "key": "キー",
+  "set": "設定済み",
+  "What makes the motion, same choice as in the app. ARDY is NVIDIA's motion model running locally: free, a few seconds per motion on a GPU, best at full-body movement. The others have a language model write the keyframes: slower, billed by that provider (Codex uses your ChatGPT subscription).":
+    "モーションを作るエンジンです。アプリ内の選択肢と同じです。ARDY はローカルで動く NVIDIA のモーション生成モデルで、無料、GPU なら1回数秒、全身の動きが得意です。その他は言語モデルがキーフレームを書く方式で、時間がかかり、各プロバイダーの料金がかかります（Codex は ChatGPT のサブスクリプション枠を使います）。",
+  "Engine": "エンジン",
+  "ARDY local engine (free)": "ARDY ローカルエンジン（無料）",
+  "Codex (ChatGPT subscription)": "Codex（ChatGPT サブスクリプション）",
+  "Optionally let a language model read the description first and split it into steps for ARDY (\"run, then jump\"). None sends the description straight to ARDY: fastest, no key needed.":
+    "必要に応じて、言語モデルに先に説明文を読ませ、ARDY 向けの手順に分割させます（「走ってからジャンプ」など）。「なし」は説明文をそのまま ARDY に送ります。最速で、キーも不要です。",
+  "ARDY planner": "ARDY のプランナー",
+  "None (fastest)": "なし（最速）",
+  "Fast keeps the model's thinking and keyframe count down and skips the second review pass, the right choice mid-conversation. Quality thinks longer.":
+    "「速度優先」はモデルの推論量とキーフレーム数を抑え、2回目の見直しを省きます。会話中はこれが向いています。「品質優先」はより長く考えます。",
+  "Speed": "速度",
+  "Fast": "速度優先",
+  "Balanced": "バランス",
+  "Quality": "品質優先",
+  "Model id for the chosen engine or planner, as you would pick it in the app. Empty = the app's default.":
+    "選んだエンジンまたはプランナーで使うモデル ID です。アプリで選ぶものと同じです。空欄ならアプリの既定値を使います。",
+  "Model (optional)": "モデル（任意）",
+  "Rexclaw in Docker or WSL while Text-To-VRMA runs on Windows? The app only listens on 127.0.0.1, so it has to be on the same machine as the Rexclaw server (the desktop app and run.bat are). Generated motions land in data/assets/generated/text_to_vrma/ and show up in every avatar's Library picker.":
+    "Rexclaw を Docker や WSL で動かし、Text-To-VRMA は Windows 側で動かしていますか？ アプリは 127.0.0.1 でしか待ち受けないため、Rexclaw サーバーと同じマシン上にある必要があります（デスクトップアプリと run.bat なら同じマシンです）。生成したモーションは data/assets/generated/text_to_vrma/ に保存され、すべてのアバターの「ライブラリ」に表示されます。",
+  "Lets the companion invent brand-new avatar motions from a description during voice calls (generate_gesture), for anything its gesture list doesn't cover. Made by the free Text-To-VRMA app running on your computer: connect it and switch it on in Settings → Gesture generation. The tool is only offered while that app's local API is answering. Motions are saved to data/assets/generated/text_to_vrma/ and can be added to an avatar's custom gestures from the Library picker.":
+    "音声通話中に、コンパニオンが説明文からまったく新しいアバターのモーションを作れるようにします（generate_gesture）。ジェスチャー一覧にない動きに使います。モーションは、お使いのパソコンで動く無料アプリ Text-To-VRMA が生成します。「設定 → ジェスチャー生成」で接続して有効にしてください。ツールは、そのアプリのローカル API が応答している間だけ提供されます。モーションは data/assets/generated/text_to_vrma/ に保存され、「ライブラリ」からアバターのカスタムジェスチャーに追加できます。",
+  "MIT, Kiratchi. The separate app that makes the generate_gesture motions over its local HTTP API. Not bundled: you install and run it yourself.":
+    "MIT、Kiratchi。ローカル HTTP API 経由で generate_gesture のモーションを生成する別アプリです。同梱はしていません。ご自身でインストールして起動します。",
+
+  // ── Companion tool tooltips ──
+  "Third Party Integration Tools": "サードパーティ連携ツール",
+  "Tools that need a separate app running on your computer. Each is only offered to the companion while that app is connected.":
+    "お使いのパソコンで別のアプリを起動しておく必要があるツールです。それぞれ、そのアプリが接続されている間だけコンパニオンに提供されます。",
+  "When ANOTHER companion texts this one (affects text_companion), let this one use its own tools (memory, pictures, delegated tasks, Minecraft, MCP servers) while writing the reply — so a companion can ask this one to do something it isn't equipped for itself. Two things to know: the sender waits for the whole reply, so a slow tool here is silence in their live call, and anything generated lands in this companion's own chat and the library rather than coming back to the sender. Turn it off for a companion whose tools are slow or expensive.":
+    "「別の」コンパニオンがこのコンパニオンにテキストを送ってきたとき（text_companion に影響）、返信を書く間にこのコンパニオン自身のツール（メモリ、画像、委任タスク、Minecraft、MCP サーバー）を使えるようにします。これにより、あるコンパニオンが自分ではできないことをこのコンパニオンに頼めます。注意点が 2 つあります。送信側は返信全体を待つため、ここでツールが遅いと相手のライブ通話が無音になります。また、生成されたものは送信側には戻らず、このコンパニオン自身のチャットとライブラリに保存されます。ツールが遅い、または高コストなコンパニオンではオフにしてください。",
+  "Let this companion use tools when texted": "テキストを受け取ったときにツールを使えるようにする",
+  "Locomotion tools": "移動ツール",
+  "Lets the companion walk about on its own during voice calls (move_around): come right up close to you, step back to its usual spot, wander or pace a little, follow your view as you move the camera, and turn to face you. Recommended only with a 3D scene background, where there is a room to move through. Not offered in group calls.":
+    "音声通話中に、コンパニオンが自分で歩き回れるようにします（move_around）。すぐそばまで近づく、いつもの位置に戻る、少し歩き回る、行ったり来たりする、カメラを動かすとついてくる、あなたの方を向く、といった動きができます。歩ける部屋がある 3D シーンの背景でのみおすすめします。グループ通話では提供されません。",
+
+  // ── Gesture zoom-out ──
+  "Zoom out for manual gestures in face view": "顔ビューで手動ジェスチャー中にズームアウトする",
+  "The face view only shows your companion from the collarbone up, so a clap, a spin or a dance would happen out of shot. With this on, the camera pulls out while a gesture plays (to the waist for hand gestures, to the full body for the rest) and eases back in afterwards. Manual means a gesture someone chose: the companion's own play_gesture and generate_gesture calls, and the manual trigger buttons. The automated gestures and fidgets above never move the camera. Drag or zoom while it is out to keep the camera where you put it. The full-body view and walk mode are not affected.":
+    "顔ビューではコンパニオンの鎖骨から上しか映らないため、拍手やスピン、ダンスは画面の外で行われてしまいます。オンにすると、ジェスチャーの再生中にカメラが引き（手のジェスチャーは上半身まで、それ以外は全身まで）、終わるとゆっくり元に戻ります。「手動」とは、誰かが選んだジェスチャーのことです。コンパニオン自身による play_gesture と generate_gesture の呼び出し、および手動トリガーのボタンが該当します。上の自動ジェスチャーやフィジェットでカメラが動くことはありません。引いている間にドラッグやズームをすると、カメラはその位置のままになります。全身ビューと歩行モードには影響しません。",
+  "Pulls the camera out while a chosen gesture plays (the companion's own, or a manual trigger), so the body is in shot, and eases back in afterwards. The automated ones above never move the camera.":
+    "選ばれたジェスチャー（コンパニオン自身によるもの、または手動トリガー）の再生中にカメラを引いて体が映るようにし、終わるとゆっくり元に戻します。上の自動ジェスチャーではカメラは動きません。",
+
+  // ── Library animation picker ──
+  "Library animations": "ライブラリのアニメーション",
+  "Play any animation from the shared asset library once, even if it is not one of this avatar's gestures":
+    "共有アセットライブラリ内の任意のアニメーションを1回再生します。このアバターのジェスチャーに含まれていないものも再生できます",
+
+  // ── Gaps found by a full _t() audit (2026-09-18) ──
+  "Unsaved changes": "未保存の変更",
+  "You have unsaved changes on this tab. Save them before leaving?":
+    "このタブには未保存の変更があります。移動する前に保存しますか？",
+  "loops": "ループ",
+  "from ±": "最小 ±",
+  "Speaks first on voice calls": "音声通話で先に話し始める",
+  "When you resume a conversation, a dated note tells the companion when the two of you last spoke and how long ago that was, so it can pick up naturally after hours or days instead of mid-sentence - and a companion who speaks first opens with the time of day in mind. The note is visible in the transcript.":
+    "会話を再開すると、前回いつ話したか、それからどれくらい経ったかを日付つきのメモでコンパニオンに伝えます。数時間後や数日後でも、話の途中からではなく自然に再開できます。先に話し始める設定のコンパニオンは、時間帯を踏まえて話し始めます。メモはトランスクリプトに表示されます。",
+  "•••••••• (leave blank to keep current header)": "••••••••（空欄のままなら現在のヘッダーを維持）",
 };

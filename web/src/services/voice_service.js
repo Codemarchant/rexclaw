@@ -1079,6 +1079,9 @@ class VoiceCallService {
                 setOutfit: (u, i) => renderer()?.setOutfit?.(u, i),
                 resetExpression: () => renderer()?.resetExpression?.(),
                 setBackground: (bg) => renderer()?.setBackground?.(bg),
+                // move_around (base avatar only — a group call's row layout
+                // leaves a peer nowhere to walk, so its adapter lacks this).
+                stageMove: (action) => renderer()?.stageMove?.(action),
                 // Motion director signals (base avatar only — peers neither
                 // fidget nor get speech gestures, so their adapter lacks these).
                 setConversationState: (s) => this.env.services.motion_director?.setConversationState?.(s),

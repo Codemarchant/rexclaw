@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, idle_events, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, idle_events, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store, text_to_vrma
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -291,7 +291,7 @@ def _group_call_note(agent_row, group_peers, manual_turn):
     return ''.join(lines)
 
 
-def _env_postamble(con, agent_row, mode='voice', stable=False):
+def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True):
     """Dynamic context appended AFTER the agent's system prompt.
 
     Memory grows over time and benefits from recency bias - sitting
@@ -355,7 +355,7 @@ def _env_postamble(con, agent_row, mode='voice', stable=False):
         expression = _expression_section(con, agent_row)
         if expression:
             sections.append(expression)
-        habits = _tool_habits_section(con, agent_row)
+        habits = _tool_habits_section(con, agent_row, solo=solo)
         if habits:
             sections.append(habits)
     if agent_row['enable_affection_tool']:
@@ -536,6 +536,11 @@ def _expression_section(con, agent_row):
                 f"for them:\n{style}"
             )
         parts.append(block)
+    # generate_gesture (text_to_vrma.py) has its own toggle and is only named
+    # while the user's Text-To-VRMA app is answering — same gate as the tool.
+    config = get_config(con)
+    gesture_gen = text_to_vrma.offered(config, agent_row)
+    gesture_engine = config['gesture_gen_engine']
     if agent_row['enable_gesture_emotion_tools']:
         # An avatar can whitelist ITSELF out of every built-in gesture and
         # carry no custom ones, in which case play_gesture is not offered at
@@ -551,8 +556,13 @@ def _expression_section(con, agent_row):
         # play_gesture tool text), and companions went quiet on both tools.
         # Name only the tools this session carries (play_gesture is absent
         # on an avatar with no gestures — see _tool_use_section).
-        tools_phrase = ('`set_emotion` and `play_gesture` are' if has_gestures
-                        else '`set_emotion` is')
+        names = ['`set_emotion`']
+        if has_gestures:
+            names.append('`play_gesture`')
+        if gesture_gen:
+            names.append('`generate_gesture`')
+        tools_phrase = (f"{', '.join(names[:-1])} and {names[-1]} are" if len(names) > 1
+                        else f'{names[0]} is')
         block = (
             "## Avatar expression\n"
             f"- Every reply is also a decision about your face and body: "
@@ -577,13 +587,24 @@ def _expression_section(con, agent_row):
                 "that the avatar can perform (a wave, a nod, a spin) is a "
                 "call in that same turn - saying \"I wave\" without it is "
                 "announcing without acting. Narrate in words only what it "
-                "can't perform: touching the user, moving through the "
-                "space, handling things. Vary them like a person does - the "
+                "can't perform: touching the user, "
+                # ...unless a tool does move them: generate_gesture, move_around.
+                + ("" if gesture_gen or agent_row['enable_move_tool'] else "moving through the space, ")
+                + "handling things. Vary them like a person does - the "
                 "same gesture in the same spot every turn reads as a tic.\n"
                 "- A looping gesture keeps going until you end it: "
                 "`play_gesture` 'idle' stops it, any other gesture replaces "
                 "it, so don't play one by accident mid-loop. Emotions are "
                 "fine at any time."
+            )
+        elif gesture_gen:
+            # No gesture list, but generate_gesture (below) moves the body.
+            block += (
+                "- Vary it like a person does: the same emotion in the same "
+                "spot every turn reads as a tic, a different one where it "
+                "fits reads as alive.\n"
+                "- Narrate in words only what the avatar can't perform: "
+                "touching the user, handling things, leading them somewhere."
             )
         else:
             # No gestures on this avatar: emotions are the only channel, so
@@ -596,6 +617,8 @@ def _expression_section(con, agent_row):
                 "physical beats in words: touching the user, moving through "
                 "the space, handling things, leading them somewhere."
             )
+        if gesture_gen:
+            block += "\n" + _generate_gesture_bullet(has_gestures, gesture_engine)
         style = (agent_row['expression_style'] or '').strip()
         if has_gestures and style:
             block += (
@@ -605,13 +628,67 @@ def _expression_section(con, agent_row):
                 f"that call for them:\n{style}"
             )
         parts.append(block)
+    elif gesture_gen:
+        parts.append("## Avatar expression\n" + _generate_gesture_bullet(False, gesture_engine))
     return '\n\n'.join(parts) or None
 
 
-def _tool_habits_section(con, agent_row):
+def _generate_gesture_bullet(has_gestures, engine='ardy'):
+    """The generate_gesture line of the Avatar expression block. Leans
+    proactive like the rest of the block (see the wording note in
+    _expression_section): a brand-new tool with no cue to reach for it
+    unasked simply never gets called. Says nothing about how long a render
+    takes (hardware- and engine-dependent, and the call waits for it anyway)
+    and nothing about duration_seconds (see text_to_vrma.build_tool). `loop`
+    exists only alongside play_gesture (its 'idle' ends a loop), hence the
+    has_gestures gate on that clause. On ARDY the prompt has to be a short
+    caption - see text_to_vrma._ARDY_PROMPT for why."""
+    if has_gestures:
+        opener = ("`generate_gesture` covers every movement that isn't on your "
+                  "`play_gesture` list: describe it")
+        narrated = "A movement you narrate that the list doesn't cover"
+        loop = (" Set `loop` for something that keeps going, like rowing or "
+                "jogging on the spot.")
+    else:
+        opener = "`generate_gesture` is how your body moves: describe a movement"
+        narrated = "A movement you narrate"
+        loop = ""
+    caption = (" Write its prompt as one short plain sentence that names the "
+               "action (\"A person does a deep curtsy.\") - the motion model "
+               "works from short captions, not choreography."
+               if engine == 'ardy' else "")
+    return (
+        f"- {opener} and the avatar performs it. It is yours to use "
+        "proactively too, without being asked - air guitar when music "
+        "comes up, shadow-boxing, acting out the thing you're describing, "
+        "miming, a curtsy, a salute. "
+        f"{narrated} (\"I curtsy\", \"I throw a few punches\") is a "
+        f"`generate_gesture` call in that same turn.{caption}{loop}"
+    )
+
+
+def _tool_habits_section(con, agent_row, solo=True):
     """Behavioral nudges for tools the companion actually has. Returns None
-    when nothing applies."""
+    when nothing applies. `solo` is False in a group call, where move_around
+    is not offered (same gate as start_session)."""
     lines = []
+    if agent_row['enable_move_tool'] and solo:
+        # Leans proactive on purpose, like the expression block: nothing in
+        # a conversation ASKS for a walk, so a tool with no unprompted cue
+        # never gets called. Mechanism only — which moves suit the character
+        # is the persona's call.
+        lines.append(
+            "- You are standing in a space in front of the user, and "
+            "`move_around` lets you use it unprompted - someone who never "
+            "leaves their spot reads as a picture, someone who shifts about "
+            "reads as being in the room. Walk up close (`come_close`) for a "
+            "moment that calls for closeness and `step_back` when it has "
+            "passed; `wander` or `pace` when the talk goes quiet, when you "
+            "are thinking something over, or when the mood changes. "
+            "Anything you narrate that is a walk (\"I come over\", \"I step "
+            "back\", \"I pace\") is a `move_around` call in that same turn. "
+            "You keep talking while you walk.\n"
+        )
     if agent_row['provider'] == 'grok' and agent_row['enable_grok_imagine_tools']:
         lines.append(
             "- When the conversation moves to a described location or scene, "
@@ -831,8 +908,8 @@ def _cross_mode_token_vals(config, session, into_mode):
 # stay out on purpose: a lookup's answer only matters if the model speaks
 # after it. Text sessions don't get the flag — their tool loop always continues
 # to the written reply — hence a copy, never an edit of the shared definitions.
-_END_TURN_TOOLS = frozenset({'set_emotion', 'play_gesture', 'remember', 'forget',
-                             'minecraft_command'})
+_END_TURN_TOOLS = frozenset({'set_emotion', 'play_gesture', 'generate_gesture',
+                             'move_around', 'remember', 'forget', 'minecraft_command'})
 _END_TURN_PARAM = {
     'type': 'boolean',
     'description': (
@@ -963,10 +1040,15 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     # are built per-agent so their enums/descriptions reflect the avatar's
     # wardrobe + custom gesture clips.
     tools = list(browser_tools.BROWSER_TOOLS)
+    # Only while the user's Text-To-VRMA app is answering — same "only when
+    # actually usable" rule as local_task and the Minecraft pair.
+    gesture_gen = text_to_vrma.offered(config, agent)
+    play_gesture = None
     if agent['enable_gesture_emotion_tools']:
         play_gesture = browser_tools.build_play_gesture_tool(
             store.agent_gesture_dicts(con, agent),
             allow=store.agent_allowed_base_gestures(con, agent),
+            loop_stop=gesture_gen,   # a generated motion can loop too
         )
         if play_gesture is not None:   # None = avatar offers no gestures at all
             tools.append(play_gesture)
@@ -976,6 +1058,14 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
             tools.append(change_outfit)
     else:
         tools = [t for t in tools if t['name'] != 'set_emotion']
+    # Solo calls only: a group call lays its characters out in a row, and the
+    # renderer refuses the move there — so the tool is not offered either.
+    if agent['enable_move_tool'] and not group_peers:
+        tools.append(browser_tools.MOVE_AROUND_TOOL)
+    if gesture_gen:
+        # Looping needs play_gesture in the session: its 'idle' ends a loop.
+        tools.append(text_to_vrma.build_tool(can_loop=play_gesture is not None,
+                                             engine=config['gesture_gen_engine']))
     if agent['enable_end_call_tool']:
         tools.append(browser_tools.END_CALL_TOOL)
     if agent['enable_call_agents_tool']:
@@ -1045,7 +1135,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
             + _appearance_section(con, agent)
             + _render_prompt(agent)
             + _group_call_note(agent, group_peers, manual_turn)
-            + _env_postamble(con, agent, mode='voice')
+            + _env_postamble(con, agent, mode='voice', solo=not group_peers)
         ),
         browser_tools=tools,
         mcp_entries=mcp_entries,
