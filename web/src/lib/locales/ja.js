@@ -43,8 +43,8 @@ export const JA = {
 
   // ── Settings: HTTPS / LAN access ──────────────────────────────────────
   "VR headset & other devices (HTTPS)": "VR ヘッドセット・他のデバイス（HTTPS）",
-  "Opens this app to every device on your WiFi — VR headsets (Quest, Pico, …), phones and tablets — via the URL below. HTTPS is what makes the full experience work there: browsers only allow the microphone (voice calls) and WebXR on secure origins, so over plain HTTP another device could browse and text-chat but never talk. It also enables installing the app from the phone's browser (Add to Home Screen). Turning it on restarts the app's server in HTTPS mode and reloads this window; on each device, accept the one-time certificate warning, and on the PC allow access if Windows Firewall asks. Takes effect immediately (independent of Save settings).":
-    "同じ WiFi 上のあらゆるデバイス — VR ヘッドセット（Quest、Pico など）、スマートフォン、タブレット — から下記の URL でこのアプリを開けるようにします。フル機能が動くのは HTTPS のおかげです：ブラウザはマイク（音声通話）と WebXR をセキュアなオリジンでしか許可しないため、HTTP のままでは他のデバイスから閲覧やテキストチャットはできても会話はできません。スマートフォンのブラウザからのアプリインストール（ホーム画面に追加）も可能になります。オンにするとアプリのサーバーが HTTPS モードで再起動し、このウィンドウが再読み込みされます。各デバイスで初回のみ証明書の警告を承認し、PC 側では Windows ファイアウォールに許可を与えてください。（設定の保存とは独立して）即座に反映されます。",
+  "Turn this on to use Rexclaw on other devices on your WiFi: in VR from a headset's browser (Quest, Pico), or on a phone or tablet (iPhone, iPad, Android), where you can also add it to the home screen. Open the URL shown here on the device and accept its one-time certificate warning. If Windows Firewall asks, allow access. Switching it on restarts the app's server in HTTPS mode and reloads this window.":
+    "オンにすると、同じ WiFi 上の他のデバイスで Rexclaw を使えます。ヘッドセットのブラウザ（Quest、Pico）から VR で、またはスマートフォンやタブレット（iPhone、iPad、Android）で利用でき、ホーム画面に追加することもできます。ここに表示される URL をデバイスで開き、初回のみ表示される証明書の警告を承認してください。Windows ファイアウォールに確認されたら、アクセスを許可してください。オンにするとアプリのサーバーが HTTPS モードで再起動し、このウィンドウが再読み込みされます。",
   "Serve over HTTPS on WiFi": "WiFi 上で HTTPS 配信",
   "Open this URL on the device (headset, phone, tablet)":
     "この URL をデバイス（ヘッドセット・スマホ・タブレット）で開く",
@@ -369,19 +369,15 @@ export const JA = {
 
   // ── Settings: cost optimization ───────────────────────────────────────
   "Cost optimization": "コスト最適化",
-  "When you resume a conversation, its history is sent to xAI to restore the companion's memory of it — and xAI charges per message sent, about $0.004 each, no matter how short. A long relationship costs real money to pick up again: a 250-message conversation is about $1 every single time you resume it. That count is not your whole history, though — every summarization resets it, since the messages it condenses replay as a single recap. Only what has built up since the last summary is sent message by message — so the costliest moment to resume is just before a summary is due, when that backlog is at its largest.":
-    "会話を再開すると、コンパニオンの記憶を戻すために履歴が xAI に送信されます。xAI は送信されたメッセージ 1 件ごとに、長さに関係なく約 $0.004 を課金します。長い関係を再開するには実際にコストがかかります — 250 メッセージの会話なら、再開するたびに約 $1 です。ただし、この件数は会話の全履歴ではありません。要約が行われるたびにこの件数はリセットされ、まとめられたメッセージは 1 件の要約として再送されるためです。1 件ずつ送信されるのは、前回の要約以降に積み上がった分だけです — したがって、再開のコストが最も高くなるのは、次の要約が行われる直前、この蓄積が最大になっているタイミングです。",
-  "Rolling up the history bundles the older messages into one single message instead of hundreds, taking that $1 down to under a cent. Nothing is deleted or summarised — every word is still sent, word for word. What changes is the shape: the bundled part arrives as one transcript rather than as separate turns, so your companion may recall it a little less sharply than the turns kept whole below. Recent turns are what matter most for staying in character, which is why they are left untouched.":
-    "履歴をまとめると、古いメッセージが数百件ではなく 1 件にまとめられ、この約 $1 が 1 セント未満になります。削除も要約もされず、すべての語句がそのまま送信されます。変わるのは形です — まとめられた部分は個別のやり取りではなく 1 つの記録として届くため、下で指定してそのまま残すターンよりも、コンパニオンの記憶がやや曖昧になる可能性があります。直近のやり取りはキャラクターを保つうえで最も重要なため、手を加えずに残されます。",
-  "Recommended if you dip in and out of a conversation for quick exchanges: short, frequent resumes are where replaying the history dominates the bill. On long calls it matters much less, because the per-minute charge for the call itself outweighs it.":
-    "短いやり取りのために会話を頻繁に開いたり閉じたりする場合におすすめです。短時間の再開を繰り返す使い方では、履歴の再送が料金の大部分を占めます。長時間の通話では、通話自体の分単位の料金の方が大きいため、影響はずっと小さくなります。",
+  "Resuming a voice conversation sends its history back to xAI one message at a time, at about $0.004 per message, so a 250-message backlog costs about $1 on every resume. With the roll-up on, the older messages are bundled into a single message, which cuts that to a few cents. Every word is still sent, but the bundled part arrives as one transcript, so your companion may recall it a little less sharply than the recent turns kept whole. Most useful if you resume often for short exchanges. Note: every summarization trims the message backlog, so a resume costs the most just before one is due.":
+    "音声での会話を再開すると、履歴がメッセージ 1 件ずつ xAI に送り直され、1 件あたり約 $0.004 かかります。そのため、250 メッセージ分がたまっていると、再開のたびに約 $1 かかります。履歴のまとめをオンにすると、古いメッセージが 1 件にまとめられ、これが数セントになります。すべての語句はそのまま送信されますが、まとめられた部分は 1 つの記録として届くため、そのまま残す直近のターンに比べて、コンパニオンの記憶がやや曖昧になる可能性があります。短いやり取りのために頻繁に再開する場合に特に役立ちます。注：要約が行われるたびにたまったメッセージは減るため、再開のコストが最も高くなるのは次の要約の直前です。",
   "Roll up older history when resuming a conversation":
     "会話の再開時に古い履歴をまとめる",
   "Recent turns kept whole": "そのまま残す直近ターン数",
   "How many of the most recent messages stay as separate turns, exactly as they are sent today. Everything older is bundled. Higher keeps more of the conversation's natural shape and costs a little more; 0 bundles everything.":
     "直近の何件のメッセージを、現在と同じように個別のやり取りとして送信するかを指定します。それより古いものはまとめられます。大きくすると会話の自然な形がより多く保たれますが、コストはわずかに増えます。0 にするとすべてまとめられます。",
-  "A call bills for as long as it stays connected, whether or not anyone is talking — so the expensive mistake is walking away from one. Rexclaw can hang up for you after a stretch with nothing happening: nobody spoke or typed, no companion took a turn, no tool ran. Muting does not count as leaving, and a companion mid-sentence is never cut off. The conversation is only ended, never lost — resuming picks it straight back up. xAI drops a call at 15 minutes regardless, so anything longer than that would never get the chance to fire. 0 turns it off.":
-    "通話は接続している間ずっと課金され、誰かが話しているかどうかは関係ありません — つまり、通話をそのままにして離席することが最も高くつきます。Rexclaw は、何も起きない状態が続いたあと自動的に通話を終了できます。誰も話さず、入力もせず、コンパニオンの発言もツールの実行もない状態が対象です。ミュートは離席とはみなされず、発言の途中でコンパニオンが打ち切られることもありません。会話は終了されるだけで失われることはなく、再開すればそのまま続きから始まります。なお xAI は 15 分で通話を切断するため、それより長い値を設定しても発動する機会はありません。0 で無効になります。",
+  "xAI drops an idle call at 15 minutes regardless. 0 turns this off.":
+    "xAI は、無操作の通話を 15 分で必ず切断します。0 で無効になります。",
   "End the call after this many idle minutes": "この分数だけ何も起きなければ通話を終了",
 
   // ── Settings: hotkeys ─────────────────────────────────────────────────
@@ -390,8 +386,8 @@ export const JA = {
     "ショートカットをクリックしてから使いたいキーを押すと登録されます。Backspace で解除、Escape で変更を取り消します。ショートカットは保存すると有効になります。",
   "Use these shortcuts system-wide (desktop app)":
     "これらのショートカットをシステム全体で使う（デスクトップアプリ）",
-  "System-wide shortcuts work while you are in another application — which is the point of the desktop avatar: it floats on top unfocused, so shortcuts it can only see when focused would rarely fire. The cost is that these key combinations stop reaching every other program while Rexclaw runs. Turn this off to have them work only while a Rexclaw window has focus. On some keyboard layouts Ctrl+Alt is how AltGr characters are typed — pick different keys if typing breaks elsewhere.":
-    "システム全体のショートカットは、他のアプリを使っている間でも動作します。デスクトップアバターはフォーカスされないまま最前面に浮かんでいるため、フォーカス時にしか反応しないショートカットではほとんど役に立ちません。その代わり、Rexclaw の起動中はこれらのキーの組み合わせが他のすべてのプログラムに届かなくなります。オフにすると、Rexclaw のウィンドウにフォーカスがあるときだけ動作します。一部のキーボードレイアウトでは Ctrl+Alt が AltGr の入力に使われます — 他のアプリで入力がおかしくなる場合は別のキーを選んでください。",
+  "The shortcuts work while you are in another application, but those key combinations stop reaching other programs while Rexclaw runs. With system-wide shortcuts off, they only work while a Rexclaw window has focus. If typing breaks elsewhere (Ctrl+Alt types AltGr characters on some keyboards), pick different keys.":
+    "ショートカットは他のアプリを使っている間も動作しますが、Rexclaw の起動中はそのキーの組み合わせが他のプログラムに届かなくなります。システム全体のショートカットをオフにすると、Rexclaw のウィンドウにフォーカスがあるときだけ動作します。他のアプリで入力がおかしくなる場合（一部のキーボードでは Ctrl+Alt が AltGr の入力に使われます）は、別のキーを選んでください。",
   "Another application already owns these shortcuts, so they do nothing here: %s":
     "これらのショートカットは他のアプリケーションがすでに使用しているため、ここでは動作しません：%s",
   "This is a browser tab, so shortcuts only work while it has focus, and the avatar-window ones do nothing — they need the desktop app.":
@@ -463,8 +459,8 @@ export const JA = {
 
   // ── Settings: voice activation (wake phrases) ─────────────────────────
   "Voice activation": "音声起動",
-  "Start a call hands-free: with standby listening on, the microphone stays open while no call is live, and saying a companion's wake phrase (set per companion on the Companions tab — e.g. \"hey Eve\") starts one. Detection runs entirely on this machine with a small offline speech model — nothing is sent to xAI and nothing is billed until a call actually starts. The trade-off is an always-on microphone (your OS will show its mic indicator) and the one-time model download below. A soft chime confirms every wake.":
-    "ハンズフリーで通話を開始できます。スタンバイリスニングを有効にすると、通話していない間もマイクが開いたままになり、コンパニオンのウェイクフレーズ（Companions タブでコンパニオンごとに設定 — 例：「ヘイ、イヴ」）を言うと通話が始まります。検出はこのマシン上の小さなオフライン音声モデルだけで行われます — 通話が実際に始まるまで、xAI には何も送信されず、課金も発生しません。その代わり、マイクが常時オンになり（OS のマイクインジケーターが表示されます）、下記のモデルを一度ダウンロードする必要があります。ウェイクのたびに小さなチャイムが鳴って確認できます。",
+  "Say a companion's wake phrase, such as \"hey Eve\", to start a call hands-free. Set the phrase per companion on the Companions tab. Listening runs entirely on this machine. The microphone stays on while it listens, so your system will show its mic indicator.":
+    "「ヘイ、イヴ」のようなコンパニオンのウェイクフレーズを言うと、ハンズフリーで通話を開始できます。フレーズは Companions タブでコンパニオンごとに設定します。聞き取りはすべてこのマシン上で行われます。聞き取り中はマイクがオンのままになるため、OS のマイクインジケーターが表示されます。",
   "Standby listening for wake phrases": "ウェイクフレーズのスタンバイリスニング",
   "Wake phrase language": "ウェイクフレーズの言語",
   "Language of the offline model that spots the phrases — pick the language you'll SAY them in. Changing it downloads that language's model (~40-50 MB, one-time).":
@@ -492,14 +488,14 @@ export const JA = {
   // ── Settings: desktop app ─────────────────────────────────────────────
   "Desktop app": "デスクトップアプリ",
   "Launch Rexclaw when you sign in to your computer": "パソコンにサインインしたとき Rexclaw を起動する",
-  "Mascot mode is the pop-out avatar: a small transparent always-on-top window with no app chrome around it. Start there and Rexclaw opens as the companion on your desktop rather than as an application window — the full window is still one \"pop back in\" away, from the avatar's controls or the tray icon. Takes effect on the next launch (independent of Save settings).":
-    "マスコットモードとは、ポップアウトしたアバターのことです。アプリの枠がない、小さく透明な最前面ウィンドウとして表示されます。これを有効にすると、Rexclaw はアプリウィンドウではなくデスクトップ上のコンパニオンとして起動します。通常のウィンドウには、アバターの操作パネルかトレイアイコンから「戻す」だけでいつでも切り替えられます。次回の起動から反映されます（「設定を保存」とは独立して適用されます）。",
+  "Starts Rexclaw by itself each time you sign in. Pair it with mascot mode below to have your companion waiting on the desktop.":
+    "サインインするたびに Rexclaw が自動で起動します。下のマスコットモードと組み合わせると、コンパニオンがデスクトップで待っていてくれます。",
+  "Mascot mode opens Rexclaw as the pop-out avatar on your desktop instead of the app window. Pop back in from the avatar's controls or the tray icon. Applies from the next launch.":
+    "マスコットモードでは、Rexclaw がアプリウィンドウではなく、デスクトップ上のポップアウトしたアバターとして起動します。アバターの操作パネルかトレイアイコンから通常のウィンドウに戻せます。次回の起動から反映されます。",
   "Open in mascot mode": "マスコットモードで起動する",
   "Hide the avatar between calls": "通話していない間はアバターを隠す",
   "The avatar hides while no call is live and pops back up when one starts. Pairs well with voice activation. While hidden, the tray icon brings it back.":
     "通話していない間はアバターが消え、通話が始まると再び現れます。音声起動と相性抜群。非表示の間はトレイアイコンから戻せます。",
-  "The mascot's own options — call controls, ghost mode, cursor follow, emotions and more — live in its settings window: the ⚙ on the avatar's controls, or \"Full mascot settings\" in the tray menu.":
-    "マスコット自体のオプション — 通話操作、ゴーストモード、カーソル追従、感情など — は専用の設定ウィンドウにあります。アバターの操作パネルの ⚙、またはトレイメニューの「Full mascot settings」から開けます。",
   "Could not save that.": "保存できませんでした。",
 
   // ── Mascot settings window ────────────────────────────────────────────
@@ -787,6 +783,8 @@ export const JA = {
     "xAI コンソール",
   "Model rates:":
     "モデル料金：",
+  "How voice calls are billed (approximate, check xAI pricing for current rates): a voice call is charged per minute for as long as it stays connected, whether or not anyone is speaking. That is about $0.08 a minute ($4.80 an hour) on grok-voice-think-fast-2.0, for each companion in the call. On top of that there is a flat fee of about $0.004 per message exchanged, whatever its length. Tools like web search and Grok Imagine (images and videos) are charged separately. Resuming a voice conversation sends its history back one message at a time (incurring the $0.004 charge per message), so if you resume often, review the \"Cost optimization\" section in Settings. Text chat is billed differently, by the number of tokens, at the rates of the model used.":
+    "音声通話の課金の仕組み（概算です。最新の料金は xAI 料金で確認してください）：音声通話は、誰かが話しているかどうかに関係なく、接続している間ずっと分単位で課金されます。grok-voice-think-fast-2.0 では 1 分あたり約 $0.08（1 時間あたり $4.80）で、通話に参加しているコンパニオンごとにかかります。これに加えて、やり取りされるメッセージ 1 件ごとに、長さに関係なく一律で約 $0.004 の料金がかかります。ウェブ検索や Grok Imagine（画像・動画）などのツールは別途課金されます。音声での会話を再開すると、履歴がメッセージ 1 件ずつ送り直される（1 件ごとに $0.004 の料金がかかります）ため、頻繁に再開する場合は、設定の「コスト最適化」セクションを見直してください。テキストチャットは課金方法が異なり、使用するモデルの料金でトークン数に応じて課金されます。",
   "Capture tools (selfie & screen share)":
     "キャプチャツール（自撮り＆画面共有）",
   "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, analyze_screen, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider.":
@@ -1579,8 +1577,8 @@ export const JA = {
 
   // ── Gesture zoom-out ──
   "Zoom out for manual gestures in face view": "顔ビューで手動ジェスチャー中にズームアウトする",
-  "The face view only shows your companion from the collarbone up, so a clap, a spin or a dance would happen out of shot. With this on, the camera pulls out while a gesture plays (to the waist for hand gestures, to the full body for the rest) and eases back in afterwards. Manual means a gesture someone chose: the companion's own play_gesture and generate_gesture calls, and the manual trigger buttons. The automated gestures and fidgets above never move the camera. Drag or zoom while it is out to keep the camera where you put it. The full-body view and walk mode are not affected.":
-    "顔ビューではコンパニオンの鎖骨から上しか映らないため、拍手やスピン、ダンスは画面の外で行われてしまいます。オンにすると、ジェスチャーの再生中にカメラが引き（手のジェスチャーは上半身まで、それ以外は全身まで）、終わるとゆっくり元に戻ります。「手動」とは、誰かが選んだジェスチャーのことです。コンパニオン自身による play_gesture と generate_gesture の呼び出し、および手動トリガーのボタンが該当します。上の自動ジェスチャーやフィジェットでカメラが動くことはありません。引いている間にドラッグやズームをすると、カメラはその位置のままになります。全身ビューと歩行モードには影響しません。",
+  "The camera pulls out while a gesture plays, so it is not out of shot, then eases back in. Only for gestures someone chose (the companion's own, or the trigger buttons), not the automated ones above.":
+    "ジェスチャーの再生中はカメラが引いて画面の外に出ないようにし、終わるとゆっくり元に戻ります。対象は誰かが選んだジェスチャー（コンパニオン自身によるもの、またはトリガーボタン）だけで、上の自動ジェスチャーは含みません。",
   "Pulls the camera out while a chosen gesture plays (the companion's own, or a manual trigger), so the body is in shot, and eases back in afterwards. The automated ones above never move the camera.":
     "選ばれたジェスチャー（コンパニオン自身によるもの、または手動トリガー）の再生中にカメラを引いて体が映るようにし、終わるとゆっくり元に戻します。上の自動ジェスチャーではカメラは動きません。",
 

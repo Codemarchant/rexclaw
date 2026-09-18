@@ -426,15 +426,10 @@ export default function SettingsView({ active }) {
                         <label htmlFor="rx_gesture_zoom_out">{_t("Zoom out for manual gestures in face view")}</label>
                     </div>
                     <p className="text-muted">
-                        {_t("The face view only shows your companion from the collarbone up, so a "
-                            + "clap, a spin or a dance would happen out of shot. With this on, the "
-                            + "camera pulls out while a gesture plays (to the waist for hand "
-                            + "gestures, to the full body for the rest) and eases back in "
-                            + "afterwards. Manual means a gesture someone chose: the companion's "
-                            + "own play_gesture and generate_gesture calls, and the manual trigger "
-                            + "buttons. The automated gestures and fidgets above never move the "
-                            + "camera. Drag or zoom while it is out to keep the camera where you "
-                            + "put it. The full-body view and walk mode are not affected.")}
+                        {_t("The camera pulls out while a gesture plays, so it is not out of "
+                            + "shot, then eases back in. Only for gestures someone chose (the "
+                            + "companion's own, or the trigger buttons), not the automated ones "
+                            + "above.")}
                     </p>
                 </section>
 
@@ -442,30 +437,42 @@ export default function SettingsView({ active }) {
                     <section>
                         <h3><i className="fa fa-desktop" /> {_t("Desktop app")}</h3>
                         {launchAtLogin?.supported && (
-                            <div className="rx_check">
-                                <input id="rx_launch_at_login" type="checkbox"
-                                       checked={!!launchAtLogin.enabled}
-                                       onChange={(ev) => toggleLaunchAtLogin(ev.target.checked)} />
-                                <label htmlFor="rx_launch_at_login">
-                                    {_t("Launch Rexclaw when you sign in to your computer")}
-                                </label>
-                            </div>
+                            <>
+                                <div className="rx_check">
+                                    <input id="rx_launch_at_login" type="checkbox"
+                                           checked={!!launchAtLogin.enabled}
+                                           onChange={(ev) => toggleLaunchAtLogin(ev.target.checked)} />
+                                    <label htmlFor="rx_launch_at_login">
+                                        {_t("Launch Rexclaw when you sign in to your computer")}
+                                    </label>
+                                </div>
+                                <p className="text-muted">
+                                    {_t("Starts Rexclaw by itself each time you sign in. Pair it "
+                                        + "with mascot mode below to have your companion waiting "
+                                        + "on the desktop.")}
+                                </p>
+                            </>
                         )}
-                        <p className="text-muted">
-                            {_t("Mascot mode is the pop-out avatar: a small transparent "
-                                + "always-on-top window with no app chrome around it. Start "
-                                + "there and Rexclaw opens as the companion on your desktop "
-                                + "rather than as an application window — the full window is "
-                                + "still one \"pop back in\" away, from the avatar's controls "
-                                + "or the tray icon. Takes effect on the next launch "
-                                + "(independent of Save settings).")}
-                        </p>
                         <div className="rx_check">
                             <input id="rx_start_mascot" type="checkbox"
                                    checked={!!startInMascot}
                                    onChange={(ev) => toggleStartInMascot(ev.target.checked)} />
                             <label htmlFor="rx_start_mascot">
                                 {_t("Open in mascot mode")}
+                            </label>
+                        </div>
+                        <p className="text-muted">
+                            {_t("Mascot mode opens Rexclaw as the pop-out avatar on your "
+                                + "desktop instead of the app window. Pop back in from the "
+                                + "avatar's controls or the tray icon. Applies from the next "
+                                + "launch.")}
+                        </p>
+                        <div className="rx_check">
+                            <input id="rx_hb_notifications" type="checkbox"
+                                   checked={!!config.heartbeat_notifications}
+                                   onChange={(ev) => setField("heartbeat_notifications", ev.target.checked ? 1 : 0)} />
+                            <label htmlFor="rx_hb_notifications">
+                                {_t("Desktop notifications for heartbeats")}
                             </label>
                         </div>
                         <p className="text-muted">
@@ -476,14 +483,6 @@ export default function SettingsView({ active }) {
                                 + "so a diary stays quiet. Requires notifications to be on in "
                                 + "Windows Settings › System › Notifications (and off Do Not Disturb).")}
                         </p>
-                        <div className="rx_check">
-                            <input id="rx_hb_notifications" type="checkbox"
-                                   checked={!!config.heartbeat_notifications}
-                                   onChange={(ev) => setField("heartbeat_notifications", ev.target.checked ? 1 : 0)} />
-                            <label htmlFor="rx_hb_notifications">
-                                {_t("Desktop notifications for heartbeats")}
-                            </label>
-                        </div>
                         <button className="btn btn-secondary" style={{ marginBottom: "0.5rem" }}
                                 title={_t("Raises a sample notification right now, so you can check that Windows shows them for this app.")}
                                 onClick={() => window.rexclawDesktop.notify?.({
@@ -494,13 +493,9 @@ export default function SettingsView({ active }) {
                                 }).catch(() => {})}>
                             <i className="fa fa-bell-o" /> {_t("Send a test notification")}
                         </button>
-                        <p className="text-muted">
-                            {_t("The mascot's own options — call controls, ghost mode, "
-                                + "cursor follow, emotions and more — live in its settings "
-                                + "window: the ⚙ on the avatar's controls, or \"Full mascot "
-                                + "settings\" in the tray menu.")}
-                        </p>
-                        <button className="btn btn-secondary"
+                        {/* Own line, well clear of the test-notification button
+                            above, so neither gets clicked by mistake. */}
+                        <button className="btn btn-secondary" style={{ display: "block", marginTop: "1.25rem" }}
                                 onClick={() => window.rexclawDesktop.openMascotSettings?.()}>
                             <i className="fa fa-cog" /> {_t("Open mascot settings")}
                         </button>
@@ -514,6 +509,22 @@ export default function SettingsView({ active }) {
                         <a href="https://console.x.ai" target="_blank" rel="noreferrer">{_t("xAI console")}</a>.{" "}
                         {_t("Model rates:")}{" "}
                         <a href="https://docs.x.ai/docs/models" target="_blank" rel="noreferrer">{_t("xAI pricing")}</a>.
+                    </p>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("How voice calls are billed (approximate, check xAI pricing for "
+                            + "current rates): a voice call is charged per minute for as long "
+                            + "as it stays connected, whether or not anyone is speaking. That "
+                            + "is about $0.08 a minute ($4.80 an hour) on "
+                            + "grok-voice-think-fast-2.0, for each companion in the call. "
+                            + "On top of that there is a flat fee of about $0.004 per message "
+                            + "exchanged, whatever its length. Tools like web search and Grok "
+                            + "Imagine (images and videos) are charged separately. Resuming a "
+                            + "voice conversation sends its history back one message at a "
+                            + "time (incurring the $0.004 charge per message), so if you "
+                            + "resume often, review the \"Cost optimization\" section in "
+                            + "Settings. Text chat is "
+                            + "billed differently, by the number of tokens, at the rates of "
+                            + "the model used.")}
                     </p>
                     <label>{_t("API key")} {config.has_api_key && <span className="text-muted">({_t("saved")} {config.api_key_hint || ""})</span>}</label>
                     <input
@@ -664,32 +675,16 @@ export default function SettingsView({ active }) {
                 <section>
                     <h3><i className="fa fa-tags" /> {_t("Cost optimization")}</h3>
                     <p className="text-muted">
-                        {_t("When you resume a conversation, its history is sent to xAI to "
-                            + "restore the companion's memory of it — and xAI charges per "
-                            + "message sent, about $0.004 each, no matter how short. A long "
-                            + "relationship costs real money to pick up again: a 250-message "
-                            + "conversation is about $1 every single time you resume it. That "
-                            + "count is not your whole history, though — every summarization "
-                            + "resets it, since the messages it condenses replay as a single "
-                            + "recap. Only what has built up since the last summary is sent "
-                            + "message by message — so the costliest moment to resume is just "
-                            + "before a summary is due, when that backlog is at its largest.")}
-                    </p>
-                    <p className="text-muted">
-                        {_t("Rolling up the history bundles the older messages into one single "
-                            + "message instead of hundreds, taking that $1 down to under a cent. "
-                            + "Nothing is deleted or summarised — every word is still sent, "
-                            + "word for word. What changes is the shape: the bundled part "
-                            + "arrives as one transcript rather than as separate turns, so your "
-                            + "companion may recall it a little less sharply than the turns "
-                            + "kept whole below. Recent turns are what matter most for staying "
-                            + "in character, which is why they are left untouched.")}
-                    </p>
-                    <p className="text-muted">
-                        {_t("Recommended if you dip in and out of a conversation for quick "
-                            + "exchanges: short, frequent resumes are where replaying the "
-                            + "history dominates the bill. On long calls it matters much less, "
-                            + "because the per-minute charge for the call itself outweighs it.")}
+                        {_t("Resuming a voice conversation sends its history back to xAI one "
+                            + "message at a time, at about $0.004 per message, so a "
+                            + "250-message backlog costs about $1 on every resume. With the "
+                            + "roll-up on, the older messages are bundled into a single "
+                            + "message, which cuts that to a few cents. Every word is still "
+                            + "sent, but the bundled part arrives as one transcript, so your "
+                            + "companion may recall it a little less sharply than the recent "
+                            + "turns kept whole. Most useful if you resume often for short "
+                            + "exchanges. Note: every summarization trims the message backlog, "
+                            + "so a resume costs the most just before one is due.")}
                     </p>
                     <div className="rx_check">
                         <input id="rx_replay_rollup" type="checkbox"
@@ -715,18 +710,6 @@ export default function SettingsView({ active }) {
                         </div>
                     )}
                     <div className="rx_editor_section">
-                        <p className="text-muted">
-                            {_t("A call bills for as long as it stays connected, whether "
-                                + "or not anyone is talking — so the expensive mistake is "
-                                + "walking away from one. Rexclaw can hang up for you "
-                                + "after a stretch with nothing happening: nobody spoke or "
-                                + "typed, no companion took a turn, no tool ran. Muting "
-                                + "does not count as leaving, and a companion mid-sentence "
-                                + "is never cut off. The conversation is only ended, never "
-                                + "lost — resuming picks it straight back up. xAI drops a "
-                                + "call at 15 minutes regardless, so anything longer than "
-                                + "that would never get the chance to fire. 0 turns it off.")}
-                        </p>
                         <div className="rx_row">
                             <div>
                                 <label>{_t("End the call after this many idle minutes")}</label>
@@ -739,22 +722,21 @@ export default function SettingsView({ active }) {
                             <div />
                             <div />
                         </div>
+                        <p className="text-muted">
+                            {_t("xAI drops an idle call at 15 minutes regardless. 0 turns "
+                                + "this off.")}
+                        </p>
                     </div>
                 </section>
 
                 <section>
                     <h3><i className="fa fa-assistive-listening-systems" /> {_t("Voice activation")}</h3>
                     <p className="text-muted">
-                        {_t("Start a call hands-free: with standby listening on, the "
-                            + "microphone stays open while no call is live, and saying a "
-                            + "companion's wake phrase (set per companion on the "
-                            + "Companions tab — e.g. \"hey Eve\") starts one. Detection "
-                            + "runs entirely on this machine with a small offline speech "
-                            + "model — nothing is sent to xAI and nothing is billed "
-                            + "until a call actually starts. The trade-off is an "
-                            + "always-on microphone (your OS will show its mic "
-                            + "indicator) and the one-time model download below. A soft "
-                            + "chime confirms every wake.")}
+                        {_t("Say a companion's wake phrase, such as \"hey Eve\", to start a "
+                            + "call hands-free. Set the phrase per companion on the "
+                            + "Companions tab. Listening runs entirely on this machine. The "
+                            + "microphone stays on while it listens, so your system will "
+                            + "show its mic indicator.")}
                     </p>
                     <div className="rx_check">
                         <input id="rx_wake_enabled" type="checkbox"
@@ -894,19 +876,6 @@ export default function SettingsView({ active }) {
                 {headset && !headset.external && (
                     <section>
                         <h3><i className="fa fa-wifi" /> {_t("VR headset & other devices (HTTPS)")}</h3>
-                        <p className="text-muted">
-                            {_t("Opens this app to every device on your WiFi — VR headsets "
-                                + "(Quest, Pico, …), phones and tablets — via the URL below. "
-                                + "HTTPS is what makes the full experience work there: browsers "
-                                + "only allow the microphone (voice calls) and WebXR on secure "
-                                + "origins, so over plain HTTP another device could browse and "
-                                + "text-chat but never talk. It also enables installing the app "
-                                + "from the phone's browser (Add to Home Screen). Turning it on "
-                                + "restarts the app's server in HTTPS mode and reloads this "
-                                + "window; on each device, accept the one-time certificate "
-                                + "warning, and on the PC allow access if Windows Firewall asks. "
-                                + "Takes effect immediately (independent of Save settings).")}
-                        </p>
                         <div className="rx_row">
                             <div>
                                 <label>{_t("Serve over HTTPS on WiFi")}</label>
@@ -926,6 +895,15 @@ export default function SettingsView({ active }) {
                                 </div>
                             )}
                         </div>
+                        <p className="text-muted">
+                            {_t("Turn this on to use Rexclaw on other devices on your WiFi: "
+                                + "in VR from a headset's browser (Quest, Pico), or on a phone "
+                                + "or tablet (iPhone, iPad, Android), where you can also add it "
+                                + "to the home screen. Open the URL shown here on the device "
+                                + "and accept its one-time certificate warning. If Windows "
+                                + "Firewall asks, allow access. Switching it on restarts the "
+                                + "app's server in HTTPS mode and reloads this window.")}
+                        </p>
                     </section>
                 )}
 

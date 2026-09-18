@@ -92,15 +92,12 @@ export default function HotkeysSettings({ value, globalEnabled, onChange, onGlob
                 </label>
             </div>
             <p className="text-muted">
-                {_t("System-wide shortcuts work while you are in another "
-                    + "application — which is the point of the desktop avatar: it "
-                    + "floats on top unfocused, so shortcuts it can only see when "
-                    + "focused would rarely fire. The cost is that these key "
-                    + "combinations stop reaching every other program while "
-                    + "Rexclaw runs. Turn this off to have them work only while a "
-                    + "Rexclaw window has focus. On some keyboard layouts Ctrl+Alt "
-                    + "is how AltGr characters are typed — pick different keys if "
-                    + "typing breaks elsewhere.")}
+                {_t("The shortcuts work while you are in another application, "
+                    + "but those key combinations stop reaching other programs "
+                    + "while Rexclaw runs. With system-wide shortcuts off, they only "
+                    + "work while a Rexclaw window has focus. If typing breaks "
+                    + "elsewhere (Ctrl+Alt types AltGr characters on some keyboards), "
+                    + "pick different keys.")}
             </p>
             {isDesktop && !!globalEnabled && hk.globalFailures.length > 0 && (
                 <p className="text-danger">
