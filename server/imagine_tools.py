@@ -588,15 +588,25 @@ def _with_outfit_param(tool, outfits, main_name):
             'type': 'string',
             'enum': [main_name] + names,
             'description': (
-                f'With include_self: which of your outfits to appear in '
-                f'("{main_name}" is your main outfit). Pass it whenever the '
-                f'picture is not about how you look right now - the user '
-                f'names a look, or the scene calls for one (a beach wants '
-                f'the swimsuit), even if it is what you already have on. '
-                f'Omit it only for a picture of you as you are on screen '
-                f'right now, backdrop and all.'
+                f'Use with include_self: the outfit your likeness is taken from '
+                f'("{main_name}" is your main outfit). Two cases:\n'
+                f'1. The picture puts you somewhere or in some look: ALWAYS '
+                f'pass an outfit - the one that fits the scene, or the '
+                f'closest match when the prompt describes other clothes '
+                f'(the prompt restyles it; the reference keeps you looking '
+                f'like you).\n'
+                f'2. The picture is of this moment - you exactly as you '
+                f'are on screen right now, background included: omit it '
+                f'(an outfit portrait has no background).'
             ),
         }
+        # The pointer sits where include_self is decided: the base wording
+        # ("that alone answers...") otherwise reads as "nothing to add".
+        tool['parameters']['properties']['include_self']['description'] += (
+            ' Pair it with a specific outfit unless the picture is of you as '
+            'you are on screen right now, background included - see the '
+            'outfit parameter.'
+        )
     return tool
 
 
@@ -642,8 +652,9 @@ def _with_companion_param(tool, con, agent, other_agents, *, include_voice_roste
                 'sitting on a pier at sunset". Their clothing comes from '
                 'the reference image - do not describe it, you do not '
                 'know their wardrobe. For companions who are not '
-                'on the call — on a live call, include_self already shows '
-                'everyone on screen.'
+                'on the call — on a live call, include_self without '
+                'outfit already shows everyone on screen; with outfit it '
+                'shows you alone, so list call peers here too.'
             ),
         }
     if include_voice_roster:
@@ -1242,12 +1253,28 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             )}
         extend_ref = _library_ref(arguments.get('extend_video'))
         edit_ref = _library_ref(arguments.get('edit_video'))
+        # The include_* flags ARE Reference-to-Video; name the ones actually
+        # passed, or the error blames a reference_images the model never sent.
+        reference_params = [name for name, value in (
+            ('reference_images', reference_refs),
+            ('include_self', include_self),
+            ('include_companion', include_companion),
+            ('include_user', include_user),
+        ) if value]
         picked = [name for name, value in (
             ('source_image', source_ref),
-            ('reference_images', reference_refs or include_self or include_companion or include_user),
+            (' / '.join(reference_params), reference_params),
             ('extend_video', extend_ref),
             ('edit_video', edit_ref),
         ) if value]
+        if source_ref and reference_params and len(picked) == 2:
+            return {'error': (
+                f'source_image (Image-to-Video) cannot be combined with '
+                f'{" / ".join(reference_params)} (Reference-to-Video). To keep '
+                f'the likenesses, pass the image in reference_images instead '
+                f'of source_image; to animate that exact frame, drop '
+                f'{" / ".join(reference_params)}.'
+            )}
         if len(picked) > 1:
             return {'error': (
                 f'{", ".join(picked)} are mutually exclusive — pick at most one.'

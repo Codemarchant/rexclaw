@@ -65,7 +65,8 @@ HEARTBEATS_FILE_VERSION = 1
 
 # Already-compressed formats are STORED (zipping a VRM buys ~nothing and
 # costs real time at 100+ MB); everything else (json, text) deflates.
-_STORED_EXTS = {".vrm", ".vrma", ".glb", ".gltf", ".png", ".jpg", ".jpeg", ".webp"}
+_STORED_EXTS = {".vrm", ".vrma", ".glb", ".gltf", ".png", ".jpg", ".jpeg", ".webp",
+                ".mp4", ".webm"}
 # Extra harmless files allowed inside an imported pack besides the media
 # kinds the uploader accepts (community packs often carry a readme/license).
 _PACK_EXTRA_EXTS = {".txt", ".md"}
@@ -234,6 +235,21 @@ def _iter_manifest_refs(manifest):
             yield b, "scene"
 
 
+def manifest_local_files(manifest):
+    """Filenames inside the pack folder that the manifest uses: its plain
+    (pack-relative) file references, plus the portrait sidecars of the
+    VRMs among them. Absolute refs (library / bundled) live elsewhere."""
+    names = set()
+    for container, key in _iter_manifest_refs(manifest):
+        ref = container.get(key)
+        if isinstance(ref, str) and ref and not ref.startswith("/"):
+            names.add(ref)
+            if ref.lower().endswith(".vrm"):
+                names.add(portraits.sidecar_path(Path(ref)).name)
+                names.add(portraits.fullbody_sidecar_path(Path(ref)).name)
+    return names
+
+
 def _pack_dir_for(pack_key):
     if not isinstance(pack_key, str) or avatar_packs._KEY_RE.search(pack_key) \
             or pack_key in ("", ".", ".."):
@@ -305,8 +321,15 @@ def add_pack_to_zip(zf, pack_key, prefix=""):
                     taken.add(side_name)
                     zf.write(side, f"{prefix}{side_name}", compress_type=_compress_type(side_name))
 
+    # Only what the manifest uses travels: referenced files, the portrait
+    # sidecars of referenced VRMs, and readme/licence text. Leftover uploads
+    # (a replaced file, a removed background) stay behind — they would bloat
+    # the zip, and one with an extension the importer rejects would make the
+    # export impossible to import back.
+    keep = manifest_local_files(manifest)
     for f in sorted(src.iterdir()):
-        if f.is_file() and f.name != "avatar.json":
+        if f.is_file() and f.name != "avatar.json" and (
+                f.name in keep or f.suffix.lower() in _PACK_EXTRA_EXTS):
             zf.write(f, f"{prefix}{f.name}", compress_type=_compress_type(f.name))
     _writestr_json(zf, f"{prefix}avatar.json", manifest)
     return manifest
@@ -346,7 +369,7 @@ def import_pack_from_zip(con, zf, prefix="", name_override=None):
         if not name or name != Path(name).name or name.startswith("."):
             continue
         ext = Path(name).suffix.lower()
-        allowed = _STORED_EXTS | _PACK_EXTRA_EXTS
+        allowed = avatar_packs.MEDIA_EXTS | _PACK_EXTRA_EXTS
         if name != "avatar.json" and ext not in allowed:
             raise UserError(f"Unsupported file in pack: {name}")
         if info.file_size > avatar_packs.MAX_UPLOAD_BYTES:

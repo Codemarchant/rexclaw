@@ -432,6 +432,10 @@ _ALLOWED_UPLOAD_EXT = {
     "image": {".png", ".jpg", ".jpeg", ".webp"},
     "video": {".mp4", ".webm"},
 }
+# Every media extension a pack may hold — THE list: the uploader, the zip
+# importer (transfer.py) and the unused-file cleanup all read it, so a new
+# kind added above is accepted, importable and cleaned up in one edit.
+MEDIA_EXTS = frozenset(e for exts in _ALLOWED_UPLOAD_EXT.values() for e in exts)
 MAX_UPLOAD_BYTES = 120 * 1024 * 1024  # generous — VRMs run 10-30 MB
 
 
@@ -568,7 +572,7 @@ def list_pack_files(pack_key):
     """Filenames present in the pack folder, by inferred kind — lets the editor
     offer existing uploads in dropdowns without re-uploading."""
     pack_dir = USER_PACKS_DIR / pack_key
-    out = {"vrm": [], "vrma": [], "scene": [], "image": []}
+    out = {kind: [] for kind in _ALLOWED_UPLOAD_EXT}
     if not pack_dir.is_dir():
         return out
     ext_kind = {e: k for k, exts in _ALLOWED_UPLOAD_EXT.items() for e in exts}
@@ -699,6 +703,30 @@ def write_manifest(con, pack_key, manifest):
     avatar_id = _scan_pack(con, pack_dir, "/avatars")
     con.commit()
     return avatar_id
+
+
+def prune_unreferenced_files(pack_key):
+    """Delete the pack folder's media files the saved manifest no longer
+    uses — a replaced VRM, a removed outfit or background, an upload that
+    was swapped out before saving — along with the portrait sidecars of
+    VRMs that went with them. Library picks (absolute refs) live outside
+    the pack and are never touched; neither is anything that is not an
+    uploadable media kind (a readme, a licence). Called by the editor's
+    save only. Returns the deleted filenames."""
+    from .transfer import manifest_local_files   # late: transfer imports this module
+    pack_dir = _require_editable(pack_key)
+    keep = manifest_local_files(read_manifest(pack_key))
+    removed = []
+    for f in sorted(pack_dir.iterdir()):
+        if f.is_file() and f.name not in keep and f.suffix.lower() in MEDIA_EXTS:
+            try:
+                f.unlink()
+                removed.append(f.name)
+            except OSError as e:
+                _logger.warning("pack %s: could not remove unused %s: %s", pack_key, f.name, e)
+    if removed:
+        _logger.info("pack %s: removed unused files: %s", pack_key, ", ".join(removed))
+    return removed
 
 
 def duplicate_pack(con, pack_key, new_name):

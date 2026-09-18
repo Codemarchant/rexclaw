@@ -177,6 +177,8 @@ def save(payload: dict = Body(default={}), con=Depends(db_con)):
         avatar_packs.validate_manifest(pack_key, manifest)
         pack_key = avatar_packs.rename_pack(con, pack_key, manifest.get("name") or pack_key)
     avatar_id = avatar_packs.write_manifest(con, pack_key, manifest)
+    # The save went through — drop uploads the manifest no longer uses.
+    avatar_packs.prune_unreferenced_files(pack_key)
     return {"ok": True, "avatar_id": avatar_id, "pack_key": pack_key}
 
 
