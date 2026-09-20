@@ -37,6 +37,7 @@ import {
     emotionSettleTarget,
 } from "../models/avatar_catalog";
 import { IdleMotion } from "./idle_motion";
+import { FaceMotion } from "./face_motion";
 import { LookPost } from "./look_post";
 import { MoodMarks } from "./mood_marks";
 import { Ambience, MOOD_AMBIENCE } from "./ambience";
@@ -626,6 +627,8 @@ class AvatarRenderer {
         this._emotionTransitionProgress = 1; // 0..1; 1 = settled
         this._emotionTransitionStart = null; // {exprName: weight} captured on transition start
         this._emotionDecayTimer = null;      // pending settle-toward-neutral (see setEmotion)
+        // Face director's face and head (face_motion.js), base avatar only.
+        this._face = new FaceMotion(this, EMOTION_STATES);
         this._rawSpeakingIntensity = 0;   // set by setSpeakingIntensity()
         this._speakingIntensity = 0;      // smoothed for animation
         this._fullBody = false;           // false = face shot, true = full-body + orbit
@@ -3425,9 +3428,9 @@ class AvatarRenderer {
     }
 
     /** Face view only: while a deliberate gesture plays (play_gesture,
-     *  generate_gesture, a manual trigger — not the small clip an emotion
-     *  plays by itself, not fidgets or speech gestures, which the face view
-     *  shows well enough), pull out to where the gesture can be seen —
+     *  generate_gesture, a manual trigger, the clip set_emotion plays — not
+     *  fidgets or speech gestures, which the face view shows well enough),
+     *  pull out to where the gesture can be seen —
      *  waist-up for the hand gestures, full body for the rest — and ease
      *  back to the framing it started from, wherever the user had put it.
      *  Straight back along the same bearing, no swing. Taking hold of the
@@ -3440,7 +3443,11 @@ class AvatarRenderer {
             && !this._peers.size && !this._comboPartner && !this._comboLivePeer
             && this.vrm && this.camera && this.libs;
         if (!eligible || gz?.user) { this._gestureZoom = null; return; }
-        const busy = this.isGestureBusy();
+        // Any base clip, the set_emotion one included: isGestureBusy leaves
+        // that out (it is `auto`, so emotions replace each other), but it
+        // is still the companion's choice and worth seeing. Fidgets and
+        // speech gestures are layer clips, never _gestureAction.
+        const busy = !!this._gestureAction?.isRunning();
         if (!gz && !busy) return;
         const ground = this._actorGround(this);
         if (!gz) {
@@ -4239,6 +4246,7 @@ class AvatarRenderer {
         this._rawSpeakingIntensity = 0;
         this._speakingIntensity = 0;
         this._loggedExpressionInventory = false;
+        this._face.clear({ snap: true });
     }
 
     /** Toggle between face-shot (default) and full-body mode. Full-body mode
@@ -4525,7 +4533,15 @@ class AvatarRenderer {
         // until the clip ends. Levels (visemes, emotion) still contribute —
         // see _ambientExpressions.
         if (this._ambientExpressions(actor)?.has("blink")) return;
-        em.setValue("blink", actor._idle?.sig.blink || 0);
+        // The face director's eye shapes leave less lid to close, for a
+        // blink and for its wink (the VRM's own one-eye blinks).
+        const face = actor._face;
+        const room = face?.blink ?? 1;
+        em.setValue("blink", (actor._idle?.sig.blink || 0) * room);
+        if (face) {
+            em.setValue("blinkLeft", (face.wink?.blinkLeft || 0) * room);
+            em.setValue("blinkRight", (face.wink?.blinkRight || 0) * room);
+        }
     }
 
     /** The head's share of the breath: a small vertical rise on the inhale.
@@ -4864,6 +4880,11 @@ class AvatarRenderer {
                 // which no amount of adding sines to a head ever produces.
                 // The speaking nod and tilt are already folded in there.
                 head.rotation.set(sig.headPitch, sig.headYaw, sig.headRoll);
+                // A director nod bends the neck as well as the head — the
+                // engine has already split it (DIRECTOR_NECK_SHARE); this
+                // is zero, and the neck stays at rest, without one.
+                const neck = get("neck");
+                if (neck) neck.rotation.set(sig.neckPitch, sig.neckYaw, sig.neckRoll);
                 // Mascot cursor follow: the head carries a clamped share of
                 // the gaze deflection. Measured as yaw/pitch DELTAS between
                 // the cursor gaze point and the camera as seen from the head,
@@ -5069,13 +5090,31 @@ class AvatarRenderer {
         for (const exprName of Object.keys(targets)) {
             if (ge?.has(exprName)) continue;
             const start = actor._emotionTransitionStart[exprName] ?? 0;
-            const ours = start + (targets[exprName] - start) * t;
+            // The face director's whole-expression fallback (an avatar whose
+            // expressions it couldn't split, face_motion.js) — MAX, so a
+            // manual emotion still shows.
+            const ours = Math.max(start + (targets[exprName] - start) * t,
+                actor._face?.presets?.[exprName] || 0);
             // Ours always reaches its target — emotion is semantic and an
             // ambient loop must never veto it — but the clip's own ambient
             // expression still reads through whenever we are neutral.
             exp.setValue(exprName, amb?.has(exprName)
                 ? Math.max(exp.getValue?.(exprName) || 0, ours)
                 : ours);
+        }
+        // Expressions the director drives that are NOT emotion states — a
+        // blush the model's author rigged under its own name. The loop above
+        // only walks the emotion targets, so without this they would be
+        // written by nobody, and never put back to 0 either.
+        for (const [exprName, v] of Object.entries(actor._face?.presets || {})) {
+            if (exprName in targets || ge?.has(exprName)) continue;
+            exp.setValue(exprName, v);
+            (actor._faceExtraExprs ||= new Set()).add(exprName);
+        }
+        for (const exprName of actor._faceExtraExprs || []) {
+            if (!(exprName in (actor._face?.presets || {})) && !ge?.has(exprName)) {
+                exp.setValue(exprName, 0);
+            }
         }
 
         // Secondary mouth-shape coupling. MAX against the current value —
@@ -5091,6 +5130,27 @@ class AvatarRenderer {
                 exp.setValue(visName, Math.max(cur, weight * t));
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Face director — face_motion.js does the work; these are its entry
+    // points for models/face_director.js
+    // ------------------------------------------------------------------
+
+    setFaceDirector(on) {
+        this._face.setOn(on);
+    }
+
+    setFaceReaction(face, opts) {
+        this._face.react(face, opts);
+    }
+
+    setFaceTurnEnd(endMs) {
+        this._face.turnEnd(endMs);
+    }
+
+    setFaceListening(on) {
+        this._face.listening(on);
     }
 
     /** Mascot cursor follow: feed one window-relative cursor sample (CSS px),
@@ -5192,9 +5252,11 @@ class AvatarRenderer {
                 gz += (this._cursorGazePoint.z - gz) * cf.blend;
             }
         }
+        // The face director's glance rides on top, like the saccades.
+        const fg = this._face?.gaze;
         this._lookAtTarget.position.set(
-            gx + (sig?.gazeX || 0),
-            gy + (sig?.gazeY || 0),
+            gx + (sig?.gazeX || 0) + (fg?.x || 0),
+            gy + (sig?.gazeY || 0) + (fg?.y || 0),
             gz,
         );
     }
@@ -5266,6 +5328,7 @@ class AvatarRenderer {
             // overrides them, then face-level adjustments on top.
             this._applyIdle(this, delta);
             this._applyReturnBlend(this, delta);
+            this._face.update(delta);
             this._applyBlink(this);
             this._applyBreath(this);
             this._applyEyeSaccade(delta);

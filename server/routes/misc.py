@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, heartbeat, idle_events, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client
+from .. import avatar_packs, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client
 from ..db import ASSETS_DIR, FILES_DIR, shipped_column_defaults, utcnow
 from ..wake_models import WAKE_MODELS
 from ..errors import UserError
@@ -53,7 +53,8 @@ _CONFIG_FIELDS = (
     "live_chat_ignored_users", "live_chat_blocked_words",
     "transcript_display_limit", "heartbeat_notifications",
     "transcript_retention_days", "file_default_expiry_seconds",
-    "speech_gestures", "idle_fidgets", "fidget_interval", "gesture_zoom_out",
+    "speech_gestures", "speech_gesture_engine", "idle_fidgets", "fidget_interval",
+    "gesture_zoom_out", "face_director",
 )
 
 _AGENT_FIELDS = (
@@ -92,6 +93,8 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     out["has_local_gen_auth"] = bool(row["local_gen_auth_header"])
     # The Text-To-VRMA access token: write-only too.
     out["has_gesture_gen_token"] = bool(row["gesture_gen_token"])
+    # The TypeSafe (Jev) API key: write-only too.
+    out["has_typesafe_api_key"] = bool(row["typesafe_api_key"])
     # The YouTube Data API key (live chat): write-only too.
     out["has_youtube_api_key"] = bool(row["live_chat_youtube_api_key"])
     out["spend_today_usd"] = row["spend_today_usd"]
@@ -128,6 +131,12 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
             updates["gesture_gen_token"] = ""
         elif isinstance(token, str) and token.strip():
             updates["gesture_gen_token"] = token.strip()
+    if "typesafe_api_key" in payload:
+        ts_key = payload["typesafe_api_key"]
+        if ts_key is None:
+            updates["typesafe_api_key"] = ""
+        elif isinstance(ts_key, str) and ts_key.strip():
+            updates["typesafe_api_key"] = ts_key.strip()
     if "live_chat_youtube_api_key" in payload:
         yt_key = payload["live_chat_youtube_api_key"]
         if yt_key is None:
@@ -317,6 +326,17 @@ def gesture_gen_test(payload: dict = Body(default={}), con=Depends(db_con)):
     if not (isinstance(token, str) and token.strip()):
         token = con.execute("SELECT gesture_gen_token FROM config WHERE id = 1").fetchone()[0]
     return text_to_vrma.test_connection(payload.get("url"), token)
+
+
+@router.post("/face_director/test")
+def face_director_test(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Settings "Test": does the TypeSafe key work, and how long a Jev round
+    trip takes from this machine. The draft key when one is typed, else the
+    stored one, like /gesture_gen/test."""
+    key = payload.get("key")
+    if not (isinstance(key, str) and key.strip()):
+        key = con.execute("SELECT typesafe_api_key FROM config WHERE id = 1").fetchone()[0]
+    return jev.test_key(key.strip() if key else "")
 
 
 @router.post("/local_gen/inspect")

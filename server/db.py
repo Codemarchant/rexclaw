@@ -169,6 +169,11 @@ CREATE TABLE IF NOT EXISTS config (
     -- fidget_interval is the AVERAGE gap — the real one varies either side
     -- of it so it never becomes a rhythm.
     speech_gestures INTEGER NOT NULL DEFAULT 0,
+    -- Who picks the clip: 'grok' (the director model reads the library as
+    -- prompt text and names an id) or 'jev' (TypeSafe's Jev, a Choice over
+    -- the library — needs the TypeSafe key). Grok by default: it is the
+    -- one that works with the key the app already has.
+    speech_gesture_engine TEXT NOT NULL DEFAULT 'grok',
     idle_fidgets INTEGER NOT NULL DEFAULT 0,
     fidget_interval REAL NOT NULL DEFAULT 60,
     -- Face view only: pull the camera out while a deliberate gesture plays
@@ -176,6 +181,14 @@ CREATE TABLE IF NOT EXISTS config (
     -- after. On by default — the face view frames the collarbone up, so
     -- without it most of what play_gesture does happens out of shot.
     gesture_zoom_out INTEGER NOT NULL DEFAULT 1,
+    -- Face director (face_director.py): a director-model reading per spoken
+    -- sentence drives brows, eyes, mouth and gaze under the companion's own
+    -- set_emotion. Off by default — it costs a call per sentence.
+    face_director INTEGER NOT NULL DEFAULT 0,
+    -- TypeSafe key (write-only from the UI), for everything Jev answers:
+    -- the face director, and the speech gesture selector when it is set
+    -- to Jev.
+    typesafe_api_key TEXT NOT NULL DEFAULT '',
     -- local_task working directory — the Grok Build CLI's blast-radius
     -- boundary. Empty = <data>/workspace (created on demand).
     local_task_workdir TEXT NOT NULL DEFAULT '',
@@ -1044,6 +1057,11 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN gesture_zoom_out INTEGER NOT NULL DEFAULT 1",
     # move_around: the companion walking about on its own (browser_tools.py).
     "ALTER TABLE agents ADD COLUMN enable_move_tool INTEGER NOT NULL DEFAULT 0",
+    # Face director (see the config schema comment).
+    "ALTER TABLE config ADD COLUMN face_director INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN typesafe_api_key TEXT NOT NULL DEFAULT ''",
+    # Which model picks a speech gesture (see the config schema comment).
+    "ALTER TABLE config ADD COLUMN speech_gesture_engine TEXT NOT NULL DEFAULT 'grok'",
 )
 
 

@@ -24,6 +24,30 @@ const MOOD_MARKS = {
     surprised: { glyph: "exclaim", x: 0.17, y: 0.15,  size: 0.05, life: 1.3 },
     sad:       { glyph: "gloom",   x: 0,    y: 0.22,  size: 0.07, life: 2.4 },
     relaxed:   { glyph: "puff",    x: 0.14, y: -0.02, size: 0.05, life: 1.6 },
+    // Three more for the face director's own feelings (face_motion.js): a
+    // nervous sweat drop, a question mark, a blown-out breath. Small and
+    // short — they sit beside a face already showing the feeling, so they
+    // are the footnote, not the line. Only these three, and each earns it:
+    // worry reads as sadness without the drop, puzzlement as a frown
+    // without the "?", and the huffy pout needs a cheek-puff morph the
+    // model may not have. They are also the RARE feelings — counted over
+    // two demo scripts (34 lines), these three fire 3 marks between them
+    // where a mark per feeling fired 11. The common ones carry none on
+    // purpose: the director reads a feeling off most lines, and a mark
+    // every other sentence is no longer punctuation. Excited is the one
+    // that proved it — 3 of those 11 on its own.
+    worried:   { glyph: "sweat",    x: 0.16, y: 0.12,  size: 0.045, life: 1.6 },
+    puzzled:   { glyph: "question", x: 0.16, y: 0.15,  size: 0.05,  life: 1.8 },
+    huffy:     { glyph: "huff",     x: 0.17, y: 0.05,  size: 0.05,  life: 1.4 },
+    // Stands in for a blush on a model that has no blush shape rigged, and
+    // only then — see `markUnless` in face_motion.js. A model that can
+    // colour its own cheeks never shows this.
+    flustered: { glyph: "steam",    x: 0.13, y: 0.16,  size: 0.05,  life: 1.8 },
+    // The one mark that is not a mood at all: the ピコーン of arriving at
+    // something, fired by the `realises` act rather than by a feeling (see
+    // face_motion.js). Above the head rather than beside it, where a
+    // lightbulb belongs, and short — it is the moment, not the mood after.
+    idea:      { glyph: "bulb",     x: 0.09, y: 0.21,  size: 0.055, life: 1.4 },
 };
 
 function circle(p, x, y, r) {
@@ -57,6 +81,50 @@ const GLYPHS = {
             p.moveTo(s * 0.545, s * 0.14);
             p.quadraticCurveTo(s * 0.86, s * 0.28, s * 0.76, s * 0.58);
             p.quadraticCurveTo(s * 0.75, s * 0.38, s * 0.545, s * 0.34);
+            p.closePath();
+        });
+    },
+    bulb(ctx, s) {
+        // A lightbulb with its rays (💡): the moment of working it out.
+        // Proportions checked at the size this actually renders, ~44 px on
+        // screen, where fine detail disappears: a wide dome over a short
+        // screw base, no filament (it turns into a smudge), and the rays
+        // drawn first so the glass outline sits over them.
+        //
+        // The four rays are angled off the vertical on purpose. A ray
+        // straight up runs past the top of the canvas and is cut off flat,
+        // which is the one thing here that reads as broken rather than
+        // stylised, and it is invisible until you render it.
+        const cy = 0.44, r = 0.24;
+        ctx.lineCap = "round";
+        for (const [color, width] of [["rgba(255, 255, 255, 0.9)", 0.12], ["#ffb938", 0.058]]) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = s * width;
+            for (const a of [-1.25, -0.45, 0.45, 1.25]) {
+                const ox = Math.sin(a), oy = -Math.cos(a);
+                ctx.beginPath();
+                ctx.moveTo(s * (0.5 + ox * r * 1.22), s * (cy + oy * r * 1.22));
+                ctx.lineTo(s * (0.5 + ox * r * 1.56), s * (cy + oy * r * 1.56));
+                ctx.stroke();
+            }
+        }
+        // Glass: a dome, shouldered in to the neck on both sides.
+        outlined(ctx, s, "#ffd93b", (p) => {
+            const cx = s * 0.5, y = s * cy, rr = s * r;
+            p.moveTo(cx - rr, y);
+            p.arc(cx, y, rr, Math.PI, TAU);
+            p.bezierCurveTo(cx + rr * 0.99, s * 0.61, cx + rr * 0.56, s * 0.635, cx + rr * 0.56, s * 0.71);
+            p.lineTo(cx - rr * 0.56, s * 0.71);
+            p.bezierCurveTo(cx - rr * 0.56, s * 0.635, cx - rr * 0.99, s * 0.61, cx - rr, y);
+            p.closePath();
+        });
+        // Screw base: a trapezoid, which reads as a base where a plain
+        // rectangle reads as a block.
+        outlined(ctx, s, "#c8952a", (p) => {
+            p.moveTo(s * 0.365, s * 0.715);
+            p.lineTo(s * 0.635, s * 0.715);
+            p.lineTo(s * 0.592, s * 0.875);
+            p.lineTo(s * 0.408, s * 0.875);
             p.closePath();
         });
     },
@@ -109,6 +177,61 @@ const GLYPHS = {
             circle(p, s * 0.52, s * 0.46, s * 0.19);
             circle(p, s * 0.7, s * 0.6, s * 0.13);
         });
+    },
+    sweat(ctx, s) {
+        // A drop, point up (💧).
+        outlined(ctx, s, "#8fd3ff", (p) => {
+            p.moveTo(s * 0.5, s * 0.12);
+            p.bezierCurveTo(s * 0.62, s * 0.36, s * 0.76, s * 0.5, s * 0.76, s * 0.66);
+            p.arc(s * 0.5, s * 0.66, s * 0.26, 0, Math.PI);
+            p.bezierCurveTo(s * 0.24, s * 0.5, s * 0.38, s * 0.36, s * 0.5, s * 0.12);
+            p.closePath();
+        });
+    },
+    steam(ctx, s) {
+        // Heat coming off a flustered head (湯気): three wavy lines rising,
+        // the middle one taller.
+        ctx.lineCap = "round";
+        for (const [color, width] of [["rgba(255, 255, 255, 0.9)", 0.15], ["#ffc4c4", 0.075]]) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = s * width;
+            for (const [x, top] of [[0.24, 0.3], [0.5, 0.14], [0.76, 0.3]]) {
+                ctx.beginPath();
+                ctx.moveTo(s * x, s * 0.88);
+                ctx.bezierCurveTo(s * (x - 0.13), s * 0.68, s * (x + 0.13), s * 0.5, s * x, s * top);
+                ctx.stroke();
+            }
+        }
+    },
+    huff(ctx, s) {
+        // Two short breaths blown out sideways (フン): the huffy "hmph".
+        ctx.lineCap = "round";
+        for (const [color, width] of [["rgba(255, 255, 255, 0.9)", 0.16], ["#b9c4d6", 0.08]]) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = s * width;
+            for (const [y, len] of [[0.38, 0.5], [0.62, 0.34]]) {
+                ctx.beginPath();
+                ctx.moveTo(s * 0.16, s * y);
+                ctx.quadraticCurveTo(s * (0.16 + len * 0.6), s * (y - 0.12), s * (0.16 + len), s * (y - 0.04));
+                ctx.stroke();
+            }
+        }
+    },
+    question(ctx, s) {
+        // A question mark, hook and dot (❓).
+        ctx.lineCap = "round";
+        for (const [color, width] of [["rgba(255, 255, 255, 0.95)", 0.22], ["#7bb4ff", 0.12]]) {
+            ctx.strokeStyle = color;
+            ctx.lineWidth = s * width;
+            ctx.beginPath();
+            ctx.arc(s * 0.5, s * 0.3, s * 0.18, Math.PI * 0.95, Math.PI * 0.35, false);
+            ctx.lineTo(s * 0.5, s * 0.62);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(s * 0.5, s * 0.82);
+            ctx.lineTo(s * 0.5, s * 0.83);
+            ctx.stroke();
+        }
     },
 };
 

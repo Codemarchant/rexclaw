@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, idle_events, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store, text_to_vrma
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store, text_to_vrma
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -65,11 +65,12 @@ def preview_voice_prompt(con, agent_row):
     would receive right now, for the companion editor's read-only preview.
     Mirrors the assembly in start_voice_session minus the group-call note,
     which is per-call."""
+    config = get_config(con)
     return (
-        _env_preamble(get_config(con))
+        _env_preamble(config)
         + _appearance_section(con, agent_row)
         + _render_prompt(agent_row)
-        + _env_postamble(con, agent_row, mode='voice')
+        + _env_postamble(con, agent_row, mode='voice', face=bool(config['face_director']))
     )
 
 
@@ -291,14 +292,15 @@ def _group_call_note(agent_row, group_peers, manual_turn):
     return ''.join(lines)
 
 
-def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True):
+def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=False):
     """Dynamic context appended AFTER the agent's system prompt.
 
     Memory grows over time and benefits from recency bias - sitting
     immediately before the conversation history means the model re-reads
     "what you remember about this user" right before deciding the next turn.
     The text-mode disclaimer overrides voice-tool references the system_prompt
-    may contain, placed AFTER what it overrides.
+    may contain, placed AFTER what it overrides. `face`: the face director
+    runs this call (see start_session), which changes what set_emotion is for.
     """
     sections = [_tool_use_section(agent_row, mode)]
     if mode == 'text':
@@ -352,7 +354,7 @@ def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True):
     # section — centralized so tuning happens once and user-created
     # companions inherit the behavior without template text.
     if mode == 'voice':
-        expression = _expression_section(con, agent_row)
+        expression = _expression_section(con, agent_row, face=face)
         if expression:
             sections.append(expression)
         habits = _tool_habits_section(con, agent_row, solo=solo)
@@ -453,7 +455,7 @@ def _affection_section(agent_row, stable=False):
     )
 
 
-def _expression_section(con, agent_row):
+def _expression_section(con, agent_row, face=False):
     """Voice-surface expression guidance, injected centrally so it stays
     personality-agnostic and provider mechanics never live in companion
     prompts. Speech expression tags are a Grok voice-API feature, so they
@@ -568,16 +570,32 @@ def _expression_section(con, agent_row):
             f"- Every reply is also a decision about your face and body: "
             f"{tools_phrase} yours to use proactively, as moments call for "
             f"them - the tool descriptions are the menu.\n"
-            "- Call `set_emotion` whenever the tone shifts, without waiting "
-            "for permission or commenting on it, and return to `neutral` "
-            "when the moment passes. A feeling you'd put into words (\"it "
-            "does make me happy\" - `happy`), a moment when they catch you "
-            "off guard (`surprised`), a flash of irritation (`angry`), a "
-            "shift in the mood between you - each is a moment for it. Each "
-            "call plays a short animation, so it marks a change rather than "
-            "repeating every line: while a feeling holds, the call you made "
-            "stands; the moment it moves, call again.\n"
         )
+        if face:
+            # The face director (face_director.py) already moves the face
+            # with every line, so set_emotion is the big whole-face beat.
+            block += (
+                "- Your face already follows each line you say by itself - the "
+                "small reactions come on their own. Call `set_emotion` when "
+                "your mood really shifts, without waiting for permission or "
+                "commenting on it: a feeling you'd put into words (\"it does "
+                "make me happy\" - `happy`), a moment when they catch you off "
+                "guard (`surprised`), a flash of irritation (`angry`). It plays "
+                "your whole face and a short body reaction, so it marks the "
+                "shift itself rather than repeating every line.\n"
+            )
+        else:
+            block += (
+                "- Call `set_emotion` whenever the tone shifts, without waiting "
+                "for permission or commenting on it, and return to `neutral` "
+                "when the moment passes. A feeling you'd put into words (\"it "
+                "does make me happy\" - `happy`), a moment when they catch you "
+                "off guard (`surprised`), a flash of irritation (`angry`), a "
+                "shift in the mood between you - each is a moment for it. Each "
+                "call plays a short animation, so it marks a change rather than "
+                "repeating every line: while a feeling holds, the call you made "
+                "stands; the moment it moves, call again.\n"
+            )
         if has_gestures:
             block += (
                 "- Call `play_gesture` for the moments worth marking, as "
@@ -1040,6 +1058,9 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     # are built per-agent so their enums/descriptions reflect the avatar's
     # wardrobe + custom gesture clips.
     tools = list(browser_tools.BROWSER_TOOLS)
+    # The face director drives the base avatar's face — the primary leg's.
+    # Peer legs: nothing reads their lines for a face.
+    face_on = bool(config['face_director']) and not manual_turn
     # Only while the user's Text-To-VRMA app is answering — same "only when
     # actually usable" rule as local_task and the Minecraft pair.
     gesture_gen = text_to_vrma.offered(config, agent)
@@ -1135,7 +1156,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
             + _appearance_section(con, agent)
             + _render_prompt(agent)
             + _group_call_note(agent, group_peers, manual_turn)
-            + _env_postamble(con, agent, mode='voice', solo=not group_peers)
+            + _env_postamble(con, agent, mode='voice', solo=not group_peers, face=face_on)
         ),
         browser_tools=tools,
         mcp_entries=mcp_entries,
@@ -1238,6 +1259,9 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # global setting — the client also reads it from /motion/libraries,
         # but a call starts before that fetch lands, so it rides along here.
         'speech_gestures': bool(config['speech_gestures']),
+        # Fixed for the call, unlike the motion switches: the prompt this
+        # session got describes set_emotion one way or the other.
+        'face_director': face_on,
         'replay_items': replay_items,
         'transcript_history': transcript_history,
         'transcript_truncated': transcript_truncated,
@@ -1962,13 +1986,18 @@ def generate_session_summary(con, session):
         return rollup_id
 
 
-def speech_gesture_select(con, *, session, line, recent_ids=()):
+def speech_gesture_select(con, *, session, line, recent_ids=(), words=None):
     """Speech gesture selector: which motion-library gesture, if any, fits a
-    line the companion is saying? One fast-model call per sentence
-    (director model — the same latency-critical, non-reasoning pick as the
-    group-call director), made by the browser as transcript sentences
-    stream in; the clip plays over the idle while the line is still being
-    spoken. Deliberate play_gesture calls always pre-empt it client-side.
+    line the companion is saying? One call per sentence, made by the browser
+    as transcript sentences stream in; the clip plays over the idle while
+    the line is still being spoken. Deliberate play_gesture calls always
+    pre-empt it client-side.
+
+    Either engine answers it (config.speech_gesture_engine): the director
+    model, which reads the library as prompt text and writes back an id, or
+    TypeSafe's Jev, which is asked the same thing as a Choice over the
+    library (gesture_director.py). `words` are the line's words as the
+    browser split them, for Jev's word Choice.
 
     Return contract: {'gesture': <clip id>, 'word': <str or None>} or
     {'gesture': None} — None covers "nothing fits", "could not run" and
@@ -1988,30 +2017,27 @@ def speech_gesture_select(con, *, session, line, recent_ids=()):
     if len(line.split()) < 3 and not (unspaced and len(line) >= 6):
         return {'gesture': None, 'reason': 'too_short'}
     config = get_config(con)
-    xai_key = config['xai_api_key']
-    model = config['director_model'] or config['text_model'] or config['summary_model']
-    if not xai_key or not model:
-        return {'gesture': None, 'reason': 'no_model_configured'}
     candidates = motion_library.speech_gesture_candidates()
     if not candidates:
         return {'gesture': None, 'reason': 'no_gesture_library'}
-    recent = [str(r)[:64] for r in (recent_ids or [])[:12] if r]
+    # Oldest first, as the browser keeps them (motion_director _recentIds),
+    # so the CAP TAKES THE TAIL. Slicing the head instead kept the twelve
+    # oldest and dropped the newest, which quietly broke every rule below
+    # that depends on knowing what just played — but only once a reply ran
+    # past twelve gestures, so short replies and two-line tests looked fine
+    # while a long one repeated a clip back to back.
+    recent = [str(r)[:64] for r in (recent_ids or [])[-12:] if r]
     # The newest entry is what the avatar has only just finished performing.
     # Repeating that exact motion back-to-back is the one repeat that always
     # reads as a glitch, so it is refused outright below rather than nudged.
     last = motion_library.speech_gesture_canonical(candidates, recent[-1:])
     just_played = last[0] if last else None
+    pick = (_gesture_pick_jev if (config['speech_gesture_engine'] or 'grok') == 'jev'
+            else _gesture_pick_grok)
     try:
-        gesture, word, usage = xai_client.select_speech_gesture(
-            xai_api_key=xai_key,
-            responses_url=config['xai_responses_url'],
-            model=model,
-            line=line[:400],
-            library_lines=motion_library.speech_gesture_lines(candidates),
-            # Named as the ids the prompt lists, not the takes that played.
-            recent_ids=motion_library.speech_gesture_canonical(candidates, recent),
-            just_played=just_played,
-        )
+        gesture, word, word_index, ticks, reason = pick(
+            con, config, session=session, line=line[:400], candidates=candidates,
+            recent=recent, just_played=just_played, words=words)
     except Exception as e:  # noqa: BLE001 — a failed pick is just "no gesture"
         _logger.warning("speech gesture select failed: %s", e)
         return {'gesture': None, 'reason': 'selector_error'}
@@ -2020,12 +2046,15 @@ def speech_gesture_select(con, *, session, line, recent_ids=()):
     # library re-sent for every spoken sentence. Accruing it would make a
     # chatty turn look like a huge context and compact the conversation long
     # before it needed it. Same treatment as the group-call director below.
+    # Before the early return below: a call that decided on no gesture was
+    # made and charged for like any other.
     try:
-        store.accrue_usd_ticks(con, store.extract_cost_ticks(usage))
+        store.accrue_usd_ticks(con, ticks)
         con.commit()
     except Exception:  # noqa: BLE001 — spend accounting never fails a pick
         pass
-    reason = None
+    if reason:
+        return {'gesture': None, 'reason': reason}
     if gesture and gesture not in candidates:
         _logger.info("speech gesture selector named unknown id %r", gesture[:64])
         gesture = None
@@ -2048,8 +2077,117 @@ def speech_gesture_select(con, *, session, line, recent_ids=()):
     return {
         'gesture': gesture,
         'word': word if gesture else None,
+        # Which of the browser's own words, when the engine picked among
+        # them rather than copying one out of the line (Jev). The client
+        # already knows where that word starts, so the stroke lands on the
+        # right one even when the line repeats it.
+        'word_index': word_index if gesture else None,
         'reason': reason or ('nothing_fits' if not gesture else None),
     }
+
+
+def _gesture_pick_grok(con, config, *, session, line, candidates, recent, just_played, words):
+    """The director model reads the whole library as prompt text and names
+    an id. Returns (gesture, word, word_index, ticks, failure_reason)."""
+    xai_key = config['xai_api_key']
+    model = config['director_model'] or config['text_model'] or config['summary_model']
+    if not xai_key or not model:
+        return None, None, None, 0, 'no_model_configured'
+    gesture, word, usage = xai_client.select_speech_gesture(
+        xai_api_key=xai_key,
+        responses_url=config['xai_responses_url'],
+        model=model,
+        line=line,
+        library_lines=motion_library.speech_gesture_lines(candidates),
+        # Named as the ids the prompt lists, not the takes that played.
+        recent_ids=motion_library.speech_gesture_canonical(candidates, recent),
+        just_played=just_played,
+    )
+    return gesture, word, None, store.extract_cost_ticks(usage), None
+
+
+def _gesture_pick_jev(con, config, *, session, line, candidates, recent, just_played, words):
+    """Jev picks from the library as a Choice (gesture_director.py), with a
+    yes/no first for whether the line calls for a gesture at all. Returns
+    (gesture, word, word_index, ticks, failure_reason)."""
+    if not config['typesafe_api_key']:
+        return None, None, None, 0, 'no_typesafe_key'
+    agent = store.get_agent(con, session['agent_id'])
+    name = agent['name'] if agent else 'the character'
+    persona = face_director.persona_excerpt(_render_prompt(agent)) if agent else ''
+    # The clip just played is not on the menu at all — the one repeat that
+    # always reads as a glitch cannot be picked rather than being asked
+    # against, so its share of the distribution goes to the alternatives.
+    opts = gesture_director.options(candidates, exclude=[just_played] if just_played else ())
+    if not opts:
+        return None, None, None, 0, 'no_gesture_library'
+    qs = gesture_director.questions(name, opts, words=words)
+    state = gesture_director.build_state(name, persona, [], line)
+    body = jev.ask(config['typesafe_api_key'], state, qs)
+    gesture, word_index, reason = gesture_director.choose(jev.answers(body, qs), candidates, opts)
+    word = None
+    if gesture and word_index is not None and words and word_index < len(words):
+        word = str(words[word_index])[:80] or None
+    return gesture, word, word_index, jev.input_ticks(body), reason
+
+
+def face_director_select(con, *, session, line, context=(), listening=False, words=None):
+    """Face director (face_director.py): what the companion's face does
+    while they say one line, or — `listening` — as they hear the user's.
+    One call per spoken sentence, made by the browser as the transcript
+    streams in, plus one per user utterance; the renderer shows the answer
+    when the voice reaches the line (or at once, for a listening face).
+
+    Return contract: {'face': <face_director.normalize shape>} or
+    {'face': None, 'reason': ...} — None means "leave the face as it is".
+    """
+    if session['state'] != 'active':
+        return {'face': None, 'reason': 'session_inactive'}
+    line = (line or '').strip()
+    if not line:
+        return {'face': None, 'reason': 'empty'}
+    config = get_config(con)
+    if not config['face_director']:
+        return {'face': None, 'reason': 'off'}
+    if not config['typesafe_api_key']:
+        return {'face': None, 'reason': 'no_typesafe_key'}
+    agent = store.get_agent(con, session['agent_id'])
+    name = agent['name'] if agent else 'the character'
+    persona = face_director.persona_excerpt(_render_prompt(agent)) if agent else ''
+    # What they are reacting to: the last exchange on record (the reply
+    # being spoken now is not saved until it ends), then the lines of this
+    # reply already said, which the browser sends along. A listening read's
+    # own line may already be saved; it is the line, not its context.
+    user_label = (config['user_display_name'] or '').strip() or 'User'
+    rows = con.execute(
+        "SELECT role, content FROM messages WHERE session_id = ? AND role IN ('user', 'assistant')"
+        " ORDER BY sequence DESC, id DESC LIMIT 2", (session['id'],)).fetchall()
+    conversation = [(user_label if r['role'] == 'user' else name, (r['content'] or '')[:400])
+                    for r in reversed(rows) if (r['content'] or '').strip()]
+    if listening and conversation and conversation[-1] == (user_label, line[:400]):
+        conversation.pop()
+    conversation += [(name, str(c)[:400]) for c in list(context or [])[-2:] if c]
+    state = face_director.build_state(name, persona, conversation, line[:400], listening=listening)
+    qs = face_director.questions(name, listening=listening, words=None if listening else words)
+    try:
+        body = jev.ask(config['typesafe_api_key'], state, qs)
+        answers = jev.answers(body, qs)
+        ticks = jev.input_ticks(body)
+    except Exception as e:  # noqa: BLE001 — a failed read is just "no change"
+        _logger.warning("face director failed: %s", e)
+        return {'face': None, 'reason': 'director_error'}
+    # Billed, but kept out of the session's token totals, like the speech
+    # gesture selector above: they drive compaction, and this is a side call.
+    try:
+        store.accrue_usd_ticks(con, ticks)
+        con.commit()
+    except Exception:  # noqa: BLE001 — spend accounting never fails a read
+        pass
+    face = face_director.normalize(answers, qs)
+    if face is None:
+        _logger.info("face director reply unusable")
+        return {'face': None, 'reason': 'unparseable'}
+    return {'face': face}
 
 
 def director_decide(con, *, session, transcript_lines, participants, user_name=None,

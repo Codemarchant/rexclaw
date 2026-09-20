@@ -84,6 +84,8 @@ export default function SettingsView({ active }) {
     const [ytKeyDraft, setYtKeyDraft] = useState("");
     // So does the Text-To-VRMA access token (Gesture generation).
     const [vrmaTokenDraft, setVrmaTokenDraft] = useState("");
+    const [typesafeKeyDraft, setTypesafeKeyDraft] = useState("");
+    const [jevTest, setJevTest] = useState(null);
     const [vrmaTest, setVrmaTest] = useState(null);     // null | "busy" | {ok, ...} | {error}
     const onUserPhotoSelected = async (ev) => {
         const file = ev.target.files?.[0];
@@ -246,6 +248,14 @@ export default function SettingsView({ active }) {
             setComfyTest({ error: e?.message || _t("Connection failed") });
         }
     };
+    const testJev = async () => {
+        setJevTest("busy");
+        try {
+            setJevTest(await rpc("/api/face_director/test", { key: typesafeKeyDraft || "" }));
+        } catch (e) {
+            setJevTest({ error: e?.message || _t("Connection failed") });
+        }
+    };
     const testVrma = async () => {
         setVrmaTest("busy");
         try {
@@ -276,11 +286,15 @@ export default function SettingsView({ active }) {
             delete payload.has_gesture_gen_token;
             if (vrmaTokenDraft?.trim()) payload.gesture_gen_token = vrmaTokenDraft.trim();
             else if (vrmaTokenDraft === null) payload.gesture_gen_token = null;
+            delete payload.has_typesafe_api_key;
+            if (typesafeKeyDraft?.trim()) payload.typesafe_api_key = typesafeKeyDraft.trim();
+            else if (typesafeKeyDraft === null) payload.typesafe_api_key = null;
             await rpc("/api/config/set", payload);
             setApiKeyDraft("");
             setAuthDraft("");
             setYtKeyDraft("");
             setVrmaTokenDraft("");
+            setTypesafeKeyDraft("");
             // Re-bind immediately — including the OS-wide registration, which
             // only the shell can change.
             applyHotkeys({
@@ -377,6 +391,50 @@ export default function SettingsView({ active }) {
                 </section>
 
                 <section>
+                    <h3><i className="fa fa-bolt" /> {_t("TypeSafe (Jev)")}</h3>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("Jev is a judgment model: it answers a pile of small questions about "
+                            + "one line at once, in a fraction of a second. Features that have to "
+                            + "read something while it is still happening use it, and share this "
+                            + "one key. Costs a fraction of a penny an hour of conversation. Reads "
+                            + "English best.")}
+                    </p>
+                    <div className="rx_row">
+                        <div style={{ flex: 2 }}>
+                            <label>
+                                {_t("TypeSafe API key")}
+                                {config.has_typesafe_api_key && typesafeKeyDraft !== null && (
+                                    <span className="text-muted"> ({_t("saved")}{" "}
+                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setTypesafeKeyDraft(null); }}>{_t("remove")}</a>)
+                                    </span>
+                                )}
+                            </label>
+                            <input type="password" value={typesafeKeyDraft || ""}
+                                   placeholder={config.has_typesafe_api_key && typesafeKeyDraft !== null
+                                       ? _t("•••••••• (leave blank to keep current key)")
+                                       : ""}
+                                   onChange={(ev) => { markDirty(true); setTypesafeKeyDraft(ev.target.value); }} />
+                        </div>
+                        <div style={{ alignSelf: "flex-end" }}>
+                            <button className="btn btn-light" onClick={testJev} disabled={jevTest === "busy"}>
+                                <i className={jevTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test")}
+                            </button>
+                        </div>
+                    </div>
+                    {jevTest && jevTest !== "busy" && (
+                        <p className={"small " + (jevTest.ok ? "text-muted" : "text-danger")}>
+                            {jevTest.ok
+                                ? `${jevTest.model} · ${_t("first call")} ${jevTest.cold_ms} ms · ${_t("then")} ${jevTest.warm_ms} ms`
+                                : jevTest.error}
+                        </p>
+                    )}
+                    <p className="text-muted small">
+                        {_t("Used by: Expressive face and head, Automated background gestures "
+                            + "(when matched by Jev).")}
+                    </p>
+                </section>
+
+                <section>
                     <h3><i className="fa fa-child" /> {_t("Background Avatar Motion")}</h3>
                     <p className="text-muted">
                         {_t("Extra body language on top of the avatar's own gesture set, "
@@ -392,10 +450,62 @@ export default function SettingsView({ active }) {
                     </div>
                     <p className="text-muted">
                         {_t("Your companion gestures along with what they're saying: a bow "
-                            + "for thanks, a shrug for \"oh well\". Each sentence is matched "
-                            + "by the turn director model set below, so it adds a little to "
-                            + "your usage.")}
+                            + "for thanks, a shrug for \"oh well\". Needs a motion clip "
+                            + "library to pick from.")}
                     </p>
+                    {!!config.speech_gestures && (
+                        <div className="rx_row">
+                            <div>
+                                <label>{_t("Matched by")}</label>
+                                <select value={config.speech_gesture_engine || "grok"}
+                                        onChange={(ev) => setField("speech_gesture_engine", ev.target.value)}>
+                                    <option value="grok">{_t("Turn director model (xAI)")}</option>
+                                    <option value="jev">{_t("Jev (TypeSafe)")}</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
+                    {!!config.speech_gestures && (
+                    <p className="text-muted small">
+                        {config.speech_gesture_engine === "jev"
+                            ? _t("Jev reads each sentence against the clip library and answers in "
+                                + "about a quarter of a second, so the gesture is ready well before "
+                                + "the line is spoken. Needs a TypeSafe API key, set above. Sent for "
+                                + "each line: the sentence itself and your companion's \"## Identity\" "
+                                + "and \"## Personality\" sections.")
+                            : _t("The turn director model set below reads each sentence against the "
+                                + "clip library. It uses the xAI key you already have.")}
+                    </p>
+                    )}
+                    <div className="rx_check">
+                        <input id="rx_face_director" type="checkbox"
+                               checked={!!config.face_director}
+                               onChange={(ev) => setField("face_director", ev.target.checked ? 1 : 0)} />
+                        <label htmlFor="rx_face_director">
+                            {_t("Expressive face and head while speaking (experimental - requires Jev)")}
+                        </label>
+                    </div>
+                    <p className="text-muted">
+                        {_t("Your companion's face and head follow what each sentence means, and "
+                            + "what you say to them: a smile, a frown, a nod on a yes, a shake on "
+                            + "a no, a look away while they think. Built from the avatar's own "
+                            + "expressions, so any VRM works. Their own big emotions still play on "
+                            + "top. Needs a TypeSafe API key for Jev, set above. Applies from the "
+                            + "next call.")}
+                    </p>
+                    {!!config.face_director && (
+                    <p className="text-muted small">
+                        {_t("Sent to TypeSafe for each line: the sentence itself, the last two "
+                            + "messages of the conversation, and your companion's \"## Identity\" "
+                            + "and \"## Personality\" sections, each up to the next heading. "
+                            + "Nothing else goes: not their memories, their lore, the rest of "
+                            + "their prompt, or your voice. Those two sections are what set how "
+                            + "much a feeling shows and how an ambiguous line reads in character, "
+                            + "so keep your companion's prompt in the standard section format. A "
+                            + "prompt without those headings falls back to its first 1200 "
+                            + "characters, whatever they happen to be.")}
+                    </p>
+                    )}
                     <div className="rx_check">
                         <input id="rx_idle_fidgets" type="checkbox"
                                checked={!!config.idle_fidgets}

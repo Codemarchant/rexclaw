@@ -185,6 +185,19 @@ const HEAD_DRIFT_PITCH = 0.030;
 const HEAD_DRIFT_ROLL = 0.028;
 const HEAD_NOD_SPEAK = 0.055;           // extra nod amplitude at full speech
 const HEAD_TILT_SPEAK = 0.038;
+// With the face director on, that steady speaking nod and tilt give way to
+// the director's head: timed moves (nods on stressed words and on a "yes",
+// shakes on a "no", sweeps — see addHeadMove) and a posture the line's
+// feeling holds the head in; the sizes and timings are face_motion.js's
+// FACE_HEAD_* constants. The moves ride outside the neck spring, like the
+// speaking nod did: they are authored curves, and the spring would round a
+// nod away.
+// A real nod bends the whole neck, not just the skull on top of it, and
+// every realizer spreads it: half to the neck and half to the head
+// (VMagicMirror), a third each across two spine joints and the skull
+// (SmartBody), a share per cervical vertebra (Greta). With one neck joint
+// to work with, half and half.
+const DIRECTOR_NECK_SHARE = 0.5;
 
 // ── Torso / limb amplitudes (radians) ──────────────────────────────────
 const SPINE_BREATH_PITCH = 0.013;       // spine extends a little on the inhale
@@ -235,7 +248,7 @@ const DRIFT_HZ_HEAD = 0.34;    // tuned so the head turns at the original's ~9/m
 // The fixation-interval table is ported from moeru-ai/airi
 // (utils/eye-motions.ts): a probability table biased toward short holds with
 // a long tail, so re-fixation never falls into a rhythm.
-const GAZE_AMP = 0.26;                  // world units of look-at offset
+export const GAZE_AMP = 0.26;           // world units of look-at offset
 const GAZE_INT_STEP = 400;              // ms granularity of the buckets
 const GAZE_INT_P = [
     [0.075, 800], [0.110, 0], [0.125, 0], [0.140, 0], [0.125, 0],
@@ -418,6 +431,14 @@ export class IdleMotion {
         this._headPitch = spring();
         this._headRoll = spring();
 
+        // face director's head (set per frame by the renderer; see
+        // addHeadMove). `pitch` > 0 bows the head; `down` is the sign of a
+        // head-pitch rotation that looks down on this rig (it flips with
+        // the way the model faces). `hold` 0..1 keeps the eyes on the
+        // viewer: the glances and aversions thin out toward none.
+        this.director = { on: false, down: 1, pitch: 0, yaw: 0, roll: 0, hold: 0 };
+        this._moves = [];
+
         // gaze
         this._gazeX = 0;
         this._gazeY = 0;
@@ -467,6 +488,7 @@ export class IdleMotion {
             hipShiftX: 0, hipShiftZ: 0,
             weight: 0,
             headYaw: 0, headPitch: 0, headRoll: 0, headY: 0,
+            neckPitch: 0, neckYaw: 0, neckRoll: 0,   // the director's share of a head move
             breath: 0, breathDepth: 1,
             blink: 0, squeeze: 0,
             gazeX: 0, gazeY: 0,
@@ -500,6 +522,41 @@ export class IdleMotion {
             left -= step;
         }
         this._emit(speak);
+    }
+
+    /** A head move from the face director (face_motion.js builds them):
+     *  `keys` [[seconds, radians], …] on one axis — "pitch" (+ bows the
+     *  head), "yaw" or "roll" — starting `delay` seconds from now. Between
+     *  keys the head follows a minimum-jerk path: smootherstep is that
+     *  polynomial (Flash & Hogan 1985), so each swing leaves and arrives
+     *  with no jolt in speed or acceleration. Moves add together. */
+    addHeadMove({ axis, keys, delay = 0 }) {
+        if (!keys?.length || !["pitch", "yaw", "roll"].includes(axis)) return;
+        this._moves.push({ axis, keys, start: this.t + Math.max(0, delay) });
+    }
+
+    /** Drop moves not yet started (a barge-in cut the line they belong to). */
+    clearHeadMoves() {
+        this._moves = this._moves.filter((m) => m.start <= this.t);
+    }
+
+    /** The moves' summed head offset now: [pitch, yaw, roll]. Finished
+     *  moves go. */
+    _headMoves() {
+        const out = { pitch: 0, yaw: 0, roll: 0 };
+        this._moves = this._moves.filter((m) => {
+            const t = this.t - m.start;
+            const last = m.keys[m.keys.length - 1];
+            if (t >= last[0]) return false;
+            if (t < 0) return true;
+            let i = 1;
+            while (m.keys[i][0] <= t) i++;
+            const [t0, v0] = m.keys[i - 1];
+            const [t1, v1] = m.keys[i];
+            out[m.axis] += v0 + (v1 - v0) * smootherstep((t - t0) / (t1 - t0));
+            return true;
+        });
+        return out;
     }
 
     _step(dt, speak, posing) {
@@ -542,10 +599,12 @@ export class IdleMotion {
             const r = Math.random();
             let scale = GAZE_MICRO;
             let avert = false;
-            if (r < GAZE_P_AVERT) {
+            // The director's hold thins the glances and aversions out.
+            const open = 1 - this.director.hold;
+            if (r < GAZE_P_AVERT * open) {
                 scale = 1;
                 avert = true;
-            } else if (r < GAZE_P_AVERT + GAZE_P_GLANCE) {
+            } else if (r < (GAZE_P_AVERT + GAZE_P_GLANCE) * open) {
                 scale = GAZE_GLANCE;
             }
             // Focus tightens while speaking — a talking character that keeps
@@ -674,19 +733,25 @@ export class IdleMotion {
         const bodyRoll = sway(t, SWAY_ROLL_HZ, SWAY_ROLL_AMP);
         const swallowU = this._swallowStart >= 0
             ? bell((this.t - this._swallowStart) / SWALLOW_DUR) : 0;
+        // The director's posture goes through the neck spring: it eases in
+        // like any reorientation.
+        const dir = this.director;
         springTo(this._headYaw,
             -bodyYaw * HEAD_COUNTER_YAW
             + drift(t * DRIFT_HZ_HEAD, 21) * HEAD_DRIFT_YAW
-            + this._gazeHeadYaw.x,
+            + this._gazeHeadYaw.x
+            + (dir.on ? dir.yaw : 0),
             HEAD_SPRING_HZ, HEAD_SPRING_ZETA, dt);
         springTo(this._headPitch,
             drift(t * DRIFT_HZ_HEAD, 23) * HEAD_DRIFT_PITCH
             + this._gazeHeadPitch.x
-            + swallowU * SWALLOW_HEAD_PITCH,
+            + swallowU * SWALLOW_HEAD_PITCH
+            + (dir.on ? dir.pitch * dir.down : 0),
             HEAD_SPRING_HZ, HEAD_SPRING_ZETA, dt);
         springTo(this._headRoll,
             -bodyRoll * HEAD_COUNTER_ROLL
-            + drift(t * DRIFT_HZ_HEAD, 25) * HEAD_DRIFT_ROLL,
+            + drift(t * DRIFT_HZ_HEAD, 25) * HEAD_DRIFT_ROLL
+            + (dir.on ? dir.roll : 0),
             HEAD_SPRING_HZ, HEAD_SPRING_ZETA, dt);
     }
 
@@ -756,11 +821,25 @@ export class IdleMotion {
         s.hipShiftX = 0;
         s.hipShiftZ = 0;
 
-        s.headYaw = this._headYaw.x;
-        s.headPitch = this._headPitch.x
-            + Math.sin(this.t * 0.7 * 2 * Math.PI) * HEAD_NOD_SPEAK * speak;
-        s.headRoll = this._headRoll.x
-            + Math.sin(this.t * 0.45 * 2 * Math.PI) * HEAD_TILT_SPEAK * speak;
+        if (this.director.on) {
+            const move = this._headMoves();
+            const k = DIRECTOR_NECK_SHARE;
+            s.neckPitch = move.pitch * k * this.director.down;
+            s.neckYaw = move.yaw * k;
+            s.neckRoll = move.roll * k;
+            s.headYaw = this._headYaw.x + move.yaw * (1 - k);
+            s.headPitch = this._headPitch.x + move.pitch * (1 - k) * this.director.down;
+            s.headRoll = this._headRoll.x + move.roll * (1 - k);
+        } else {
+            s.neckPitch = 0;
+            s.neckYaw = 0;
+            s.neckRoll = 0;
+            s.headYaw = this._headYaw.x;
+            s.headPitch = this._headPitch.x
+                + Math.sin(this.t * 0.7 * 2 * Math.PI) * HEAD_NOD_SPEAK * speak;
+            s.headRoll = this._headRoll.x
+                + Math.sin(this.t * 0.45 * 2 * Math.PI) * HEAD_TILT_SPEAK * speak;
+        }
         s.headY = breath * depth * HEAD_BREATH_Y;
 
         s.blink = this._blink;

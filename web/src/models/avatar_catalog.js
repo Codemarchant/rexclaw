@@ -90,9 +90,13 @@ export const GESTURE_LOOP_MAP = Object.fromEntries(GESTURES.map((g) => [g.id, !!
 
 // Gestures that happen from the waist up (hands, arms, head). The face view
 // pulls out to a waist-up shot for these instead of the full body (the
-// renderer's gesture zoom-out). Everything else — these clips' legs, a
-// generated motion, an uploaded custom gesture — is assumed to use the whole
-// body, since nothing in a .vrma says otherwise.
+// renderer's gesture zoom-out). The emotion clips count too. Everything
+// else — these clips' legs, a generated motion, an uploaded custom
+// gesture — is assumed to use the whole body, since nothing in a .vrma
+// says otherwise.
 const UPPER_BODY_GESTURES = ["clapping", "goodbye", "look_around", "sleepy", "thinking",
     "peace_sign", "shoot", "blow_kiss"];
-export const UPPER_BODY_GESTURE_URLS = new Set(UPPER_BODY_GESTURES.map((id) => GESTURE_FILE_MAP[id]));
+export const UPPER_BODY_GESTURE_URLS = new Set([
+    ...UPPER_BODY_GESTURES.map((id) => GESTURE_FILE_MAP[id]),
+    ...Object.values(EMOTION_GESTURE_MAP),
+]);

@@ -469,15 +469,38 @@ def background_set_default_placement(payload: dict = Body(default={}), con=Depen
 @router.post("/speech_gesture")
 def speech_gesture(payload: dict = Body(default={}), con=Depends(db_con)):
     """Speech gesture selector: pick a motion-library gesture (or none) for
-    one line the companion is saying. Gated through the session; failures
-    degrade to {'gesture': None}."""
+    one line the companion is saying. `words` are the line's words as the
+    browser split them, which the Jev engine picks the stroke's word from.
+    Gated through the session; failures degrade to {'gesture': None}."""
     session = resolve_session(con, payload.get("session_id"))
     recent = payload.get("recent")
+    words = payload.get("words")
     return session_service.speech_gesture_select(
         con,
         session=session,
         line=payload.get("line"),
         recent_ids=recent if isinstance(recent, list) else [],
+        words=words if isinstance(words, list) else None,
+    )
+
+
+@router.post("/face_director")
+def face_director(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Face director: what the companion's face does while saying one line,
+    or (`listening`) as they hear the user's. `context` is the reply's
+    earlier lines, `words` the line's words as the browser split them (the
+    head moves land on them). Failures degrade to {'face': None} (leave the
+    face as it is)."""
+    session = resolve_session(con, payload.get("session_id"))
+    context = payload.get("context")
+    words = payload.get("words")
+    return session_service.face_director_select(
+        con,
+        session=session,
+        line=payload.get("line"),
+        context=context if isinstance(context, list) else [],
+        listening=bool(payload.get("listening")),
+        words=words if isinstance(words, list) else None,
     )
 
 

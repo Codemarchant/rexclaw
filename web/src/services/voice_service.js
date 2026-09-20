@@ -557,6 +557,9 @@ class VoiceCallService {
         // Out of the call: the state machine has nothing to listen to, but
         // the neutral idle + fidgets keep the standing companion alive.
         this.env.services.motion_director?.setConversationState?.({ listening: false, thinking: false });
+        // Nobody is talking any more, so there is no line for the face to
+        // follow: it goes back to neutral.
+        this.env.services.motion_director?.setFaceDirector?.(false);
     }
 
     /** Typed input. Solo calls behave exactly as before; group calls ask
@@ -1227,6 +1230,7 @@ class VoiceCallService {
         // under data/assets/motion is live on the next call.
         this.env.services.motion_director?.start?.().catch?.(() => {});
         this.env.services.motion_director?.setSpeechGestures?.(!!payload.speech_gestures);
+        this.env.services.motion_director?.setFaceDirector?.(!!payload.face_director);
         // Not in the main outfit as the call opens: one silent line so the
         // companion knows what they have on, whether it was switched by
         // hand mid-call last time (never recorded) or while idle. Deferred,
@@ -1267,6 +1271,8 @@ class VoiceCallService {
     onUserTranscript(conn, text) {
         this.noteActivity();
         this.idleEvents.noteUser();
+        // The base avatar's listening face (face director, when on).
+        if (conn === this.primary) this.env.services.motion_director?.onUserLine?.(text);
         if (conn !== this.primary || !this.hasPeers()) return;
         this._directorGeneration++;
         const generation = this._directorGeneration;

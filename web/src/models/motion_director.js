@@ -28,10 +28,15 @@
  *
  * The clip library comes from /api/motion/libraries (folders under
  * data/assets/motion/, see tools/motion/dlp3d_npz2vrma.py). Without a
- * library this module is inert.
+ * library the fidgets and speech gestures are inert.
+ *
+ * The same sentence timing also feeds the FACE DIRECTOR (face_director.js),
+ * which needs no library: every sentence gets a face, shown as it is spoken.
  */
 
 import { rpc } from "../lib/rpc";
+import { splitWords } from "../lib/words";
+import { FaceDirector } from "./face_director";
 
 const TICK_MS = 250;
 const SPEAK_ON = 0.05;            // renderer speaking intensity that counts as talking
@@ -234,6 +239,7 @@ export class MotionDirector {
         this._gestureZoomOut = true;
         this._leadMs = SPEECH_LEAD_SEED_MS;   // rolling selector round trip
         this._rate = { ...SPEECH_RATE_SEED };  // chars/sec of voice, per script
+        this._face = new FaceDirector(this);
 
         // Debug handle, mirroring window.__voiceRenderer / __voiceCall.
         if (typeof window !== "undefined") {
@@ -295,6 +301,7 @@ export class MotionDirector {
         this._speakingUntil = 0;
         this._buf = "";
         this._cancelStroke();
+        this._face.clear();
         if (!keepLibrary) {
             this.enabled = false;
             this.clips = [];
@@ -353,13 +360,32 @@ export class MotionDirector {
         console.log(`[motion] speech gestures: ${next ? "ON" : "off"}`);
     }
 
+    /** Per call, from the session payload — not a live switch, because the
+     *  session's prompt was written for it (set_emotion as the big-shift tool). */
+    setFaceDirector(enabled) {
+        this._face.setEnabled(enabled);
+    }
+
+    /** The user's words, as transcribed: the face reacts as they hear them. */
+    onUserLine(text) {
+        this._face.listen(text);
+    }
+
+    /** Speech gestures can run: a library, and the switch on. */
+    _speechOn() {
+        return this.enabled && this._settings().speech;
+    }
+
     // ── signals from the call ──────────────────────────────────────────
 
     /** Partial update: { listening, thinking, responseStarted, responseDone,
      *  interrupted }. */
     setConversationState(partial) {
         if (!partial) return;
-        if ("listening" in partial) this._state.listening = !!partial.listening;
+        if ("listening" in partial) {
+            this._state.listening = !!partial.listening;
+            this._face.setListening(this._state.listening);
+        }
         if ("thinking" in partial) this._state.thinking = !!partial.thinking;
         if (partial.interrupted) {
             // Barge-in: her audio was cut mid-sentence, so a gesture still
@@ -370,11 +396,13 @@ export class MotionDirector {
             this._pending.length = 0;
             this._turnActive = false;
             this._cancelStroke();
+            this._face.clear();
             this.renderer?.stopLayerClip?.();
         }
         if (partial.responseStarted) {
             this._buf = "";
             this._pending.length = 0;
+            this._face.newTurn();
             this._turnUsedExpressionTool = false;
             this._turnActive = true;
             this._lookaheadSec = 0;
@@ -418,7 +446,7 @@ export class MotionDirector {
      *  `lookaheadSec` is how much scheduled audio still has to play before
      *  these words are heard — see the pacing note at the top. */
     onAssistantTranscript(delta, lookaheadSec = 0) {
-        if (!this.enabled || !delta || !this._settings().speech) return;
+        if (!delta || !(this._speechOn() || this._face.enabled)) return;
         this._lookaheadSec = Number.isFinite(lookaheadSec) ? Math.max(0, lookaheadSec) : 0;
         // The turn's first words: the voice starts on them about now, which
         // fixes where character 0 of the reply sits in wall-clock time. Every
@@ -505,21 +533,25 @@ export class MotionDirector {
     }
 
     _consider(sentence) {
-        // The companion's own play_gesture / set_emotion stands the picker
-        // down for the whole turn, not just while its clip runs.
-        if (this._turnUsedExpressionTool) return;
         const line = sentence.replace(/\s+/g, " ").trim();
         if (!line) return;
         if (this._turnScript === "spaced" && UNSPACED_SCRIPT_RE.test(line)) {
             this._turnScript = "unspaced";
         }
         // Where this line starts in the reply, in characters. Counted for
-        // EVERY sentence, including the ones too short to gesture on: the
-        // offset is only meaningful against the whole spoken turn, and
-        // skipping the short ones pulled every later line's timing earlier
-        // by however much had been left out.
+        // EVERY sentence, including the ones too short to gesture on and the
+        // ones after the companion's own tool call: the offset is only
+        // meaningful against the whole spoken turn, and skipping lines
+        // pulled every later line's timing earlier by however much had been
+        // left out.
         const at = this._turnChars;
         this._turnChars += line.length;
+        // Every line gets a face, however short and whatever the body is
+        // doing — the gesture picker below is the choosy one.
+        this._face.queue({ line, at, spokenAt: this._voiceAt(at) });
+        // The companion's own play_gesture / set_emotion stands the picker
+        // down for the whole turn, not just while its clip runs.
+        if (this._turnUsedExpressionTool || !this._speechOn()) return;
         if (!longEnough(line)) {
             if (SPEECH_DEBUG) console.log(`[motion] — skipped (too short) "${line}"`);
             return;
@@ -531,7 +563,8 @@ export class MotionDirector {
             const spokenAt = this._voiceAt(at);
             const msPerChar = 1000 / this._rate[this._turnScript];
             const dueAt = spokenAt - this._leadMs;
-            this._pending.push({ line, dueAt, spokenAt, msPerChar, at, seq, queuedAt: Date.now() });
+            const words = splitWords(line);
+            this._pending.push({ line, words, dueAt, spokenAt, msPerChar, at, seq, queuedAt: Date.now() });
             if (SPEECH_DEBUG) {
                 console.log(`[motion] #${seq} queued "${line.slice(0, 60)}" `
                     + `→ due in ${((dueAt - Date.now()) / 1000).toFixed(1)}s `
@@ -588,11 +621,12 @@ export class MotionDirector {
      *  45-second reply was coming out due at about 19 seconds.
      */
     _retimeQueue(totalSec, endsInSec) {
-        if (!this._pending.length || !this._turnChars) return;
+        if (!this._turnChars) return;
         const now = Date.now();
         const endMs = now + endsInSec * 1000;
         const totalMs = totalSec * 1000;
         const startMs = endMs - totalMs;
+        this._face.retime((at) => startMs + at * (totalMs / this._turnChars), endMs);
         for (const item of this._pending) {
             const was = item.dueAt;
             item.msPerChar = totalMs / this._turnChars;
@@ -630,12 +664,18 @@ export class MotionDirector {
      *  clip's annotated keyframe, so the peak of the motion meets the start
      *  of the word it illustrates instead of a fixed beat into the line.
      *
+     *  Which word, in characters: `word_index` when the engine chose among
+     *  the words we sent (Jev), otherwise the word's text found in the line
+     *  — the director model copies it out of the line, and not always with
+     *  the same case or punctuation.
+     *
      *  0 = play now: no word, a word not found in the line, or a word too
      *  early for the run-up — the pick comes back about as the line starts,
      *  so a stroke meant for its opening words still lands late by up to
      *  the clip's run-up (0.6 s median across the dlp3d library). */
-    _strokeWaitMs(item, clip, word) {
-        const idx = wordIndex(item.line, word);
+    _strokeWaitMs(item, clip, res) {
+        const picked = item.words?.[res.word_index];
+        const idx = picked ? picked.index : wordIndex(item.line, res.word);
         if (idx < 0 || !(item.msPerChar > 0)) return 0;
         // Speech gestures skip their `startup` run-up (playLibraryClip's
         // trimLeadIn), so the stroke comes that much sooner after the start.
@@ -723,7 +763,10 @@ export class MotionDirector {
             if (SPEECH_DEBUG) console.log(`[motion] #${seq} ${what} "${line.slice(0, 60)}"`);
         };
         Promise.race([
-            rpc("/api/voice/speech_gesture", { session_id: sessionId, line, recent: this._recentIds() }),
+            rpc("/api/voice/speech_gesture", {
+                session_id: sessionId, line, recent: this._recentIds(),
+                words: item.words.map((w) => w.text),
+            }),
             new Promise((resolve) => setTimeout(() => resolve(null), SPEECH_TIMEOUT_MS)),
         ]).then((res) => {
             const took = Date.now() - started;
@@ -732,7 +775,7 @@ export class MotionDirector {
             const clip = res.gesture ? this._byId.get(res.gesture) : null;
             if (!clip) return trace(`no gesture — ${res.reason || "declined"} (${took}ms)`);
             if (took > SPEECH_TIMEOUT_MS) return trace(`no gesture — pick too slow (${took}ms)`);
-            const wait = this._strokeWaitMs(item, clip, res.word);
+            const wait = this._strokeWaitMs(item, clip, res);
             const play = () => {
                 this._strokeTimer = null;
                 // Re-check: a tool call may have landed during the round

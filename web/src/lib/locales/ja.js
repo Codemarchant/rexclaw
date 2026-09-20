@@ -1398,16 +1398,38 @@ export const JA = {
   "Add a built-in gesture…": "組み込みジェスチャーを追加…",
   "All built-in gestures added": "組み込みジェスチャーはすべて追加済みです",
 
+  // ── Settings: TypeSafe (Jev) ──────────────────────────────────────────
+  "TypeSafe (Jev)": "TypeSafe（Jev）",
+  "Jev is a judgment model: it answers a pile of small questions about one line at once, in a fraction of a second. Features that have to read something while it is still happening use it, and share this one key. Costs a fraction of a penny an hour of conversation. Reads English best.":
+    "Jev は判断モデルです。1 つの文についての細かい質問をまとめて、ごく短時間で一度に答えます。進行中の内容をその場で読み取る必要がある機能がこれを使い、このキーを共有します。費用は会話 1 時間あたり 1 円未満程度です。英語の読み取りが最も得意です。",
+  "TypeSafe API key": "TypeSafe API キー",
+  "Used by: Expressive face and head, Automated background gestures (when matched by Jev).":
+    "使用する機能：発話中の表情と頭の動き、発話中の自動ジェスチャー（選ぶモデルが Jev の場合）。",
+
   // ── Settings / mascot: background avatar motion ───────────────────────
   "Background Avatar Motion": "アバターの自動モーション",
   "Extra body language on top of the avatar's own gesture set, picked up in the background.":
     "アバター本来のジェスチャーに加えて、自動で拾われる body language です。",
   "Automated background gestures while speaking (experimental)":
     "発話中の自動ジェスチャー（実験的）",
-  "Your companion gestures along with what they're saying: a bow for thanks, a shrug for \"oh well\". Each sentence is matched by the turn director model set below, so it adds a little to your usage.":
-    "コンパニオンが話している内容に合わせてジェスチャーします。お礼にはお辞儀、「まあいいか」には肩をすくめる、といった具合です。文ごとに下のターンディレクターモデルが選ぶため、その分の利用量が少し増えます。",
+  "Your companion gestures along with what they're saying: a bow for thanks, a shrug for \"oh well\". Needs a motion clip library to pick from.":
+    "コンパニオンが話している内容に合わせてジェスチャーします。お礼にはお辞儀、「まあいいか」には肩をすくめる、といった具合です。選択元となるモーションライブラリが必要です。",
   "Gestures along with what they're saying. Matched per sentence by the director model, so it adds a little usage.":
     "話している内容に合わせてジェスチャーします。文ごとにディレクターモデルが選ぶため、利用量が少し増えます。",
+  // Which model picks the clip (speech_gesture_engine).
+  "Matched by": "選ぶモデル",
+  "Turn director model (xAI)": "ターンディレクターモデル（xAI）",
+  "Jev (TypeSafe)": "Jev（TypeSafe）",
+  "Jev reads each sentence against the clip library and answers in about a quarter of a second, so the gesture is ready well before the line is spoken. Needs a TypeSafe API key, set above. Sent for each line: the sentence itself and your companion's \"## Identity\" and \"## Personality\" sections.":
+    "Jev は各文をクリップライブラリと照らし合わせ、約 0.25 秒で答えます。そのため、その文が読み上げられるよりも十分前にジェスチャーが用意されます。上で設定する TypeSafe API キーが必要です。文ごとに送られるのは、その文自体と、コンパニオンの「## Identity」「## Personality」セクションだけです。",
+  "The turn director model set below reads each sentence against the clip library. It uses the xAI key you already have.":
+    "下で設定するターンディレクターモデルが、各文をクリップライブラリと照らし合わせます。すでにお持ちの xAI キーを使用します。",
+  "Expressive face and head while speaking (experimental - requires Jev)":
+    "発話中の表情と頭の動き（実験的・Jev が必要）",
+  "Your companion's face and head follow what each sentence means, and what you say to them: a smile, a frown, a nod on a yes, a shake on a no, a look away while they think. Built from the avatar's own expressions, so any VRM works. Their own big emotions still play on top. Needs a TypeSafe API key for Jev, set above. Applies from the next call.":
+    "コンパニオンの表情と頭の動きが、各文の意味と、あなたの言葉に反応します。微笑む、眉をひそめる、「はい」でうなずく、「いいえ」で首を振る、考えている間は視線を外す、といった具合です。アバター自身の表情から組み立てるため、どの VRM でも動作します。コンパニオン自身の大きな感情表現はその上に重ねて再生されます。上で設定する Jev 用の TypeSafe API キーが必要です。次回の通話から適用されます。",
+  "Sent to TypeSafe for each line: the sentence itself, the last two messages of the conversation, and your companion's \"## Identity\" and \"## Personality\" sections, each up to the next heading. Nothing else goes: not their memories, their lore, the rest of their prompt, or your voice. Those two sections are what set how much a feeling shows and how an ambiguous line reads in character, so keep your companion's prompt in the standard section format. A prompt without those headings falls back to its first 1200 characters, whatever they happen to be.":
+    "文ごとに TypeSafe へ送られるのは、その文自体、直前 2 件のメッセージ、そしてコンパニオンの「## Identity」「## Personality」セクション（それぞれ次の見出しまで）です。それ以外は送られません。メモリ、ロア、プロンプトの残りの部分、あなたの音声はいずれも送られません。この 2 つのセクションが、感情のあらわれ方と、曖昧な文がそのキャラクターらしくどう読まれるかを決めます。そのため、コンパニオンのプロンプトは標準のセクション形式で書いてください。見出しがないプロンプトの場合は、先頭 1200 文字がそのまま使われます。",
   "Small movements while they stand quietly: a weight shift, folded arms, a touch of their hair.":
     "静かに立っている間の小さな動き：重心を移す、腕を組む、髪に触れる。",
   "Idle fidgets": "待機中の小さな動き",
