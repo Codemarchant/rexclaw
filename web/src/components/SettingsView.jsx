@@ -429,8 +429,9 @@ export default function SettingsView({ active }) {
                         </p>
                     )}
                     <p className="text-muted small">
-                        {_t("Used by: Expressive face and head, Automated background gestures "
-                            + "(when matched by Jev).")}
+                        {_t("Used by: Expressive face and head, Automated background gestures, "
+                            + "and picking who speaks next in a group call. The last two fall "
+                            + "back to the turn director model without a key.")}
                     </p>
                 </section>
 
@@ -454,27 +455,15 @@ export default function SettingsView({ active }) {
                             + "library to pick from.")}
                     </p>
                     {!!config.speech_gestures && (
-                        <div className="rx_row">
-                            <div>
-                                <label>{_t("Matched by")}</label>
-                                <select value={config.speech_gesture_engine || "grok"}
-                                        onChange={(ev) => setField("speech_gesture_engine", ev.target.value)}>
-                                    <option value="grok">{_t("Turn director model (xAI)")}</option>
-                                    <option value="jev">{_t("Jev (TypeSafe)")}</option>
-                                </select>
-                            </div>
-                        </div>
-                    )}
-                    {!!config.speech_gestures && (
                     <p className="text-muted small">
-                        {config.speech_gesture_engine === "jev"
+                        {config.has_typesafe_api_key
                             ? _t("Jev reads each sentence against the clip library and answers in "
                                 + "about a quarter of a second, so the gesture is ready well before "
-                                + "the line is spoken. Needs a TypeSafe API key, set above. Sent for "
-                                + "each line: the sentence itself and your companion's \"## Identity\" "
-                                + "and \"## Personality\" sections.")
+                                + "the line is spoken. Sent for each line: the sentence itself and "
+                                + "your companion's \"## Identity\" and \"## Personality\" sections.")
                             : _t("The turn director model set below reads each sentence against the "
-                                + "clip library. It uses the xAI key you already have.")}
+                                + "clip library. Set a TypeSafe API key above and Jev does it "
+                                + "instead — faster, cheaper and a better match.")}
                     </p>
                     )}
                     <div className="rx_check">

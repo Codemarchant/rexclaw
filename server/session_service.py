@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store, text_to_vrma
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store, text_to_vrma, turn_director
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -2012,11 +2012,14 @@ def speech_gesture_select(con, *, session, line, recent_ids=(), words=None):
     the line is still being spoken. Deliberate play_gesture calls always
     pre-empt it client-side.
 
-    Either engine answers it (config.speech_gesture_engine): the director
-    model, which reads the library as prompt text and writes back an id, or
-    TypeSafe's Jev, which is asked the same thing as a Choice over the
-    library (gesture_director.py). `words` are the line's words as the
-    browser split them, for Jev's word Choice.
+    Either engine answers it, with no setting to choose between them: Jev
+    whenever a TypeSafe key is set (gesture_director.py — the library as a
+    Choice), otherwise the director model, which reads the library as
+    prompt text and writes back an id. Measured side by side Jev was 2.8x
+    faster, 6.1x cheaper and picked better (22/27 against 19/27), so a key
+    that is set is answer enough; the same rule decides the turn director.
+    `words` are the line's words as the browser split them, for Jev's word
+    Choice.
 
     Return contract: {'gesture': <clip id>, 'word': <str or None>} or
     {'gesture': None} — None covers "nothing fits", "could not run" and
@@ -2051,8 +2054,7 @@ def speech_gesture_select(con, *, session, line, recent_ids=(), words=None):
     # reads as a glitch, so it is refused outright below rather than nudged.
     last = motion_library.speech_gesture_canonical(candidates, recent[-1:])
     just_played = last[0] if last else None
-    pick = (_gesture_pick_jev if (config['speech_gesture_engine'] or 'grok') == 'jev'
-            else _gesture_pick_grok)
+    pick = _gesture_pick_jev if config['typesafe_api_key'] else _gesture_pick_grok
     try:
         gesture, word, word_index, ticks, reason = pick(
             con, config, session=session, line=line[:400], candidates=candidates,
@@ -2232,9 +2234,6 @@ def director_decide(con, *, session, transcript_lines, participants, user_name=N
     if not transcript_lines or not participants:
         return {'next': None}
     config = get_config(con)
-    xai_key = config['xai_api_key']
-    if not xai_key:
-        return {'next': None}
     # Sanitize inbound shapes — this is browser-supplied JSON.
     clean_participants = []
     for p in participants[:6]:
@@ -2246,21 +2245,64 @@ def director_decide(con, *, session, transcript_lines, participants, user_name=N
     clean_floor = str(floor_key)[:64] if floor_key else None
     if clean_floor and not any(p['key'] == clean_floor for p in clean_participants):
         clean_floor = None
+    # Generic on purpose: the user's real name stays out of call plumbing
+    # (it reaches agents only via include_user_name_in_prompt or their
+    # memories).
+    clean_user = str(user_name or 'User')[:80]
+    # Jev whenever a TypeSafe key is set, with no setting to choose it.
+    # Unlike the speech gestures this path never had one, and a group call
+    # pays the director on every single turn — after each user utterance
+    # AND each agent turn — so it is the one place where the difference
+    # between a ~250 ms read and a ~1.5 s one is dead air between speakers.
+    # No key keeps the director model.
+    if config['typesafe_api_key']:
+        return _director_jev(con, config, user_name=clean_user, participants=clean_participants,
+                             lines=clean_lines, floor_key=clean_floor)
+    return _director_grok(con, config, user_name=clean_user, participants=clean_participants,
+                          lines=clean_lines, floor_key=clean_floor)
+
+
+def _director_jev(con, config, *, user_name, participants, lines, floor_key):
+    """Jev answers what the last message did; turn_director ranks them."""
+    opts = turn_director.options(participants, user_name)
+    floor_name = next((p['name'] for p in participants if p['key'] == floor_key), None)
+    qs = turn_director.questions(opts)
+    state = turn_director.build_state(user_name, participants, lines, floor_name)
+    try:
+        body = jev.ask(config['typesafe_api_key'], state, qs)
+        answers = jev.answers(body, qs)
+        ticks = jev.input_ticks(body)
+    except Exception as e:  # noqa: BLE001 — a failed read is "no decision"
+        _logger.warning("turn director (jev) failed: %s", e)
+        return {'next': None}
+    # Accrued before the decision is read: a call that ends in no decision
+    # was still billed.
+    try:
+        store.accrue_usd_ticks(con, ticks)
+        con.commit()
+    except Exception:  # noqa: BLE001 — spend accounting never fails a read
+        pass
+    decision, reason = turn_director.decide(answers, opts, floor_key)
+    if decision is None:
+        _logger.info("turn director: no decision (%s)", reason)
+    return {'next': decision}
+
+
+def _director_grok(con, config, *, user_name, participants, lines, floor_key):
+    """The director model reads the rules as prose and names one token."""
+    xai_key = config['xai_api_key']
     model = config['director_model'] or config['text_model'] or config['summary_model']
-    if not model:
+    if not xai_key or not model:
         return {'next': None}
     try:
         decision, usage = xai_client.decide_next_speaker(
             xai_api_key=xai_key,
             responses_url=config['xai_responses_url'],
             model=model,
-            transcript_lines=clean_lines,
-            participants=clean_participants,
-            # Generic on purpose: the user's real name stays out of call
-            # plumbing (it reaches agents only via include_user_name_in_prompt
-            # or their memories).
-            user_name=str(user_name or 'User')[:80],
-            floor_key=clean_floor,
+            transcript_lines=lines,
+            participants=participants,
+            user_name=user_name,
+            floor_key=floor_key,
         )
     except Exception as e:
         _logger.warning("director_decide failed: %s", e)

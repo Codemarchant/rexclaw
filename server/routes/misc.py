@@ -53,7 +53,7 @@ _CONFIG_FIELDS = (
     "live_chat_ignored_users", "live_chat_blocked_words",
     "transcript_display_limit", "heartbeat_notifications",
     "transcript_retention_days", "file_default_expiry_seconds",
-    "speech_gestures", "speech_gesture_engine", "idle_fidgets", "fidget_interval",
+    "speech_gestures", "idle_fidgets", "fidget_interval",
     "gesture_zoom_out", "face_director",
 )
 

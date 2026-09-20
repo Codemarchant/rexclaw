@@ -1403,8 +1403,11 @@ export const JA = {
   "Jev is a judgment model: it answers a pile of small questions about one line at once, in a fraction of a second. Features that have to read something while it is still happening use it, and share this one key. Costs a fraction of a penny an hour of conversation. Reads English best.":
     "Jev は判断モデルです。1 つの文についての細かい質問をまとめて、ごく短時間で一度に答えます。進行中の内容をその場で読み取る必要がある機能がこれを使い、このキーを共有します。費用は会話 1 時間あたり 1 円未満程度です。英語の読み取りが最も得意です。",
   "TypeSafe API key": "TypeSafe API キー",
-  "Used by: Expressive face and head, Automated background gestures (when matched by Jev).":
-    "使用する機能：発話中の表情と頭の動き、発話中の自動ジェスチャー（選ぶモデルが Jev の場合）。",
+  "Test": "テスト",
+  "first call": "初回",
+  "then": "以降",
+  "Used by: Expressive face and head, Automated background gestures, and picking who speaks next in a group call. The last two fall back to the turn director model without a key.":
+    "使用する機能：発話中の表情と頭の動き、発話中の自動ジェスチャー、グループ通話で次に話す相手の判定。後者 2 つはキーがない場合、ターンディレクターモデルにフォールバックします。",
 
   // ── Settings / mascot: background avatar motion ───────────────────────
   "Background Avatar Motion": "アバターの自動モーション",
@@ -1416,14 +1419,12 @@ export const JA = {
     "コンパニオンが話している内容に合わせてジェスチャーします。お礼にはお辞儀、「まあいいか」には肩をすくめる、といった具合です。選択元となるモーションライブラリが必要です。",
   "Gestures along with what they're saying. Matched per sentence by the director model, so it adds a little usage.":
     "話している内容に合わせてジェスチャーします。文ごとにディレクターモデルが選ぶため、利用量が少し増えます。",
-  // Which model picks the clip (speech_gesture_engine).
-  "Matched by": "選ぶモデル",
-  "Turn director model (xAI)": "ターンディレクターモデル（xAI）",
-  "Jev (TypeSafe)": "Jev（TypeSafe）",
-  "Jev reads each sentence against the clip library and answers in about a quarter of a second, so the gesture is ready well before the line is spoken. Needs a TypeSafe API key, set above. Sent for each line: the sentence itself and your companion's \"## Identity\" and \"## Personality\" sections.":
-    "Jev は各文をクリップライブラリと照らし合わせ、約 0.25 秒で答えます。そのため、その文が読み上げられるよりも十分前にジェスチャーが用意されます。上で設定する TypeSafe API キーが必要です。文ごとに送られるのは、その文自体と、コンパニオンの「## Identity」「## Personality」セクションだけです。",
-  "The turn director model set below reads each sentence against the clip library. It uses the xAI key you already have.":
-    "下で設定するターンディレクターモデルが、各文をクリップライブラリと照らし合わせます。すでにお持ちの xAI キーを使用します。",
+  // Who picks the clip: Jev when a TypeSafe key is set, else the director
+  // model. No setting — the key decides.
+  "Jev reads each sentence against the clip library and answers in about a quarter of a second, so the gesture is ready well before the line is spoken. Sent for each line: the sentence itself and your companion's \"## Identity\" and \"## Personality\" sections.":
+    "Jev は各文をクリップライブラリと照らし合わせ、約 0.25 秒で答えます。そのため、その文が読み上げられるよりも十分前にジェスチャーが用意されます。文ごとに送られるのは、その文自体と、コンパニオンの「## Identity」「## Personality」セクションだけです。",
+  "The turn director model set below reads each sentence against the clip library. Set a TypeSafe API key above and Jev does it instead — faster, cheaper and a better match.":
+    "下で設定するターンディレクターモデルが、各文をクリップライブラリと照らし合わせます。上で TypeSafe API キーを設定すると、代わりに Jev が担当します。より速く、より安く、より適切に選びます。",
   "Expressive face and head while speaking (experimental - requires Jev)":
     "発話中の表情と頭の動き（実験的・Jev が必要）",
   "Your companion's face and head follow what each sentence means, and what you say to them: a smile, a frown, a nod on a yes, a shake on a no, a look away while they think. Built from the avatar's own expressions, so any VRM works. Their own big emotions still play on top. Needs a TypeSafe API key for Jev, set above. Applies from the next call.":

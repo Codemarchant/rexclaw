@@ -81,6 +81,12 @@ shell.
 Then in the app: **Settings → paste your xAI API key** (grab one at
 [x.ai/api](https://x.ai/api)) → back to **Voice** → pick a companion → **Start**.
 
+> **Optional:** a [TypeSafe](https://typesafe.ai) API key switches on the expressive face
+> and head, and hands the background gestures and group-call turn-taking to TypeSafe's Jev
+> judgment model — a per-sentence read in ~250 ms for a fraction of a penny an hour. Without
+> one, gestures and turn-taking fall back to the xAI turn director and the expressive face
+> stays off.
+
 ### 🐳 Docker
 
 ```bash

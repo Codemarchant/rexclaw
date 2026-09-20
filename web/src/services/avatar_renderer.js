@@ -681,6 +681,8 @@ class AvatarRenderer {
         // (all the fields already live here), and each peer object carries
         // the same field names.
         this._peers = new Map();
+        // Connection ids removePeer has seen — see setPeerAvatar.
+        this._removedPeers = new Set();
 
         // Combo (two-character) gesture state — see playComboGesture.
         this._comboPartner = null;        // { vrm, mixer, action } — SPAWNED second VRM while a combo runs
@@ -1238,6 +1240,10 @@ class AvatarRenderer {
      *  snapshot into the live idle. */
     _releaseToIdle(actor, action) {
         this._snapshotPose(actor);
+        // Carried onto the blend so the follow camera can keep telling a
+        // clip that travelled from one that swayed on the spot while it
+        // eases out (_clipOwnsBody).
+        if (actor._returnBlend) actor._returnBlend.keepTravel = !!action.__rxKeepTravel;
         if (action.__rxKeepTravel) this._commitTravel(actor);
         try { action.stop(); } catch (e) { /* */ }
         // Drop it from the mixer's caches. Trimmed library clips are built
@@ -1982,12 +1988,23 @@ class AvatarRenderer {
      *  beside the base avatar. Idempotent per (peerId, vrm_url). */
     async setPeerAvatar(peerId, avatarPayload) {
         if (!peerId || !avatarPayload?.vrm_url) return;
-        await this._ensureRenderer();
+        // A leg that was already removed never gets an avatar, however late
+        // its payload arrives (see _removedPeers).
+        if (this._removedPeers.has(peerId)) return;
+        // Registered BEFORE the first await, not after it. removePeer only
+        // acts on a peer it can find, so while this method sat waiting for
+        // the renderer the peer did not exist yet and a removal in that
+        // window was a silent no-op — then this line ran and stood an
+        // avatar up that nothing would ever take down again, because the
+        // connection was already gone from voice_service. Removing an agent
+        // quickly on a resuming call hit it every time.
         let peer = this._peers.get(peerId);
         if (!peer) {
             peer = this._makePeerActor(peerId);
             this._peers.set(peerId, peer);
         }
+        await this._ensureRenderer();
+        if (this._peers.get(peerId) !== peer) return;   // removed while waiting
         peer.avatarPayload = avatarPayload;
         await this._loadPeerModel(peer, avatarPayload.vrm_url, avatarPayload.vrma_idle_url || null);
     }
@@ -2129,6 +2146,14 @@ class AvatarRenderer {
     /** Remove a peer from the scene (agent left the call). Restores the
      *  solo layout when the last peer leaves. */
     removePeer(peerId) {
+        // Remembered whether or not there is a peer to remove, so a payload
+        // still in flight cannot stand one up afterwards (setPeerAvatar).
+        // Connection ids are minted per connection and never reused, so
+        // these only ever accumulate; a handful is plenty of history.
+        this._removedPeers.add(peerId);
+        while (this._removedPeers.size > 32) {
+            this._removedPeers.delete(this._removedPeers.values().next().value);
+        }
         const peer = this._peers.get(peerId);
         if (!peer) return;
         peer._loadGeneration++;   // cancel any in-flight load
@@ -2877,7 +2902,24 @@ class AvatarRenderer {
      *  while walking — the walk clip is stripped to run in place. */
     _clipOwnsBody(actor) {
         if (actor._moving) return false;
-        return !!(actor._gestureAction?.isRunning() || actor._layerAction?.isRunning() || actor._returnBlend);
+        // Only a clip that will actually KEEP the ground it covers, which is
+        // the same test _commitTravel applies on release (__rxKeepTravel —
+        // generated motions travel, the built-in gestures stay on the spot).
+        // Without it every gesture qualified, and any clip that shifts the
+        // hips horizontally without going anywhere — a squat pushes them
+        // back, a bow, a lean — read to the follow camera as the avatar
+        // walking. The camera dollied after it, which on screen is not one
+        // avatar moving but the whole room sliding: in a group call both
+        // companions appear stuck together, shuffling in step.
+        // Library clips (_layerAction) are the same case as the built-ins:
+        // _releaseToIdle only commits travel for a flagged action, and
+        // nothing flags those, so the rig always puts the avatar back where
+        // it started. A squat played from the motion library is exactly
+        // that clip.
+        const running = (actor._gestureAction?.isRunning() && actor._gestureAction)
+            || (actor._layerAction?.isRunning() && actor._layerAction);
+        if (running) return !!running.__rxKeepTravel;
+        return !!actor._returnBlend?.keepTravel;
     }
 
     /** Where the avatar's body actually is on the floor. A clip that walks

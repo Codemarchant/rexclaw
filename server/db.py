@@ -169,11 +169,6 @@ CREATE TABLE IF NOT EXISTS config (
     -- fidget_interval is the AVERAGE gap — the real one varies either side
     -- of it so it never becomes a rhythm.
     speech_gestures INTEGER NOT NULL DEFAULT 0,
-    -- Who picks the clip: 'grok' (the director model reads the library as
-    -- prompt text and names an id) or 'jev' (TypeSafe's Jev, a Choice over
-    -- the library — needs the TypeSafe key). Grok by default: it is the
-    -- one that works with the key the app already has.
-    speech_gesture_engine TEXT NOT NULL DEFAULT 'grok',
     idle_fidgets INTEGER NOT NULL DEFAULT 0,
     fidget_interval REAL NOT NULL DEFAULT 60,
     -- Face view only: pull the camera out while a deliberate gesture plays
@@ -1061,7 +1056,6 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN face_director INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE config ADD COLUMN typesafe_api_key TEXT NOT NULL DEFAULT ''",
     # Which model picks a speech gesture (see the config schema comment).
-    "ALTER TABLE config ADD COLUMN speech_gesture_engine TEXT NOT NULL DEFAULT 'grok'",
 )
 
 
