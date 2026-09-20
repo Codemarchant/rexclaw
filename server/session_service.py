@@ -926,14 +926,33 @@ def _cross_mode_token_vals(config, session, into_mode):
 # stay out on purpose: a lookup's answer only matters if the model speaks
 # after it. Text sessions don't get the flag — their tool loop always continues
 # to the written reply — hence a copy, never an edit of the shared definitions.
+#
+# adjust_affection is here rather than ending the turn outright, which is what
+# it used to do (agent_connection's ALWAYS_END_TURN_TOOLS). Ending it outright
+# meant the model could not SEE that: nothing in the schema said so, so it had
+# no way to plan around it, and since a model cannot speak again after a call
+# inside one reply, the follow-up was its only route to saying more. An
+# affectionate exchange is exactly where it has more to say, so the score went
+# up and the reply stopped dead on one line. The flag gives it the same choice
+# it already has for the other bookkeeping it never announces (remember,
+# forget): speak first and end on the call, or leave it off and go on.
 _END_TURN_TOOLS = frozenset({'set_emotion', 'play_gesture', 'generate_gesture',
-                             'move_around', 'remember', 'forget', 'minecraft_command'})
+                             'move_around', 'remember', 'forget', 'minecraft_command',
+                             'adjust_affection'})
+# The nudge for the silent tools belongs HERE and not in the prompt's Affection
+# section: that section is assembled once for both surfaces, and a text session
+# never gets this flag, so naming it there would point a text companion at a
+# parameter it does not have.
 _END_TURN_PARAM = {
     'type': 'boolean',
     'description': (
         'true = this call ends your turn: say your speech first, then make '
         'the call (e.g. "watch this!", then the spin) - no forced follow-up '
-        'reply comes after it. Leave it off when you want to say more after it.'
+        'reply comes after it. Leave it off when you want to say more after it. '
+        'For a call the user should not hear about - a silently saved memory, '
+        'an affection adjustment - one full reply ending on the call is usually '
+        'right, but only where that reply is genuinely complete: it must not '
+        'cut short what you would naturally have gone on to say.'
     ),
 }
 

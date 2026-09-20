@@ -26,15 +26,15 @@ const SILENT_BROWSER_TOOLS = new Set(["play_gesture", "set_emotion", "change_out
 // Without it every gesture, emotion, saved memory or Minecraft directive earns
 // a second reply ("there you go!"), and a follow-up that gestures again owes
 // another — a chain that can't end on its own.
+//
+// adjust_affection used to end the turn outright, with no flag. That made the
+// behaviour invisible to the model — nothing in the schema said the call would
+// end its turn — and since a model cannot speak again after a call inside one
+// reply, the suppressed follow-up was its only way to say more. An
+// affectionate exchange is where it most wants to, so the score went up and
+// the reply stopped on a single line. It takes the flag like the rest now.
 const END_TURN_TOOLS = new Set(["set_emotion", "play_gesture", "generate_gesture", "move_around", "remember",
-    "forget", "minecraft_command"]);
-
-// Tools that always end the turn, no flag needed: bookkeeping the companion
-// never talks about — the prompt tells it never to mention the affection
-// score, and the transcript hides the call. The same safety net applies: a
-// reply that went straight to the call without speaking still gets its
-// follow-up.
-const ALWAYS_END_TURN_TOOLS = new Set(["adjust_affection"]);
+    "forget", "minecraft_command", "adjust_affection"]);
 
 /** Whether a call's arguments ask to end the turn on it. Malformed arguments
  *  read as "no" — the default, a follow-up reply. */
@@ -1511,9 +1511,8 @@ export class AgentConnection {
         }
         // This turn now owes a follow-up response.create once the tool
         // round-trip completes — unless this call ends the turn (end_turn,
-        // see END_TURN_TOOLS / ALWAYS_END_TURN_TOOLS).
-        const endTurn = ALWAYS_END_TURN_TOOLS.has(name)
-            || (END_TURN_TOOLS.has(name) && endsTurn(argumentsJson));
+        // see END_TURN_TOOLS).
+        const endTurn = END_TURN_TOOLS.has(name) && endsTurn(argumentsJson);
         if (endTurn) this._endTurnInResponse = true;   // checked at response.done
         else this._pendingToolReply = true;
         const responseAtCall = this._currentResponseId;
