@@ -251,7 +251,7 @@ export default function SettingsView({ active }) {
     const testJev = async () => {
         setJevTest("busy");
         try {
-            setJevTest(await rpc("/api/face_director/test", { key: typesafeKeyDraft || "" }));
+            setJevTest(await rpc("/api/face_director/test", { key: typesafeKeyDraft || "", model: config.jev_model || "" }));
         } catch (e) {
             setJevTest({ error: e?.message || _t("Connection failed") });
         }
@@ -414,6 +414,14 @@ export default function SettingsView({ active }) {
                                        ? _t("•••••••• (leave blank to keep current key)")
                                        : ""}
                                    onChange={(ev) => { markDirty(true); setTypesafeKeyDraft(ev.target.value); }} />
+                        </div>
+                        <div>
+                            <label title={_t("jev-latest is TypeSafe's alias for their newest Jev release. Enter a version such as jev-1.13.0 to stay on it when a new one comes out. Test shows the version the name resolves to.")}>
+                                {_t("Jev model")}
+                            </label>
+                            <input type="text" value={config.jev_model || ""}
+                                   placeholder="jev-latest"
+                                   onChange={(ev) => setField("jev_model", ev.target.value)} />
                         </div>
                         <div style={{ alignSelf: "flex-end" }}>
                             <button className="btn btn-light" onClick={testJev} disabled={jevTest === "busy"}>

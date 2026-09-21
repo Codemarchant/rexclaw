@@ -2144,7 +2144,7 @@ def _gesture_pick_jev(con, config, *, session, line, candidates, recent, just_pl
         return None, None, None, 0, 'no_gesture_library'
     qs = gesture_director.questions(name, opts, words=words)
     state = gesture_director.build_state(name, persona, [], line)
-    body = jev.ask(config['typesafe_api_key'], state, qs)
+    body = jev.ask(config['typesafe_api_key'], config['jev_model'], state, qs)
     gesture, word_index, reason = gesture_director.choose(jev.answers(body, qs), candidates, opts)
     word = None
     if gesture and word_index is not None and words and word_index < len(words):
@@ -2191,7 +2191,7 @@ def face_director_select(con, *, session, line, context=(), listening=False, wor
     state = face_director.build_state(name, persona, conversation, line[:400], listening=listening)
     qs = face_director.questions(name, listening=listening, words=None if listening else words)
     try:
-        body = jev.ask(config['typesafe_api_key'], state, qs)
+        body = jev.ask(config['typesafe_api_key'], config['jev_model'], state, qs)
         answers = jev.answers(body, qs)
         ticks = jev.input_ticks(body)
     except Exception as e:  # noqa: BLE001 — a failed read is just "no change"
@@ -2269,7 +2269,7 @@ def _director_jev(con, config, *, user_name, participants, lines, floor_key):
     qs = turn_director.questions(opts)
     state = turn_director.build_state(user_name, participants, lines, floor_name)
     try:
-        body = jev.ask(config['typesafe_api_key'], state, qs)
+        body = jev.ask(config['typesafe_api_key'], config['jev_model'], state, qs)
         answers = jev.answers(body, qs)
         ticks = jev.input_ticks(body)
     except Exception as e:  # noqa: BLE001 — a failed read is "no decision"

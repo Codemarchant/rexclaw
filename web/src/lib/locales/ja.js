@@ -1403,6 +1403,9 @@ export const JA = {
   "Jev is a judgment model: it answers a pile of small questions about one line at once, in a fraction of a second. Features that have to read something while it is still happening use it, and share this one key. Costs a fraction of a penny an hour of conversation. Reads English best.":
     "Jev は判断モデルです。1 つの文についての細かい質問をまとめて、ごく短時間で一度に答えます。進行中の内容をその場で読み取る必要がある機能がこれを使い、このキーを共有します。費用は会話 1 時間あたり 1 円未満程度です。英語の読み取りが最も得意です。",
   "TypeSafe API key": "TypeSafe API キー",
+  "Jev model": "Jev モデル",
+  "jev-latest is TypeSafe's alias for their newest Jev release. Enter a version such as jev-1.13.0 to stay on it when a new one comes out. Test shows the version the name resolves to.":
+    "jev-latest は TypeSafe の最新 Jev リリースを指すエイリアスです。jev-1.13.0 のようにバージョンを入力すると、新しいリリースが出てもそのバージョンを使い続けます。テストで、その名前が実際にどのバージョンを指すかを確認できます。",
   "Test": "テスト",
   "first call": "初回",
   "then": "以降",

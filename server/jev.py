@@ -21,6 +21,7 @@ import time
 import requests
 
 JEV_URL = 'https://api.typesafe.ai/v1/systemone'
+# The config's jev_model, when the Settings field is left empty.
 JEV_MODEL = 'jev-latest'
 # TypeSafe bills input tokens only: $0.042 per million (docs.typesafe.ai/models),
 # as xAI-style usd ticks (store.USD_TICKS_PER_USD = 1e10 per dollar).
@@ -58,12 +59,12 @@ def to_request(qs):
     return out
 
 
-def ask(api_key, state, qs):
+def ask(api_key, model, state, qs):
     """POST one request; returns the parsed body. Raises on HTTP errors."""
     resp = _session().post(
         JEV_URL,
         headers={'Authorization': f'Bearer {api_key}'},
-        json={'model': JEV_MODEL, 'state': state, 'questions': to_request(qs)},
+        json={'model': model or JEV_MODEL, 'state': state, 'questions': to_request(qs)},
         timeout=TIMEOUT,
     )
     resp.raise_for_status()
@@ -98,7 +99,7 @@ def input_ticks(body):
         return 0
 
 
-def test_key(api_key):
+def test_key(api_key, model):
     """Settings "Test": does the key work, and how fast is a round trip
     from here — once cold, once on the warm connection a call reuses."""
     if not api_key:
@@ -110,7 +111,7 @@ def test_key(api_key):
             t0 = time.perf_counter()
             resp = _session().post(
                 JEV_URL, headers={'Authorization': f'Bearer {api_key}'},
-                json={'model': JEV_MODEL, 'state': {'line': 'Hello there!'}, 'questions': qs},
+                json={'model': model or JEV_MODEL, 'state': {'line': 'Hello there!'}, 'questions': qs},
                 timeout=TIMEOUT)
             times.append(round((time.perf_counter() - t0) * 1000))
             if resp.status_code == 401:

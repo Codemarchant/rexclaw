@@ -184,6 +184,9 @@ CREATE TABLE IF NOT EXISTS config (
     -- the face director, and the speech gesture selector when it is set
     -- to Jev.
     typesafe_api_key TEXT NOT NULL DEFAULT '',
+    -- The Jev model those calls ask. jev-latest is TypeSafe's alias for
+    -- their newest release; a pinned version holds the director tuning.
+    jev_model TEXT NOT NULL DEFAULT 'jev-latest',
     -- local_task working directory — the Grok Build CLI's blast-radius
     -- boundary. Empty = <data>/workspace (created on demand).
     local_task_workdir TEXT NOT NULL DEFAULT '',
@@ -1055,6 +1058,7 @@ MIGRATIONS = (
     # Face director (see the config schema comment).
     "ALTER TABLE config ADD COLUMN face_director INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE config ADD COLUMN typesafe_api_key TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN jev_model TEXT NOT NULL DEFAULT 'jev-latest'",
     # Which model picks a speech gesture (see the config schema comment).
 )
 

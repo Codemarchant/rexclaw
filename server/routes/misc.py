@@ -54,7 +54,7 @@ _CONFIG_FIELDS = (
     "transcript_display_limit", "heartbeat_notifications",
     "transcript_retention_days", "file_default_expiry_seconds",
     "speech_gestures", "idle_fidgets", "fidget_interval",
-    "gesture_zoom_out", "face_director",
+    "gesture_zoom_out", "face_director", "jev_model",
 )
 
 _AGENT_FIELDS = (
@@ -331,12 +331,15 @@ def gesture_gen_test(payload: dict = Body(default={}), con=Depends(db_con)):
 @router.post("/face_director/test")
 def face_director_test(payload: dict = Body(default={}), con=Depends(db_con)):
     """Settings "Test": does the TypeSafe key work, and how long a Jev round
-    trip takes from this machine. The draft key when one is typed, else the
-    stored one, like /gesture_gen/test."""
-    key = payload.get("key")
+    trip takes from this machine. The draft key and model when typed, else
+    the stored ones, like /gesture_gen/test."""
+    key, model = payload.get("key"), payload.get("model")
+    stored_key, stored_model = con.execute("SELECT typesafe_api_key, jev_model FROM config WHERE id = 1").fetchone()
     if not (isinstance(key, str) and key.strip()):
-        key = con.execute("SELECT typesafe_api_key FROM config WHERE id = 1").fetchone()[0]
-    return jev.test_key(key.strip() if key else "")
+        key = stored_key
+    if not (isinstance(model, str) and model.strip()):
+        model = stored_model
+    return jev.test_key(key.strip() if key else "", model.strip() if model else "")
 
 
 @router.post("/local_gen/inspect")
