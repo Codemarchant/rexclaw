@@ -64,7 +64,7 @@ def ask(api_key, model, state, qs):
     resp = _session().post(
         JEV_URL,
         headers={'Authorization': f'Bearer {api_key}'},
-        json={'model': model or JEV_MODEL, 'state': state, 'questions': to_request(qs)},
+        json={'model': (model or '').strip() or JEV_MODEL, 'state': state, 'questions': to_request(qs)},
         timeout=TIMEOUT,
     )
     resp.raise_for_status()
@@ -111,11 +111,16 @@ def test_key(api_key, model):
             t0 = time.perf_counter()
             resp = _session().post(
                 JEV_URL, headers={'Authorization': f'Bearer {api_key}'},
-                json={'model': model or JEV_MODEL, 'state': {'line': 'Hello there!'}, 'questions': qs},
+                json={'model': (model or '').strip() or JEV_MODEL, 'state': {'line': 'Hello there!'}, 'questions': qs},
                 timeout=TIMEOUT)
             times.append(round((time.perf_counter() - t0) * 1000))
             if resp.status_code == 401:
                 return {'ok': False, 'error': 'TypeSafe rejected the key (401).'}
+            if 400 <= resp.status_code < 500:
+                # The request is fixed but for the key and the model, so
+                # anything else it refuses is most likely the model name.
+                return {'ok': False, 'error': f'TypeSafe rejected the request ({resp.status_code}): '
+                                              f'{resp.text[:160]} Check the Jev model name.'}
             resp.raise_for_status()
         return {'ok': True, 'model': resp.json().get('model'), 'cold_ms': times[0], 'warm_ms': times[1]}
     except requests.RequestException as e:

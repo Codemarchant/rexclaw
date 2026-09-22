@@ -561,6 +561,8 @@ export default function VoiceView({ active = true }) {
     // stayed on screen when the dropdown changed, showing the previous
     // companion's messages under the new companion's avatar.
     const previewSessionIdRef = useRef(null);
+    // Bumped to load the preview again for the same session (pop-back-in).
+    const [previewReload, setPreviewReload] = useState(0);
     useEffect(() => {
         if (isLive || isConnecting || sv.status === "ending" || sv.compacting) return;
         const sess = lastResumableSession;
@@ -595,7 +597,7 @@ export default function VoiceView({ active = true }) {
         })();
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isLive, isConnecting, sv.status, sv.compacting, selectedAgentId, lastResumableSession?.id]);
+    }, [isLive, isConnecting, sv.status, sv.compacting, selectedAgentId, lastResumableSession?.id, previewReload]);
 
     const toggleFullBody = () => {
         setFullBody((prev) => {
@@ -699,7 +701,16 @@ export default function VoiceView({ active = true }) {
 
     useEffect(() => {
         window.rexclawDesktop?.onMascotReturned?.((data) => {
-            if (data?.resume) startCallIfIdleRef.current();
+            if (data?.resume) {
+                startCallIfIdleRef.current();
+            } else {
+                // The conversation carried on in the mascot window, so the
+                // call this window ended at pop-out is out of date: drop it
+                // and preview the saved transcript again.
+                voice.state.sessionId = null;
+                previewSessionIdRef.current = null;
+                setPreviewReload((n) => n + 1);
+            }
             // Reverse handoff: if the mascot had sharing armed, pick the
             // same source back up here.
             window.rexclawDesktop.shareHandoffTake?.().then((src) => {
@@ -707,6 +718,8 @@ export default function VoiceView({ active = true }) {
             });
             screenCapture.cameraHandoffTake();
             loadHistory();
+            // The preview's session comes from the agents list first.
+            refreshAgents();
             resyncOutfitRef.current();
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps

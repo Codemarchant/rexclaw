@@ -309,6 +309,7 @@ export class AgentConnection {
         }
         this._sessionEnded = false;
         this._dispatchedCallIds = new Set();
+        this._waitNotedCallIds = new Set();   // running calls a reply was told about
         this._recordedMcpCallIds = new Set();
         this._mcpCallArgs = new Map();
         this._bargedIn = false;
@@ -473,6 +474,7 @@ export class AgentConnection {
                     this.state.messages.push({
                         role: "tool_result",
                         content: item.output || "",
+                        tool_name: item.name || null,
                         tool_result_json: item.output || null,
                         sequence: this.state.messages.length + 1,
                         replayed: true,
@@ -524,6 +526,9 @@ export class AgentConnection {
             // Powers add_agent_to_call — peer legs get it too, so one
             // companion can pull a third into the conversation.
             callManager: this.manager,
+            // Fixed for the call, like the prompt it goes with: with the
+            // face director on, set_emotion is the big beat, not per line.
+            faceDirector: !!payload.face_director,
         });
 
         // Kick mic acquisition off in parallel with the WS connecting (the
@@ -1011,6 +1016,14 @@ export class AgentConnection {
             this._pendingToolReply = false;
             // A new response is starting — end any post-barge-in suppression.
             this._bargedIn = false;
+            // xAI's own server-VAD reply (the user spoke over a running call)
+            // was built without the note the replies we create get in
+            // _maybeCreateResponse: queue it, and the manager re-creates this
+            // reply to include it (queueSilentContext).
+            if (this.manager?.primary === this) {
+                const note = this._runningCallsNote();
+                if (note) this.manager.queueSilentContext?.(note);
+            }
             // Manager hook: single-speaker arbitration across call legs.
             try { this.manager.onAgentResponseStarted(this); } catch (e) { /* non-fatal */ }
             return;
@@ -1353,8 +1366,26 @@ export class AgentConnection {
         if (this._deferredContextItems.length > 30) this._deferredContextItems.shift();
     }
 
+    /** A context line naming this leg's calls that are still running, for a
+     *  reply about to start without their results — or null. Each call is
+     *  named once: to the model an unanswered call reads as never made, and
+     *  it makes the call again. */
+    _runningCallsNote() {
+        const unnoted = (this.toolDispatcher?.pendingCalls?.() || [])
+            .filter(([id]) => !this._waitNotedCallIds?.has(id));
+        if (!unnoted.length) return null;
+        for (const [id] of unnoted) this._waitNotedCallIds?.add(id);
+        const names = [...new Set(unnoted.map(([, n]) => n))];
+        const text = names.length === 1
+            ? `Your ${names[0]} call is still running; its result arrives by itself when it is done, so there is no need to call it again.`
+            : `Your ${names.join(", ")} calls are still running; their results arrive by themselves when they are done, so there is no need to call them again.`;
+        return `[System] (call context) ${text}`;
+    }
+
     _maybeCreateResponse() {
         if (this._responseInFlight) return;
+        const note = this._runningCallsNote();
+        if (note) this.queueDeferredContext(note);
         // Deliver deferred context now — after any audio item from the turn
         // that triggered this grant, where the model can actually see it.
         if (this._deferredContextItems?.length
@@ -1513,9 +1544,13 @@ export class AgentConnection {
         // round-trip completes — unless this call ends the turn (end_turn,
         // see END_TURN_TOOLS).
         const endTurn = END_TURN_TOOLS.has(name) && endsTurn(argumentsJson);
+        // A repeat end_call while the call is already hanging up owes no
+        // reply: the first one's goodbye is the last line.
+        const repeatEndCall = name === "end_call" && !!this.manager?.endingCall;
         if (endTurn) this._endTurnInResponse = true;   // checked at response.done
-        else this._pendingToolReply = true;
+        else if (!repeatEndCall) this._pendingToolReply = true;
         const responseAtCall = this._currentResponseId;
+        const dispatcherAtCall = this.toolDispatcher;   // a new call gets a new one
         this.toolDispatcher
             ?.dispatch({ callId, name, argumentsJson })
             .then((result) => {
@@ -1542,10 +1577,24 @@ export class AgentConnection {
                     && !this._bargedIn && this._currentResponseId === responseAtCall) {
                     this._pendingToolReply = true;
                 }
+                // A newer reply started while this ran (the user spoke over
+                // it): that reply couldn't see the result and dropped the
+                // owed follow-up, so the result gets a reply of its own the
+                // moment it lands — a new background still gets its reaction.
+                // Same call only (a result from a call since hung up is not
+                // this one's to answer), and the primary only: peer replies
+                // are the turn director's to grant.
+                this._waitNotedCallIds?.delete(callId);
+                if (!endTurn && !repeatEndCall && this.toolDispatcher === dispatcherAtCall
+                    && this.manager?.primary === this
+                    && this._currentResponseId && this._currentResponseId !== responseAtCall) {
+                    this._pendingToolReply = true;
+                }
                 this._maybeCreateToolReply();
             })
             .catch((e) => {
                 console.error(`[voice:${this.connId}] dispatch promise rejected for`, name, e);
+                this._waitNotedCallIds?.delete(callId);
                 this._maybeCreateToolReply();
             });
     }
@@ -1742,6 +1791,8 @@ export class AgentConnection {
             ...msg,
             sequence: this.state.messages.length + 1,
         });
+        // Spoken and typed turns both land here (set_emotion's repeat note).
+        if (msg.role === "user") this.toolDispatcher?.noteUserTurn?.();
         this._pendingAppendQueue.push(msg);
         if (!this._appendFlushTimer) {
             this._appendFlushTimer = setTimeout(() => this._flushAppendQueue(), 1500);

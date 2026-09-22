@@ -331,15 +331,16 @@ def gesture_gen_test(payload: dict = Body(default={}), con=Depends(db_con)):
 @router.post("/face_director/test")
 def face_director_test(payload: dict = Body(default={}), con=Depends(db_con)):
     """Settings "Test": does the TypeSafe key work, and how long a Jev round
-    trip takes from this machine. The draft key and model when typed, else
-    the stored ones, like /gesture_gen/test."""
+    trip takes from this machine. The draft key when one is typed, else the
+    stored one, like /gesture_gen/test. The model field shows the saved
+    value, so the model sent is the one to test — empty is jev-latest."""
     key, model = payload.get("key"), payload.get("model")
     stored_key, stored_model = con.execute("SELECT typesafe_api_key, jev_model FROM config WHERE id = 1").fetchone()
     if not (isinstance(key, str) and key.strip()):
         key = stored_key
-    if not (isinstance(model, str) and model.strip()):
+    if not isinstance(model, str):
         model = stored_model
-    return jev.test_key(key.strip() if key else "", model.strip() if model else "")
+    return jev.test_key(key.strip() if key else "", model)
 
 
 @router.post("/local_gen/inspect")

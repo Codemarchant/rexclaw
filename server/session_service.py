@@ -1542,6 +1542,9 @@ def _build_transcript_history(con, session, limit=None):
             item = {
                 'type': 'function_call_output',
                 'call_id': m['xai_call_id'],
+                # Not part of xAI's envelope: the transcript hides some
+                # tools' rows by name (adjust_affection), results included.
+                'name': m['tool_name'] or '',
                 'output': m['tool_result_json'] or m['content'] or '',
             }
         if item is not None:
@@ -3059,6 +3062,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 input_items=input_items,
                 instructions=None if chain_alive else instructions,
                 tools=tools,
+                # The last leg writes the reply. A turn that spent every leg
+                # on tool calls ended without one — companion-text replies
+                # filing memories until the cap left the sender with "had
+                # nothing to say back" — and the final leg's calls ran with
+                # their results never read.
+                tool_choice='none' if max_iterations == 0 else None,
                 reasoning_effort=((agent['reasoning_effort'] or 'low')
                                   if reasoning_effort is _AGENT_EFFORT else reasoning_effort),
                 previous_response_id=previous_response_id,
@@ -3103,6 +3112,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                     i for i in input_items
                     if isinstance(i, dict) and i.get('type') == 'function_call_output'
                 ]
+                # A one-shot retry, not a leg: give the iteration back so
+                # the last leg is still the one that writes the reply.
+                max_iterations += 1
                 continue
             if chain_alive and is_first_leg:
                 # The chain can be rejected server-side — response id expired
@@ -3123,6 +3135,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                                      previous_response_id=None,
                                      last_response_at=None,
                                      chain_tail_sequence=0)
+                max_iterations += 1   # a retry, not a leg (see the MCP one)
                 continue
             con.commit()
             raise
@@ -3140,6 +3153,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                                      previous_response_id=None,
                                      last_response_at=None,
                                      chain_tail_sequence=0)
+                max_iterations += 1   # a retry, not a leg (see the MCP one)
                 continue
             con.commit()
             _logger.exception('Responses API call failed')

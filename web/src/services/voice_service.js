@@ -101,6 +101,7 @@ class VoiceCallService {
         this._floorConnId = null;          // agent currently holding the floor
         this._suppressPrimaryOnce = false; // eat primary's next auto-response (turn routed to a peer)
         this._directorGeneration = 0;      // bumped on every user turn; stales pending director decisions
+        this.endingCall = null;            // token of an end_call hangup under way (endCallWhenIdle)
         this._consecutiveAgentTurns = 0;
         // Set once the chain cap fired and the wrap-up nudge turn was
         // granted — no further agent-to-agent turns until the user speaks.
@@ -526,6 +527,8 @@ class VoiceCallService {
         // Stale end reasons must not outlive the call they described — the
         // mascot's flash badge reads it on the NEXT end transition.
         this.state.endReason = null;
+        // Nor a hangup the last call's end_call started (endCallWhenIdle).
+        this.endingCall = null;
         // speaksFirst=false: the caller brings its own opening (heartbeat
         // calls) — the companion's speaks-first kickoff must not also fire.
         const ok = await this.primary.start(agentId, resumeSessionId, false, { speaksFirst });
@@ -946,22 +949,33 @@ class VoiceCallService {
      *  'agent' keeps it distinguishable from a user click (the mascot's
      *  flash badge cares). Fire-and-forget from the dispatcher. */
     async endCallWhenIdle() {
-        await new Promise((r) => setTimeout(r, 1500));
-        // Plain drain poll, NOT _waitForPlayoutEnd: its generation-bump abort
-        // would fire on ordinary group-call chatter and cut the goodbye off
-        // mid-word. A user barge-in cancels the active response anyway, so
-        // the loop still exits promptly if the user talks over the farewell.
-        const deadline = Date.now() + 30000;
-        const anyBusy = () => [...this.connections.values()].some(
-            (c) => !c.isTerminal
-                && (c._responseInFlight || c._pendingToolReply
-                    || c._toolReplyStarting || c._assistantAudioActive()));
-        while (anyBusy() && Date.now() < deadline) {
-            await new Promise((r) => setTimeout(r, 150));
+        // Read by a repeat end_call (often called again inside the goodbye):
+        // it must not ask for another goodbye, or each one owes the next. A
+        // token, so a hangup still draining from an earlier call can neither
+        // clear a newer call's flag nor end that call (start() drops it).
+        const token = {};
+        this.endingCall = token;
+        try {
+            await new Promise((r) => setTimeout(r, 1500));
+            // Plain drain poll, NOT _waitForPlayoutEnd: its generation-bump abort
+            // would fire on ordinary group-call chatter and cut the goodbye off
+            // mid-word. A user barge-in cancels the active response anyway, so
+            // the loop still exits promptly if the user talks over the farewell.
+            const deadline = Date.now() + 30000;
+            const anyBusy = () => [...this.connections.values()].some(
+                (c) => !c.isTerminal
+                    && (c._responseInFlight || c._pendingToolReply
+                        || c._toolReplyStarting || c._assistantAudioActive()));
+            while (anyBusy() && Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 150));
+            }
+            if (this.primary._sessionEnded) return false;   // user beat us to it
+            if (this.endingCall !== token) return false;    // ...and started another call
+            await this.end("agent");
+            return true;
+        } finally {
+            if (this.endingCall === token) this.endingCall = null;
         }
-        if (this.primary._sessionEnded) return false;   // user beat us to it
-        await this.end("agent");
-        return true;
     }
 
     /** Graceful, agent-initiated disconnect: wait out the farewell before

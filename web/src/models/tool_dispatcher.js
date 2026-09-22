@@ -68,8 +68,27 @@ const NATIVE_TOOL_NAMES = new Set([
     "generate_gesture",
 ]);
 
+// Slow tools that don't run the exact same call twice at once. A companion
+// that replies before a slow result is back (the user spoke over the wait)
+// sees its own call unanswered and makes it again — on 2026-09-21 the same
+// change_background prompt ran 1, then 2, then 4 times in parallel, each
+// billed. Different arguments (another task, a new background) still run, as
+// does another companion's call: only the caller ever gets the result.
+// Fast tools finish before another reply can exist; the avatar tools repeat
+// on purpose ("jump twice"), and create_image's same prompt twice can mean
+// two versions.
+const NO_DUPLICATE_WHILE_RUNNING = new Set([
+    "change_background", "create_video", "generate_gesture", "delegate_task",
+    "local_task", "text_companion", "analyze_screen", "record_screen_clip",
+]);
+
+// How many of the user's turns a repeated set_emotion counts as a run rather
+// than a new moment (see _setEmotion). A judgment call, not a measured rate.
+const EMOTION_REPEAT_TURNS = 10;
+
 export class ToolDispatcher {
-    constructor({ avatarApi, avatarRenderer, sendWs, conversationState, sessionId, callManager }) {
+    constructor({ avatarApi, avatarRenderer, sendWs, conversationState, sessionId, callManager, faceDirector = false }) {
+        this.faceDirector = faceDirector;   // the face director runs this call (see _setEmotion)
         // Voice call manager (the voice service singleton) — powers the
         // add_agent_to_call tool. Null on surfaces without group calls
         // (text mode), where the tool isn't offered anyway.
@@ -90,7 +109,8 @@ export class ToolDispatcher {
         this.sendWs = sendWs;
         this.conversationState = conversationState;
         this.sessionId = sessionId;
-        this._pending = new Set();    // call_ids awaiting handler resolution
+        this._pending = new Map();    // call_id → tool name, awaiting handler resolution
+        this._running = new Map();    // NO_DUPLICATE_WHILE_RUNNING call in progress by arguments → its call_id
     }
 
     /** Returns true if any tool calls are still resolving. */
@@ -98,11 +118,17 @@ export class ToolDispatcher {
         return this._pending.size > 0;
     }
 
+    /** [call_id, tool name] of each call still resolving. */
+    pendingCalls() {
+        return [...this._pending];
+    }
+
     /** Drop tracking for in-flight calls. Used on WS close/teardown so a
      *  stuck _invoke doesn't leave hasPending() stuck true after reconnect —
      *  which would block response.create on every subsequent turn. */
     clearPending() {
         this._pending.clear();
+        this._running.clear();
     }
 
     /**
@@ -110,7 +136,7 @@ export class ToolDispatcher {
      * Returns a promise that resolves once the function_call_output has been sent.
      */
     async dispatch({ callId, name, argumentsJson }) {
-        this._pending.add(callId);
+        this._pending.set(callId, name);
         let args = {};
         try {
             args = argumentsJson ? JSON.parse(argumentsJson) : {};
@@ -118,10 +144,25 @@ export class ToolDispatcher {
             args = {};
         }
         let result;
-        try {
-            result = await this._invoke(name, args);
-        } catch (e) {
-            result = { error: String(e?.message || e) };
+        // See NO_DUPLICATE_WHILE_RUNNING.
+        const runKey = NO_DUPLICATE_WHILE_RUNNING.has(name) ? `${name}:${JSON.stringify(args)}` : null;
+        if (runKey && this._running.has(runKey)) {
+            result = {
+                ok: true,
+                status: "already_running",
+                note: "This exact call is already running; its result comes back when it is done.",
+            };
+        } else {
+            if (runKey) this._running.set(runKey, callId);
+            try {
+                result = await this._invoke(name, args);
+            } catch (e) {
+                result = { error: String(e?.message || e) };
+            } finally {
+                // Only its own entry: after a clearPending() the same call
+                // may have started again, and that one is still running.
+                if (runKey && this._running.get(runKey) === callId) this._running.delete(runKey);
+            }
         }
         // Apply post-result UI side effects BEFORE acknowledging the call
         // upstream — keeps the visual change tightly correlated with the
@@ -542,8 +583,22 @@ export class ToolDispatcher {
         };
     }
 
+    /** The user took a turn (spoken or typed) — the clock the emotion repeat
+     *  note counts in. */
+    noteUserTurn() {
+        this._userTurns = (this._userTurns || 0) + 1;
+    }
+
     _setEmotion({ emotion }) {
         if (!emotion) return { ok: false, error: "No emotion specified" };
+        // A repeat: the same emotion as this call's last one, set within the
+        // user's last EMOTION_REPEAT_TURNS turns. Further apart it is a new
+        // moment (surprised now and again much later), not a run. The
+        // dispatcher is new each call, so a new call's first one never is.
+        const turn = this._userTurns || 0;
+        const last = this._lastEmotion;
+        const repeat = last?.emotion === emotion && turn - last.turn <= EMOTION_REPEAT_TURNS;
+        this._lastEmotion = { emotion, turn };
         // The companion is driving its own expression this turn — the
         // motion director's speech-gesture picker stands down (see
         // motion_director.noteExpressionTool).
@@ -571,7 +626,27 @@ export class ToolDispatcher {
         // Decay back toward neutral is the renderer's job (setEmotion /
         // setPeerEmotion arm it per the avatar's `emotion_decay` config), so
         // manual UI triggers and VR reactions settle the same way this does.
-        return { ok: true, emotion, gesture: url ? emotion : null };
+        const result = { ok: true, emotion, gesture: url ? emotion : null };
+        // Said here, right after a call, it steers the next ones. A repeat of
+        // the last emotion is how a run starts — once or twice, then the
+        // model copies its own pattern — so it is named whenever it happens.
+        // With the face director on, the face already moves with every line
+        // and set_emotion is the big shift: an expressive persona puts a
+        // feeling into nearly every line and set "happy" on most replies, so
+        // that note stands on every call — framed on the mood changing, not
+        // on how often, so a real surprise still gets marked.
+        const notes = [];
+        if (repeat) notes.push("Emotion spam warning - the emotion just played was the same as your last set_emotion, set only recently.");
+        if (this.faceDirector) {
+            notes.push("Your face already shows the feeling of each line by itself. "
+                + "Only call set_emotion again when the mood between you actually changes or a "
+                + "moment really stands out - a real surprise, a revelation worthy of anger - "
+                + "not to mark the same mood again.");
+        } else if (repeat) {
+            notes.push("Set this emotion again only after the mood has moved to another one and come back - not to repeat the mood you're already in.");
+        }
+        if (notes.length) result.note = notes.join(" ");
+        return result;
     }
 
     _playGesture({ gesture }) {
@@ -736,6 +811,11 @@ export class ToolDispatcher {
     _endCall() {
         if (!this.callManager?.endCallWhenIdle) {
             return { ok: false, error: "Ending the call is not available on this surface." };
+        }
+        // Called again while hanging up: the goodbye already under way is
+        // the last line (agent_connection owes no reply for this call).
+        if (this.callManager.endingCall) {
+            return { ok: true, status: "ending", note: "The call is already ending." };
         }
         this.callManager.endCallWhenIdle()
             .catch((e) => console.error("[voice] end_call failed", e));

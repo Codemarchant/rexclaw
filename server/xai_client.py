@@ -618,7 +618,7 @@ def _extract_response_text(body):
 
 
 def create_response(*, xai_api_key, responses_url, model, input_items,
-                    instructions=None, tools=None, reasoning_effort=None,
+                    instructions=None, tools=None, tool_choice=None, reasoning_effort=None,
                     previous_response_id=None, max_output_tokens=None,
                     max_turns=None, prompt_cache_key=None,
                     user=None, store=True, timeout=600, stream=False):
@@ -649,6 +649,10 @@ def create_response(*, xai_api_key, responses_url, model, input_items,
         payload['instructions'] = instructions
     if tools:
         payload['tools'] = tools
+        # 'none' keeps the tools in the request (and the cached prefix) but
+        # has the model answer in text.
+        if tool_choice:
+            payload['tool_choice'] = tool_choice
     if reasoning_effort in ('low', 'medium', 'high', 'xhigh'):
         payload['reasoning'] = {'effort': reasoning_effort}
     if max_output_tokens:
