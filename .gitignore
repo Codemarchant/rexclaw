@@ -16,6 +16,11 @@ assets/wake_models/
 assets/vision_models/
 web/node_modules/
 web/dist/
+# Local live-memory validation and research (not release inputs)
+/tests/
+/web/test/
+/experiments/
+/docs/live-memory*.md
 desktop/node_modules/
 desktop/dist/
 desktop/runtime/

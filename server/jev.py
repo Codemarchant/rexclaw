@@ -59,13 +59,13 @@ def to_request(qs):
     return out
 
 
-def ask(api_key, model, state, qs):
+def ask(api_key, model, state, qs, *, timeout=None):
     """POST one request; returns the parsed body. Raises on HTTP errors."""
     resp = _session().post(
         JEV_URL,
         headers={'Authorization': f'Bearer {api_key}'},
         json={'model': (model or '').strip() or JEV_MODEL, 'state': state, 'questions': to_request(qs)},
-        timeout=TIMEOUT,
+        timeout=timeout or TIMEOUT,
     )
     resp.raise_for_status()
     return resp.json()

@@ -1400,17 +1400,27 @@ export const JA = {
 
   // ── Settings: TypeSafe (Jev) ──────────────────────────────────────────
   "TypeSafe (Jev)": "TypeSafe（Jev）",
-  "Jev is a judgment model: it answers a pile of small questions about one line at once, in a fraction of a second. Features that have to read something while it is still happening use it, and share this one key. Costs a fraction of a penny an hour of conversation. Reads English best.":
-    "Jev は判断モデルです。1 つの文についての細かい質問をまとめて、ごく短時間で一度に答えます。進行中の内容をその場で読み取る必要がある機能がこれを使い、このキーを共有します。費用は会話 1 時間あたり 1 円未満程度です。英語の読み取りが最も得意です。",
+  "Jev is a judgment model: it answers a pile of small questions about one line at once, in a fraction of a second. Features that have to read something while it is still happening use it, and share this one key. Usage is billed by TypeSafe. Reads English best.":
+    "Jev は判断モデルです。1 つの文についての細かい質問をまとめて、ごく短時間で一度に答えます。進行中の内容をその場で読み取る必要がある機能がこれを使い、このキーを共有します。利用料金は TypeSafe から請求されます。英語の読み取りが最も得意です。",
   "TypeSafe API key": "TypeSafe API キー",
   "Jev model": "Jev モデル",
+  "Live memory recall (experimental)": "会話中の記憶想起（実験的）",
+  "An inserted note can slightly delay the reply. You can read the exact note in History → Sessions.":
+    "メモが追加されると、返答が少し遅れる場合があります。追加されたメモの全文は「履歴 → セッション」で確認できます。",
+  "Live memory cooldown (seconds)": "記憶想起のクールダウン（秒）",
+  "Pause memory lookups after a note is admitted. Default: 60 seconds. Set to 0 for no pause; either way the same memory waits two weeks before it can come up again. Start a new call after changing this setting.":
+    "記憶のメモが応答に渡された後、検索を一時停止します。初期値は60秒です。0にすると待機時間がなくなりますが、いずれの場合も同じ記憶が再び使われるまでには2週間の間隔が空きます。変更後は新しい通話を開始してください。",
+  "Live memory cooldown must be a whole number from 0 to 3600 seconds.": "記憶想起のクールダウンは0〜3600秒の整数で指定してください。",
+  "Invalid live memory mode.": "記憶想起の設定値が不正です。",
+  "Recall a shared joke, distinctive event or familiar habit while you speak. Uses the Jev model above and requires memory tools on the companion. Available in voice calls with one companion; start a new call after changing this setting.":
+    "あなたが話している間に、共通の冗談、印象的な出来事、馴染みの習慣を思い出します。上記の Jev モデルを使用し、コンパニオンの記憶ツールを有効にする必要があります。1 対 1 の音声通話で利用できます。設定を変更した後は、新しく通話を開始してください。",
   "jev-latest is TypeSafe's alias for their newest Jev release. Enter a version such as jev-1.13.0 to stay on it when a new one comes out. Test shows the version the name resolves to.":
     "jev-latest は TypeSafe の最新 Jev リリースを指すエイリアスです。jev-1.13.0 のようにバージョンを入力すると、新しいリリースが出てもそのバージョンを使い続けます。テストで、その名前が実際にどのバージョンを指すかを確認できます。",
   "Test": "テスト",
   "first call": "初回",
   "then": "以降",
-  "Used by: Expressive face and head, Automated background gestures, and picking who speaks next in a group call. The last two fall back to the turn director model without a key.":
-    "使用する機能：発話中の表情と頭の動き、発話中の自動ジェスチャー、グループ通話で次に話す相手の判定。後者 2 つはキーがない場合、ターンディレクターモデルにフォールバックします。",
+  "Used by: Expressive face and head, Automated background gestures, Live memory recall, and picking who speaks next in a group call. Background gestures and group-call turn selection fall back to the turn director model without a key.":
+    "使用する機能：豊かな表情と頭の動き、自動背景ジェスチャー、会話中の記憶想起、グループ通話での次の話者の選択。キーがない場合、自動背景ジェスチャーと話者の選択にはターンディレクターモデルを使用します。",
 
   // ── Settings / mascot: background avatar motion ───────────────────────
   "Background Avatar Motion": "アバターの自動モーション",

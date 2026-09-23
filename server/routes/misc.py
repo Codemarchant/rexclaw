@@ -54,7 +54,8 @@ _CONFIG_FIELDS = (
     "transcript_display_limit", "heartbeat_notifications",
     "transcript_retention_days", "file_default_expiry_seconds",
     "speech_gestures", "idle_fidgets", "fidget_interval",
-    "gesture_zoom_out", "face_director", "jev_model",
+    "gesture_zoom_out", "face_director", "jev_model", "live_memory_mode",
+    "live_memory_cooldown_seconds",
 )
 
 _AGENT_FIELDS = (
@@ -111,6 +112,12 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
 @router.post("/config/set")
 def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
     updates = {k: payload[k] for k in _CONFIG_FIELDS if k in payload}
+    if 'live_memory_mode' in updates and updates['live_memory_mode'] not in ('off', 'on'):
+        raise UserError('Invalid live memory mode.')
+    if 'live_memory_cooldown_seconds' in updates:
+        seconds = updates['live_memory_cooldown_seconds']
+        if type(seconds) is not int or not 0 <= seconds <= 3600:
+            raise UserError('Live memory cooldown must be a whole number from 0 to 3600 seconds.')
     # API key arrives separately; empty string is ignored (no accidental
     # clearing from a masked field), the literal null clears it.
     if "xai_api_key" in payload:

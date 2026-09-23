@@ -495,7 +495,7 @@ def build_session_update(*, voice, instructions, browser_tools,
                          mcp_entries=None, native_function_tools=None,
                          enable_web_search=False, enable_x_search=False,
                          audio_sample_rate=24000, manual_turn=False, voice_speed=1.0,
-                         keyterms=None):
+                         keyterms=None, live_memory=False):
     """Build the `session.update` JSON the browser will send over the WebSocket.
 
     Note: model goes in the WebSocket URL (?model=...), NOT in session.update —
@@ -550,7 +550,10 @@ def build_session_update(*, voice, instructions, browser_tools,
                     # Words to bias the transcription of the user's speech
                     # toward — only when the companion has any (same caution
                     # as speed below).
-                    **({'transcription': {'keyterms': list(keyterms)}} if keyterms else {}),
+                    **({'transcription': {
+                        **({'keyterms': list(keyterms)} if keyterms else {}),
+                        **({'model': 'grok-transcribe'} if live_memory else {}),
+                    }} if keyterms or live_memory else {}),
                 },
                 'output': {
                     'format': {'type': 'audio/pcm', 'rate': audio_sample_rate},
@@ -1023,6 +1026,7 @@ EXTRACTION_INSTRUCTIONS = (
     'Output exactly one JSON object with this shape:\n'
     '{\n'
     '  "facts": [\n'
+    '    {"op": "add", "scope": "core", "content": "...", "tags": ["..."]},\n'
     '    {"op": "add", "scope": "recall", "content": "...", "tags": ["..."]},\n'
     '    {"op": "update", "target_id": 12, "content": "...", "tags": ["..."]},\n'
     '    {"op": "delete", "target_id": 34}\n'
@@ -1046,6 +1050,10 @@ EXTRACTION_INSTRUCTIONS = (
     'back up ("the Lisbon trip", "that restaurant", "the budget argument") — '
     'this is what future recall searches match against, so make it rich with '
     'concrete names. Drop pleasantries.\n\n'
+    'Tag the episode "operational" when it is mostly low-value mechanics - '
+    'repeated commands, exercising tools, generating test assets, reciting demo '
+    'scripts, debugging, releasing - with little of the companion in it beyond '
+    'carrying them out.\n\n'
     'Reuse tags from the known-tags list in the user message where they fit, '
     'rather than inventing synonyms. Write all text in the same language the '
     'conversation was conducted in. Output only the JSON object.'

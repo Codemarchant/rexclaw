@@ -396,7 +396,7 @@ export default function SettingsView({ active }) {
                         {_t("Jev is a judgment model: it answers a pile of small questions about "
                             + "one line at once, in a fraction of a second. Features that have to "
                             + "read something while it is still happening use it, and share this "
-                            + "one key. Costs a fraction of a penny an hour of conversation. Reads "
+                            + "one key. Usage is billed by TypeSafe. Reads "
                             + "English best.")}
                     </p>
                     <div className="rx_row">
@@ -438,8 +438,27 @@ export default function SettingsView({ active }) {
                     )}
                     <p className="text-muted small">
                         {_t("Used by: Expressive face and head, Automated background gestures, "
-                            + "and picking who speaks next in a group call. The last two fall "
-                            + "back to the turn director model without a key.")}
+                            + "Live memory recall, and picking who speaks next in a group call. "
+                            + "Background gestures and group-call turn selection fall back to the turn director model without a key.")}
+                    </p>
+                    <div className="rx_check">
+                        <input id="rx_live_memory" type="checkbox"
+                               checked={config.live_memory_mode === "on"}
+                               onChange={(ev) => setField("live_memory_mode", ev.target.checked ? "on" : "off")} />
+                        <label htmlFor="rx_live_memory">{_t("Live memory recall (experimental)")}</label>
+                    </div>
+                    <p className="text-muted small">
+                        {_t("Recall a shared joke, distinctive event or familiar habit while you speak. Uses the Jev model above and requires memory tools on the companion. Available in voice calls with one companion; start a new call after changing this setting.")}
+                    </p>
+                    <p className="text-muted small">
+                        {_t("An inserted note can slightly delay the reply. You can read the exact note in History → Sessions.")}
+                    </p>
+                    <label htmlFor="rx_live_memory_cooldown">{_t("Live memory cooldown (seconds)")}</label>
+                    <input id="rx_live_memory_cooldown" type="number" min="0" max="3600" step="1"
+                           value={config.live_memory_cooldown_seconds ?? 60}
+                           onChange={(ev) => setField("live_memory_cooldown_seconds", ev.target.value === "" ? "" : Number(ev.target.value))} />
+                    <p className="text-muted small">
+                        {_t("Pause memory lookups after a note is admitted. Default: 60 seconds. Set to 0 for no pause; either way the same memory waits two weeks before it can come up again. Start a new call after changing this setting.")}
                     </p>
                 </section>
 

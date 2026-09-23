@@ -1,6 +1,7 @@
 import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { ToolDispatcher } from "./tool_dispatcher";
+import { LiveMemory } from "../lib/live_memory";
 
 // Tools xAI runs server-side. They appear as function_call events to the
 // client but must NOT receive a function_call_output reply — see
@@ -393,6 +394,7 @@ export class AgentConnection {
         // re-adds these agents once the call is live (_restoreCallRoster).
         this._callPeerAgents = payload.call_peer_agents || [];
         this._sessionUpdate = payload.session_update;
+        this._configureLiveMemory(payload);
         // Two parallel feeds from start_session:
         //   * replay_items     — compacted (filtered + rollup-hoisted),
         //     forwarded to xAI in _onWsOpen via conversation.item.create.
@@ -429,7 +431,7 @@ export class AgentConnection {
         // silent resume sat over budget until someone spoke. Kick off the
         // background rollup now; the restart still waits for a quiet window.
         if (!isCompactionRestart && payload.needs_compaction) {
-            console.log(`[voice:${this.connId}] session resumed with a pending compaction — starting it`);
+            console.debug(`[voice:${this.connId}] session resumed with a pending compaction — starting it`);
             this._compactionPending = true;
             if (!this._compactionPromise && !this._compactionRollupReady) {
                 this._compactionPromise = this._beginBackgroundCompaction();
@@ -557,7 +559,7 @@ export class AgentConnection {
             // `expires_after`, so the full session config is sent here from
             // the browser. The server pre-built it for us.
             if (this._sessionUpdate) {
-                console.log(`[voice:${this.connId}] sending session.update`, this._sessionUpdate);
+                console.debug(`[voice:${this.connId}] sending session.update`, this._sessionUpdate);
                 this._sendWs(this._sessionUpdate);
             }
 
@@ -597,7 +599,7 @@ export class AgentConnection {
             // participant left" (worth announcing to the room) from "a join
             // attempt failed before anyone met them".
             this._everLive = true;
-            console.log(`[voice:${this.connId}] session live`, this.state.muted ? "(muted)" : "");
+            console.debug(`[voice:${this.connId}] session live`, this.state.muted ? "(muted)" : "");
             // Speaks-first: primary leg only (peers get the join ceremony).
             // The hidden note stays out of the transcript.
             if (this._speaksFirst && this.role === "primary") {
@@ -752,10 +754,13 @@ export class AgentConnection {
         } catch (e) {
             return;
         }
-        // Lightweight inbound trace — only for non-noisy event types so the
-        // console isn't drowned by audio.delta.
-        if (!msg.type?.endsWith(".delta")) {
-            console.log(`[voice:${this.connId}] ←`, msg.type, msg);
+        const responseId = msg.response_id || msg.response?.id;
+        if (responseId && this._memoryReplacedResponses?.has(responseId)) return;
+        // Protocol diagnostics belong at Debug/Verbose level. Keep audio
+        // chunks and transcription hypotheses out even there.
+        if (!msg.type?.endsWith(".delta") && msg.type !== "conversation.item.input_audio_transcription.updated" &&
+            !(msg.type === "conversation.item.input_audio_transcription.completed" && msg.status === "in_progress")) {
+            console.debug(`[voice:${this.connId}] ←`, msg.type, msg);
         }
         // Keepalive: xAI sends `ping` events; we echo back `pong` with every
         // correlation field we recognise (the payload schema has shifted
@@ -778,9 +783,11 @@ export class AgentConnection {
             // Drop deltas from a stale response (cancelled or superseded).
             if (msg.response_id && this._currentResponseId &&
                 msg.response_id !== this._currentResponseId) return;
+            this._closeLiveMemoryAtOutput();
             this.state.thinking = false;  // first audio chunk = model is talking
             const audioB64 = msg.delta || msg.audio;
             if (audioB64) {
+                this._recordVoiceFirstAudio(msg.response_id);
                 const buffer = base64ToArrayBuffer(audioB64);
                 this._enqueueAssistantAudio(buffer);
             }
@@ -792,6 +799,7 @@ export class AgentConnection {
             // emit transcript deltas.
             if (msg.response_id && this._currentResponseId &&
                 msg.response_id !== this._currentResponseId) return;
+            this._closeLiveMemoryAtOutput();
             this.state.thinking = false;
             if (msg.delta) this._assistantTranscriptInProgress += msg.delta;
             // Motion director: the reply is under way; its sentences feed the
@@ -821,7 +829,7 @@ export class AgentConnection {
             }
             // Already recovered from response.done (late-arriving final).
             if (this._assistantFinalAppended) {
-                console.log(`[voice:${this.connId}] transcript.done after recovery — ignored`);
+                console.debug(`[voice:${this.connId}] transcript.done after recovery — ignored`);
                 this._assistantTranscriptInProgress = "";
                 return;
             }
@@ -847,6 +855,10 @@ export class AgentConnection {
         if (msg.type === "response.done" || msg.type === "response.completed") {
             const status = msg.response?.status;
             const respId = msg.response?.id;
+            if (!this._userSpeaking && (!respId || !this._currentResponseId || respId === this._currentResponseId)) {
+                if (status === "completed") this._closeLiveMemoryAtOutput();
+                else this._liveMemory?.cancel();
+            }
             // Motion director: nothing more is being composed (audio may
             // still be playing out — the director watches playback itself);
             // any trailing transcript fragment is the last sentence.
@@ -858,7 +870,7 @@ export class AgentConnection {
             const usage = innerUsage && Object.keys(innerUsage).length
                 ? innerUsage
                 : msg.usage;
-            console.log(
+            console.debug(
                 `[voice:${this.connId}] response`, respId, "done:", status,
                 usage
                     ? `(in: ${usage.input_tokens ?? "?"}, out: ${usage.output_tokens ?? "?"}, total: ${usage.total_tokens ?? "?"})`
@@ -935,6 +947,17 @@ export class AgentConnection {
         if (msg.type === "session.updated") {
             const sess = msg.session || {};
             const expected = this._sessionUpdate?.session || {};
+            if (sess.audio?.input?.transcription) {
+                const wasStreaming = this._liveMemoryStreaming;
+                this._liveMemoryStreaming = this._liveMemory?.mode !== "off" &&
+                    sess.audio.input.transcription.model === "grok-transcribe";
+                if (wasStreaming !== this._liveMemoryStreaming) {
+                    console.debug(`[voice:${this.connId}] live memory`, {
+                        reason: 'streaming_transcription', enabled: this._liveMemoryStreaming,
+                        model: sess.audio.input.transcription.model,
+                    });
+                }
+            }
             const mismatches = [];
             if (sess.voice && expected.voice
                 && String(sess.voice).toLowerCase() !== String(expected.voice).toLowerCase()) {
@@ -942,7 +965,9 @@ export class AgentConnection {
             }
             const sentToolTypes = (expected.tools || []).map((t) => t.type).sort();
             const gotToolTypes = (sess.tools || []).map((t) => t.type).sort();
-            if (JSON.stringify(sentToolTypes) !== JSON.stringify(gotToolTypes)) {
+            // Instruction-only updates can acknowledge just the changed
+            // fields. An omitted tool list is not an empty tool list.
+            if (Array.isArray(sess.tools) && JSON.stringify(sentToolTypes) !== JSON.stringify(gotToolTypes)) {
                 mismatches.push(
                     `tools: sent [${sentToolTypes.join(",")}], got [${gotToolTypes.join(",")}]`
                 );
@@ -950,7 +975,7 @@ export class AgentConnection {
             if (mismatches.length) {
                 console.warn(`[voice:${this.connId}] session.updated mismatch:`, mismatches.join("; "));
             } else {
-                console.log(`[voice:${this.connId}] session.updated — accepted as sent`);
+                console.debug(`[voice:${this.connId}] session.updated — accepted as sent`);
             }
             return;
         }
@@ -959,8 +984,19 @@ export class AgentConnection {
         // MCP call completed end-to-end.
         if (msg.type === "conversation.item.added") {
             const item = msg.item || {};
+            const turn = this._voiceLatencyTurn;
+            if (item.id && item.id === turn?.contextItemId && !turn.itemAcknowledged) {
+                turn.itemAcknowledged = true;
+                console.debug(`[voice:${this.connId}] live memory`, {
+                    reason: 'note_item_acknowledged', memory_id: turn.memoryId,
+                    context_item_id: item.id, input_item_id: turn.itemId,
+                });
+                void rpc(`/api/voice/session/${this.state.sessionId}/live-memory/delivered`,
+                    { memory_id: turn.memoryId }).catch(() => {});
+            }
+
             if (item.type === "function_call_output") {
-                console.log(
+                console.debug(
                     `[voice:${this.connId}] xAI delivered function_call_output for call_id`,
                     item.call_id,
                     "(server-side tool call resolved)"
@@ -989,6 +1025,10 @@ export class AgentConnection {
         // flips true. (Typed/text turns and post-tool flow set the flag in
         // _maybeCreateResponse before sending response.create ourselves.)
         if (msg.type === "response.created") {
+            // Response starts can be speculative while speech continues.
+            // A memory is inserted only once both audio commit and an automatic
+            // response start have arrived; their provider order can vary.
+            if (this._voiceLatencyTurn) this._voiceLatencyTurn.responseStarted = true;
             this._responseInFlight = true;
             this._currentResponseId = msg.response?.id || null;
             this._turnAudioSec = 0;
@@ -1004,7 +1044,7 @@ export class AgentConnection {
             // Tracks whether this response's assistant line reached the
             // transcript — drives the response.done recovery fallback.
             this._assistantFinalAppended = false;
-            console.log(`[voice:${this.connId}] response started:`, this._currentResponseId);
+            console.debug(`[voice:${this.connId}] response started:`, this._currentResponseId);
             // call_id is RESPONSE-scoped per the spec — clear the dedupe sets
             // so turn 2's call_id "0" isn't suppressed by turn 1's.
             this._recordedMcpCallIds?.clear();
@@ -1024,15 +1064,47 @@ export class AgentConnection {
                 const note = this._runningCallsNote();
                 if (note) this.manager.queueSilentContext?.(note);
             }
+            if (this._refreshReplyWithLiveMemory()) return;
+            if (this._voiceLatencyTurn?.memoryId && !this._voiceLatencyTurn.memoryResponseId) {
+                this._voiceLatencyTurn.memoryResponseId = this._currentResponseId;
+                console.debug(`[voice:${this.connId}] live memory`, {
+                    reason: 'note_before_reply', memory_id: this._voiceLatencyTurn.memoryId,
+                    context_item_id: this._voiceLatencyTurn.contextItemId,
+                    response_id: this._currentResponseId,
+                });
+            }
             // Manager hook: single-speaker arbitration across call legs.
             try { this.manager.onAgentResponseStarted(this); } catch (e) { /* non-fatal */ }
             return;
         }
+        // grok-transcribe also emits `completed` events with in_progress
+        // status for cumulative hypotheses. Only an actual final belongs in
+        // history; treating those hypotheses as final splits one spoken turn
+        // into many rows and prematurely closes live memory's input window.
+        // Only the streaming transcriber reports a hypothesis as `completed`
+        // with an in_progress status, and only while the user still holds the
+        // floor. Once the turn has ended, whatever arrives is the final:
+        // swallowing it would drop the user's row, and that row is what
+        // releases the assistant lines held behind it.
+        if (msg.type === "conversation.item.input_audio_transcription.updated" ||
+            (msg.type === "conversation.item.input_audio_transcription.completed" &&
+             msg.status === "in_progress" && this._userSpeaking && this._liveMemoryStreaming)) {
+            if (this._liveMemoryStreaming && this._userSpeaking && !this.manager.hasPeers()) {
+                if (this._staleSpeechItem(msg.item_id)) return;
+                this._liveMemoryItemId = msg.item_id || null;
+                this._liveMemory?.update(msg.transcript || msg.text || "");
+            }
+            return; // Partial hypotheses never enter durable conversation history.
+        }
         // User transcript — record into the local transcript only. With
         // server_vad active, xAI auto-creates the response itself.
         if (msg.type === "conversation.item.input_audio_transcription.completed") {
-            // Belt and braces for the idle-events flag: the utterance is over.
-            this._userSpeaking = false;
+            // Belt and braces for the idle-events flag: the utterance is over
+            // unless this final belongs to one that already ended.
+            if (!this._staleSpeechItem(msg.item_id)) {
+                this._userSpeaking = false;
+                this._liveMemory?.stopInput();
+            }
             let text = msg.transcript || "";
             if (text) {
                 text = this._extractNewUserSpeech(text);
@@ -1054,6 +1126,13 @@ export class AgentConnection {
         // In server-VAD mode xAI handles the cancel itself; we stop local
         // playback and mark _bargedIn so straggling chunks are discarded.
         if (msg.type === "input_audio_buffer.speech_started") {
+            this._speechTurnRevision = (this._speechTurnRevision || 0) + 1;
+            this._beginSpeechItem(msg.item_id);
+            this._liveMemoryItemId = msg.item_id || null;
+            this._liveMemory?.begin();
+            this._voiceLatencyTurn = { itemId: msg.item_id || null, mode: this._liveMemory?.mode || 'off',
+                speechStoppedAt: null, firstAudioAt: null, memoryId: null,
+                committed: false, responseStarted: false, outputStarted: false, refreshed: false };
             // User interrupted: abandon any owed tool reply. The context
             // note stays in context, so their turn will cover it.
             this._pendingToolReply = false;
@@ -1069,7 +1148,7 @@ export class AgentConnection {
             });
             const audioStillPlaying = this._assistantAudioActive();
             if (this._responseInFlight || audioStillPlaying) {
-                console.log(
+                console.debug(
                     `[voice:${this.connId}] → barge-in`,
                     this._responseInFlight
                         ? `(response ${this._currentResponseId} in flight, server-VAD will cancel)`
@@ -1090,9 +1169,16 @@ export class AgentConnection {
             return;
         }
         // With server_vad, xAI auto-creates the response on speech_stopped.
-        // Deliberately do NOT call _maybeCreateResponse here.
+        // A ready memory can refresh that reply after the audio is committed.
         if (msg.type === "input_audio_buffer.speech_stopped" ||
             msg.type === "input_audio_buffer.committed") {
+            if (this._staleSpeechItem(msg.item_id)) return;
+            if (msg.type === "input_audio_buffer.speech_stopped" && this._voiceLatencyTurn &&
+                this._voiceLatencyTurn.speechStoppedAt === null) {
+                this._voiceLatencyTurn.speechStoppedAt = performance.now();
+                this._logVoiceLatency();
+            }
+            this._liveMemory?.stopInput();
             // Motion director: the user finished — server VAD will start a
             // reply, so the companion is busy until it does.
             this.avatarApi?.setConversationState?.({ listening: false, thinking: true });
@@ -1103,6 +1189,8 @@ export class AgentConnection {
                 // done. Mark it so assistant finals hold until the user row
                 // lands and stored order stays conversational.
                 this._awaitingUserTranscript = Date.now();
+                if (this._voiceLatencyTurn) this._voiceLatencyTurn.committed = true;
+                this._refreshReplyWithLiveMemory();
             }
             return;
         }
@@ -1110,6 +1198,10 @@ export class AgentConnection {
         // response.output_item.{added,done} (inside `item`), NOT on the
         // function_call_arguments.* events.
         if (msg.type === "response.output_item.added" && msg.item?.type === "function_call") {
+            if (this._voiceLatencyTurn && this._voiceLatencyTurn.firstAudioAt === null) {
+                this._voiceLatencyTurn.toolCallBeforeAudio = true;
+            }
+            this._closeLiveMemoryAtOutput();
             this.pendingFunctionCalls.set(msg.item.call_id, {
                 name: msg.item.name,
                 argsBuffer: msg.item.arguments || "",
@@ -1232,7 +1324,7 @@ export class AgentConnection {
             if (/cancell?ation failed/i.test(errMsg)
                 || /no active response/i.test(errMsg)
                 || /does not match current response/i.test(errMsg)) {
-                console.log(`[voice:${this.connId}] benign cancel race:`, errMsg);
+                console.debug(`[voice:${this.connId}] benign cancel race:`, errMsg);
                 return;
             }
             // Inactivity / stream-idle timeout — recoverable: reset in-flight
@@ -1307,7 +1399,7 @@ export class AgentConnection {
         this._earlyAudioBuffer = [];
         this._wsReady = true;
         if (buffered.length > 0) {
-            console.log(`[voice:${this.connId}] flushing`, buffered.length, "buffered audio frames");
+            console.debug(`[voice:${this.connId}] flushing`, buffered.length, "buffered audio frames");
             for (const base64 of buffered) {
                 this._sendWs({ type: "input_audio_buffer.append", audio: base64 });
             }
@@ -1315,6 +1407,7 @@ export class AgentConnection {
     }
 
     _onWsClose(ev) {
+        this._liveMemory?.cancel();
         if (this._sessionEnded) return;  // we initiated the close
         // Don't recursively call end() — its async teardown races concurrent
         // state transitions. Full cleanup happens on the user's End click or
@@ -1382,15 +1475,137 @@ export class AgentConnection {
         return `[System] (call context) ${text}`;
     }
 
-    _maybeCreateResponse() {
-        if (this._responseInFlight) return;
+    _configureLiveMemory(payload) {
+        this._liveMemory?.cancel();
+        this._voiceLatencyTurn = null;
+        this._liveMemoryStreaming = false;
+        this._liveMemory = new LiveMemory({
+            mode: payload.live_memory_mode || "off",
+            cooldownSeconds: payload.live_memory_cooldown_seconds ?? 60,
+            request: (body, signal) => rpc(`/api/voice/session/${payload.session_id}/live-memory`, body, { signal }),
+            context: () => (this.state.messages || []).filter((m) => m.role === "user" || m.role === "assistant")
+                .slice(-4).map((m) => `${m.role}: ${String(m.content || "").slice(0, 400)}`),
+            diagnostic: (info) => console.debug(`[voice:${this.connId}] live memory`, info),
+        });
+        console.debug(`[voice:${this.connId}] live memory`, {
+            reason: 'configured', mode: this._liveMemory.mode,
+            cooldown_seconds: this._liveMemory.cooldownMs / 1000,
+            transcription_model: this._sessionUpdate?.session?.audio?.input?.transcription?.model || null,
+        });
+    }
+
+    /** Does this stop/transcript belong to an utterance already finished?
+     *
+     *  Only an id seen in an EARLIER turn says yes. An id we do not recognise
+     *  is this turn's: the alternative — assuming any unfamiliar id is stale —
+     *  skips the end of the turn, and a leg stuck in "user speaking" answers
+     *  nothing afterwards. No provider promises how it numbers these. */
+    _staleSpeechItem(itemId) {
+        return !!itemId && itemId !== this._speechItemId && !!this._pastSpeechItemIds?.has(itemId);
+    }
+
+    _beginSpeechItem(itemId) {
+        if (this._speechItemId && this._speechItemId !== itemId) {
+            this._pastSpeechItemIds ??= new Set();
+            this._pastSpeechItemIds.add(this._speechItemId);
+            if (this._pastSpeechItemIds.size > 64) {
+                this._pastSpeechItemIds.delete(this._pastSpeechItemIds.values().next().value);
+            }
+        }
+        this._speechItemId = itemId || null;
+    }
+
+    _recordVoiceFirstAudio(responseId) {
+        const turn = this._voiceLatencyTurn;
+        if (!turn || turn.firstAudioAt !== null) return;
+        turn.firstAudioAt = performance.now();
+        turn.responseId = responseId || this._currentResponseId;
+        this._logVoiceLatency();
+    }
+
+    _logVoiceLatency() {
+        const turn = this._voiceLatencyTurn;
+        if (!turn || turn.logged || turn.speechStoppedAt === null || turn.firstAudioAt === null) return;
+        turn.logged = true;
+        console.debug(`[voice:${this.connId}] live memory`, {
+            reason: 'reply_latency', mode: turn.mode, input_item_id: turn.itemId, response_id: turn.responseId,
+            speech_stopped_to_first_audio_ms: Math.round(turn.firstAudioAt - turn.speechStoppedAt),
+            audio_before_speech_stopped: turn.firstAudioAt < turn.speechStoppedAt,
+            memory_note_inserted: turn.memoryId !== null, memory_id: turn.memoryId,
+            memory_context_item_id: turn.contextItemId || null,
+            memory_response_refreshed: turn.refreshed,
+            memory_item_acknowledged: !!turn.itemAcknowledged,
+            tool_call_before_audio: !!turn.toolCallBeforeAudio,
+        });
+    }
+
+    _closeLiveMemoryAtOutput() {
+        if (this._bargedIn) return;
+        if (this._voiceLatencyTurn) this._voiceLatencyTurn.outputStarted = true;
+        // An audible/text/tool response already started: do not interrupt it
+        // for memory, wait for retrieval, or carry a candidate to another turn.
+        this._liveMemory?.cancel('output_started');
+    }
+
+    _refreshReplyWithLiveMemory() {
+        const turn = this._voiceLatencyTurn;
+        if (!turn || turn.refreshed || turn.outputStarted || !turn.committed ||
+            !turn.responseStarted || this._userSpeaking || !this._responseInFlight) return false;
+        const memory = this._liveMemory?.ready;
+        if (!memory || this.manager.hasPeers() || this.state.compacting ||
+            !this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+
+        // Same transport/order as silent context: cancel the automatic reply,
+        // append a hidden item AFTER committed audio, then request its reply.
+        // Nothing is sent during partial speech and no lookup is awaited here.
+        turn.refreshed = true;
+        const previousResponseId = this._currentResponseId;
+        if (previousResponseId) {
+            this._memoryReplacedResponses ??= new Set();
+            this._memoryReplacedResponses.add(previousResponseId);
+            if (this._memoryReplacedResponses.size > 128) {
+                this._memoryReplacedResponses.delete(this._memoryReplacedResponses.values().next().value);
+            }
+        }
+        this.cancelActiveResponse('live-memory-context');
+        const itemId = `lm_${crypto.randomUUID()}`;
+        const note = `[System] (live memory ${memory.memory_id})\n${memory.note}`;
+        if (this.injectContextItem(note, { itemId, promptResponse: false })) {
+            this._liveMemory.take();
+            turn.memoryId = memory.memory_id;
+            turn.contextItemId = itemId;
+            // A real hidden system row, visible in History and replayed just
+            // like the existing recorded context notes. Never a user utterance.
+            this.recordMessage({ role: 'system', content: note, xai_item_id: itemId });
+            console.info(`[voice:${this.connId}] live memory`, {
+                reason: 'note_inserted', memory_id: memory.memory_id,
+                input_item_id: turn.itemId, context_item_id: itemId,
+                replaced_response_id: previousResponseId, note,
+            });
+        }
+        this._maybeCreateResponse({ preserveVoiceLatency: true });
+        return true;
+    }
+
+    _maybeCreateResponse({ preserveVoiceLatency = false } = {}) {
+        if (this._responseInFlight || this.state.compacting ||
+            !this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+        // While a lookup is running on the user's partial speech, leave the
+        // reply to server VAD rather than racing it and cancelling that lookup.
+        // With no lookup to protect, a reply owed mid-speech still goes out.
+        if (this._liveMemoryStreaming && this._userSpeaking) return false;
+        // Manual/tool/idle replies are not the automatic spoken-turn sample.
+        if (!preserveVoiceLatency) this._voiceLatencyTurn = null;
+        // Manually requested replies (tools, idle nudges, typed turns) must
+        // not inherit evidence prepared for an automatic spoken reply.
+        this._liveMemory?.cancel();
         const note = this._runningCallsNote();
         if (note) this.queueDeferredContext(note);
         // Deliver deferred context now — after any audio item from the turn
         // that triggered this grant, where the model can actually see it.
         if (this._deferredContextItems?.length
             && this.ws && this.ws.readyState === WebSocket.OPEN) {
-            console.log(`[voice:${this.connId}] flushing ${this._deferredContextItems.length} deferred context item(s) pre-response`);
+            console.debug(`[voice:${this.connId}] flushing ${this._deferredContextItems.length} deferred context item(s) pre-response`);
             for (const text of this._deferredContextItems) {
                 this._sendWs({
                     type: "conversation.item.create",
@@ -1402,8 +1617,9 @@ export class AgentConnection {
         }
         this._responseInFlight = true;
         this.state.thinking = true;  // gap until the next audio/transcript chunk arrives
-        console.log(`[voice:${this.connId}] → response.create`);
+        console.debug(`[voice:${this.connId}] → response.create`);
         this._sendWs({ type: "response.create", response: { modalities: ["text", "audio"] } });
+        return true;
     }
 
     /** Public wrapper for the turn director: ask this agent to take the
@@ -1411,8 +1627,7 @@ export class AgentConnection {
     requestResponse() {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
         if (this.state.compacting) return false;
-        this._maybeCreateResponse();
-        return true;
+        return this._maybeCreateResponse();
     }
 
     /** Cancel the response currently being generated/played (if any) and
@@ -1428,7 +1643,7 @@ export class AgentConnection {
             // often stale ("Response ID … does not match current response").
             // A bare cancel kills whatever is currently in progress, which
             // is exactly the intent here: this leg stops talking now.
-            console.log(`[voice:${this.connId}] → response.cancel (${reason})`, this._currentResponseId);
+            console.debug(`[voice:${this.connId}] → response.cancel (${reason})`, this._currentResponseId);
             this._sendWs({ type: "response.cancel" });
         }
         this._stopAssistantAudio();
@@ -1463,11 +1678,11 @@ export class AgentConnection {
             if (!this._owedContextResponse) return;
             this._owedContextResponse = false;
             // Not into a socket a compaction swap is closing.
-            if (this._bargedIn || this._sessionEnded || this._responseInFlight
+            if (this._userSpeaking || this._bargedIn || this._sessionEnded || this._responseInFlight
                 || this.state.compacting) return;
             if (this.state.status !== "live") return;
             if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-            console.log(`[voice:${this.connId}] → response.create (deferred context note)`);
+            console.debug(`[voice:${this.connId}] → response.create (deferred context note)`);
             this._maybeCreateResponse();
         }, 250);
     }
@@ -1479,6 +1694,9 @@ export class AgentConnection {
      *  and Pipecat's one-reply-per-tool-round gating). */
     async _maybeCreateToolReply() {
         if (!this._pendingToolReply) return;
+        // Wait for the floor, but stay owed: a slow tool the user talked over
+        // still has a result to deliver, and response.done retries this.
+        if (this._userSpeaking) return;
         if (this._responseInFlight) return;             // originating response still streaming
         if (this.toolDispatcher?.hasPending()) return;  // tool outputs still in flight
         this._pendingToolReply = false;                 // claim it (idempotent vs. the racing caller)
@@ -1490,14 +1708,20 @@ export class AgentConnection {
         // joined companion's greeting), only for this post-tool reply to
         // land right on top of it.
         this._toolReplyStarting = true;
+        const speechTurn = this._speechTurnRevision;
         try {
             // Let the announcement audio ("one sec, let me check…") finish
             // before the answer so the two audio streams don't overlap.
             await this._waitForAudioPlayback();
-            if (this._bargedIn || this._sessionEnded) {
+            // Barge-in and a closed session abandon the reply, as they always
+            // have. Speech that merely started while the audio drained does
+            // not: re-arm so the result lands once the floor is free again.
+            if (this._bargedIn || this._sessionEnded) return;
+            if (this._userSpeaking || speechTurn !== this._speechTurnRevision) {
+                this._pendingToolReply = true;
                 return;
             }
-            console.log(`[voice:${this.connId}] → response.create (post-tool)`);
+            console.debug(`[voice:${this.connId}] → response.create (post-tool)`);
             // Marks the reply this creates as a follow-up (see response.done's
             // end_turn check). Only when it will actually send — a reply
             // already in flight means someone else's turn, not ours.
@@ -1555,7 +1779,7 @@ export class AgentConnection {
             ?.dispatch({ callId, name, argumentsJson })
             .then((result) => {
                 try {
-                    console.log(`[voice:${this.connId}] tool result`, name, "→", result);
+                    console.debug(`[voice:${this.connId}] tool result`, name, "→", result);
                     if (!SILENT_BROWSER_TOOLS.has(name)) {
                         this._appendMessage({
                             role: "tool_result",
@@ -1892,7 +2116,7 @@ export class AgentConnection {
         try {
             const result = await rpc(`/api/voice/session/${sessionId}/compact`, {});
             if (!result || !result.compacted) {
-                console.log(`[voice:${this.connId}] background compaction skipped:`, result?.reason || "unknown");
+                console.debug(`[voice:${this.connId}] background compaction skipped:`, result?.reason || "unknown");
                 if (result?.reason === "nothing_absorbed" ||
                     result?.reason === "no_pending_summary" ||
                     result?.reason === "session_not_active") {
@@ -1902,7 +2126,7 @@ export class AgentConnection {
                 this.state.summarizing = false;
                 return result;
             }
-            console.log(`[voice:${this.connId}] background compaction ready (rollup id`, result.rollup_id +
+            console.debug(`[voice:${this.connId}] background compaction ready (rollup id`, result.rollup_id +
                 ") — awaiting safe restart window");
             // The call ended or restarted while the summary ran (end() and
             // start() clear _compactionPending), so nothing waits for this
@@ -1940,7 +2164,7 @@ export class AgentConnection {
         if (hold) {
             if (hold !== this._compactionHeldBy) {
                 this._compactionHeldBy = hold;
-                console.log(`[voice:${this.connId}] compaction ready — waiting (${hold})`);
+                console.debug(`[voice:${this.connId}] compaction ready — waiting (${hold})`);
             }
             this._scheduleCompactionRecheck();
             return;
@@ -2060,7 +2284,7 @@ export class AgentConnection {
             console.warn(`[voice:${this.connId}] compaction restart aborted: missing session or agent id`);
             return;
         }
-        console.log(`[voice:${this.connId}] applying compacted context — restarting WS`);
+        console.debug(`[voice:${this.connId}] applying compacted context — restarting WS`);
 
         // Preserve mute state so the user's mic preference survives.
         const savedMuted = this.state.muted;
@@ -2210,7 +2434,7 @@ export class AgentConnection {
      *  The raw primitive behind sendContextEvent and the manager's
      *  cross-agent relay: `promptResponse` decides whether the model is
      *  asked to react now or the note just informs its next turn. */
-    injectContextItem(text, { role = "user", promptResponse = false } = {}) {
+    injectContextItem(text, { role = "user", promptResponse = false, itemId = null } = {}) {
         text = (text || "").trim();
         if (!text) return false;
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -2230,10 +2454,14 @@ export class AgentConnection {
             type: "conversation.item.create",
             item: {
                 type: "message",
+                ...(itemId ? { id: itemId } : {}),
                 role,
                 content: [{ type: "input_text", text }],
             },
         });
+        if (!itemId?.startsWith('lm_')) {
+            console.info(`[voice:${this.connId}] context injected`, { role, text, prompt_response: promptResponse });
+        }
         // Deliberately no _appendMessage — stays out of the transcript.
         if (promptResponse) {
             // A note that arrives mid-reply would otherwise be absorbed
@@ -2243,7 +2471,7 @@ export class AgentConnection {
             // never spoken. Remember the debt and settle it on completion.
             if (this._responseInFlight) {
                 this._owedContextResponse = true;
-                console.log(`[voice:${this.connId}] context note owed a reaction (response in flight) — deferred`);
+                console.debug(`[voice:${this.connId}] context note owed a reaction (response in flight) — deferred`);
             } else {
                 this._maybeCreateResponse();
             }
@@ -2351,6 +2579,7 @@ export class AgentConnection {
     }
 
     async end(reason = "client") {
+        this._liveMemory?.cancel();
         if (this._sessionEnded) return;
         // Durable end-of-call marker for group-call legs. Sessions are
         // resumed later (peer legs auto-resume on the next invite, users
@@ -2446,6 +2675,7 @@ export class AgentConnection {
     }
 
     _fail(message) {
+        this._liveMemory?.cancel();
         this.state.status = "error";
         this.state.errorMessage = message;
         this._sessionEnded = true;

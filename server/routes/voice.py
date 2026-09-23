@@ -11,10 +11,24 @@ from .. import affection_tools, companion_texting, delegate_tools, imagine_tools
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
+from .. import live_memory
 
 _logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/voice")
+
+
+@router.post('/session/{session_id}/live-memory')
+def live_memory_candidate(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    session = resolve_session(con, session_id)
+    context = payload.get('context')
+    return live_memory.evaluate(con, session, payload.get('text'), context if isinstance(context, list) else [])
+
+
+@router.post('/session/{session_id}/live-memory/delivered')
+def live_memory_delivered(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    live_memory.delivered(con, resolve_session(con, session_id), payload.get('memory_id'))
+    return {'ok': True}
 
 # xAI's PCM validator only accepts this exact set. Snap any other value to the
 # nearest valid one (defense in depth — the client snaps too).

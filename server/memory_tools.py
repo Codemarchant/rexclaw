@@ -330,8 +330,9 @@ def apply_extraction_ops(con, agent_id, ops, episode, transcript=None, session_i
     `session_id` backlink.
 
     Best-effort and self-defended: bad/oob ids are skipped, content is
-    length-clamped, and a `core` add that would breach the cap is downgraded to
-    `recall` rather than raising — the caller runs this as a fire-and-forget
+    length-clamped, and directly requested recall additions are skipped.
+    A core addition beyond its cap falls back to a recall fact; ordinary
+    episode details still belong in the episode. The caller runs this as a fire-and-forget
     side effect that must never break compaction. Returns a counts dict.
     """
     counts = {'added': 0, 'updated': 0, 'deleted': 0, 'episode': 0,
@@ -359,21 +360,29 @@ def apply_extraction_ops(con, agent_id, ops, episode, transcript=None, session_i
             if not content:
                 counts['skipped'] += 1
                 continue
-            scope = op.get('scope') if op.get('scope') in ('core', 'recall') else 'recall'
-            # Cap pre-flight: downgrade rather than fail.
+            # A recall fact carries what the episode's narrative cannot: an
+            # amount, a holding, a plan, the state of something ongoing. Those
+            # are what deliberate recall ranks and answers from, since it scores
+            # an episode on its keywords alone. An unrecognised scope is recall,
+            # never core — core is the one that costs prompt space.
+            scope = 'core' if op.get('scope') == 'core' else 'recall'
+            downgraded = False
             if scope == 'core' and agent_id:
                 core_count = con.execute(
                     "SELECT COUNT(*) AS c FROM memories WHERE agent_id = ? AND scope = 'core'",
                     (agent_id,),
                 ).fetchone()['c']
                 if core_count >= core_cap:
-                    scope = 'recall'
-                    counts['downgraded'] += 1
+                    # Cap pre-flight: keep it as a searchable fact rather than
+                    # failing. Only this counts as a downgrade — a fact asked
+                    # for as recall arrived where it was meant to.
+                    scope, downgraded = 'recall', True
             _, created = remember_or_get(
                 con, agent_id, content, scope,
                 _normalize_tags(op.get('tags')), 'agent_inferred',
             )
             counts['added'] += 1 if created else 0
+            counts['downgraded'] += 1 if created and downgraded else 0
             counts['skipped'] += 0 if created else 1
 
         elif action in ('update', 'delete'):

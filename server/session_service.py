@@ -1166,6 +1166,9 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     tools = [_with_end_turn(t) for t in tools]
     native_function_tools = [_with_end_turn(t) for t in native_function_tools]
 
+    live_memory_mode = config['live_memory_mode'] if (
+        config['typesafe_api_key'] and agent['enable_memory_tools'] and not manual_turn and not group_peers
+    ) else 'off'
     session_update = xai_client.build_session_update(
         voice=effective_voice,
         voice_speed=voice_speed,
@@ -1184,6 +1187,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         enable_x_search=bool(agent['enable_x_search']),
         audio_sample_rate=audio_sample_rate,
         manual_turn=manual_turn,
+        live_memory=live_memory_mode == 'on',
     )
 
     if resume_session and not call_parent_session:
@@ -1265,6 +1269,8 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         'xai_model': voice_model,
         'voice': effective_voice,
         'session_update': session_update,
+        'live_memory_mode': live_memory_mode,
+        'live_memory_cooldown_seconds': config['live_memory_cooldown_seconds'],
         'avatar': avatar,
         'current_outfit_name': current_outfit['name'] if current_outfit else None,
         'active_background': active_background,
@@ -1469,7 +1475,7 @@ def _transcript_rows(con, session, limit=None):
     and so are the model-only prompt rows that would otherwise bloat the
     view with boilerplate: the scheduled-heartbeat context block (the diary
     reply it produced stays), the time-aware resume note, the affection
-    resync note and idle-event notes. All still replay to the model - this
+    resync note, idle-event notes and live-memory notes. All still replay to the model - this
     is display-only.
     Optional `limit` keeps the most-recent N. Returns (rows, truncated).
     Shared by the voice resume feed (_build_transcript_history) and the text
@@ -1483,9 +1489,11 @@ def _transcript_rows(con, session, limit=None):
         " AND NOT (role = 'system' AND content LIKE ?)"
         " AND NOT (role = 'system' AND content LIKE ?)"
         " AND NOT (role = 'system' AND content LIKE ?)"
+        " AND NOT (role = 'system' AND content LIKE ?)"
     )
     shown_params = (heartbeat.CONTEXT_PREFIX + '%', RESUME_NOTE_PREFIX + '%',
-                    AFFECTION_NOTE_PREFIX + '%', idle_events.NOTE_PREFIX + '%')
+                    AFFECTION_NOTE_PREFIX + '%', idle_events.NOTE_PREFIX + '%',
+                    '[System] (live memory %')
     if limit and limit > 0:
         recent = con.execute(
             f"SELECT * FROM messages WHERE session_id = ? {shown} "

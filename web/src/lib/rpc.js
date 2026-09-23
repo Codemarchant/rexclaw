@@ -2,13 +2,14 @@
 // resolves with the parsed body, rejects with an Error whose .message (and
 // .data.message, for the ported `e?.data?.message` reads) carries the
 // server's UserError text.
-export async function rpc(path, params = {}) {
+export async function rpc(path, params = {}, { signal } = {}) {
   let resp;
   try {
     resp = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params ?? {}),
+      signal,
     });
   } catch (e) {
     const err = new Error(e?.message || "Network error");

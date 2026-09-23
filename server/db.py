@@ -187,6 +187,8 @@ CREATE TABLE IF NOT EXISTS config (
     -- The Jev model those calls ask. jev-latest is TypeSafe's alias for
     -- their newest release; a pinned version holds the director tuning.
     jev_model TEXT NOT NULL DEFAULT 'jev-latest',
+    live_memory_mode TEXT NOT NULL DEFAULT 'off', -- off | on
+    live_memory_cooldown_seconds INTEGER NOT NULL DEFAULT 60,
     -- local_task working directory — the Grok Build CLI's blast-radius
     -- boundary. Empty = <data>/workspace (created on demand).
     local_task_workdir TEXT NOT NULL DEFAULT '',
@@ -629,6 +631,7 @@ CREATE TABLE IF NOT EXISTS memories (
     memory_type TEXT NOT NULL DEFAULT 'fact',-- fact | episode
     content TEXT NOT NULL,
     keywords TEXT,                           -- episode-only retrieval index (recall matches this, not the narrative)
+    recall_revision INTEGER NOT NULL DEFAULT 0, -- invalidates in-flight speculative reads
     transcript TEXT,                         -- episode-only verbatim turns, stored inline so they survive message pruning
     session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,  -- episode-only provenance backlink
     tags TEXT,                               -- comma-separated, normalised lowercase
@@ -637,6 +640,13 @@ CREATE TABLE IF NOT EXISTS memories (
     created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories (scope, agent_id);
+
+CREATE TABLE IF NOT EXISTS live_memory_deliveries (
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+    delivered_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, memory_id)
+);
 
 -- Lore stories: a shared archive of authored stories about the companions'
 -- pasts, recalled on demand via the recall_stories tool. characters is a
@@ -1059,6 +1069,11 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN face_director INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE config ADD COLUMN typesafe_api_key TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN jev_model TEXT NOT NULL DEFAULT 'jev-latest'",
+    "ALTER TABLE config ADD COLUMN live_memory_mode TEXT NOT NULL DEFAULT 'off'",
+    # Retire diagnostic-only mode without enabling injection for its users.
+    "UPDATE config SET live_memory_mode='off' WHERE live_memory_mode='shadow'",
+    "ALTER TABLE config ADD COLUMN live_memory_cooldown_seconds INTEGER NOT NULL DEFAULT 60",
+    "ALTER TABLE memories ADD COLUMN recall_revision INTEGER NOT NULL DEFAULT 0",
     # Which model picks a speech gesture (see the config schema comment).
 )
 
@@ -1076,6 +1091,8 @@ def init_db():
         # on pre-existing databases.
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_avatars_pack ON avatars (pack_key)")
         con.execute("INSERT OR IGNORE INTO config (id) VALUES (1)")
+        from .memory_index import initialize
+        initialize(con)
         con.commit()
     finally:
         con.close()
