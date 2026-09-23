@@ -3496,6 +3496,30 @@ def text_compact(con, session):
     return {'compacted': True, 'rollup_id': rollup_id}
 
 
+def manual_compact(con, session):
+    """Compact on demand from the Sessions tab, whether or not the token
+    threshold was reached: same rollup as auto-compaction, which also resets
+    the threshold count. A live voice call is refused — it holds its own
+    context until it ends, and the replay path only reads the summary on the
+    next resume."""
+    if session['mode'] == 'voice' and session['state'] == 'active':
+        raise UserError("End the call before compacting it.")
+    store.update_session(con, session['id'], needs_summary=1)
+    rollup_id = generate_session_summary(con, store.get_session(con, session['id']))
+    if not rollup_id:
+        store.update_session(con, session['id'], needs_summary=0)
+        con.commit()
+        return {'compacted': False, 'reason': 'nothing_absorbed'}
+    if session['mode'] == 'text':
+        # Same as text_compact: the xAI chain still carries the old history,
+        # so break it and let the next turn re-seed from the new summary.
+        store.update_session(con, session['id'],
+                             previous_response_id=None, last_response_at=None,
+                             chain_tail_sequence=0)
+    con.commit()
+    return {'compacted': True, 'summary': store.get_session(con, session['id'])['summary']}
+
+
 def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
     """Server-side proxy for /v1/files, shared by both surfaces.
 

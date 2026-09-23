@@ -911,6 +911,14 @@ def sessions_summary(payload: dict = Body(default={}), con=Depends(db_con)):
     return {"ok": True}
 
 
+@router.post("/sessions/compact")
+def sessions_compact(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Manual compaction from the Sessions tab (see manual_compact)."""
+    from .common import resolve_session
+    from .. import session_service
+    return session_service.manual_compact(con, resolve_session(con, payload.get("id")))
+
+
 @router.post("/sessions/delete")
 def sessions_delete(payload: dict = Body(default={}), con=Depends(db_con)):
     """Delete a session and its messages (FK cascade). Linked rows survive

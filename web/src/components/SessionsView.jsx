@@ -34,6 +34,7 @@ export default function SessionsView({ active }) {
     const [summaryOpen, setSummaryOpen] = useState(() => new Set());  // ids showing the full summary
     const [summaryEdit, setSummaryEdit] = useState(null);   // null | {id, text, baseline}
     const [savingSummary, setSavingSummary] = useState(false);
+    const [compacting, setCompacting] = useState(() => new Set());  // ids mid-compaction
     // Per-session file library (images, videos, uploads, screenshots that
     // came out of the call): ids showing the panel, and id → rows once loaded.
     const [filesOpen, setFilesOpen] = useState(() => new Set());
@@ -161,6 +162,45 @@ export default function SessionsView({ active }) {
         }
     };
 
+    /** Manual compaction: the same rollup auto-compaction runs at the token
+     *  threshold, on demand. The new summary replacing the old one is the
+     *  feedback — no success toast. */
+    const compactSession = async (s) => {
+        const ok = await confirmAsk(_t(
+            "Compact \"%s\" now? The older part of the conversation is condensed "
+            + "into a new summary and the most recent messages are kept word for "
+            + "word. The token count toward the next automatic compaction starts "
+            + "again from zero. Nothing is deleted: the full transcript stays "
+            + "readable here and recallable by the companion. This can take a "
+            + "minute or two.", s.name));
+        if (!ok) return;
+        const setBusy = (on) => setCompacting((prev) => {
+            const next = new Set(prev);
+            if (on) next.add(s.id); else next.delete(s.id);
+            return next;
+        });
+        setBusy(true);
+        try {
+            const r = await rpc("/api/sessions/compact", { id: s.id });
+            if (r.compacted) {
+                setSessions((list) => list.map((x) => (x.id === s.id ? { ...x, summary: r.summary } : x)));
+                // The transcript now carries the new rollup; reload it on next open.
+                setTranscripts(({ [s.id]: _stale, ...rest }) => rest);
+                setExpanded((prev) => {
+                    const next = new Set(prev);
+                    next.delete(s.id);
+                    return next;
+                });
+            } else {
+                notification.add(_t("Nothing to compact yet: there are only the most recent messages, which are kept word for word."), { type: "warning" });
+            }
+        } catch (e) {
+            notification.add(e?.message || _t("Compaction failed"), { type: "danger" });
+        } finally {
+            setBusy(false);
+        }
+    };
+
     // Leaving the tab mid-edit prompts Save / Discard like the other editors.
     useUnsavedGuard(active, summaryDirty, saveSummary, () => setSummaryEdit(null));
 
@@ -275,6 +315,19 @@ export default function SessionsView({ active }) {
                         const summaryLong = summary.length > SUMMARY_CLAMP_CHARS || summary.split("\n").length > 2;
                         const summaryShown = summaryOpen.has(s.id);
                         const editingSummary = summaryEdit?.id === s.id;
+                        const isCompacting = compacting.has(s.id);
+                        const liveCall = s.mode === "voice" && s.state === "active";
+                        const compactButton = (
+                            <button type="button" className="btn btn-link p-0"
+                                    disabled={isCompacting || liveCall}
+                                    title={liveCall
+                                        ? _t("End the call before compacting it.")
+                                        : _t("Condense the older part of this conversation into its summary now, without waiting for the token limit.")}
+                                    onClick={() => compactSession(s)}>
+                                <i className={"fa " + (isCompacting ? "fa-spinner fa-spin" : "fa-compress")} />{" "}
+                                {isCompacting ? _t("Compacting…") : _t("Compact now")}
+                            </button>
+                        );
                         return (
                             <div key={s.id} className={"rx_sess_item" + (child ? " rx_sess_item--child" : "")}>
                                 <div className="rx_sess_head">
@@ -361,12 +414,18 @@ export default function SessionsView({ active }) {
                                             )}
                                             <button type="button" className="btn btn-link p-0"
                                                     title={_t("Edit summary")}
+                                                    disabled={isCompacting}
                                                     onClick={() => startSummaryEdit(s)}>
                                                 <i className="fa fa-pencil-square-o" /> {_t("Edit summary")}
                                             </button>
+                                            {compactButton}
                                         </div>
                                     </div>
-                                ) : null}
+                                ) : (
+                                    <div className="rx_sess_summary">
+                                        <div className="rx_sess_summary_tools">{compactButton}</div>
+                                    </div>
+                                )}
                                 {showFiles && (
                                     <div className="rx_sess_files">
                                         {!sessFiles && <p className="text-muted small">{_t("Loading…")}</p>}

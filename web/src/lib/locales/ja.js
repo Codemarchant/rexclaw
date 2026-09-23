@@ -1048,6 +1048,16 @@ export const JA = {
     "再開時にコンパニオンがこの会話について覚えている内容です — 記憶を訂正したり整えたりするには、ここを編集してください。",
   "Summary cannot be empty.": "要約を空にすることはできません。",
   "Could not save the summary": "要約を保存できませんでした",
+  "Compact now": "今すぐ圧縮",
+  "Compacting…": "圧縮中…",
+  "Compaction failed": "圧縮に失敗しました",
+  "End the call before compacting it.": "圧縮する前に通話を終了してください。",
+  "Condense the older part of this conversation into its summary now, without waiting for the token limit.":
+    "トークン上限を待たずに、この会話の古い部分を今すぐ要約にまとめます。",
+  "Compact \"%s\" now? The older part of the conversation is condensed into a new summary and the most recent messages are kept word for word. The token count toward the next automatic compaction starts again from zero. Nothing is deleted: the full transcript stays readable here and recallable by the companion. This can take a minute or two.":
+    "「%s」を今すぐ圧縮しますか？会話の古い部分を新しい要約にまとめ、直近のメッセージはそのまま残します。次の自動圧縮までのトークン数はゼロから数え直します。何も削除されません。全文のトランスクリプトはここで読め、コンパニオンも呼び出せます。1〜2分かかることがあります。",
+  "Nothing to compact yet: there are only the most recent messages, which are kept word for word.":
+    "まだ圧縮するものがありません。直近のメッセージしかなく、それらはそのまま残されます。",
   "active": "アクティブ",
   "Immersive view — press Esc or H to exit.": "没入ビュー — Esc または H で終了します。",
 

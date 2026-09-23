@@ -13,6 +13,13 @@
 // per-phrase model training). An RMS gate keeps the decoder idle during
 // silence so standby costs near-zero CPU.
 //
+// Vosk's maintainer warns grammar mode is "not really 'hot word'": with so
+// few allowed words, sound-alikes ("hey even", "every") get forced into the
+// phrase. So a grammar hit is only a candidate. It must start the utterance
+// with every word at MIN_WORD_CONF, AND a second, unconstrained recognizer
+// on the same model and audio must also have heard the phrase — free
+// decoding transcribes a sound-alike as what it is.
+//
 // Window ownership: the desktop app can have two live pages at once (hidden
 // main window + mascot overlay) and both must not listen. A BroadcastChannel
 // heartbeat elects one: the mascot outranks the main window, ties break on
@@ -33,6 +40,12 @@ const TRIGGER_COOLDOWN_MS = 4000;
 // hangover keeps feeding through the quiet gaps inside a phrase.
 const RMS_THRESHOLD = 0.01;
 const RMS_HANGOVER_MS = 1500;
+// Per-word confidence a grammar hit needs. No Vosk maintainer figure exists;
+// 0.9 is the one concrete value in use (vosk-android-demo issue #127).
+const MIN_WORD_CONF = 0.9;
+// How far apart the grammar hit and the free transcript of the same
+// utterance may land — both finalise at the same pause.
+const VERIFY_WINDOW_MS = 1500;
 
 export const wakeState = reactive({
     // Feature is on AND at least one companion has a phrase (from refresh()).
@@ -62,6 +75,9 @@ class WakeWordService {
         this._model = null;
         this._modelUrl = null;
         this._recognizer = null;
+        this._freeRecognizer = null;    // no grammar — the second opinion
+        this._freeHeard = [];           // [{text, at}] recent free transcripts
+        this._pending = null;           // {agent, at, timer} awaiting verification
         this._mediaStream = null;
         this._audioContext = null;
         this._processor = null;
@@ -266,10 +282,22 @@ class WakeWordService {
                 this._audioContext.sampleRate,
                 JSON.stringify([...phrases, "[unk]"]),
             );
+            recognizer.setWords(true);
             this._recognizer = recognizer;
             recognizer.on("result", (message) => {
                 const text = message?.result?.text || "";
-                if (text) this._onRecognized(text);
+                if (text) this._onRecognized(text, message.result.result || []);
+            });
+            const free = new model.KaldiRecognizer(this._audioContext.sampleRate);
+            this._freeRecognizer = free;
+            free.on("result", (message) => {
+                const text = normalizePhrase(message?.result?.text);
+                if (!text) return;
+                const now = Date.now();
+                this._freeHeard = this._freeHeard
+                    .filter((h) => now - h.at <= VERIFY_WINDOW_MS)
+                    .concat({ text, at: now });
+                this._verifyPending();
             });
 
             const source = this._audioContext.createMediaStreamSource(stream);
@@ -288,7 +316,10 @@ class WakeWordService {
                 if (rms >= RMS_THRESHOLD) this._lastLoudAt = now;
                 if (now - this._lastLoudAt > RMS_HANGOVER_MS) return;  // silence
                 try {
+                    // A copy each: the buffer is posted to the worker.
                     this._recognizer.acceptWaveformFloat(
+                        new Float32Array(data), this._audioContext.sampleRate);
+                    this._freeRecognizer?.acceptWaveformFloat(
                         new Float32Array(data), this._audioContext.sampleRate);
                 } catch (e) { /* recognizer torn down mid-frame */ }
             };
@@ -308,10 +339,15 @@ class WakeWordService {
             try { this._processor.disconnect(); } catch (e) { /* gone */ }
             this._processor = null;
         }
-        if (this._recognizer) {
-            try { this._recognizer.remove(); } catch (e) { /* gone */ }
-            this._recognizer = null;
+        for (const key of ["_recognizer", "_freeRecognizer"]) {
+            if (this[key]) {
+                try { this[key].remove(); } catch (e) { /* gone */ }
+                this[key] = null;
+            }
         }
+        if (this._pending) clearTimeout(this._pending.timer);
+        this._pending = null;
+        this._freeHeard = [];
         if (this._mediaStream) {
             for (const t of this._mediaStream.getTracks()) {
                 try { t.stop(); } catch (e) { /* gone */ }
@@ -330,17 +366,52 @@ class WakeWordService {
     // Trigger
     // ------------------------------------------------------------------
 
-    _onRecognized(text) {
-        const heard = normalizePhrase(text.replace(/\[unk\]/g, " "));
-        if (!heard) return;
+    /** Grammar hit → candidate. The phrase must open the utterance (nothing
+     *  unknown before it, so it isn't buried mid-sentence) with every word
+     *  at MIN_WORD_CONF; then it waits for the free transcript. */
+    _onRecognized(text, words) {
         const now = Date.now();
         if (now - this._lastTriggerAt < TRIGGER_COOLDOWN_MS) return;
-        // Word-boundary match: the grammar limits output words to phrase
-        // vocabulary, but require the whole phrase in sequence anyway so a
-        // half-decoded fragment can't trigger.
-        const agent = this._agents.find(
-            (a) => ` ${heard} `.includes(` ${a.phrase} `));
+        const tokens = text.trim().split(/\s+/);
+        const agent = this._agents.find((a) => {
+            const n = a.phrase.split(" ").length;
+            return normalizePhrase(tokens.slice(0, n).join(" ")) === a.phrase
+                && !tokens.slice(0, n).includes("[unk]");
+        });
         if (!agent) return;
+        const n = agent.phrase.split(" ").length;
+        const weak = words.slice(0, n).find((w) => (w.conf ?? 1) < MIN_WORD_CONF);
+        if (weak) {
+            console.log(`[wake] "${agent.phrase}" rejected: "${weak.word}" conf ${weak.conf.toFixed(2)}`);
+            return;
+        }
+        if (this._pending) clearTimeout(this._pending.timer);
+        this._pending = {
+            agent, at: now,
+            timer: setTimeout(() => {
+                console.log(`[wake] "${agent.phrase}" rejected: free transcript heard ${
+                    JSON.stringify(this._freeHeard.map((h) => h.text))}`);
+                this._pending = null;
+            }, VERIFY_WINDOW_MS),
+        };
+        this._verifyPending();
+    }
+
+    /** Trigger the pending candidate once the free transcript of the same
+     *  utterance also contains the phrase. */
+    _verifyPending() {
+        const p = this._pending;
+        if (!p) return;
+        const heard = this._freeHeard.find((h) => Math.abs(h.at - p.at) <= VERIFY_WINDOW_MS
+            && ` ${h.text} `.includes(` ${p.agent.phrase} `));
+        if (!heard) return;
+        clearTimeout(p.timer);
+        this._pending = null;
+        this._trigger(p.agent);
+    }
+
+    _trigger(agent) {
+        const now = Date.now();
         this._lastTriggerAt = now;
         console.log(`[wake] phrase "${agent.phrase}" → ${agent.name} (${agent.action})`);
         this._chime();
@@ -382,7 +453,8 @@ class WakeWordService {
      *  grammar → trigger path without fake-mic plumbing. */
     _testFeed(float32, sampleRate) {
         this._lastLoudAt = performance.now();
-        this._recognizer?.acceptWaveformFloat(float32, sampleRate);
+        this._recognizer?.acceptWaveformFloat(new Float32Array(float32), sampleRate);
+        this._freeRecognizer?.acceptWaveformFloat(new Float32Array(float32), sampleRate);
     }
 }
 
