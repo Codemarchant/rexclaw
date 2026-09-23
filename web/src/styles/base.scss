@@ -1064,6 +1064,92 @@ body {
     }
 }
 
+// Tune face — the model's face on the left, a slider per face part on the
+// right; stacks on a narrow window. Popped out, it takes nearly the whole
+// window and the face gets most of it.
+.rx_dialog--face_tuning {
+    max-width: 78rem;
+    display: flex;
+    flex-direction: column;
+    max-height: 94vh;
+    .rx_face_tuning_body {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        min-height: 0;
+        flex: 1 1 auto;
+        @media (max-width: 720px) { flex-direction: column; overflow: auto; }
+    }
+    .rx_face_tuning_preview {
+        flex: 1 1 50%;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        min-width: 0;
+        overflow: auto;
+    }
+    .rx_face_tuning_stage {
+        position: relative;
+        .o_voice_avatar_canvas { height: 52vh; min-height: 16rem; }
+    }
+    .rx_face_tuning_view {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        display: flex;
+        gap: 0.25rem;
+        z-index: 1;
+    }
+    .rx_face_tuning_now { min-height: 1.4em; }
+    .rx_face_tuning_levels { margin: 0; }
+    .rx_face_tuning_plays {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem 0.75rem;
+        font-size: 0.8rem;
+    }
+    &.is-expanded {
+        max-width: none;
+        width: 98vw;
+        height: 96vh;
+        max-height: 96vh;
+        .rx_face_tuning_preview { flex: 2 1 65%; }
+        .rx_face_tuning_sliders { flex: 1 1 35%; }
+        .rx_face_tuning_stage .o_voice_avatar_canvas { height: 64vh; }
+    }
+    .rx_face_tuning_feeling {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.15rem;
+        span { margin-right: 0.2rem; color: #475569; }
+        .btn { padding: 0 0.4rem; font-size: 0.75rem; }
+    }
+    .rx_face_tuning_sliders { flex: 1 1 50%; overflow: auto; min-width: 0; }
+    .rx_face_tuning_group + .rx_face_tuning_group { margin-top: 0.75rem; }
+    summary { cursor: pointer; h5 { display: inline; } }
+    .rx_face_tuning_group h5 {
+        margin: 0 0 0.3rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+    }
+    .rx_face_tuning_row {
+        display: grid;
+        grid-template-columns: auto 10rem 1fr 4.5rem;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.85rem;
+        border-radius: 0.3rem;
+        transition: background-color 0.2s;
+        &.is-used { background: #fef3c7; }
+        label { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .btn-link { padding: 0 0.25rem; }
+        input[type="number"] { width: 100%; }
+    }
+}
+
 // Credits link, centred under the last settings section.
 .rx_settings_footer {
     margin: 1.5rem 0 0.5rem;

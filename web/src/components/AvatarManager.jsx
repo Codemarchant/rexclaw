@@ -8,6 +8,7 @@ import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { useListSort } from "../lib/list_sort";
 import { EditorBar } from "./UnsavedUI.jsx";
 import Portrait from "./Portrait.jsx";
+import FaceTuningDialog from "./FaceTuningDialog.jsx";
 import { AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS } from "../lib/render_prefs";
 import { avatarRenderer } from "../services/avatar_renderer";
 import { GESTURES } from "../models/avatar_catalog";
@@ -526,6 +527,20 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     const [generating, setGenerating] = useState(null);
     const canGeneratePortrait = manifest.vrm && !manifest.vrm.startsWith("/");
     const isPackFile = (ref) => ref && !ref.startsWith("/");
+    const fileUrl = (ref) => (ref.startsWith("/") ? ref : `/avatars/${pack_key}/${ref}`);
+
+    // Tune face: the dialog for one look — { title, vrm, value, apply }.
+    // Tuning belongs to the model, so the main look and each outfit carry
+    // their own `face_tuning`; Apply puts it in the draft like any edit.
+    const [tuning, setTuning] = useState(null);
+    const tuneButton = (title, vrm, value, apply) => (
+        <button className="btn btn-sm btn-light" disabled={!vrm || !pack_key}
+                title={_t("How strongly the face moves on this model — for a model whose expressions come out too big or too small")}
+                onClick={() => setTuning({ title, vrm, value, apply })}>
+            <i className="fa fa-sliders" /> {_t("Tune face")}
+            {value && Object.keys(value).length ? " •" : ""}
+        </button>
+    );
     // Two portrait kinds per VRM, both sidecars beside it (POST
     // /set_portrait): "face" is the framed headshot the lists use,
     // "fullbody" frames the whole figure — the one that shows an outfit,
@@ -646,6 +661,8 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                     {manifest.name ? ` — ${manifest.name}` : ""}
                 </span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem" }}>
+                    {tuneButton(manifest.main_outfit_name || manifest.name, manifest.vrm, manifest.face_tuning,
+                        (t) => setM({ face_tuning: t }))}
                     {canGeneratePortrait && (
                         <PortraitMenu filename={manifest.vrm}
                                       busy={generating === manifest.vrm || generating === "*"}
@@ -770,6 +787,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                                                   [_t("Full-body portrait"), () => generateOne(o.vrm, "fullbody")],
                                               ]} />
                             )}
+                            {tuneButton(o.name, o.vrm, o.face_tuning, (t) => setList("outfits", i, { face_tuning: t }))}
                         </div>
                         {rowButtons}
                     </div>
@@ -1094,6 +1112,13 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                 saveLabel={_t("Save avatar")}
                 saveDisabled={!editing.manifest.name?.trim() || !editing.manifest.vrm}
                 pinned />
+            {tuning && (
+                <FaceTuningDialog title={tuning.title} vrmUrl={fileUrl(tuning.vrm)}
+                                  idleUrl={manifest.vrma_idle ? fileUrl(manifest.vrma_idle) : null}
+                                  value={tuning.value}
+                                  onApply={(t) => { tuning.apply(t); setTuning(null); }}
+                                  onClose={() => setTuning(null)} />
+            )}
         </>
     );
 }

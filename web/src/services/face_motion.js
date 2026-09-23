@@ -32,7 +32,7 @@
  */
 
 import { GAZE_AMP } from "./idle_motion";
-import { splitEmotionExpressions } from "./face_regions";
+import { expressionSize, splitEmotionExpressions } from "./face_regions";
 
 // Each feeling's parts: [channel, from level, to level (default 3)]. A
 // channel is an expression half ("sad:upper") or an accent (FACE_ACCENTS).
@@ -93,11 +93,10 @@ const FACE_FEELINGS = {
 };
 const FACE_BRIGHT = new Set(["warm", "happy", "teasing", "excited", "proud"]);
 // Channels — the first option the rig has: VRoid's region morphs, then the
-// ARKit shapes, then the nearest expression half. A raised brow also lifts
-// the lids on VRoid models: on a long fringe the brows are under the hair,
-// and the raise would be lost. A sided channel picks one side per use.
+// ARKit shapes, then the nearest expression half. A sided channel picks one
+// side per use.
 const FACE_ACCENTS = {
-    brow_raise: [{ Fcl_BRW_Surprised: 1, Fcl_EYE_Spread: 0.5 },
+    brow_raise: [{ Fcl_BRW_Surprised: 1 },
         { browInnerUp: 1, browOuterUpLeft: 1, browOuterUpRight: 1 }, { "rx:surprised:upper": 1 }],
     brow_knit:  [{ Fcl_BRW_Angry: 1 }, { browDownLeft: 1, browDownRight: 1 }, { "rx:angry:upper": 1 }],
     eye_widen:  [{ Fcl_EYE_Spread: 1 }, { eyeWideLeft: 1, eyeWideRight: 1 }, { "rx:surprised:upper": 1 }],
@@ -112,12 +111,9 @@ const FACE_ACCENTS = {
         { "rx:relaxed:mouth": 1 }],
     smirk:      [{ side: ["mouthSmileLeft", "mouthSmileRight"] }, { mouthSmileLeft: 1, mouthSmileRight: 1 },
         { "rx:relaxed:mouth": 1 }],
-    // The huffy pout was the weakest shape in the set: its VRoid fallback is
-    // the mouth half of Fcl_ALL_Angry, which moves 0.25 cm — next to nothing.
-    // Fcl_MTH_Down is the authored corners-down mouth at 1.70 cm, taken here
-    // at the share that makes a pout read exactly as strongly as a smile and
-    // no more (0.57 / 1.70).
-    pout:       [{ Fcl_MTH_Down: 0.35 }, { mouthPucker: 1, cheekPuff: 1 }, { "rx:angry:mouth": 1 }],
+    // The huffy pout: VRoid's own angry mouth, the closed downturned "へ"
+    // its author drew (what the angry expression's mouth half is made of).
+    pout:       [{ Fcl_MTH_Angry: 1 }, { mouthPucker: 1, cheekPuff: 1 }, { "rx:angry:mouth": 1 }],
     // The anime smiling eye (^^) and its brow, as authored. Again the same
     // strength as the half they replace — `happy` binds Fcl_ALL_Joy, and
     // both it and Fcl_EYE_Joy peak at 1.25 cm.
@@ -138,6 +134,54 @@ const FACE_ACCENTS = {
         "tere", "cheek", "Cheek", "cheeks", "Cheeks"] },
     { Blush: 1 }, { blush: 1 }, { 照れ: 1 }, { 赤面: 1 }],
 };
+// Per-look tuning (the avatar editor's Tune face): a strength per channel,
+// 1 = the numbers above on the shapes the model's author drew, and per
+// own-emotion expression (`emotion:<state>`, set_emotion's cap). Models
+// that share VRoid's shape names do not share their sizes — the same
+// smile is 0.46 cm on one and 2.18 cm on another — so a heavily sculpted
+// model can come out grotesque where the weights read right on another.
+// `ref` is a typical VRoid model's size for each channel at full weight, in
+// metres (the eyes' turn in degrees): the median over 11 distinct VRoid
+// characters (Ara, Eve, Leo, Marin, Miles, Ochako, Chika, Kaguya, Makima,
+// Saber, Riko; halves measured through face_regions' split). Auto-tune
+// scales a model bigger than typical down to it, never up — a small one
+// is as its author drew it.
+export const FACE_TUNING = [
+    { group: "Brows", channels: [
+        { id: "brow_raise", label: "Raised", ref: 0.0103 },
+        { id: "brow_knit", label: "Knitted", ref: 0.0164 },
+        { id: "brow_sad", label: "Worried", ref: 0.0151 },
+    ] },
+    { group: "Eyes", channels: [
+        { id: "eye_widen", label: "Widened", ref: 0.0053 },
+        { id: "happy:upper", label: "Smiling eyes", ref: 0.0148 },
+        { id: "relaxed:upper", label: "Soft eyes", ref: 0.0109 },
+        { id: "sad:upper", label: "Sad eyes", ref: 0.0151 },
+        { id: "angry:upper", label: "Angry eyes", ref: 0.0164 },
+        { id: "wink", label: "Wink", ref: 0.0167 },
+        // Not a shape: how far the eyes turn (glances, saccades), on the
+        // look-at ranges the model's author set — degrees, not metres.
+        { id: "gaze", label: "Eye movement", ref: 12, unit: "deg" },
+    ] },
+    { group: "Mouth", channels: [
+        { id: "smile", label: "Smile", ref: 0.0115 },
+        { id: "smirk", label: "Smirk", ref: 0.0115 },
+        { id: "pout", label: "Pout", ref: 0.0055 },
+        { id: "happy:mouth", label: "Grin", ref: 0.0159 },
+        { id: "sad:mouth", label: "Sad mouth", ref: 0.0123 },
+        { id: "angry:mouth", label: "Angry mouth", ref: 0.0055 },
+        { id: "surprised:mouth", label: "Shocked mouth", ref: 0.0200 },
+        { id: "blush", label: "Blush" },
+    ] },
+    { group: "Their own emotions (set_emotion)", channels: [
+        { id: "emotion:happy", label: "Happy", ref: 0.0159 },
+        { id: "emotion:relaxed", label: "Relaxed", ref: 0.0115 },
+        { id: "emotion:sad", label: "Sad", ref: 0.0151 },
+        { id: "emotion:angry", label: "Angry", ref: 0.0164 },
+        { id: "emotion:surprised", label: "Surprised", ref: 0.0200 },
+    ] },
+];
+
 // Which written shapes belong to the mouth (they give way to the lip-sync)
 // and which CLOSE the eyes (a blink gives way to them, VRM's overrideBlink
 // "blend" rule). Only the closing ones: a raised brow or widened eyes lift
@@ -890,6 +934,56 @@ export class FaceMotion {
      *  expression falls back to the whole preset, upper halves only. Null
      *  when the rig can't show it. */
     _channel(rig, name, w) {
+        this._recording?.add(name);
+        const got = this._resolve(rig, name, w * this.r.faceTuning(name));
+        // A shape can also be tuned on its own (`shape:<morph>`), for a
+        // channel made of several (the smiling eyes: eye and brow shapes).
+        if (got) {
+            for (const m of Object.keys(got.shapes)) {
+                this._recording?.add(`shape:${m}`);
+                got.shapes[m] *= this.r.faceTuning(`shape:${m}`);
+            }
+        }
+        return got;
+    }
+
+    /** The tuning channels and shapes `fn` plays, as it plays them. */
+    record(fn) {
+        const seen = (this._recording = new Set());
+        try {
+            fn();
+        } finally {
+            this._recording = null;
+        }
+        return seen;
+    }
+
+    /** The morphs the tunable channels write on this model (not the split
+     *  expression halves, which are channels themselves): [{ id:
+     *  "shape:<morph>", morph, size, channels }], for tuning one shape of
+     *  a channel made of several. */
+    tuningShapes() {
+        const rig = this._rigFor();
+        const found = new Map();
+        for (const { channels } of FACE_TUNING) {
+            for (const { id } of channels) {
+                if (id === "gaze" || id.startsWith("emotion:")) continue;
+                const opts = FACE_ACCENTS[id];
+                const got = this._resolve(rig, id, 1);
+                // Both sides of a one-sided option, not just the one drawn.
+                const side = opts?.find((o) => o.side && o.side.every((m) => rig.morphs[m]))?.side;
+                for (const m of side || Object.keys(got?.shapes || {})) {
+                    if (m.startsWith("rx:")) continue;
+                    if (!found.has(m)) found.set(m, { id: `shape:${m}`, morph: m, size: this._shapesSize(rig, { [m]: 1 }), channels: [] });
+                    found.get(m).channels.push(id);
+                }
+            }
+        }
+        return [...found.values()];
+    }
+
+    /** `_channel` before the look's tuning. */
+    _resolve(rig, name, w) {
         const options = FACE_ACCENTS[name] || [{ [`rx:${name}`]: 1 }];
         for (const opt of options) {
             if (opt.side) {
@@ -911,6 +1005,95 @@ export class FaceMotion {
             return { shapes: {}, presets: { [this.emotions[preset].name]: w } };
         }
         return null;
+    }
+
+    /** Each tunable channel's size on this model at full weight (metres),
+     *  as the director would play it — the option the rig takes, before
+     *  tuning — or null where the model can't show it. For auto-tune and
+     *  the tuning dialog. */
+    tuningSizes() {
+        const rig = this._rigFor();
+        const vrm = this.r.vrm;
+        const out = {};
+        for (const { channels } of FACE_TUNING) {
+            for (const { id } of channels) {
+                const [kind, state] = id.split(":");
+                if (kind === "emotion") {
+                    const name = this.emotions[state]?.name;
+                    out[id] = name && vrm?.expressionManager?.getExpression?.(name)
+                        ? expressionSize(vrm, name) : null;
+                    continue;
+                }
+                if (id === "gaze") {
+                    out[id] = this.r.eyeRange();
+                    continue;
+                }
+                const got = this._resolve(rig, id, 1);
+                if (!got) {
+                    out[id] = null;
+                } else if (Object.keys(got.shapes).length) {
+                    out[id] = this._shapesSize(rig, got.shapes);
+                } else {
+                    const preset = Object.keys(got.presets)[0];
+                    out[id] = preset ? expressionSize(vrm, preset) : null;
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Largest vertex displacement of morphs written together at weights
+     *  {morph: k}: summed per shared vertex buffer, like the GPU does. */
+    _shapesSize(rig, shapes) {
+        const sums = new Map();
+        for (const [m, k] of Object.entries(shapes)) {
+            const seen = new Set();
+            for (const [mesh, idx] of rig.morphs[m] || []) {
+                const g = mesh.geometry;
+                const attr = g?.morphAttributes?.position?.[idx];
+                if (!attr || seen.has(attr)) continue;
+                seen.add(attr);
+                const key = g.attributes.position;
+                let d = sums.get(key);
+                if (!d) sums.set(key, (d = new Float32Array(attr.count * 3)));
+                for (let i = 0; i < attr.count; i++) {
+                    d[i * 3] += k * attr.getX(i);
+                    d[i * 3 + 1] += k * attr.getY(i);
+                    d[i * 3 + 2] += k * attr.getZ(i);
+                }
+            }
+        }
+        let max = 0;
+        for (const d of sums.values()) {
+            for (let i = 0; i < d.length; i += 3) max = Math.max(max, Math.hypot(d[i], d[i + 1], d[i + 2]));
+        }
+        return max;
+    }
+
+    /** The tuning dialog: one channel alone at full strength (its tuning
+     *  applied) for a couple of seconds, over whatever else is showing. */
+    previewChannel(id) {
+        const [kind, state] = id.split(":");
+        if (kind === "emotion") {
+            this.r.setEmotion(state);
+            return;
+        }
+        const now = performance.now() / 1000;
+        const timing = { start: now, rise: 0.15, hold: 1.6, fall: 0.3, burst: false };
+        if (id === "gaze") {
+            // A full glance to one side and back; the range tuning applies.
+            this.items.push({ shapes: {}, presets: {}, gaze: { x: side() * GAZE_AMP, y: 0 }, ...timing });
+            return;
+        }
+        if (kind === "shape") {
+            const m = id.slice(6);
+            this.items.push({ shapes: { [m]: this.r.faceTuning(id) }, presets: {}, ...timing });
+            return;
+        }
+        const rig = this._rigFor();
+        const got = this._channel(rig, id, 1);
+        if (!got) return;
+        this.items.push({ ...got, ...timing });
     }
 
     /** The avatar's face morphs, found once per VRM: name → [[mesh, index]]

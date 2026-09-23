@@ -1099,6 +1099,11 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN delegate_max_turns INTEGER NOT NULL DEFAULT 10",
     "ALTER TABLE config ADD COLUMN summary_max_words INTEGER NOT NULL DEFAULT 2000",
     "ALTER TABLE config ADD COLUMN summary_consolidate_words INTEGER NOT NULL DEFAULT 8000",
+    # Per-look face tuning (JSON {channel: strength}) from the pack
+    # manifest's `face_tuning` — the main look's on avatars, each outfit's
+    # on its row. NULL = the face director's own numbers.
+    "ALTER TABLE avatars ADD COLUMN face_tuning TEXT",
+    "ALTER TABLE avatar_outfits ADD COLUMN face_tuning TEXT",
 )
 
 

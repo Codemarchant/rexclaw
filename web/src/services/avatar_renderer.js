@@ -89,6 +89,11 @@ const FACE_LOWER_OFFSET = 0.18;
 // inside the mesh. Picked from the previous fixed values for continuity.
 const FACE_MIN_DISTANCE = 1.2;
 const FULL_MIN_DISTANCE = 2.5;
+// The face tuning close-up (setCloseUp): this much height in frame around
+// the eyes, brow to chin with a margin (design value), and how near the
+// orbit may then zoom in.
+const CLOSE_UP_HEIGHT = 0.3;
+const CLOSE_UP_MIN_DISTANCE = 0.3;
 
 // Background presets for the avatar canvas. Keys MUST match the
 // `preset_style` Selection on rexclaw.voice.avatar.background
@@ -410,6 +415,57 @@ function easeInOutCubic(t) {
     return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
+// VRoid Studio's face mesh: its 57 shapes, always in this order (every
+// named VRoid export checked agrees), and the slots of the expressions
+// every VRoid face binds, which identify one whose names were lost.
+const VROID_FACE_SHAPES = [
+    "Fcl_ALL_Neutral", "Fcl_ALL_Angry", "Fcl_ALL_Fun", "Fcl_ALL_Joy", "Fcl_ALL_Sorrow",
+    "Fcl_ALL_Surprised", "Fcl_BRW_Angry", "Fcl_BRW_Fun", "Fcl_BRW_Joy", "Fcl_BRW_Sorrow",
+    "Fcl_BRW_Surprised", "Fcl_EYE_Natural", "Fcl_EYE_Angry", "Fcl_EYE_Close", "Fcl_EYE_Close_R",
+    "Fcl_EYE_Close_L", "Fcl_EYE_Fun", "Fcl_EYE_Joy", "Fcl_EYE_Joy_R", "Fcl_EYE_Joy_L",
+    "Fcl_EYE_Sorrow", "Fcl_EYE_Surprised", "Fcl_EYE_Spread", "Fcl_EYE_Iris_Hide",
+    "Fcl_EYE_Highlight_Hide", "Fcl_MTH_Close", "Fcl_MTH_Up", "Fcl_MTH_Down", "Fcl_MTH_Angry",
+    "Fcl_MTH_Small", "Fcl_MTH_Large", "Fcl_MTH_Neutral", "Fcl_MTH_Fun", "Fcl_MTH_Joy",
+    "Fcl_MTH_Sorrow", "Fcl_MTH_Surprised", "Fcl_MTH_SkinFung", "Fcl_MTH_SkinFung_R",
+    "Fcl_MTH_SkinFung_L", "Fcl_MTH_A", "Fcl_MTH_I", "Fcl_MTH_U", "Fcl_MTH_E", "Fcl_MTH_O",
+    "Fcl_HA_Hide", "Fcl_HA_Fung1", "Fcl_HA_Fung1_Low", "Fcl_HA_Fung1_Up", "Fcl_HA_Fung2",
+    "Fcl_HA_Fung2_Low", "Fcl_HA_Fung2_Up", "Fcl_HA_Fung3", "Fcl_HA_Fung3_Up", "Fcl_HA_Fung3_Low",
+    "Fcl_HA_Short", "Fcl_HA_Short_Up", "Fcl_HA_Short_Low",
+];
+const VROID_FACE_SLOTS = { blink: 13, blink_l: 15, blink_r: 14, a: 39, i: 40, u: 41, e: 42, o: 43,
+    angry: 1, fun: 2, joy: 3, sorrow: 4 };
+
+// Morph target names three.js's glTF loader misses, which the face
+// director needs: it finds shapes by name (Fcl_BRW_Surprised, …), and a
+// face known by index alone has none of them. Two ways a model ends up so:
+// its exporter wrote the names on each primitive (older UniVRM:
+// primitives[i].extras.targetNames) and the loader reads only the mesh's;
+// or a re-export replaced them with numbers ("0", "1", …). The second is
+// only named when it is plainly a VRoid face — 57 shapes, and the model's
+// own blink / vowel / emotion expressions bound to VRoid's slots.
+function nameMorphTargets(gltf) {
+    const json = gltf.parser?.json;
+    const assoc = gltf.parser?.associations;
+    if (!json || !assoc) return;
+    const groups = json.extensions?.VRM?.blendShapeMaster?.blendShapeGroups || [];
+    const vroidFace = (mesh) => Object.entries(VROID_FACE_SLOTS).every(([preset, slot]) =>
+        groups.find((g) => g.presetName === preset)?.binds?.some((b) => b.mesh === mesh && b.index === slot));
+    const named = (list) => Array.isArray(list) && list.some((n) => !/^\d+$/.test(String(n)));
+    gltf.scene.traverse((o) => {
+        if (!o.morphTargetInfluences || !o.morphTargetDictionary) return;
+        const a = assoc.get(o);
+        const def = a && json.meshes?.[a.meshes];
+        if (!def || named(def.extras?.targetNames)) return;
+        let names = def.primitives?.[a.primitives ?? 0]?.extras?.targetNames;
+        if (!named(names)) {
+            if (o.morphTargetInfluences.length !== VROID_FACE_SHAPES.length || !vroidFace(a.meshes)) return;
+            names = VROID_FACE_SHAPES;
+        }
+        if (names.length !== o.morphTargetInfluences.length) return;
+        names.forEach((n, i) => { if (!(n in o.morphTargetDictionary)) o.morphTargetDictionary[n] = i; });
+    });
+}
+
 // Emotion definitions. `cap` is the peak weight for the primary expression —
 // kept below 1.0 because full-weight VRoid expressions read as "too raw" /
 // over-smiley. `secondary` couples a subtle mouth shape into the emotion so
@@ -629,6 +685,8 @@ class AvatarRenderer {
         this._emotionDecayTimer = null;      // pending settle-toward-neutral (see setEmotion)
         // Face director's face and head (face_motion.js), base avatar only.
         this._face = new FaceMotion(this, EMOTION_STATES);
+        this._faceTuningPreview = null;   // the tuning dialog's live values (faceTuning)
+        this._closeUp = false;            // the tuning dialog's face close-up (setCloseUp)
         this._rawSpeakingIntensity = 0;   // set by setSpeakingIntensity()
         this._speakingIntensity = 0;      // smoothed for animation
         this._fullBody = false;           // false = face shot, true = full-body + orbit
@@ -834,6 +892,7 @@ class AvatarRenderer {
         loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
         const gltf = await loader.loadAsync(url);
+        nameMorphTargets(gltf);
 
         // A newer loadVRM() started while we were awaiting. Dispose our
         // freshly-loaded gltf and bail without touching the live scene —
@@ -4401,6 +4460,16 @@ class AvatarRenderer {
             };
         }
 
+        // Close-up for face tuning: the face alone, centred just under the
+        // eyes (the eye bone where the rig has one).
+        if (this._closeUp) {
+            const eye = this.vrm?.humanoid?.getRawBoneNode?.("leftEye");
+            const eyeY = eye ? eye.getWorldPosition(new this.libs.THREE.Vector3()).y : headY + 0.06;
+            const y = eyeY - 0.03;
+            const distance = CLOSE_UP_HEIGHT / (2 * Math.tan((FACE_FOV * Math.PI) / 360));
+            return { position: [ax, y, az + distance], target: [ax, y, az], fov: FACE_FOV };
+        }
+
         // Face shot: from a bit below the head bone (so upper chest is
         // visible, not a floating head) up to the top of the mesh.
         const frameBottom = headY - FACE_LOWER_OFFSET;
@@ -4467,7 +4536,7 @@ class AvatarRenderer {
         controls.target.set(...preset.target);
         controls.enableDamping = true;
         controls.dampingFactor = 0.08;
-        controls.minDistance = 1.2;
+        controls.minDistance = this._closeUp ? CLOSE_UP_MIN_DISTANCE : 1.2;
         controls.maxDistance = 6.0;
         // Don't let user flip below the floor or look straight up.
         controls.minPolarAngle = Math.PI * 0.1;
@@ -5108,7 +5177,11 @@ class AvatarRenderer {
             const exprName = EMOTION_STATES[key].name;
             if (exprName) targets[exprName] = 0;
         }
-        if (state.name) targets[state.name] = state.cap;
+        // The base avatar's look may tune its own expressions down or up.
+        if (state.name) {
+            targets[state.name] = Math.min(1, state.cap
+                * (actor === this ? this.faceTuning(`emotion:${actor._currentEmotion}`) : 1));
+        }
 
         // Capture the starting weights once per transition so the ease runs
         // from whatever was actually on the face.
@@ -5193,6 +5266,73 @@ class AvatarRenderer {
 
     setFaceListening(on) {
         this._face.listening(on);
+    }
+
+    /** The loaded look's strength for a face channel or an own-emotion
+     *  expression (`emotion:<state>`) — face_motion.js FACE_TUNING. The
+     *  tuning dialog's live values win while it is open; otherwise the
+     *  avatar payload's entry for the VRM on screen. 1 = as rigged. */
+    faceTuning(id) {
+        const t = this._faceTuningPreview
+            || this._currentAvatarPayload?.outfits?.find((o) => o.vrm_url === this._loadedVrmUrl)?.face_tuning;
+        const v = t?.[id];
+        return Number.isFinite(v) && v >= 0 ? v : 1;
+    }
+
+    /** The tuning dialog: its values while it is open, null to go back to
+     *  the saved ones. */
+    setFaceTuningPreview(tuning) {
+        this._faceTuningPreview = tuning || null;
+    }
+
+    faceTuningSizes() {
+        return this.vrm ? this._face.tuningSizes() : {};
+    }
+
+    faceTuningShapes() {
+        return this.vrm ? this._face.tuningShapes() : [];
+    }
+
+    /** The tuning channels `fn` plays (a face reaction or a preview). */
+    recordFaceChannels(fn) {
+        return this._face.record(fn);
+    }
+
+    /** The face tuning close-up on (the face fills the frame) or off. */
+    setCloseUp(on) {
+        this._closeUp = !!on;
+        if (this._orbitControls) this._orbitControls.minDistance = on ? CLOSE_UP_MIN_DISTANCE : 1.2;
+        this._applyCameraPreset();
+    }
+
+    /** The look-at's four range maps (inner/outer/down/up): how far, in
+     *  degrees, the model's author lets the eyes turn. [] without a look-at. */
+    _eyeRangeMaps() {
+        const a = this.vrm?.lookAt?.applier;
+        return a ? [a.rangeMapHorizontalInner, a.rangeMapHorizontalOuter,
+            a.rangeMapVerticalDown, a.rangeMapVerticalUp].filter(Boolean) : [];
+    }
+
+    /** The look's eye movement tuning (`gaze`), on the author's ranges. VRM
+     *  eyes are usually flat, turned about a pivot near the face surface:
+     *  one model allows 1° and another 12°, and at 12° the iris sinks into
+     *  the socket and looks like it shrinks. */
+    _applyEyeRange() {
+        const k = this.faceTuning("gaze");
+        for (const m of this._eyeRangeMaps()) {
+            m._rxAuthored ??= m.outputScale;
+            m.outputScale = m._rxAuthored * k;
+        }
+    }
+
+    /** The widest turn the author allows, in degrees, or null. */
+    eyeRange() {
+        const maps = this._eyeRangeMaps();
+        return maps.length ? Math.max(...maps.map((m) => m._rxAuthored ?? m.outputScale)) : null;
+    }
+
+    previewFaceChannel(id) {
+        if (this.vrm) this._face.previewChannel(id);
     }
 
     /** Mascot cursor follow: feed one window-relative cursor sample (CSS px),
@@ -5374,6 +5514,7 @@ class AvatarRenderer {
             this._applyBlink(this);
             this._applyBreath(this);
             this._applyEyeSaccade(delta);
+            this._applyEyeRange();
             this._applyVowels(this);
             this._applyEmotion(this, delta);
             // Last on the face: the resting mouth only fills what lipsync

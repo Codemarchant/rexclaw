@@ -147,12 +147,20 @@ def avatar_payload(con, avatar_id):
     ).fetchall()
 
     from . import portraits
+    # Face tuning belongs to the model, so it rides each look (the renderer
+    # picks the loaded VRM's). {} = the face director's own numbers.
+    def face_tuning(row):
+        try:
+            return json.loads(row['face_tuning'] or '{}')
+        except ValueError:
+            return {}
     outfits = [{
         'id': 0,
         'name': (av['main_outfit_name'] or '').strip() or MAIN_OUTFIT_FALLBACK_NAME,
         'vrm_url': av['vrm_path'],
         'is_default': True,
         'portrait_url': portraits.portrait_url(av['vrm_path']),
+        'face_tuning': face_tuning(av),
     }]
     for o in outfit_rows:
         if not o['vrm_path']:
@@ -163,6 +171,7 @@ def avatar_payload(con, avatar_id):
             'vrm_url': o['vrm_path'],
             'is_default': False,
             'portrait_url': portraits.portrait_url(o['vrm_path']),
+            'face_tuning': face_tuning(o),
         })
     backgrounds = [background_payload(b) for b in bg_rows]
     default_bg = next((b for b in bg_rows if b['is_default']), None)

@@ -82,6 +82,18 @@ function expressionField(expr) {
     return out;
 }
 
+/** How far the expression `name` moves the face at full weight: its
+ *  largest vertex displacement, in the mesh's units (metres), or 0. */
+export function expressionSize(vrm, name) {
+    let max = 0;
+    for (const e of expressionField(findExpression(vrm?.expressionManager || {}, name)).values()) {
+        for (let i = 0; i < e.pos.count; i++) {
+            max = Math.max(max, Math.hypot(e.delta[i * 3], e.delta[i * 3 + 1], e.delta[i * 3 + 2]));
+        }
+    }
+    return max;
+}
+
 /** World-space position of vertex i of an entry (bind pose). */
 function worldOf(e, i, THREE, v) {
     const mesh = e.meshes.values().next().value;

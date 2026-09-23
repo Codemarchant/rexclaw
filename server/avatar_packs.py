@@ -27,8 +27,12 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
       "restrict_base_gestures": true,    // optional; default false — with true, only
       "base_gestures": "greeting,goodbye",  // these built-in play_gesture ids are
                                          // offered (empty list = built-ins off)
+      "face_tuning": {"smile": 0.4},     // optional; per-look strength of the
+                                         // face director's channels and the
+                                         // own-emotion expressions (1 = as rigged)
       "outfits": [
-        {"name": "Winter", "vrm": "kira_winter.vrm", "description": "…"}
+        {"name": "Winter", "vrm": "kira_winter.vrm", "description": "…",
+         "face_tuning": {}}              // optional; the outfit model's own
       ],
       "gestures": [
         {"enum": "wave_hello", "vrma": "wave.vrma", "description": "…",
@@ -148,6 +152,22 @@ def _text_or_none(value):
     return (str(value).strip() or None) if isinstance(value, str) else None
 
 
+def _face_tuning(value):
+    """A look's `face_tuning` ({channel: strength}, 0-2, 1 = as rigged) →
+    the JSON stored on its row, or None when there is nothing to change."""
+    if not isinstance(value, dict):
+        return None
+    out = {}
+    for k, v in value.items():
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(k, str) and v >= 0 and v != 1:
+            out[k] = round(min(v, 2.0), 3)
+    return json.dumps(out, sort_keys=True) if out else None
+
+
 def _id_list(value):
     """Manifest id list (JSON array or comma-separated string) → the
     normalised comma-separated form stored in the DB, or None when empty."""
@@ -182,24 +202,25 @@ def _upsert_avatar(con, pack_key, vals):
             " vrm_path = ?, vrma_idle_path = ?, emotion_decay = ?, fidgets = ?,"
             " fidget_interval = ?, restrict_base_gestures = ?, base_gestures = ?,"
             " physical_description = ?, main_outfit_name = ?, main_outfit_description = ?,"
-            " active = 1 WHERE id = ?",
+            " face_tuning = ?, active = 1 WHERE id = ?",
             (pack_key, vals["name"], vals["description"], vals["sequence"],
              vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
              vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
              vals["base_gestures"], vals["physical_description"],
-             vals["main_outfit_name"], vals["main_outfit_description"], row["id"]),
+             vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
+             row["id"]),
         )
         return row["id"]
     cur = con.execute(
         "INSERT INTO avatars (pack_key, name, description, sequence, vrm_path, vrma_idle_path,"
         " emotion_decay, fidgets, fidget_interval, restrict_base_gestures, base_gestures,"
-        " physical_description, main_outfit_name, main_outfit_description"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " physical_description, main_outfit_name, main_outfit_description, face_tuning"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (pack_key, vals["name"], vals["description"], vals["sequence"],
          vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
          vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
          vals["base_gestures"], vals["physical_description"],
-         vals["main_outfit_name"], vals["main_outfit_description"]),
+         vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"]),
     )
     return cur.lastrowid
 
@@ -239,6 +260,7 @@ def _scan_pack(con, pack_dir, url_root):
         "physical_description": _text_or_none(manifest.get("physical_description")),
         "main_outfit_name": _text_or_none(manifest.get("main_outfit_name")),
         "main_outfit_description": _text_or_none(manifest.get("main_outfit_description")),
+        "face_tuning": _face_tuning(manifest.get("face_tuning")),
     })
 
     # Children are replaced wholesale — manifest is the source of truth.
@@ -253,10 +275,10 @@ def _scan_pack(con, pack_dir, url_root):
         if not path:
             continue
         con.execute(
-            "INSERT INTO avatar_outfits (avatar_id, name, sequence, vrm_path, outfit_description)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO avatar_outfits (avatar_id, name, sequence, vrm_path, outfit_description,"
+            " face_tuning) VALUES (?, ?, ?, ?, ?, ?)",
             (avatar_id, str(o.get("name") or f"Outfit {i + 1}"), (i + 1) * 10,
-             path, o.get("description") or None),
+             path, o.get("description") or None, _face_tuning(o.get("face_tuning"))),
         )
 
     seen_enums = set()
