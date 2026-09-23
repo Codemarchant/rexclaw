@@ -359,6 +359,12 @@ export const JA = {
   "Voice summarization threshold (tokens)": "音声の要約しきい値（トークン）",
   "Text summarization threshold (tokens)": "テキストの要約しきい値（トークン）",
   "Recent turns kept verbatim": "そのまま残す直近ターン数",
+  "Summary word limit (low)": "要約の語数（下限）",
+  "When a summary passes the high limit, it is rewritten down to about this many words, relationship milestones first. 0 = off (summaries keep growing).":
+    "要約が上限を超えたら、関係の節目を優先してこの語数程度まで書き直します。0 = オフ（要約は増え続けます）。",
+  "Summary word limit (high)": "要約の語数（上限）",
+  "Below this, new conversation is added to the summary and older text is left as it is. Above it, the summary is rewritten down to the low limit.":
+    "この語数までは新しい会話を要約に追記し、既存の文章はそのまま残します。超えたら下限まで書き直します。",
   "A companion can only hold so much of a conversation in mind at once, so long ones are condensed as they go. Once a conversation has exceeded summarization threshold tokens since its last summary, the older part is boiled down into a short recap and carried forward in its place, while the most recent turns are kept word for word. Your companion keeps the gist of everything that came before, and the immediate thread stays sharp. Mid-call this happens during a natural pause, so it never interrupts you. Long-term memory and the full transcript stay accessible either way — condensed conversations are stored as episodes your companion can look up again with its recall tool.":
     "コンパニオンが一度に把握できる会話量には限りがあるため、長い会話は進行に合わせて圧縮されます。前回の要約以降、会話が要約しきい値のトークン数を超えると、古い部分は短い要約にまとめられてその代わりに引き継がれ、直近のやり取りはそのままの言葉で保持されます。これにより、コンパニオンはそれまでの流れの要点を保ちつつ、目の前の話題を鮮明に把握できます。通話中は会話の自然な区切りで実行されるため、話の邪魔になることはありません。長期記憶と全文の記録はいずれの場合もアクセス可能です — 圧縮された会話はエピソードとして保存され、コンパニオンは recall ツールで再び参照できます。",
   "How many of the newest messages are left out of the recap and carried forward word for word.":
@@ -777,6 +783,12 @@ export const JA = {
     "高速テキストモデル（委任ツール）",
   "Quicker, shallower text model that delegate_task can pick with model='fast' for looking at images, screenshots and clips or reading short documents. Empty = same as the Text model.":
     "delegate_task が model='fast' で選べる、より速く浅いテキストモデルです。画像やスクリーンショット、クリップの確認、短い文書の読み取りに使います。空欄 = テキストモデルと同じ。",
+  "Max search rounds (text)": "最大検索ラウンド数（テキスト）",
+  "Caps web/X search and code rounds per text reply. Each round re-reads the whole chat. xAI suggests 3-5. 0 = no cap.":
+    "テキスト返信 1 回あたりの Web / X 検索とコード実行のラウンド数の上限です。ラウンドごとに会話全体を読み直します。xAI の推奨は 3〜5。0 = 上限なし。",
+  "Max search rounds (multi-agent)": "最大検索ラウンド数（マルチエージェント）",
+  "Same cap for multi-agent research. xAI suggests 10+. 0 = no cap.":
+    "マルチエージェント調査の同じ上限です。xAI の推奨は 10 以上。0 = 上限なし。",
   "Manage keys, usage and custom voices in the":
     "API キー、使用量、カスタムボイスの管理は",
   "xAI console":

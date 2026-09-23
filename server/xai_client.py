@@ -601,6 +601,109 @@ SUMMARY_INSTRUCTIONS = (
     'it later as context. Begin your output with "Conversation summary so far:".'
 )
 
+# Replaces SUMMARY_INSTRUCTIONS when config.summary_max_words is set: the
+# periodic consolidation (see generate_session_summary). The default
+# prompt's "superset" rule means a rolling summary can only grow (Eve
+# reached ~99k chars). This one holds a word budget in the PROMPT, as Letta
+# (300/500 words) and SillyTavern (200, max 1000) do — a hard
+# max_output_tokens would cut the newest events off mid-sentence.
+# Milestones are the part that survives: episodes keep the full transcripts.
+SUMMARY_BUDGET_INSTRUCTIONS = (
+    'You are a summarization service for an ongoing companion relationship '
+    'conversation. Your ONLY task is to produce a summary of the transcript the '
+    'user supplies. You are NOT participating in the conversation, NOT taking a '
+    'turn as the assistant, and NOT answering any questions present in the '
+    'transcript. Echoing or rephrasing the latest assistant message is incorrect '
+    'output.\n\n'
+    'The user message will contain a transcript wrapped in BEGIN TRANSCRIPT / '
+    'END TRANSCRIPT markers. It may begin with a "[Prior summary]" block - that '
+    'text stands in for earlier conversation you can no longer see, so treat it '
+    'as established fact and fold the newer turns into it as one updated '
+    'summary. It may end with dated "Update" blocks added since its last full '
+    'rewrite: fold their new milestones into the milestone list, and treat the '
+    'latest block\'s "Where things stand now" as current.\n\n'
+    'LENGTH: the whole summary must stay under {words} words. This is a hard '
+    'budget, not a target to fill - a short history needs fewer. Full '
+    'transcripts of past conversations are archived separately and can be '
+    'looked up again, so this summary does not need to hold everything: it '
+    'holds what the companion must always have in mind.\n\n'
+    'Write these three sections, in this order:\n\n'
+    'Relationship milestones:\n'
+    'A dated list, oldest first, one short line each, of the first times and '
+    'turning points in the relationship: the first time something new happened '
+    'between them (a first date, confession, kiss, first intimacy of each new '
+    'kind, first "I love you", first fight and its resolution), a new person or '
+    'companion becoming part of their relationship, commitments, promises, '
+    'gifts and names given, and lasting changes in how they relate. Only '
+    'firsts and turning points belong here: an ordinary day, a repeat of '
+    'something that already has a milestone, or the latest exchange is not a '
+    'milestone - it goes under "Where things stand". Carry every milestone '
+    'from the prior summary forward - never drop one, only shorten its '
+    'wording. If this list alone grows past half the word budget, merge the '
+    'oldest milestones of the same kind into one line (for example several '
+    'early dates into one) rather than removing any. Use the dates or '
+    'relative times the transcript gives.\n\n'
+    'Where things stand:\n'
+    'The relationship as it is now, the user\'s current situation, and every '
+    'open thread: unresolved tensions, unanswered questions, plans and promises '
+    'either side made that are still pending. Keep these specific - names, '
+    'numbers, what exactly was agreed.\n\n'
+    'Story so far:\n'
+    'The arc of what has happened, in the space that is left. Compress the '
+    'oldest events hardest and keep recent ones in more detail. Merge recurring '
+    'routines and repeated scenes into one line instead of retelling each one. '
+    'Drop small talk, pleasantries and moment-to-moment scene detail.\n\n'
+    'If everything will not fit, shorten the story first, then where things '
+    'stand; milestones go last.\n\n'
+    'Leave out tool calls and their results unless they mattered to the '
+    'relationship, and never copy "[Tool call]" / "[Tool result]" markers or '
+    'XML tags. Output plain '
+    'text in third-person past tense, written in the same language the '
+    'conversation was conducted in. Begin your output with "Conversation '
+    'summary so far:".'
+)
+
+# The compactions between consolidations: summarise ONLY the turns after the
+# prior summary, which is appended to verbatim. Never re-summarising older
+# text is what stops it eroding pass after pass (qvink's SillyTavern memory:
+# "summaries don't degrade over time" when they are never re-summarised).
+SUMMARY_UPDATE_INSTRUCTIONS = (
+    'You are a summarization service for an ongoing companion relationship '
+    'conversation. You are NOT participating in the conversation, NOT taking a '
+    'turn as the assistant, and NOT answering any questions present in the '
+    'transcript.\n\n'
+    'The user message will contain a transcript wrapped in BEGIN TRANSCRIPT / '
+    'END TRANSCRIPT markers. It may begin with a "[Prior summary]" block. That '
+    'block is already saved and will be kept word for word: read it only as '
+    'context for names and history, and do NOT repeat, rewrite or summarise '
+    'it. Summarise ONLY the turns that come after it, as an update that will '
+    'be appended below it.\n\n'
+    'Write these sections, in this order:\n\n'
+    'New milestones:\n'
+    'Only if this stretch had any: a dated line for each first time or turning '
+    'point in the relationship - the first time something new happened '
+    'between them (a first date, confession, kiss, first intimacy of each new '
+    'kind, first "I love you", first fight and its resolution), a new person '
+    'or companion becoming part of their relationship, commitments, promises, '
+    'gifts and names given, lasting changes in how they relate. Something the '
+    'prior summary already records is not new. Leave the section out when '
+    'there are none.\n\n'
+    'What happened:\n'
+    'The events of this stretch, briefly: decisions, named entities, numbers, '
+    'key relationship moments. Merge repeated '
+    'scenes into one line; drop small talk and moment-to-moment detail.\n\n'
+    'Where things stand now:\n'
+    'The relationship and the user\'s situation as of the end of this stretch, '
+    'and every open thread still pending - unresolved tensions, unanswered '
+    'questions, plans and promises either side made. Keep these specific.\n\n'
+    'Be as brief as the stretch allows. Leave out tool calls and their results '
+    'unless they mattered to the relationship, and never copy "[Tool call]" / '
+    '"[Tool result]" markers or XML tags. Output plain text in '
+    'third-person past tense, in '
+    'the same language the conversation was conducted in, starting directly '
+    'with the first section.'
+)
+
 
 def _extract_response_text(body):
     """Pull the assistant's plain text out of a /v1/responses body."""
@@ -970,7 +1073,7 @@ def generate_title(*, xai_api_key, responses_url, summary_model, transcript):
 
 
 def generate_summary(*, xai_api_key, responses_url, summary_model, transcript,
-                     reasoning_effort=None):
+                     reasoning_effort=None, max_words=0, update_only=False):
     """Compress a conversation transcript into a single rolled-up summary string.
 
     Wrapping the whole transcript inside one user message (rather than sending
@@ -997,7 +1100,9 @@ def generate_summary(*, xai_api_key, responses_url, summary_model, transcript,
                 ),
             }],
         }],
-        instructions=SUMMARY_INSTRUCTIONS,
+        instructions=(SUMMARY_UPDATE_INSTRUCTIONS if update_only
+                      else SUMMARY_BUDGET_INSTRUCTIONS.format(words=int(max_words))
+                      if max_words else SUMMARY_INSTRUCTIONS),
         tools=None,
         reasoning_effort=reasoning_effort,
         store=False,

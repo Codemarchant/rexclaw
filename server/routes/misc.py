@@ -55,7 +55,8 @@ _CONFIG_FIELDS = (
     "transcript_retention_days", "file_default_expiry_seconds",
     "speech_gestures", "idle_fidgets", "fidget_interval",
     "gesture_zoom_out", "face_director", "jev_model", "live_memory_mode",
-    "live_memory_cooldown_seconds",
+    "live_memory_cooldown_seconds", "text_max_turns", "delegate_max_turns",
+    "summary_max_words", "summary_consolidate_words",
 )
 
 _AGENT_FIELDS = (
@@ -118,6 +119,12 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
         seconds = updates['live_memory_cooldown_seconds']
         if type(seconds) is not int or not 0 <= seconds <= 3600:
             raise UserError('Live memory cooldown must be a whole number from 0 to 3600 seconds.')
+    for key in ('text_max_turns', 'delegate_max_turns'):
+        if key in updates and (type(updates[key]) is not int or not 0 <= updates[key] <= 100):
+            raise UserError('Max search rounds must be a whole number from 0 to 100.')
+    for key in ('summary_max_words', 'summary_consolidate_words'):
+        if key in updates and (type(updates[key]) is not int or not 0 <= updates[key] <= 100000):
+            raise UserError('Summary word counts must be whole numbers from 0 to 100000.')
     # API key arrives separately; empty string is ignored (no accidental
     # clearing from a masked field), the literal null clears it.
     if "xai_api_key" in payload:

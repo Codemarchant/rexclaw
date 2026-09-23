@@ -729,6 +729,22 @@ export default function SettingsView({ active }) {
                                    onChange={(ev) => setField("delegate_fast_model", ev.target.value)} />
                         </div>
                     </div>
+                    <div className="rx_row">
+                        <div>
+                            <label title={_t("Caps web/X search and code rounds per text reply. Each round re-reads the whole chat. xAI suggests 3-5. 0 = no cap.")}>
+                                {_t("Max search rounds (text)")}
+                            </label>
+                            <input type="number" min="0" max="100" value={config.text_max_turns ?? 3}
+                                   onChange={(ev) => setField("text_max_turns", ev.target.value === "" ? "" : Number(ev.target.value))} />
+                        </div>
+                        <div>
+                            <label title={_t("Same cap for multi-agent research. xAI suggests 10+. 0 = no cap.")}>
+                                {_t("Max search rounds (multi-agent)")}
+                            </label>
+                            <input type="number" min="0" max="100" value={config.delegate_max_turns ?? 10}
+                                   onChange={(ev) => setField("delegate_max_turns", ev.target.value === "" ? "" : Number(ev.target.value))} />
+                        </div>
+                    </div>
                     <div className="rx_model_actions">
                         <button className="btn btn-light" onClick={restoreSuggestedModels}
                                 title={_t("Fill every model field with the ids this version of Rexclaw ships with and is tested against. Save to apply.")}>
@@ -784,6 +800,20 @@ export default function SettingsView({ active }) {
                             </label>
                             <input type="number" min="0" value={config.summary_keep_recent_messages ?? 2}
                                    onChange={(ev) => setField("summary_keep_recent_messages", parseInt(ev.target.value, 10) || 0)} />
+                        </div>
+                        <div>
+                            <label title={_t("When a summary passes the high limit, it is rewritten down to about this many words, relationship milestones first. 0 = off (summaries keep growing).")}>
+                                {_t("Summary word limit (low)")}
+                            </label>
+                            <input type="number" min="0" max="100000" value={config.summary_max_words ?? 2000}
+                                   onChange={(ev) => setField("summary_max_words", ev.target.value === "" ? "" : Number(ev.target.value))} />
+                        </div>
+                        <div>
+                            <label title={_t("Below this, new conversation is added to the summary and older text is left as it is. Above it, the summary is rewritten down to the low limit.")}>
+                                {_t("Summary word limit (high)")}
+                            </label>
+                            <input type="number" min="0" max="100000" value={config.summary_consolidate_words ?? 8000}
+                                   onChange={(ev) => setField("summary_consolidate_words", ev.target.value === "" ? "" : Number(ev.target.value))} />
                         </div>
                         <div>
                             <label title={_t("Most-recent messages loaded into the transcript when a "

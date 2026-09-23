@@ -117,6 +117,16 @@ CREATE TABLE IF NOT EXISTS config (
     summary_threshold_tokens INTEGER NOT NULL DEFAULT 64000,
     summary_threshold_tokens_text INTEGER NOT NULL DEFAULT 1000000,
     summary_keep_recent_messages INTEGER NOT NULL DEFAULT 2,
+    -- Rolling-summary size (session_service.generate_session_summary).
+    -- Compactions append a dated chunk for the new turns without rewriting
+    -- the older text; once the summary passes summary_consolidate_words, one
+    -- pass rewrites it into sections under summary_max_words. Grow-then-
+    -- compress follows BooookScore's incremental method (rated more detailed
+    -- than re-merging, 83% vs 11%); the 4:1 ratio is Letta's message buffer
+    -- (60 -> 15). summary_max_words 0 = off: the original prompt, whose
+    -- summary carries everything forward on every pass and only grows.
+    summary_max_words INTEGER NOT NULL DEFAULT 2000,
+    summary_consolidate_words INTEGER NOT NULL DEFAULT 8000,
     -- After each compaction, run a second pass that distils durable facts +
     -- one conversation episode from the rolled-up block. Off saves one model
     -- call per compaction (only `remember`-tool memories are kept then).
@@ -189,6 +199,15 @@ CREATE TABLE IF NOT EXISTS config (
     jev_model TEXT NOT NULL DEFAULT 'jev-latest',
     live_memory_mode TEXT NOT NULL DEFAULT 'off', -- off | on
     live_memory_cooldown_seconds INTEGER NOT NULL DEFAULT 60,
+    -- max_turns sent on Responses calls that carry xAI server-side tools
+    -- (web/X search, code execution): caps rounds of xAI's own agent loop
+    -- inside ONE request — parallel calls share a round, and hitting the
+    -- cap still ends in a reply. Unset, xAI's server default let a single
+    -- companion-text reply loop ~17 min (51.8M cached tokens, ~$51 on
+    -- 2026-09-23). Defaults follow xAI's "When to Use max_turns" table:
+    -- 3 = balanced, 10 = deep research. 0 = omit (xAI's default).
+    text_max_turns INTEGER NOT NULL DEFAULT 3,
+    delegate_max_turns INTEGER NOT NULL DEFAULT 10,
     -- local_task working directory — the Grok Build CLI's blast-radius
     -- boundary. Empty = <data>/workspace (created on demand).
     local_task_workdir TEXT NOT NULL DEFAULT '',
@@ -1075,6 +1094,11 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN live_memory_cooldown_seconds INTEGER NOT NULL DEFAULT 60",
     "ALTER TABLE memories ADD COLUMN recall_revision INTEGER NOT NULL DEFAULT 0",
     # Which model picks a speech gesture (see the config schema comment).
+    # xAI agent-loop caps (see the config schema comment).
+    "ALTER TABLE config ADD COLUMN text_max_turns INTEGER NOT NULL DEFAULT 3",
+    "ALTER TABLE config ADD COLUMN delegate_max_turns INTEGER NOT NULL DEFAULT 10",
+    "ALTER TABLE config ADD COLUMN summary_max_words INTEGER NOT NULL DEFAULT 2000",
+    "ALTER TABLE config ADD COLUMN summary_consolidate_words INTEGER NOT NULL DEFAULT 8000",
 )
 
 

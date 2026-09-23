@@ -57,8 +57,9 @@ function markdownToSafeHtml(text) {
  *  `[next]` on its own line between them (see the text-mode Surface prompt
  *  in session_service). The reply is stored as ONE row with the tags in it —
  *  the model sees its own format on resume — and is split into bubbles only
- *  here. A reply without the tag is one bubble. */
-const NEXT_TAG_RE = /^[ \t]*\[next\][ \t]*$/im;
+ *  here. A reply without the tag is one bubble. The tag splits wherever it
+ *  lands — grok-4.7 sometimes writes it inline, mid-paragraph. */
+const NEXT_TAG_RE = /\s*\[next\]\s*/i;
 function splitBubbles(content) {
     const parts = (content || "").split(NEXT_TAG_RE).map((p) => p.trim()).filter(Boolean);
     return parts.length ? parts : [content || ""];

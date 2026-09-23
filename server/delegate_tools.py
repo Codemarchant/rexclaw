@@ -308,6 +308,7 @@ def _run_multi_agent_turn(con, svc, config, agent, task_session, task,
         tools=tools or None,
         reasoning_effort=config['multi_agent_effort'] or 'low',
         prompt_cache_key=f'rexclaw:{agent["id"]}',
+        max_turns=config['delegate_max_turns'] or None,
     )
     svc._accrue_text_usage(con, task_session, body.get('usage') or {})
     chunks = []

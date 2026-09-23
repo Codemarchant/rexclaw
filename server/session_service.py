@@ -1314,12 +1314,13 @@ def _strip_next_tags(text):
     """Text-mode replies may carry `[next]` bubble breaks on their own lines
     (see the text Surface prompt). Off the text surface — voice replay, the
     history block — the model would read or imitate them aloud, so fold
-    them into paragraph breaks. Text-mode replay keeps them on purpose."""
+    them into paragraph breaks. Text-mode replay keeps them on purpose.
+    Inline tags fold too — grok-4.7 sometimes writes them mid-paragraph."""
     import re
     if not text or '[next]' not in text.lower():
         return text
-    out = re.sub(r'^[ \t]*\[next\][ \t]*$', '', text, flags=re.IGNORECASE | re.MULTILINE)
-    return re.sub(r'\n{3,}', '\n\n', out).strip()
+    out = re.sub(r'\s*\[next\]\s*', '\n\n', text, flags=re.IGNORECASE)
+    return out.strip()
 
 
 def _replay_item_for(m, own_name):
@@ -1748,6 +1749,14 @@ def _truncate_for_summary(text):
     return text[:_SUMMARY_TOOL_FIELD_TRUNCATE] + f'… (truncated, {len(text)} chars total)'
 
 
+def _approx_words(text):
+    """Word count for the summary size check. CJK text has no spaces, so
+    count those characters at about two per word instead."""
+    import re
+    cjk = len(re.findall(r'[぀-ヿ㐀-鿿가-힯]', text or ''))
+    return len(re.sub(r'[぀-ヿ㐀-鿿가-힯]', ' ', text or '').split()) + cjk // 2
+
+
 # Per-process serialization for title generation + summary rollups (the Odoo
 # module used pg advisory locks / SELECT FOR UPDATE; a process lock gives the
 # same guarantee in a single-process server).
@@ -1960,14 +1969,31 @@ def generate_session_summary(con, session):
         _logger.info('Session %s summary: %d rows, %d chars (streamed)',
                      session['id'], len(to_summarize), len(transcript))
 
+        # With a word budget set, the summary grows then compresses: most
+        # compactions only APPEND a dated update for the new turns, leaving
+        # the older text untouched; once it passes summary_consolidate_words
+        # one pass rewrites the whole thing under summary_max_words (see
+        # the config schema comment for the sources).
+        max_words = config['summary_max_words'] or 0
+        update_only = bool(
+            max_words and prior_rollup
+            and _approx_words(prior_rollup['content'])
+            < (config['summary_consolidate_words'] or 0))
         summary_text, summary_usage = xai_client.generate_summary(
             xai_api_key=config['xai_api_key'],
             responses_url=config['xai_responses_url'],
             summary_model=config['summary_model'],
             transcript=transcript,
             reasoning_effort=None,
+            max_words=max_words,
+            update_only=update_only,
         )
         store.accrue_usd_ticks(con, store.extract_cost_ticks(summary_usage))
+        if update_only:
+            first, last = to_summarize[0]['created_at'] or '', to_summarize[-1]['created_at'] or ''
+            span = first[:10] if first[:10] == last[:10] else f'{first[:10]} to {last[:10]}'
+            summary_text = (f'{prior_rollup["content"].rstrip()}\n\n'
+                            f'Update ({span}):\n{summary_text.strip()}')
 
         # Rollup at the END of the sequence (audit-friendly); replay paths
         # hoist it to the front of the wire order.
@@ -3080,6 +3106,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                                   if reasoning_effort is _AGENT_EFFORT else reasoning_effort),
                 previous_response_id=previous_response_id,
                 prompt_cache_key=f'rexclaw:{agent["id"]}',
+                # Caps xAI's own search/code loop inside this one leg —
+                # max_iterations above only counts our function-call legs.
+                max_turns=config['text_max_turns'] or None,
                 # Streamed from xAI and folded back into the plain body (see
                 # xai_client._post_stream) — nothing downstream changes. A
                 # long reasoning leg is otherwise one silent connection for
