@@ -503,7 +503,7 @@ export default function SettingsView({ active }) {
                     </div>
                     <p className="text-muted">
                         {_t("Your companion's face and head follow what each sentence means, and "
-                            + "what you say to them: a smile, a frown, a nod on a yes, a shake on "
+                            + "what you say to them as you say it: a smile, a frown, a nod on a yes, a shake on "
                             + "a no, a look away while they think. Built from the avatar's own "
                             + "expressions, so any VRM works. Their own big emotions still play on "
                             + "top. Needs a TypeSafe API key for Jev, set above. Applies from the "
@@ -511,7 +511,8 @@ export default function SettingsView({ active }) {
                     </p>
                     {!!config.face_director && (
                     <p className="text-muted small">
-                        {_t("Sent to TypeSafe for each line: the sentence itself, the last two "
+                        {_t("Sent to TypeSafe for each line: the sentence itself (yours as text, "
+                            + "about once a second while you speak), the last two "
                             + "messages of the conversation, and your companion's \"## Identity\" "
                             + "and \"## Personality\" sections, each up to the next heading. "
                             + "Nothing else goes: not their memories, their lore, the rest of "

@@ -1278,6 +1278,12 @@ class VoiceCallService {
     // Turn orchestration hooks (called by AgentConnection)
     // ------------------------------------------------------------------
 
+    /** What the user has said so far, while they are still speaking
+     *  (streaming transcription): the base avatar's listening face. */
+    onUserPartial(conn, text) {
+        if (conn === this.primary) this.env.services.motion_director?.onUserPartial?.(text);
+    }
+
     /** The user's spoken words arrived (primary leg's transcription). Relay
      *  them to every peer, then let the LLM director pick who answers.
      *  The primary's server-VAD auto-response is held back while the

@@ -131,6 +131,7 @@ export function base64ToArrayBuffer(b64) {
  *   manager.onAgentResponseStarted(conn)
  *   manager.onAgentFinalTranscript(conn, text)
  *   manager.onUserTranscript(conn, text)
+ *   manager.onUserPartial(conn, text)         — streaming hypothesis mid-utterance
  *   manager.onUserSpeechStarted(conn)
  *   manager.onConnectionEnded(conn)
  *
@@ -949,8 +950,8 @@ export class AgentConnection {
             const expected = this._sessionUpdate?.session || {};
             if (sess.audio?.input?.transcription) {
                 const wasStreaming = this._liveMemoryStreaming;
-                this._liveMemoryStreaming = this._liveMemory?.mode !== "off" &&
-                    sess.audio.input.transcription.model === "grok-transcribe";
+                this._streamingTranscription = sess.audio.input.transcription.model === "grok-transcribe";
+                this._liveMemoryStreaming = this._liveMemory?.mode !== "off" && this._streamingTranscription;
                 if (wasStreaming !== this._liveMemoryStreaming) {
                     console.debug(`[voice:${this.connId}] live memory`, {
                         reason: 'streaming_transcription', enabled: this._liveMemoryStreaming,
@@ -1088,11 +1089,17 @@ export class AgentConnection {
         // releases the assistant lines held behind it.
         if (msg.type === "conversation.item.input_audio_transcription.updated" ||
             (msg.type === "conversation.item.input_audio_transcription.completed" &&
-             msg.status === "in_progress" && this._userSpeaking && this._liveMemoryStreaming)) {
-            if (this._liveMemoryStreaming && this._userSpeaking && !this.manager.hasPeers()) {
-                if (this._staleSpeechItem(msg.item_id)) return;
-                this._liveMemoryItemId = msg.item_id || null;
-                this._liveMemory?.update(msg.transcript || msg.text || "");
+             msg.status === "in_progress" && this._userSpeaking && this._streamingTranscription)) {
+            if (this._streamingTranscription && this._userSpeaking && !this._staleSpeechItem(msg.item_id)) {
+                const partial = msg.transcript || msg.text || "";
+                if (this._liveMemoryStreaming && !this.manager.hasPeers()) {
+                    this._liveMemoryItemId = msg.item_id || null;
+                    this._liveMemory?.update(partial);
+                }
+                // The base avatar's listening face, as the words come in.
+                try { this.manager.onUserPartial?.(this, partial); } catch (e) {
+                    console.error(`[voice:${this.connId}] onUserPartial failed`, e);
+                }
             }
             return; // Partial hypotheses never enter durable conversation history.
         }
@@ -1478,6 +1485,7 @@ export class AgentConnection {
     _configureLiveMemory(payload) {
         this._liveMemory?.cancel();
         this._voiceLatencyTurn = null;
+        this._streamingTranscription = false;
         this._liveMemoryStreaming = false;
         this._liveMemory = new LiveMemory({
             mode: payload.live_memory_mode || "off",

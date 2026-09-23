@@ -1187,7 +1187,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         enable_x_search=bool(agent['enable_x_search']),
         audio_sample_rate=audio_sample_rate,
         manual_turn=manual_turn,
-        live_memory=live_memory_mode == 'on',
+        stream_transcription=live_memory_mode == 'on' or (face_on and bool(config['typesafe_api_key'])),
     )
 
     if resume_session and not call_parent_session:
@@ -2189,12 +2189,14 @@ def _gesture_pick_jev(con, config, *, session, line, candidates, recent, just_pl
     return gesture, word, word_index, jev.input_ticks(body), reason
 
 
-def face_director_select(con, *, session, line, context=(), listening=False, words=None):
+def face_director_select(con, *, session, line, context=(), listening=False, words=None,
+                         partial=False):
     """Face director (face_director.py): what the companion's face does
     while they say one line, or — `listening` — as they hear the user's.
     One call per spoken sentence, made by the browser as the transcript
-    streams in, plus one per user utterance; the renderer shows the answer
-    when the voice reaches the line (or at once, for a listening face).
+    streams in, plus the user's words as they are heard (`partial`: while
+    they are still speaking); the renderer shows the answer when the voice
+    reaches the line (or at once, for a listening face).
 
     Return contract: {'face': <face_director.normalize shape>} or
     {'face': None, 'reason': ...} — None means "leave the face as it is".
@@ -2225,7 +2227,8 @@ def face_director_select(con, *, session, line, context=(), listening=False, wor
     if listening and conversation and conversation[-1] == (user_label, line[:400]):
         conversation.pop()
     conversation += [(name, str(c)[:400]) for c in list(context or [])[-2:] if c]
-    state = face_director.build_state(name, persona, conversation, line[:400], listening=listening)
+    state = face_director.build_state(name, persona, conversation, line[:400], listening=listening,
+                                      partial=partial)
     qs = face_director.questions(name, listening=listening, words=None if listening else words)
     try:
         body = jev.ask(config['typesafe_api_key'], config['jev_model'], state, qs)

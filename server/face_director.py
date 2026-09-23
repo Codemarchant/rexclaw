@@ -289,14 +289,17 @@ def persona_excerpt(prompt):
     return text.strip()
 
 
-def build_state(name, persona, conversation, line, listening=False):
+def build_state(name, persona, conversation, line, listening=False, partial=False):
     """The one JSON state every question reads. `conversation` is
-    [(speaker, text)], oldest first."""
+    [(speaker, text)], oldest first. `partial`: the user is still speaking
+    and `user_line` is what they have said so far."""
     state = {
         'character': {'name': name, 'personality': persona},
         'conversation': [{'speaker': s, 'text': t} for s, t in conversation],
     }
     state['user_line' if listening else 'line'] = line
+    if listening and partial:
+        state['user_line_status'] = 'still speaking - what they have said so far'
     return state
 
 

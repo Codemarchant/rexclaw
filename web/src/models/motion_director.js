@@ -371,6 +371,11 @@ export class MotionDirector {
         this._face.listen(text);
     }
 
+    /** What the user has said so far, while they are still speaking. */
+    onUserPartial(text) {
+        this._face.listenPartial(text);
+    }
+
     /** Speech gestures can run: a library, and the switch on. */
     _speechOn() {
         return this.enabled && this._settings().speech;

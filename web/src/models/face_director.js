@@ -20,10 +20,15 @@
  * line gets a face. The requests run side by side, since the transcript is
  * seconds ahead of the voice and a queue would fall behind it.
  *
- * The user's words get a face too (listen): the companion reacting to what
- * they hear, in the gap before they answer. It only lands while that gap is
- * still open — with a fast engine it usually is; a slow read, or a
- * transcript that arrives after the reply has started, is dropped.
+ * The user's words get a face too: the companion reacting to what they
+ * hear. With a streaming transcriber (grok-transcribe) that happens while
+ * they are still talking (listenPartial): what they have said so far is
+ * read again as it grows, so the face follows their words the way a
+ * listener's does, a moment behind. Each read covers everything said so
+ * far, so a nod, brow flash or glance a read already played is not played
+ * again for the same utterance. Without streaming, the finished utterance
+ * is read once (listen), in the gap before the reply — dropped if the
+ * reply's face is up or its voice audible by then.
  */
 
 import { rpc } from "../lib/rpc";
@@ -33,6 +38,10 @@ const FACE_TIMEOUT_MS = 6000;   // same budget as a speech-gesture pick
 // Hand-over this far before the line: the earliest-starting signal's lead
 // (a peak's, see FACE_PEAK in face_motion.js).
 const FACE_LEAD_MS = 890;
+// Reads of the user's speech so far: one at a time, at most one a second
+// (live memory's cadence on the same transcript). A throttle, not a
+// debounce — continuous speech must still get read.
+const FACE_HEAR_GAP_MS = 1000;
 
 export class FaceDirector {
     constructor(motionDirector) {
@@ -43,6 +52,11 @@ export class FaceDirector {
         this._seq = 0;
         this._replyShown = false;   // a line of the reply has shown its face
         this._spokenAt = null;      // exact char → time, once the turn's audio is scheduled
+        this._heard = this._newUtterance();   // the user's utterance, read as it comes in
+    }
+
+    _newUtterance() {
+        return { text: "", read: "", reads: 0, shown: 0, lastAt: 0, pending: false, timer: null, acts: new Set() };
     }
 
     /** Per call: the session decided it (its prompt describes set_emotion
@@ -71,37 +85,87 @@ export class FaceDirector {
 
     /** The user holds the floor (their voice is on) or has let it go. */
     setListening(on) {
-        if (this.enabled) this.md.renderer?.setFaceListening?.(!!on);
+        if (!this.enabled) return;
+        if (on) {
+            // A new utterance: a new exchange, read from its first words.
+            clearTimeout(this._heard.timer);
+            this._heard = this._newUtterance();
+            this._replyShown = false;
+        }
+        this.md.renderer?.setFaceListening?.(!!on);
     }
 
-    /** The user just said `text`: react as they hear it, shown at once. */
+    /** What the user has said so far, while they are still speaking. */
+    listenPartial(text) {
+        text = String(text || "").trim();
+        if (!this.enabled || !text || text === this._heard.text) return;
+        this._heard.text = text;
+        this._hearNext();
+    }
+
+    _hearNext() {
+        const h = this._heard;
+        if (h.timer || h.pending || h.text === h.read) return;
+        h.timer = setTimeout(() => {
+            h.timer = null;
+            if (h === this._heard) this._hear(h, h.text, true);
+        }, Math.max(0, FACE_HEAR_GAP_MS - (Date.now() - h.lastAt)));
+    }
+
+    /** The user just said `text`: react as they hear it, shown at once.
+     *  When their words were already read as they spoke and this is what
+     *  the last read saw, the face already has it. */
     listen(text) {
-        if (!this.enabled || !text?.trim()) return;
+        text = String(text || "").trim();
+        if (!this.enabled || !text) return;
+        const h = this._heard;
+        clearTimeout(h.timer);
+        h.timer = null;
+        if (text === h.read) return;
+        h.text = text;
+        this._hear(h, text, false);
+    }
+
+    /** One read of the utterance `h` so far (`partial`) or finished. */
+    _hear(h, text, partial) {
         const sessionId = this.md.env.services.voice_companion?.primary?.state?.sessionId;
         if (!sessionId) return;
         const seq = ++this._seq;
         const started = Date.now();
-        // A new exchange: whatever the last reply showed is over.
-        this._replyShown = false;
+        h.pending = true;
+        h.lastAt = started;
+        h.read = text;
+        const how = partial ? "hearing" : "listening";
         Promise.race([
-            rpc("/api/voice/face_director", { session_id: sessionId, line: text, listening: true }),
+            rpc("/api/voice/face_director", { session_id: sessionId, line: text, listening: true, partial }),
             new Promise((resolve) => setTimeout(() => resolve(null), FACE_TIMEOUT_MS)),
         ]).then((res) => {
             const took = Date.now() - started;
             const r = this.md.renderer;
-            if (!this.enabled || !res?.face) {
-                console.log(`[face] #${seq} listening: no change — ${res ? res.reason : "timed out"}`);
+            // Off, a newer utterance began, or a later read already showed.
+            if (!this.enabled || h !== this._heard || seq < h.shown) return;
+            if (!res?.face) {
+                console.log(`[face] #${seq} ${how}: no change — ${res ? res.reason : "timed out"}`);
                 return;
             }
-            // Only while they are still waiting to answer: once the reply's
-            // face is up or their voice is audible, the moment has passed.
+            // Only until they get their answer: once the reply's face is
+            // up or its voice is audible, the moment has passed.
             if (this._replyShown || (r?._rawSpeakingIntensity || 0) > 0.05) {
-                console.log(`[face] #${seq} listening: too late (read ${took}ms)`);
+                console.log(`[face] #${seq} ${how}: too late (read ${took}ms)`);
                 return;
             }
-            this._log(seq, "listening", res.face, text, took);
-            r?.setFaceReaction?.(res.face, { lineAt: Date.now(), first: true, listening: true });
-        }).catch((e) => console.warn("[face] listening read failed", e));
+            // Everything said so far was read again: what a read already
+            // answered belongs to the same words.
+            const face = { ...res.face, acts: (res.face.acts || []).filter((a) => !h.acts.has(a)) };
+            for (const a of face.acts) h.acts.add(a);
+            this._log(seq, how, face, text, took);
+            r?.setFaceReaction?.(face, { lineAt: Date.now(), first: !h.reads, listening: true });
+            h.reads++;
+            h.shown = seq;
+        }).catch((e) => console.warn("[face] listening read failed", e)).finally(() => {
+            h.pending = false;
+            if (partial && h === this._heard) this._hearNext();
+        });
     }
 
     /** One line of the reply: { line, at, spokenAt }. */

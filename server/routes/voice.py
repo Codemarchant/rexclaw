@@ -501,10 +501,10 @@ def speech_gesture(payload: dict = Body(default={}), con=Depends(db_con)):
 @router.post("/face_director")
 def face_director(payload: dict = Body(default={}), con=Depends(db_con)):
     """Face director: what the companion's face does while saying one line,
-    or (`listening`) as they hear the user's. `context` is the reply's
-    earlier lines, `words` the line's words as the browser split them (the
-    head moves land on them). Failures degrade to {'face': None} (leave the
-    face as it is)."""
+    or (`listening`) as they hear the user's — `partial` while the user is
+    still speaking. `context` is the reply's earlier lines, `words` the
+    line's words as the browser split them (the head moves land on them).
+    Failures degrade to {'face': None} (leave the face as it is)."""
     session = resolve_session(con, payload.get("session_id"))
     context = payload.get("context")
     words = payload.get("words")
@@ -515,6 +515,7 @@ def face_director(payload: dict = Body(default={}), con=Depends(db_con)):
         context=context if isinstance(context, list) else [],
         listening=bool(payload.get("listening")),
         words=words if isinstance(words, list) else None,
+        partial=bool(payload.get("partial")),
     )
 
 

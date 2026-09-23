@@ -495,7 +495,7 @@ def build_session_update(*, voice, instructions, browser_tools,
                          mcp_entries=None, native_function_tools=None,
                          enable_web_search=False, enable_x_search=False,
                          audio_sample_rate=24000, manual_turn=False, voice_speed=1.0,
-                         keyterms=None, live_memory=False):
+                         keyterms=None, stream_transcription=False):
     """Build the `session.update` JSON the browser will send over the WebSocket.
 
     Note: model goes in the WebSocket URL (?model=...), NOT in session.update —
@@ -549,11 +549,13 @@ def build_session_update(*, voice, instructions, browser_tools,
                     'format': {'type': 'audio/pcm', 'rate': audio_sample_rate},
                     # Words to bias the transcription of the user's speech
                     # toward — only when the companion has any (same caution
-                    # as speed below).
+                    # as speed below). grok-transcribe streams hypotheses
+                    # while the user is still speaking, for the features
+                    # that read them (live memory, the listening face).
                     **({'transcription': {
                         **({'keyterms': list(keyterms)} if keyterms else {}),
-                        **({'model': 'grok-transcribe'} if live_memory else {}),
-                    }} if keyterms or live_memory else {}),
+                        **({'model': 'grok-transcribe'} if stream_transcription else {}),
+                    }} if keyterms or stream_transcription else {}),
                 },
                 'output': {
                     'format': {'type': 'audio/pcm', 'rate': audio_sample_rate},
