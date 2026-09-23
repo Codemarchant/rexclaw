@@ -94,6 +94,13 @@
         0
       ],
       "rotation_y": 0
+    },
+    {
+      "name": "Rexmaw Deck",
+      "type": "scene",
+      "glb": "/assets/glb/rexmaw_deck.glb",
+      "default_x": -0.95,
+      "lighting": "golden"
     }
   ]
 }
