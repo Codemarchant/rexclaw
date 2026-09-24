@@ -268,6 +268,12 @@ class CameraAwareness {
         this._sink = typeof fn === "function" ? fn : null;
     }
 
+    /** The voice view also hands us when the user's voice was last heard
+     *  (a ms timestamp); null when there is no call. */
+    setVoicePresence(fn) {
+        this._voiceAt = typeof fn === "function" ? fn : null;
+    }
+
     setEnabled(flag) {
         this.state.enabled = !!flag;
         try { localStorage.setItem(PREF_KEY, flag ? "1" : "0"); } catch (e) { /* ignore */ }
@@ -456,7 +462,12 @@ class CameraAwareness {
             p.lastSeen = now;
         } else {
             if (this.state.present) this.state.present = false;
-            if (!p.away && now - p.lastSeen > AWAY_AFTER_MS) {
+            // A voice on the call is presence too: a camera aimed away from
+            // the face (showing something, kneeling, lying down) is not the
+            // user leaving while they are still talking.
+            let voiceAt = 0;
+            try { voiceAt = this._voiceAt?.() || 0; } catch (e) { /* no voice signal */ }
+            if (!p.away && now - Math.max(p.lastSeen, voiceAt) > AWAY_AFTER_MS) {
                 p.away = true;
                 const wavedGoodbye = p.lastWaveAt && (p.lastSeen - p.lastWaveAt) < WAVE_GOODBYE_WINDOW_MS;
                 this._fire(wavedGoodbye ? "goodbye" : "away", now);

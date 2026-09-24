@@ -2,7 +2,14 @@
 function enoughText(text) {
     // Three Unicode letters can already be a complete shared name in CJK.
     const letters = text.match(/[\p{L}\p{N}]/gu) || [];
-    return text.length >= 8 || (letters.length >= 3 && letters.some(c => c.codePointAt(0) > 127));
+    if (letters.length >= 3 && letters.some(c => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(c))) {
+        return true;
+    }
+    // Spaced scripts: a sentence opener ("It was", "I was uh") names
+    // nothing yet. Three words besides fillers is the least that can.
+    const words = (text.match(/[\p{L}\p{M}\p{N}']+/gu) || [])
+        .filter(w => !/^(?:u+h+|u+m+|e+r+m*|a+h+|h*m+|hmm+)$/i.test(w));
+    return text.length >= 8 && words.length >= 3;
 }
 
 function extendsTranscript(previous, current) {

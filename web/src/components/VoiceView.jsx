@@ -730,7 +730,11 @@ export default function VoiceView({ active = true }) {
     // call, no sink — the popover still shows what it notices.
     useEffect(() => {
         cameraAwareness.setSink(isLive ? (text, opts) => voice.sendContextEvent(text, opts) : null);
-        return () => cameraAwareness.setSink(null);
+        cameraAwareness.setVoicePresence(isLive ? () => voice.userVoiceAt() : null);
+        return () => {
+            cameraAwareness.setSink(null);
+            cameraAwareness.setVoicePresence(null);
+        };
     }, [isLive]);
 
     // Tray → "Pop out avatar" routes through this page so a live call ends

@@ -350,7 +350,11 @@ export default function MascotView() {
     // window while popped out). Same wiring as the voice view.
     useEffect(() => {
         cameraAwareness.setSink(isLive ? (text, opts) => voice.sendContextEvent(text, opts) : null);
-        return () => cameraAwareness.setSink(null);
+        cameraAwareness.setVoicePresence(isLive ? () => voice.userVoiceAt() : null);
+        return () => {
+            cameraAwareness.setSink(null);
+            cameraAwareness.setVoicePresence(null);
+        };
     }, [isLive]);
 
     // Tray → "Pop back in" routes through this page so a live call ends

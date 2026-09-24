@@ -606,6 +606,14 @@ class VoiceCallService {
         });
     }
 
+    /** When the user's voice was last heard on the primary leg — now while
+     *  they are speaking. Camera awareness counts it as presence: someone
+     *  talking to the companion has not stepped away, wherever the camera
+     *  is pointing. */
+    userVoiceAt() {
+        return this.primary?._userSpeaking ? Date.now() : (this._userVoiceAt || 0);
+    }
+
     enableSpatialAudio() {
         this.primary.enableSpatialAudio();
     }
@@ -1290,6 +1298,7 @@ class VoiceCallService {
      *  director deliberates so the answer can come from any leg. */
     onUserTranscript(conn, text) {
         this.noteActivity();
+        if (conn === this.primary) this._userVoiceAt = Date.now();
         this.idleEvents.noteUser();
         // The base avatar's listening face (face director, when on).
         if (conn === this.primary) this.env.services.motion_director?.onUserLine?.(text);
@@ -1363,6 +1372,7 @@ class VoiceCallService {
      *  local audio) and invalidate any pending director decision. */
     onUserSpeechStarted(conn) {
         this.noteActivity();
+        if (conn === this.primary) this._userVoiceAt = Date.now();
         this.idleEvents.noteUser();
         if (conn !== this.primary) return;
         this._directorGeneration++;
