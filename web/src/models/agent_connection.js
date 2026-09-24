@@ -74,6 +74,9 @@ const COMPACTION_TOOL_WAIT_MS = 60 * 60 * 1000;
 // How long an assistant line is held back for the user's transcript (see
 // _deferOrAppendAssistantFinal). The swap waits out the same hold.
 const AWAIT_USER_TRANSCRIPT_MS = 5000;
+// Ceiling on how long a user row waits for the rest of its sentence (see
+// _openUserRow), however long the user keeps talking after the pause.
+const USER_ROW_MAX_OPEN_MS = 60000;
 
 // ---- PCM helpers (shared with the call manager for mic capture) ----
 
@@ -1112,12 +1115,28 @@ export class AgentConnection {
                 this._userSpeaking = false;
                 this._liveMemory?.stopInput();
             }
-            let text = msg.transcript || "";
+            const full = msg.transcript || "";
+            const prevTranscript = this._lastUserTranscriptText;
+            const text = full ? this._extractNewUserSpeech(full) : "";
             if (text) {
-                text = this._extractNewUserSpeech(text);
-            }
-            if (text) {
-                this._appendMessage({ role: "user", content: text });
+                // A pause mid-sentence can end the turn early: the streaming
+                // transcriber's text so far lands as this final, and once
+                // the user carries on, the next final repeats it with the
+                // rest. Nothing said in between: finish the open row. Solo
+                // calls only — a peer's reply never passes through this
+                // leg's _appendMessage, so it can't close the row.
+                const open = this._openUserRow;
+                if (open && open.transcript === prevTranscript && !this.manager?.hasPeers?.()
+                    && full.length > prevTranscript.length && full.startsWith(prevTranscript)
+                    && this._pendingAppendQueue.includes(open.msg)) {
+                    open.msg.content = open.view.content = `${open.msg.content} ${text}`;
+                    open.transcript = full;
+                    open.until = Date.now() + AWAIT_USER_TRANSCRIPT_MS;
+                } else {
+                    this._appendMessage({ role: "user", content: text });
+                    // Only a spoken row can be finished by a later transcript.
+                    this._openUserRow.transcript = full;
+                }
                 // Manager hook: turn routing + relay to peer legs.
                 try { this.manager.onUserTranscript(this, text); } catch (e) {
                     console.error(`[voice:${this.connId}] onUserTranscript failed`, e);
@@ -1782,9 +1801,10 @@ export class AgentConnection {
         if (endTurn) this._endTurnInResponse = true;   // checked at response.done
         else if (!repeatEndCall) this._pendingToolReply = true;
         const responseAtCall = this._currentResponseId;
+        const speechAtCall = this._speechTurnRevision;
         const dispatcherAtCall = this.toolDispatcher;   // a new call gets a new one
         this.toolDispatcher
-            ?.dispatch({ callId, name, argumentsJson })
+            ?.dispatch({ callId, name, argumentsJson, responseId: responseAtCall })
             .then((result) => {
                 try {
                     console.debug(`[voice:${this.connId}] tool result`, name, "→", result);
@@ -1809,17 +1829,19 @@ export class AgentConnection {
                     && !this._bargedIn && this._currentResponseId === responseAtCall) {
                     this._pendingToolReply = true;
                 }
-                // A newer reply started while this ran (the user spoke over
-                // it): that reply couldn't see the result and dropped the
-                // owed follow-up, so the result gets a reply of its own the
+                // The user spoke while this ran: speech_started dropped the
+                // owed follow-up, and whatever reply their turn got couldn't
+                // see the result, so the result gets a reply of its own the
                 // moment it lands — a new background still gets its reaction.
+                // That holds when their turn got no reply at all, too.
                 // Same call only (a result from a call since hung up is not
                 // this one's to answer), and the primary only: peer replies
                 // are the turn director's to grant.
                 this._waitNotedCallIds?.delete(callId);
                 if (!endTurn && !repeatEndCall && this.toolDispatcher === dispatcherAtCall
                     && this.manager?.primary === this
-                    && this._currentResponseId && this._currentResponseId !== responseAtCall) {
+                    && ((this._currentResponseId && this._currentResponseId !== responseAtCall)
+                        || this._speechTurnRevision !== speechAtCall)) {
                     this._pendingToolReply = true;
                 }
                 this._maybeCreateToolReply();
@@ -1867,8 +1889,10 @@ export class AgentConnection {
      *       (cheap, catches the common single-turn case).
      *    2. Fuzzy: word-align the new transcript against the concatenation
      *       of recent user rows from THIS socket (replayed history can't
-     *       re-emit) and strip every fully-matched row — ≥80% per-row word
-     *       overlap counts as a match. Only engaged when at least
+     *       re-emit) and strip every fully-matched row — every word of the
+     *       row must match, within the spelling drift below. A different
+     *       word means different speech: "Can you point at the camera" is
+     *       not a replay of "Can you shoot at the camera". Only engaged when at least
      *       MIN_STRIP_WORDS words match, so a user genuinely repeating a
      *       short phrase ("yes", "do it") is never swallowed.
      *
@@ -1904,8 +1928,8 @@ export class AgentConnection {
             .map((m) => m.content.split(/\s+/).map(normWord).filter(Boolean))
             .filter((r) => r.length);
         // Word equality must tolerate the re-transcription's spelling drift
-        // ("favourite" ↔ "favorite", "colour" ↔ "color") — with short
-        // utterances two drifted words already sink the 80% row threshold.
+        // ("favourite" ↔ "favorite", "colour" ↔ "color"), since a row only
+        // matches when every word does.
         // Edit distance ≤1 (≤2 for 8+ letter words) counts as the same word.
         const editDistanceAtMost = (a, b, max) => {
             if (Math.abs(a.length - b.length) > max) return false;
@@ -1938,7 +1962,7 @@ export class AgentConnection {
                 for (let k = 0; k < row.length; k++) {
                     if (wordsMatch(newNorm[pos + k], row[k])) hits++;
                 }
-                if (hits / row.length < 0.8) break;
+                if (hits < row.length) break;
                 pos += row.length;
             }
             if (pos > best) best = pos;
@@ -2023,11 +2047,19 @@ export class AgentConnection {
             ...msg,
             sequence: this.state.messages.length + 1,
         });
+        // A user row stays open until anything else is said after it, so
+        // the rest of a sentence a pause cut short can still join it (see
+        // the final transcript handler). The debounced flush holds it back
+        // while it is open.
+        this._openUserRow = msg.role === "user" ? {
+            msg, view: this.state.messages.at(-1),
+            openedAt: Date.now(), until: Date.now() + AWAIT_USER_TRANSCRIPT_MS,
+        } : null;
         // Spoken and typed turns both land here (set_emotion's repeat note).
         if (msg.role === "user") this.toolDispatcher?.noteUserTurn?.();
         this._pendingAppendQueue.push(msg);
         if (!this._appendFlushTimer) {
-            this._appendFlushTimer = setTimeout(() => this._flushAppendQueue(), 1500);
+            this._appendFlushTimer = setTimeout(() => this._flushAppendQueue({ holdOpenUserRow: true }), 1500);
         }
     }
 
@@ -2043,11 +2075,11 @@ export class AgentConnection {
         if (!this.state.sessionId || this._sessionEnded) return;
         this._pendingAppendQueue.push(msg);
         if (!this._appendFlushTimer) {
-            this._appendFlushTimer = setTimeout(() => this._flushAppendQueue(), 1500);
+            this._appendFlushTimer = setTimeout(() => this._flushAppendQueue({ holdOpenUserRow: true }), 1500);
         }
     }
 
-    async _flushAppendQueue() {
+    async _flushAppendQueue(opts) {
         this._appendFlushTimer = null;
         // Serialize flushes: the debounce timer can fire while a previous
         // /append RPC is still awaiting, and parallel appends race the
@@ -2057,7 +2089,7 @@ export class AgentConnection {
         const prev = this._appendFlushInFlight;
         const run = (prev || Promise.resolve())
             .catch(() => { /* prior flush already logged its failure */ })
-            .then(() => this._doFlushAppendQueue());
+            .then(() => this._doFlushAppendQueue(opts));
         this._appendFlushInFlight = run;
         try {
             await run;
@@ -2066,9 +2098,22 @@ export class AgentConnection {
         }
     }
 
-    async _doFlushAppendQueue() {
+    async _doFlushAppendQueue({ holdOpenUserRow = false } = {}) {
         if (!this.state.sessionId || !this._pendingAppendQueue.length) return;
-        const messages = this._pendingAppendQueue.splice(0);
+        // The open user row waits while the user is still talking or its
+        // hold runs, never past USER_ROW_MAX_OPEN_MS. Rows queued after it
+        // go now; they are hidden notes, not something said after it.
+        const open = this._openUserRow;
+        const now = Date.now();
+        const held = holdOpenUserRow && open && this._pendingAppendQueue.includes(open.msg)
+            && (now < open.until || this._userSpeaking) && now - open.openedAt < USER_ROW_MAX_OPEN_MS
+            ? open.msg : null;
+        const messages = this._pendingAppendQueue.filter((m) => m !== held);
+        this._pendingAppendQueue = held ? [held] : [];
+        if (held && !this._appendFlushTimer) {
+            this._appendFlushTimer = setTimeout(() => this._flushAppendQueue({ holdOpenUserRow: true }), 1500);
+        }
+        if (!messages.length) return;
         try {
             const resp = await rpc(`/api/voice/session/${this.state.sessionId}/append`, {
                 messages,

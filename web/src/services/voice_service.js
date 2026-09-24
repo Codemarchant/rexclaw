@@ -1392,11 +1392,16 @@ class VoiceCallService {
             this._suppressPrimaryOnce = false;
             console.log("[voice] suppressing primary auto-response (turn routed to a peer)");
             conn.cancelActiveResponse("routed-away");
-        } else if (conn === this.primary && this._refreshNextAutoReply) {
+        } else if (conn === this.primary && this._refreshNextAutoReply
+            && !(conn._liveMemoryStreaming && conn._userSpeaking)) {
             // Silent context was queued for this reply (queueSilentContext).
             // A reply we created ourselves already flushed it; a server-VAD
             // one was built without it, so swap it for one created after the
             // flush - the context refresh group calls do in _routeUserTurn.
+            // Not while the user still holds the floor with live memory
+            // listening: a reply can start before their speech ends, and
+            // _maybeCreateResponse refuses to replace it then, so cancelling
+            // it would leave them with no answer at all.
             this._refreshNextAutoReply = false;
             if (conn._deferredContextItems?.length) {
                 console.log("[voice] refreshing primary auto-response to include queued context");

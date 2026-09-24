@@ -1153,7 +1153,7 @@ class AvatarRenderer {
         // rather than ignoring (user clicks "wave" twice → wave twice).
         if (this._gestureAction && this._currentGestureUrl === url) {
             this._gestureAction.reset().fadeIn(0.2).play();
-            return;
+            return loop ? undefined : this._gestureAction;
         }
         let clip = this._gestureClips.get(url);
         if (!clip) {
@@ -1236,6 +1236,9 @@ class AvatarRenderer {
             this._queueRelease(this, action);
         };
         this.mixer.addEventListener("finished", onFinished);
+        // The one-shot's action, so a caller can wait for it: isRunning()
+        // turns false when it finishes or something replaces it.
+        return action;
     }
 
     /** Stop the current gesture — including a looping one, which never ends on
@@ -2273,7 +2276,7 @@ class AvatarRenderer {
         const { THREE, GLTFLoader, VRMAnimationLoaderPlugin, createVRMAnimationClip } = this.libs;
         if (peer._gestureAction && peer._currentGestureUrl === url) {
             peer._gestureAction.reset().fadeIn(0.2).play();
-            return;
+            return loop ? undefined : peer._gestureAction;
         }
         let clip = peer._gestureClips.get(url);
         if (!clip) {
@@ -2333,6 +2336,7 @@ class AvatarRenderer {
             }, FADE_OUT * 1000);
         };
         peer.mixer.addEventListener("finished", onFinished);
+        return action;   // as playGesture: lets a caller wait for the one-shot
     }
 
     /** Stop a peer's gesture (incl. loops) and ease back to its idle. */

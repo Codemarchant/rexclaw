@@ -135,7 +135,7 @@ export class ToolDispatcher {
      * Handle a fully-arrived function call. callId is xAI's correlation id.
      * Returns a promise that resolves once the function_call_output has been sent.
      */
-    async dispatch({ callId, name, argumentsJson }) {
+    async dispatch({ callId, name, argumentsJson, responseId = null }) {
         this._pending.set(callId, name);
         let args = {};
         try {
@@ -155,7 +155,7 @@ export class ToolDispatcher {
         } else {
             if (runKey) this._running.set(runKey, callId);
             try {
-                result = await this._invoke(name, args);
+                result = await this._invoke(name, args, { responseId });
             } catch (e) {
                 result = { error: String(e?.message || e) };
             } finally {
@@ -294,7 +294,7 @@ export class ToolDispatcher {
         }, 4200);
     }
 
-    async _invoke(name, args) {
+    async _invoke(name, args, { responseId = null } = {}) {
         if (NATIVE_TOOL_NAMES.has(name)) {
             if (!this.sessionId) {
                 throw new Error("Native tool dispatch requires sessionId.");
@@ -309,7 +309,7 @@ export class ToolDispatcher {
             case "set_emotion":
                 return this._setEmotion(args);
             case "play_gesture":
-                return this._playGesture(args);
+                return this._playGesture(args, { responseId });
             case "move_around":
                 return this._moveAround(args);
             case "change_outfit":
@@ -649,13 +649,14 @@ export class ToolDispatcher {
         return result;
     }
 
-    _playGesture({ gesture }) {
+    _playGesture({ gesture }, { responseId = null } = {}) {
         if (!gesture) return { ok: false, error: "No gesture specified" };
         // As in _setEmotion: the companion's own choice owns this turn.
         this.avatarApi?.noteExpressionTool?.();
         // Reserved sentinel: stop any running gesture (notably a continuous
         // loop, which never ends on its own) and return to the idle animation.
         if (gesture === "idle") {
+            this._gestureGen = (this._gestureGen || 0) + 1;   // drops any queued ones
             this.avatarApi?.stopGesture?.();
             return { ok: true, gesture: "idle" };
         }
@@ -674,6 +675,7 @@ export class ToolDispatcher {
             // download can take a while and the function_call_output
             // round-trip must not wait on it.
             if (custom?.type === "combo" && custom.partner_vrm_url && custom.partner_vrma_url) {
+                this._gestureGen = (this._gestureGen || 0) + 1;   // a combo owns both bodies
                 if (this.avatarApi?.playComboGesture) {
                     // Idempotent: a combo that's already on screen is left
                     // running, and the result says so — re-issuing it is
@@ -706,8 +708,43 @@ export class ToolDispatcher {
             }
         }
         if (!url) return { ok: false, error: `Unknown gesture: ${gesture}` };
-        this.avatarApi?.playGesture?.(url, { loop });
-        return { ok: true, gesture };
+        const queued = this._playGestureInTurn(url, loop, responseId);
+        return queued
+            ? { ok: true, gesture, note: "Queued: it plays as soon as your previous gesture finishes." }
+            : { ok: true, gesture };
+    }
+
+    /** Play one reply's gestures one after another. A clip starting
+     *  replaces the running one outright, so "spin, then backflip" called
+     *  in the same reply showed only the backflip. Within a reply, each
+     *  call waits for the one-shot before it to finish or be replaced (a
+     *  loop never finishes, so the next call replaces it). A gesture from
+     *  a later reply cuts in at once, as it always has, and drops anything
+     *  the earlier reply still had queued. Returns whether this one had to
+     *  wait. */
+    _playGestureInTurn(url, loop, responseId) {
+        if (!responseId || responseId !== this._gestureResponseId) {
+            this._gestureGen = (this._gestureGen || 0) + 1;
+            this._gestureChain = null;
+            this._gestureTailLoop = false;
+        }
+        this._gestureResponseId = responseId;
+        const gen = this._gestureGen || 0;
+        const queued = !!this._gestureChain && !this._gestureTailLoop;
+        this._gestureTailLoop = loop;
+        const run = async () => {
+            if ((this._gestureGen || 0) !== gen) return;   // 'idle' or a combo since
+            const action = await this.avatarApi?.playGesture?.(url, { loop });
+            while (action?.isRunning?.() && (this._gestureGen || 0) === gen) {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+        };
+        const chain = (this._gestureChain || Promise.resolve()).then(run, run);
+        this._gestureChain = chain;
+        chain.catch(() => { /* a failed clip just ends its wait */ }).finally(() => {
+            if (this._gestureChain === chain) this._gestureChain = null;
+        });
+        return queued;
     }
 
     /** move_around: the companion walking about on its own (the renderer's
