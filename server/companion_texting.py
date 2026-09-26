@@ -186,4 +186,8 @@ def execute_text_companion_tool(con, session, arguments):
     elif len(reply) > _MAX_REPLY_CHARS:
         reply = reply[:_MAX_REPLY_CHARS].rstrip() + '…'
 
-    return {'ok': True, 'to': target['name'], 'reply': reply}
+    result = {'ok': True, 'to': target['name'], 'reply': reply}
+    if turn.get('search_capped'):
+        result['note'] = (f'{target["name"]} stopped searching after '
+                          f'{turn["search_capped"]} searches and replied without them.')
+    return result

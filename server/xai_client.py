@@ -52,7 +52,23 @@ def _post_with_retry(url, headers, payload, timeout=DEFAULT_TIMEOUT):
     return resp  # last 5xx response
 
 
-def _post_stream(url, headers, payload, timeout):
+class SearchLimitExceeded(Exception):
+    """A streamed response made more web/X search calls (run by xAI inside
+    the one request) than the caller allows, so the connection was closed.
+    Closing cancels the response at xAI: it is never stored, so there is no
+    response id to chain from and none of its output survives."""
+
+
+# Output items for the searches xAI runs itself inside one request. Each
+# one is another round of xAI's own agent loop re-reading the whole
+# context — the loop that cost $54.82 on 2026-09-23 (294 searches, many
+# of them "a", "b", "c"…) and $83.81 on 2026-09-26 (644 searches). Code
+# execution and MCP calls run the same way but are deliberate work and
+# have never looped, so they are not counted.
+_SEARCH_ITEM_TYPES = frozenset(('web_search_call', 'x_search_call'))
+
+
+def _post_stream(url, headers, payload, timeout, max_search_calls=None):
     """POST a /v1/responses request with `stream: true` and fold the
     server-sent events back into the same body dict a non-streaming call
     returns.
@@ -66,6 +82,15 @@ def _post_stream(url, headers, payload, timeout):
     generations. `timeout` is the read timeout between events; connect
     stays short.
 
+    `max_search_calls` is the watchdog on xAI's own search loop: the
+    documented `max_turns` is not enforced (tested 2026-09-26: max_turns=1
+    still ran 6 sequential searches on grok-4.7), so the stream counts
+    web/X search calls itself and hangs up past the cap, raising
+    SearchLimitExceeded. Calls, not rounds: some models stream no
+    reasoning items between searches, so round boundaries can't be seen.
+    Multi-agent sub-agents' searches don't stream at all — only the
+    leader's are counted.
+
     Returns either a `requests.Response` (HTTP error, for the caller's
     normal error path) or the final response body dict."""
     resp = requests.post(url, headers=headers, json={**payload, 'stream': True},
@@ -76,6 +101,7 @@ def _post_stream(url, headers, payload, timeout):
     body = None
     deltas = []
     usage = None
+    search_calls = 0
     try:
         # Decode ourselves: text/event-stream arrives without a charset, and
         # requests' own line decoding then falls back to Latin-1 — every
@@ -94,6 +120,12 @@ def _post_stream(url, headers, payload, timeout):
             etype = ev.get('type') or ''
             if etype == 'response.output_text.delta':
                 deltas.append(ev.get('delta') or '')
+            elif (etype == 'response.output_item.added' and max_search_calls
+                    and (ev.get('item') or {}).get('type') in _SEARCH_ITEM_TYPES):
+                search_calls += 1
+                if search_calls > max_search_calls:
+                    raise SearchLimitExceeded(
+                        f'more than {max_search_calls} web/X search calls in one response')
             elif etype in ('response.completed', 'response.incomplete', 'response.failed'):
                 body = ev.get('response') or body
                 if etype == 'response.failed':
@@ -116,13 +148,13 @@ def _post_stream(url, headers, payload, timeout):
     return body
 
 
-def _post_stream_with_retry(url, headers, payload, timeout):
+def _post_stream_with_retry(url, headers, payload, timeout, max_search_calls=None):
     """`_post_with_retry`'s streaming twin: a connection that drops before
     or during the stream gets one more go."""
     last_exc = None
     for attempt, backoff in enumerate(RETRY_BACKOFF):
         try:
-            return _post_stream(url, headers, payload, timeout)
+            return _post_stream(url, headers, payload, timeout, max_search_calls)
         except requests.RequestException as e:
             last_exc = e
             _logger.warning('xAI streamed request failed (attempt %s): %s', attempt + 1, e)
@@ -729,12 +761,15 @@ def create_response(*, xai_api_key, responses_url, model, input_items,
                     instructions=None, tools=None, tool_choice=None, reasoning_effort=None,
                     previous_response_id=None, max_output_tokens=None,
                     max_turns=None, prompt_cache_key=None,
-                    user=None, store=True, timeout=600, stream=False):
+                    user=None, store=True, timeout=600, stream=False,
+                    max_search_calls=None):
     """POST /v1/responses and return the parsed body dict.
 
     `stream=True` sends the request as server-sent events and folds them
     back into the same body shape (see _post_stream) — for long
     generations whose silent connection would otherwise be cut.
+    `max_search_calls` (streamed calls only) hangs up once xAI's own
+    web/X search loop passes that many calls — raises SearchLimitExceeded.
 
     Behaviour notes (per xAI's spec):
       * `instructions` cannot be combined with `previous_response_id` (xAI
@@ -776,7 +811,8 @@ def create_response(*, xai_api_key, responses_url, model, input_items,
         'Content-Type': 'application/json',
     }
     if stream:
-        resp = _post_stream_with_retry(responses_url, headers, payload, timeout)
+        resp = _post_stream_with_retry(responses_url, headers, payload, timeout,
+                                       max_search_calls)
         if isinstance(resp, dict):
             return resp
     else:

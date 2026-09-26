@@ -3006,6 +3006,11 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     # job was to react to a tool result).
     accumulated_assistant_text_parts = []
     mcp_dropped = False
+    max_searches = config['text_max_searches']   # 0 = no search watchdog
+    # The cap that cut this turn's search loop (0 = not cut) — surfaced on
+    # the returned turn so chat, heartbeats and companion texts can say the
+    # reply was written without searching.
+    search_capped = 0
     # companion_text_max_calls enforcement: `tools` above is fixed for
     # every leg of this call, so nothing else stops the model calling
     # text_companion repeatedly across legs/in parallel within one turn.
@@ -3109,9 +3114,13 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                                   if reasoning_effort is _AGENT_EFFORT else reasoning_effort),
                 previous_response_id=previous_response_id,
                 prompt_cache_key=f'rexclaw:{agent["id"]}',
-                # Caps xAI's own search/code loop inside this one leg —
-                # max_iterations above only counts our function-call legs.
-                max_turns=config['text_max_turns'] or None,
+                # Caps xAI's own loop inside this one leg — max_iterations
+                # above only counts our function-call legs. max_turns is
+                # xAI's cap across all its tools but isn't enforced for web
+                # search, so the stream watchdog (max_search_calls) is the
+                # real cap on searching — see the config schema comment.
+                max_turns=config['xai_max_turns'] or None,   # 0 = not sent
+                max_search_calls=max_searches or None,
                 # Streamed from xAI and folded back into the plain body (see
                 # xai_client._post_stream) — nothing downstream changes. A
                 # long reasoning leg is otherwise one silent connection for
@@ -3122,6 +3131,26 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 # side-effects: tools only run once the body is complete).
                 stream=True,
             )
+        except xai_client.SearchLimitExceeded as e:
+            # xAI's own search loop ran past the cap and the stream was
+            # closed, cancelling the response — nothing of it is stored, so
+            # the chain still ends at previous_response_id. Retry this leg
+            # once without the search tools so the reply still gets written,
+            # from what the conversation already holds; code and MCP stay.
+            # No search tools remain, so this can't fire twice.
+            _logger.warning('Search cap hit for session %s (%s); '
+                            'retrying the leg without web/X search',
+                            session['id'], e)
+            search_capped = max_searches
+            tools = [t for t in tools if t.get('type') not in ('web_search', 'x_search')]
+            # Same re-queue as the MCP retry below: this leg's
+            # function_call_outputs must reach the retry.
+            pending_outputs = [
+                i for i in input_items
+                if isinstance(i, dict) and i.get('type') == 'function_call_output'
+            ]
+            max_iterations += 1   # a retry, not a leg
+            continue
         except UserError as e:
             # An unreachable remote MCP server 400s the WHOLE responses call
             # ("Failed to connect to MCP server <url>"), unlike voice mode
@@ -3319,6 +3348,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 'cap_exceeded': False,
                 'needs_compaction': bool(fresh['needs_summary']),
                 'mcp_unavailable': mcp_dropped,
+                'search_capped': search_capped,
             }
 
         # Split: TEXT_BROWSER_TOOL_NAMES round-trip through the client;
@@ -3453,6 +3483,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 'cap_warning': False,
                 'cap_exceeded': False,
                 'mcp_unavailable': mcp_dropped,
+                'search_capped': search_capped,
             }
 
         pending_outputs.extend(native_outputs)
@@ -3472,6 +3503,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         'cap_exceeded': False,
         'needs_compaction': bool(fresh['needs_summary']),
         'mcp_unavailable': mcp_dropped,
+        'search_capped': search_capped,
     }
 
 

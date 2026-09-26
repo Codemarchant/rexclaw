@@ -162,6 +162,9 @@ export const JA = {
   "Generated image": "生成画像",
   "Generated video": "生成動画",
   "Reply was truncated by xAI: %s": "応答が xAI により途中で打ち切られました：%s",
+  "Stopped searching after %s searches; this reply was written without them.":
+    "%s 回検索したところで検索を止め、この返信は検索結果なしで書かれました。",
+  "search limit": "検索上限",
 
   // ── Group calls ───────────────────────────────────────────────────────
   "Agent": "エージェント",
@@ -783,12 +786,15 @@ export const JA = {
     "高速テキストモデル（委任ツール）",
   "Quicker, shallower text model that delegate_task can pick with model='fast' for looking at images, screenshots and clips or reading short documents. Empty = same as the Text model.":
     "delegate_task が model='fast' で選べる、より速く浅いテキストモデルです。画像やスクリーンショット、クリップの確認、短い文書の読み取りに使います。空欄 = テキストモデルと同じ。",
-  "Max search rounds (text)": "最大検索ラウンド数（テキスト）",
-  "Caps web/X search and code rounds per text reply. Each round re-reads the whole chat. xAI suggests 3-5. 0 = no cap.":
-    "テキスト返信 1 回あたりの Web / X 検索とコード実行のラウンド数の上限です。ラウンドごとに会話全体を読み直します。xAI の推奨は 3〜5。0 = 上限なし。",
-  "Max search rounds (multi-agent)": "最大検索ラウンド数（マルチエージェント）",
-  "Same cap for multi-agent research. xAI suggests 10+. 0 = no cap.":
-    "マルチエージェント調査の同じ上限です。xAI の推奨は 10 以上。0 = 上限なし。",
+  "Web & X searches per reply": "返信あたりの Web / X 検索回数",
+  "How many web and X searches xAI may run inside one text reply (chats, heartbeats, companion texts). Each search re-reads the whole conversation. Past this, the reply is stopped and written again without searching, marked \"search limit\". Other tools, including code and MCP, don't count. 0 = no limit.":
+    "テキスト返信 1 回（チャット、ハートビート、コンパニオン間のテキスト）の中で xAI が実行できる Web 検索と X 検索の回数です。検索のたびに会話全体を読み直します。超えるとその返信を止め、検索なしで書き直し、「検索上限」と表示します。コード実行や MCP など他のツールは数えません。0 = 上限なし。",
+  "xAI max turns (all xAI tools)": "xAI 最大ターン数（すべての xAI ツール）",
+  "Sent to xAI as max_turns: its own limit on how many rounds of tool use (search, code, MCP) one reply may take. xAI doesn't reliably enforce it (web search runs past it, hence the search limits beside this), so keep it generous: it's a catch-all for code and MCP, not the main cap. 0 = not sent (xAI's default).":
+    "xAI に max_turns として送られる、返信 1 回で行えるツール使用（検索、コード、MCP）のラウンド数の上限です。xAI は確実には守らないため（Web 検索はこれを超えて続くので、隣の検索上限があります）、余裕のある値にしてください。主な上限ではなく、コードと MCP のための保険です。0 = 送信しない（xAI の既定）。",
+  "Web & X searches per research task (multi-agent)": "調査タスクあたりの Web / X 検索回数（マルチエージェント）",
+  "How many web and X searches the lead agent may run in one multi-agent research task. Past this, the task stops and your companion is told it failed. Searches by its helper agents aren't visible to the app, so they can't be counted. 0 = no limit.":
+    "マルチエージェント調査タスク 1 回でリードエージェントが実行できる Web 検索と X 検索の回数です。超えるとタスクを止め、コンパニオンに失敗が伝えられます。補助エージェントの検索はアプリから見えないため、数えられません。0 = 上限なし。",
   "Manage keys, usage and custom voices in the":
     "API キー、使用量、カスタムボイスの管理は",
   "xAI console":
@@ -1370,6 +1376,7 @@ export const JA = {
   "silent": "サイレント",
   "ongoing session": "継続セッション",
   "Last run failed:": "前回の実行が失敗しました:",
+  "Last run:": "前回の実行:",
   "next:": "次回:",
   "inactive": "無効",
   "last:": "前回:",

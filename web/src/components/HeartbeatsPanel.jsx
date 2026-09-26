@@ -464,8 +464,11 @@ export default function HeartbeatsPanel({ agentId, agentName, registerEditor }) 
                             <> · {_t("texting up to %s", hb.companion_texting_max_turns || 5)}</>
                         )}
                     </span>
-                    <span className="rx_memory_meta" title={hb.last_error ? `${_t("Last run failed:")} ${hb.last_error}` : undefined}>
-                        {hb.last_error ? <i className="fa fa-exclamation-triangle" style={{ marginRight: "0.25rem" }} /> : null}
+                    <span className="rx_memory_meta"
+                          title={hb.last_error ? `${_t("Last run failed:")} ${hb.last_error}`
+                              : hb.last_note ? `${_t("Last run:")} ${hb.last_note}` : undefined}>
+                        {hb.last_error ? <i className="fa fa-exclamation-triangle" style={{ marginRight: "0.25rem" }} />
+                            : hb.last_note ? <i className="fa fa-info-circle" style={{ marginRight: "0.25rem" }} /> : null}
                         {hb.past_due
                             ? null
                             : hb.active

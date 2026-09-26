@@ -732,18 +732,25 @@ export default function SettingsView({ active }) {
                     </div>
                     <div className="rx_row">
                         <div>
-                            <label title={_t("Caps web/X search and code rounds per text reply. Each round re-reads the whole chat. xAI suggests 3-5. 0 = no cap.")}>
-                                {_t("Max search rounds (text)")}
+                            <label title={_t("How many web and X searches xAI may run inside one text reply (chats, heartbeats, companion texts). Each search re-reads the whole conversation. Past this, the reply is stopped and written again without searching, marked \"search limit\". Other tools, including code and MCP, don't count. 0 = no limit.")}>
+                                {_t("Web & X searches per reply")}
                             </label>
-                            <input type="number" min="0" max="100" value={config.text_max_turns ?? 3}
-                                   onChange={(ev) => setField("text_max_turns", ev.target.value === "" ? "" : Number(ev.target.value))} />
+                            <input type="number" min="0" max="100" value={config.text_max_searches ?? 6}
+                                   onChange={(ev) => setField("text_max_searches", ev.target.value === "" ? "" : Number(ev.target.value))} />
                         </div>
                         <div>
-                            <label title={_t("Same cap for multi-agent research. xAI suggests 10+. 0 = no cap.")}>
-                                {_t("Max search rounds (multi-agent)")}
+                            <label title={_t("How many web and X searches the lead agent may run in one multi-agent research task. Past this, the task stops and your companion is told it failed. Searches by its helper agents aren't visible to the app, so they can't be counted. 0 = no limit.")}>
+                                {_t("Web & X searches per research task (multi-agent)")}
                             </label>
-                            <input type="number" min="0" max="100" value={config.delegate_max_turns ?? 10}
-                                   onChange={(ev) => setField("delegate_max_turns", ev.target.value === "" ? "" : Number(ev.target.value))} />
+                            <input type="number" min="0" max="100" value={config.delegate_max_searches ?? 10}
+                                   onChange={(ev) => setField("delegate_max_searches", ev.target.value === "" ? "" : Number(ev.target.value))} />
+                        </div>
+                        <div>
+                            <label title={_t("Sent to xAI as max_turns: its own limit on how many rounds of tool use (search, code, MCP) one reply may take. xAI doesn't reliably enforce it (web search runs past it, hence the search limits beside this), so keep it generous: it's a catch-all for code and MCP, not the main cap. 0 = not sent (xAI's default).")}>
+                                {_t("xAI max turns (all xAI tools)")}
+                            </label>
+                            <input type="number" min="0" max="100" value={config.xai_max_turns ?? 20}
+                                   onChange={(ev) => setField("xai_max_turns", ev.target.value === "" ? "" : Number(ev.target.value))} />
                         </div>
                     </div>
                     <div className="rx_model_actions">

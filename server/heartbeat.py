@@ -440,6 +440,7 @@ def run_heartbeat(con, hb, *, source='scheduler'):
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     ok = False
     error = None
+    note = None
     session = None
     isolated = False
     try:
@@ -490,6 +491,9 @@ def run_heartbeat(con, hb, *, source='scheduler'):
             # cap if it recurs.
             raise RuntimeError('ran out of model turns before finishing — '
                                'try a lower companion-texting exchange cap')
+        if turn.get('search_capped'):
+            note = (f'Stopped searching after {turn["search_capped"]} searches; '
+                    f'wrote the entry without them.')
 
         if (hb['allow_companion_texting']
                 and (turn.get('assistant_text') or '').strip() == NO_TEXT_SENTINEL):
@@ -538,9 +542,9 @@ def run_heartbeat(con, hb, *, source='scheduler'):
         # this run wrote (they are all committed by here).
         con.execute(
             "UPDATE heartbeats SET last_run_at = ?, last_finished_at = ?, next_run_at = ?,"
-            " past_due = 0, last_error = ? WHERE id = ?",
+            " past_due = 0, last_error = ?, last_note = ? WHERE id = ?",
             (now.isoformat(timespec='seconds'), utcnow(), compute_next_run(hb, now), error,
-             hb['id']),
+             note, hb['id']),
         )
         con.commit()
     except Exception:

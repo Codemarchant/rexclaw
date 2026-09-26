@@ -373,6 +373,8 @@ class TextService {
                     content: assistantText,
                     sequence: this._nextSeq(),
                     incomplete_reason: current.incomplete_reason || null,
+                    // Searches cut at the cap; the reply was written without them.
+                    search_capped: current.search_capped || 0,
                     // Arrived live (not replayed on resume): the transcript
                     // paces a multi-bubble `[next]` reply instead of
                     // painting every bubble at once.

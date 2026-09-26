@@ -476,6 +476,14 @@ export default function Transcript({
                                         <i className="fa fa-warning" /> {msg.incomplete_reason}
                                     </div>
                                 )}
+                                {last && !!msg.search_capped && (
+                                    <div
+                                        className="o_voice_msg_incomplete"
+                                        title={_t("Stopped searching after %s searches; this reply was written without them.", msg.search_capped)}
+                                    >
+                                        <i className="fa fa-warning" /> {_t("search limit")}
+                                    </div>
+                                )}
                                 {last && renderAttachments(msg)}
                             </div>
                         );

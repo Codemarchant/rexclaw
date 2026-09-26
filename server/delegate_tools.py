@@ -308,7 +308,13 @@ def _run_multi_agent_turn(con, svc, config, agent, task_session, task,
         tools=tools or None,
         reasoning_effort=config['multi_agent_effort'] or 'low',
         prompt_cache_key=f'rexclaw:{agent["id"]}',
-        max_turns=config['delegate_max_turns'] or None,
+        # Streamed so the watchdog can hang up on a runaway search loop —
+        # max_turns alone is not enforced (see the config schema comment).
+        # A cut raises SearchLimitExceeded, which the caller reports to the
+        # delegating companion as a failed task.
+        max_turns=config['xai_max_turns'] or None,   # 0 = not sent
+        max_search_calls=config['delegate_max_searches'] or None,   # 0 = off
+        stream=True,
     )
     svc._accrue_text_usage(con, task_session, body.get('usage') or {})
     chunks = []

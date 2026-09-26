@@ -199,15 +199,27 @@ CREATE TABLE IF NOT EXISTS config (
     jev_model TEXT NOT NULL DEFAULT 'jev-latest',
     live_memory_mode TEXT NOT NULL DEFAULT 'off', -- off | on
     live_memory_cooldown_seconds INTEGER NOT NULL DEFAULT 60,
-    -- max_turns sent on Responses calls that carry xAI server-side tools
-    -- (web/X search, code execution): caps rounds of xAI's own agent loop
-    -- inside ONE request — parallel calls share a round, and hitting the
-    -- cap still ends in a reply. Unset, xAI's server default let a single
-    -- companion-text reply loop ~17 min (51.8M cached tokens, ~$51 on
-    -- 2026-09-23). Defaults follow xAI's "When to Use max_turns" table:
-    -- 3 = balanced, 10 = deep research. 0 = omit (xAI's default).
-    text_max_turns INTEGER NOT NULL DEFAULT 3,
-    delegate_max_turns INTEGER NOT NULL DEFAULT 10,
+    -- Web/X search calls per request (text replies / multi-agent tasks).
+    -- xAI runs these searches in its own loop inside ONE request, each call
+    -- re-reading the whole context. It documents max_turns as the cap but
+    -- does not enforce it (tested 2026-09-26): max_turns=3 still let one
+    -- companion-text reply run 644 searches ($83.81). So the stream is
+    -- closed past this many calls, which cancels the response at xAI; text
+    -- turns then retry once without the search tools. Counted per call,
+    -- not per round: some models stream no reasoning between searches.
+    -- Code execution and MCP are not counted. Text 6 = 1.5x the most seen
+    -- in a normal reply (4); multi-agent 10 counts only the leader's calls
+    -- (sub-agents' searches don't stream). 0 = off (no watchdog).
+    text_max_searches INTEGER NOT NULL DEFAULT 6,
+    delegate_max_searches INTEGER NOT NULL DEFAULT 10,
+    -- max_turns sent on every text and multi-agent request: xAI's own cap
+    -- on its agent loop across ALL its tools (search, code, MCP). Kept
+    -- apart from the search caps above so it never limits code/MCP work
+    -- to a search-sized number. Not reliably enforced (web search runs
+    -- past it; grok-search reports it holds for X search), so it is a
+    -- catch-all for the tools the watchdog doesn't count, not the cap.
+    -- 20 is generous on purpose. 0 = not sent (xAI's own default).
+    xai_max_turns INTEGER NOT NULL DEFAULT 20,
     -- local_task working directory — the Grok Build CLI's blast-radius
     -- boundary. Empty = <data>/workspace (created on demand).
     local_task_workdir TEXT NOT NULL DEFAULT '',
@@ -743,6 +755,7 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     last_finished_at TEXT,                   -- when its bookkeeping landed (rows complete)
     past_due INTEGER NOT NULL DEFAULT 0,     -- pending user decision; scheduler skips
     last_error TEXT,                         -- last failed tick, cleared on success
+    last_note TEXT,                          -- last silent tick's non-failure note (search cut), else NULL
     -- Companion texting during this heartbeat's own tick (off by default —
     -- e.g. a diary heartbeat leaves this off). When on, the tick may use
     -- text_companion up to companion_texting_max_turns times; see
@@ -1094,9 +1107,6 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN live_memory_cooldown_seconds INTEGER NOT NULL DEFAULT 60",
     "ALTER TABLE memories ADD COLUMN recall_revision INTEGER NOT NULL DEFAULT 0",
     # Which model picks a speech gesture (see the config schema comment).
-    # xAI agent-loop caps (see the config schema comment).
-    "ALTER TABLE config ADD COLUMN text_max_turns INTEGER NOT NULL DEFAULT 3",
-    "ALTER TABLE config ADD COLUMN delegate_max_turns INTEGER NOT NULL DEFAULT 10",
     "ALTER TABLE config ADD COLUMN summary_max_words INTEGER NOT NULL DEFAULT 2000",
     "ALTER TABLE config ADD COLUMN summary_consolidate_words INTEGER NOT NULL DEFAULT 8000",
     # Per-look face tuning (JSON {channel: strength}) from the pack
@@ -1104,6 +1114,19 @@ MIGRATIONS = (
     # on its row. NULL = the face director's own numbers.
     "ALTER TABLE avatars ADD COLUMN face_tuning TEXT",
     "ALTER TABLE avatar_outfits ADD COLUMN face_tuning TEXT",
+    # Enforced search caps replacing max_turns (see the config schema comment).
+    "ALTER TABLE config ADD COLUMN text_max_searches INTEGER NOT NULL DEFAULT 6",
+    "ALTER TABLE config ADD COLUMN delegate_max_searches INTEGER NOT NULL DEFAULT 10",
+    # xAI's own agent-loop cap, apart from the search caps (see the config
+    # schema comment). A new name: text_max_turns is dropped below.
+    "ALTER TABLE config ADD COLUMN xai_max_turns INTEGER NOT NULL DEFAULT 20",
+    # A heartbeat run whose search loop was cut says so in the panel.
+    "ALTER TABLE heartbeats ADD COLUMN last_note TEXT",
+    # The unenforced max_turns settings they replace, and a short-lived
+    # output-token ceiling the search cap made redundant (no-op once gone).
+    "ALTER TABLE config DROP COLUMN text_max_turns",
+    "ALTER TABLE config DROP COLUMN delegate_max_turns",
+    "ALTER TABLE config DROP COLUMN text_max_output_tokens",
 )
 
 
