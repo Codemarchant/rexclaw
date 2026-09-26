@@ -6,6 +6,9 @@ import Pager, { usePager } from "./Pager.jsx";
 import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { EditorBar } from "./UnsavedUI.jsx";
 import { fmtLocal } from "./HeartbeatsPanel.jsx";
+import MemoryGalaxy from "./MemoryGalaxy.jsx";
+
+const VIEW_KEY = "rexclaw.memories_view";
 
 /** Dedicated Memories tab — the durable facts and conversation episodes the
  *  companions have stored across sessions. Lives on its own tab (not buried in
@@ -22,7 +25,15 @@ export default function MemoriesView({ active }) {
     const [expanded, setExpanded] = useState(() => new Set());
     const [editing, setEditing] = useState(null);           // null | {id?, content, scope, agent_id, tags, keywords?, memory_type}
     const [saving, setSaving] = useState(false);
+    const [view, setView] = useState(() => {
+        try { return localStorage.getItem(VIEW_KEY) === "galaxy" ? "galaxy" : "list"; } catch { return "list"; }
+    });
     const importInputRef = useRef(null);
+
+    const switchView = (next) => {
+        setView(next);
+        try { localStorage.setItem(VIEW_KEY, next); } catch { /* private mode */ }
+    };
 
     const load = async () => {
         setLoading(true);
@@ -168,16 +179,18 @@ export default function MemoriesView({ active }) {
     };
 
     const q = query.trim().toLowerCase();
-    const visible = memories.filter((m) => {
+    // The galaxy draws the filtered set and only highlights the search, so
+    // typing doesn't reshuffle the sky; the list narrows by both.
+    const filtered = memories.filter((m) => {
         const type = m.memory_type === "episode" ? "episode" : "fact";
         if (typeFilter !== "all" && type !== typeFilter) return false;
         if (scopeFilter !== "all" && m.scope !== scopeFilter) return false;
         if (agentFilter === "shared" && m.agent_id != null) return false;
         if (agentFilter !== "all" && agentFilter !== "shared" && m.agent_id !== Number(agentFilter)) return false;
-        if (!q) return true;
-        return [m.content, m.keywords, m.tags, m.agent_name]
-            .some((f) => (f || "").toLowerCase().includes(q));
+        return true;
     });
+    const visible = !q ? filtered : filtered.filter((m) => [m.content, m.keywords, m.tags, m.agent_name]
+        .some((f) => (f || "").toLowerCase().includes(q)));
     const pager = usePager(visible.length);
 
     const factCount = memories.filter((m) => m.memory_type !== "episode").length;
@@ -193,6 +206,24 @@ export default function MemoriesView({ active }) {
                     </p>
 
                     <div className="rx_mem_toolbar">
+                        <div className="rx_mem_filters" role="group" aria-label={_t("View")}>
+                            <button
+                                type="button"
+                                className={"rx_mem_chip" + (view === "list" ? " is-active" : "")}
+                                onClick={() => switchView("list")}
+                                title={_t("List view")}
+                            >
+                                <i className="fa fa-list" /> {_t("List")}
+                            </button>
+                            <button
+                                type="button"
+                                className={"rx_mem_chip" + (view === "galaxy" ? " is-active" : "")}
+                                onClick={() => switchView("galaxy")}
+                                title={_t("See memories as a star map, grouped by what they're about")}
+                            >
+                                <i className="fa fa-star-o" /> {_t("Galaxy")}
+                            </button>
+                        </div>
                         <input
                             type="text"
                             placeholder={_t("Search memories, keywords, tags…")}
@@ -338,12 +369,21 @@ export default function MemoriesView({ active }) {
                             {_t("Nothing remembered yet — companions store durable facts and episodes here as you talk.")}
                         </p>
                     )}
-                    {!loading && !!memories.length && !visible.length && (
+                    {view === "galaxy" && !!memories.length && (
+                        <MemoryGalaxy
+                            memories={filtered}
+                            query={query}
+                            active={active}
+                            onEdit={startEdit}
+                            onForget={deleteMemory}
+                        />
+                    )}
+                    {view === "list" && !loading && !!memories.length && !visible.length && (
                         <p className="text-muted small">{_t("No memories match your filters.")}</p>
                     )}
 
-                    <Pager pager={pager} />
-                    {pager.slice(visible).map((m) => {
+                    {view === "list" && <Pager pager={pager} />}
+                    {view === "list" && pager.slice(visible).map((m) => {
                         const isEpisode = m.memory_type === "episode";
                         const isOpen = expanded.has(m.id);
                         return (

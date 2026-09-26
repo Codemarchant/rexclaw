@@ -1,0 +1,432 @@
+// Memory Galaxy (components/MemoryGalaxy.jsx). Space is always dark, so the
+// panels are dark glass in both app themes.
+
+$glass: rgba(9, 11, 26, 0.62);
+$edge: rgba(255, 255, 255, 0.09);
+$ink: #e2e8f0;
+$muted: #94a3b8;
+
+.rx_galaxy {
+    position: relative;
+    height: max(460px, calc(100vh - 15rem));
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background: #04050c;
+    color: $ink;
+    font-size: 0.8rem;
+    isolation: isolate;
+    user-select: none;
+
+    &.is-fullscreen {
+        height: 100vh;
+        border-radius: 0;
+    }
+
+    .rx_galaxy_host {
+        position: absolute;
+        inset: 0;
+    }
+
+    .rx_galaxy_canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+    }
+
+    .rx_galaxy_labels {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+    }
+
+    .rx_galaxy_label {
+        position: absolute;
+        left: 0;
+        top: 0;
+        padding: 0.12rem 0.5rem;
+        border: 0;
+        border-radius: 999px;
+        background: rgba(4, 5, 12, 0.35);
+        color: var(--c);
+        font: inherit;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        text-shadow: 0 0 10px var(--c), 0 0 2px rgba(0, 0, 0, 0.9);
+        cursor: pointer;
+        transition: opacity 0.25s ease;
+        will-change: transform;
+
+        &:hover { background: rgba(255, 255, 255, 0.1); color: white; }
+    }
+
+    .rx_galaxy_empty {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        color: $muted;
+    }
+
+    %glass {
+        background: $glass;
+        border: 1px solid $edge;
+        border-radius: 0.6rem;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+
+    .rx_galaxy_dot {
+        display: inline-block;
+        flex: none;
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 50%;
+        box-shadow: 0 0 6px currentColor;
+    }
+
+    // ── HUD: title, stats, topic list ─────────────────────────────────────
+    .rx_galaxy_hud {
+        @extend %glass;
+        position: absolute;
+        top: 0.75rem;
+        left: 0.75rem;
+        max-width: min(17rem, calc(100% - 5rem));
+        max-height: calc(100% - 6.5rem);
+        display: flex;
+        flex-direction: column;
+        padding: 0.6rem 0.7rem;
+        gap: 0.2rem;
+    }
+
+    .rx_galaxy_title {
+        font-size: 0.95rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: white;
+        .fa { color: #fcd34d; }
+    }
+
+    .rx_galaxy_stats { color: $muted; font-size: 0.72rem; }
+
+    .rx_galaxy_topics {
+        margin-top: 0.35rem;
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        min-height: 0;
+        scrollbar-width: thin;
+    }
+
+    .rx_galaxy_topics_toggle {
+        border: 0;
+        background: none;
+        color: $muted;
+        font: inherit;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        text-align: left;
+        padding: 0.1rem 0;
+        cursor: pointer;
+    }
+
+    .rx_galaxy_topic {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        width: 100%;
+        border: 0;
+        background: none;
+        color: $ink;
+        font: inherit;
+        font-size: 0.76rem;
+        text-align: left;
+        padding: 0.22rem 0.3rem;
+        border-radius: 0.35rem;
+        cursor: pointer;
+
+        &:hover:not(:disabled) { background: rgba(255, 255, 255, 0.07); }
+        &:disabled { opacity: 0.3; cursor: default; }
+        &--stray { cursor: default; color: $muted; }
+    }
+
+    .rx_galaxy_topic_name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rx_galaxy_topic_n { color: $muted; font-variant-numeric: tabular-nums; }
+
+    // ── top-right buttons ─────────────────────────────────────────────────
+    .rx_galaxy_actions {
+        position: absolute;
+        top: 0.75rem;
+        right: 0.75rem;
+        display: flex;
+        gap: 0.4rem;
+    }
+
+    .rx_galaxy_btn {
+        @extend %glass;
+        width: 2.1rem;
+        height: 2.1rem;
+        color: $ink;
+        cursor: pointer;
+        &:hover { color: white; border-color: rgba(255, 255, 255, 0.25); }
+    }
+
+    // ── hover tooltip ─────────────────────────────────────────────────────
+    .rx_galaxy_tip {
+        @extend %glass;
+        position: absolute;
+        transform: translate(14px, 14px);
+        max-width: 18rem;
+        padding: 0.45rem 0.6rem;
+        pointer-events: none;
+        z-index: 3;
+    }
+
+    .rx_galaxy_tip_meta {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        color: $muted;
+        font-size: 0.68rem;
+        margin-bottom: 0.2rem;
+    }
+
+    .rx_galaxy_tip_text { line-height: 1.35; overflow-wrap: anywhere; }
+
+    // ── selected memory card ──────────────────────────────────────────────
+    .rx_galaxy_card {
+        @extend %glass;
+        position: absolute;
+        top: 3.6rem;
+        right: 0.75rem;
+        width: min(22rem, calc(100% - 1.5rem));
+        max-height: calc(100% - 8.5rem);
+        overflow-y: auto;
+        padding: 0.8rem 0.9rem;
+        border-top: 2px solid var(--c);
+        box-shadow: 0 0 40px -12px var(--c);
+        z-index: 2;
+        user-select: text;
+        scrollbar-width: thin;
+        animation: rx-galaxy-card-in 0.35s ease-out;
+    }
+
+    .rx_galaxy_card_close {
+        position: absolute;
+        top: 0.45rem;
+        right: 0.5rem;
+        border: 0;
+        background: none;
+        color: $muted;
+        cursor: pointer;
+        &:hover { color: white; }
+    }
+
+    .rx_galaxy_card_topic {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        color: var(--c);
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding-right: 1.5rem;
+    }
+
+    .rx_galaxy_card_badges {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 0.45rem 0;
+
+        .rx_memory_scope { color: $muted; }
+    }
+
+    .rx_galaxy_recent {
+        font-size: 0.66rem;
+        color: #fcd34d;
+        border: 1px solid rgba(252, 211, 77, 0.4);
+        border-radius: 999px;
+        padding: 0.05rem 0.45rem;
+    }
+
+    .rx_galaxy_card_text {
+        font-size: 0.86rem;
+        line-height: 1.5;
+        color: white;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    .rx_galaxy_card_kw {
+        margin-top: 0.45rem;
+        color: $muted;
+        font-size: 0.72rem;
+        font-style: italic;
+    }
+
+    .rx_galaxy_card_meta {
+        margin-top: 0.6rem;
+        color: $muted;
+        font-size: 0.7rem;
+        line-height: 1.5;
+    }
+
+    .rx_galaxy_related {
+        margin-top: 0.7rem;
+        padding-top: 0.6rem;
+        border-top: 1px solid $edge;
+    }
+
+    .rx_galaxy_related_title {
+        color: $muted;
+        font-size: 0.66rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.25rem;
+    }
+
+    .rx_galaxy_related_item {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        width: 100%;
+        border: 0;
+        background: none;
+        color: $ink;
+        font: inherit;
+        font-size: 0.74rem;
+        text-align: left;
+        padding: 0.3rem 0.3rem;
+        border-radius: 0.35rem;
+        cursor: pointer;
+        &:hover { background: rgba(255, 255, 255, 0.07); }
+    }
+
+    .rx_galaxy_related_text {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .rx_galaxy_related_sim { color: $muted; font-variant-numeric: tabular-nums; font-size: 0.68rem; }
+
+    .rx_galaxy_card_actions {
+        display: flex;
+        gap: 0.4rem;
+        margin-top: 0.7rem;
+
+        .btn-link { color: $muted; &:hover { color: #fca5a5; } }
+    }
+
+    // ── timeline ──────────────────────────────────────────────────────────
+    .rx_galaxy_timeline {
+        @extend %glass;
+        position: absolute;
+        left: 50%;
+        bottom: 0.75rem;
+        transform: translateX(-50%);
+        width: min(34rem, calc(100% - 1.5rem));
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        padding: 0.45rem 0.8rem 0.45rem 0.5rem;
+
+        input[type="range"] {
+            flex: 1;
+            min-width: 0;
+            accent-color: #fcd34d;
+        }
+    }
+
+    .rx_galaxy_play {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        border: 1px solid rgba(252, 211, 77, 0.45);
+        background: rgba(252, 211, 77, 0.12);
+        color: #fde68a;
+        border-radius: 999px;
+        padding: 0.3rem 0.8rem;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        &:hover { background: rgba(252, 211, 77, 0.22); }
+    }
+
+    .rx_galaxy_date {
+        min-width: 6.5rem;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        color: $ink;
+    }
+
+    // ── legend ────────────────────────────────────────────────────────────
+    .rx_galaxy_legend {
+        position: absolute;
+        right: 0.9rem;
+        bottom: 4rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        color: $muted;
+        font-size: 0.68rem;
+        pointer-events: none;
+
+        span { display: flex; align-items: center; gap: 0.45rem; justify-content: flex-end; }
+    }
+
+    .rx_glyph {
+        position: relative;
+        display: inline-block;
+        width: 0.8rem;
+        height: 0.8rem;
+        border-radius: 50%;
+        background: radial-gradient(circle, #fff 0 18%, rgba(147, 197, 253, 0.55) 30%, transparent 70%);
+
+        &--episode { box-shadow: inset 0 0 0 1.5px rgba(147, 197, 253, 0.75); }
+        &--core::before, &--core::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: -20%;
+            width: 1px;
+            height: 140%;
+            background: linear-gradient(transparent, #fff, transparent);
+        }
+        &--core::after { transform: rotate(90deg); }
+        &--recent { animation: rx-galaxy-pulse 1.3s ease-in-out infinite; }
+    }
+
+    @media (max-width: 700px) {
+        .rx_galaxy_legend { display: none; }
+        .rx_galaxy_hud { max-height: 40%; }
+        .rx_galaxy_card { top: auto; bottom: 4rem; max-height: 55%; }
+    }
+}
+
+@keyframes rx-galaxy-card-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+}
+
+@keyframes rx-galaxy-pulse {
+    0%, 100% { transform: scale(0.8); opacity: 0.6; }
+    50%      { transform: scale(1.15); opacity: 1; }
+}
