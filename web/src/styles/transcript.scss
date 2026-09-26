@@ -37,6 +37,9 @@
         font-size: 0.85rem;
         line-height: 1.35;
         max-width: 85%;
+        // Pasted URLs have no break points — wrap them instead of
+        // stretching the transcript into a horizontal scroll.
+        overflow-wrap: anywhere;
 
         // Follow-up bubbles of one `[next]`-split reply sit tighter than
         // separate turns, reading as consecutive texts from the same sender.

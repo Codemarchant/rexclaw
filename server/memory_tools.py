@@ -986,7 +986,9 @@ MEMORY_TOOLS = [
             'Delete a memory by id. Use when the user contradicts a stored fact, '
             'tells you to forget something, or you need to free up a core slot '
             'before adding a new core memory. Ids come from `recall` hits, from '
-            'the core list in your system prompt, or from a `core_full` response.'
+            'the core list in your system prompt, or from a `core_full` response. '
+            'To remove or replace several memories, make all the forget and '
+            'remember calls in the same reply — they run in order.'
         ),
         'parameters': {
             'type': 'object',
