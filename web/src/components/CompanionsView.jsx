@@ -674,16 +674,21 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
             notification.add(e?.message || _t("Could not load the stock settings"), { type: "danger" });
         }
     };
-    const loadPromptPreview = async (ev) => {
-        if (!ev.target.open) return;
-        setPromptPreview(null);
-        try {
-            const r = await rpc("/api/agents/preview_prompt", { id: editingAgent.id });
-            setPromptPreview(r.prompt);
-        } catch (e) {
-            notification.add(e?.message || _t("Could not compute the prompt preview"), { type: "danger" });
-        }
-    };
+    // Recomputed from the draft, so the token counts follow tool toggles and
+    // prompt edits (debounced for typing).
+    useEffect(() => {
+        if (editingAgent.id == null) return;
+        let stale = false;
+        const timer = setTimeout(async () => {
+            try {
+                const r = await rpc("/api/agents/preview_prompt", { id: editingAgent.id, values: editingAgent });
+                if (!stale) setPromptPreview(r);
+            } catch (e) {
+                if (!stale) notification.add(e?.message || _t("Could not compute the prompt preview"), { type: "danger" });
+            }
+        }, 400);
+        return () => { stale = true; clearTimeout(timer); };
+    }, [editingAgent]);
     return (
         <>
             <section>
@@ -721,15 +726,27 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 </div>
             </div>
             <label>{_t("System prompt")}</label>
+            {editingAgent.id != null && promptPreview?.tokens && (
+                <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}
+                   title={_t("Estimated from characters-per-token ratios measured with Grok's tokenizer on English text (within a few percent there); a prompt written in Japanese or similar reads low. Text chats get a slightly different prompt and a different tool set (no avatar or call tools, plus create_voicemail and code execution).")}>
+                    {_t("≈ tokens — system prompt: %s voice, %s text · tools: %s voice (%s tools), %s text (%s tools)",
+                        promptPreview.tokens.voice_prompt.toLocaleString(),
+                        promptPreview.tokens.text_prompt.toLocaleString(),
+                        promptPreview.tokens.voice_tools.toLocaleString(),
+                        promptPreview.tokens.voice_tool_count,
+                        promptPreview.tokens.text_tools.toLocaleString(),
+                        promptPreview.tokens.text_tool_count)}
+                </p>
+            )}
             <textarea rows={24} value={editingAgent.system_prompt || ""}
                       onChange={(ev) => setEditingAgent({ ...editingAgent, system_prompt: ev.target.value })} />
             {editingAgent.id != null && (
-                <details onToggle={loadPromptPreview} style={{ margin: "0.5rem 0" }}>
+                <details style={{ margin: "0.5rem 0" }}>
                     <summary style={{ cursor: "pointer" }}>{_t("Computed voice prompt (read-only)")}</summary>
                     <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
-                        {_t("Exactly what a solo voice session receives: the environment preamble, the saved system prompt, and the dynamic tool/expression/memory sections. Computed from the last saved state; unsaved edits above are not included.")}
+                        {_t("Exactly what a solo voice session receives: the environment preamble, the system prompt, and the dynamic tool/expression/memory sections. Includes unsaved edits on this page.")}
                     </p>
-                    <textarea rows={18} readOnly value={promptPreview ?? _t("Computing…")} />
+                    <textarea rows={18} readOnly value={promptPreview?.prompt ?? _t("Computing…")} />
                 </details>
             )}
             <label title={_t("Shown to OTHER companions inside their add_agent_to_call tool so they know when to bring this companion into a live group call. Leave empty and other companions only see the name.")}>

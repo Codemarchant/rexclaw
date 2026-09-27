@@ -686,14 +686,21 @@ def lore_delete(payload: dict = Body(default={}), con=Depends(db_con)):
 def agents_preview_prompt(payload: dict = Body(default={}), con=Depends(db_con)):
     """Read-only: the full computed instructions a solo voice session for
     this agent would receive right now (environment preamble + rendered
-    system prompt + dynamic postamble sections)."""
+    system prompt + dynamic postamble sections), plus approximate token
+    counts for it and the voice/text tool lists. `values` overlays the
+    editor's unsaved draft, so the counts follow tool toggles live."""
     row = con.execute(
         "SELECT * FROM agents WHERE id = ?", (payload.get("id"),)
     ).fetchone()
     if not row:
         raise UserError("Companion not found.")
-    from ..session_service import preview_voice_prompt
-    return {"prompt": preview_voice_prompt(con, row)}
+    # Neither of the two columns agents_save normalises reaches the prompt.
+    draft = payload.get("values") or {}
+    agent = {**dict(row), **{k: draft[k] for k in _AGENT_FIELDS if k in draft
+                             and k not in ("transcription_keyterms", "idle_events")}}
+    from ..session_service import preview_token_counts, preview_voice_prompt
+    prompt = preview_voice_prompt(con, agent)
+    return {"prompt": prompt, "tokens": preview_token_counts(con, agent, prompt)}
 
 
 @router.post("/agents/restore_presets")

@@ -142,9 +142,11 @@ CREATE TABLE IF NOT EXISTS config (
     -- messages is folded into ONE verbatim item instead of one item per
     -- message. Nothing is summarised away, but the folded turns lose their
     -- per-message role tagging, which may cost some conversational nuance —
-    -- hence opt-in, and hence a verbatim tail that keeps recent turns intact.
-    replay_rollup_enabled INTEGER NOT NULL DEFAULT 0,
-    replay_rollup_keep_recent INTEGER NOT NULL DEFAULT 20,
+    -- hence the optional verbatim tail that keeps recent turns intact. On
+    -- with everything bundled for new installs; the upgrade migration below
+    -- stays off so existing conversations don't change behaviour.
+    replay_rollup_enabled INTEGER NOT NULL DEFAULT 1,
+    replay_rollup_keep_recent INTEGER NOT NULL DEFAULT 0,
     -- Voice activation ("hey Eve"): with this on, the browser keeps the mic
     -- open while NO call is live and spots the agents' wake phrases with a
     -- local (offline, unbilled) Vosk model — a match starts the call. The

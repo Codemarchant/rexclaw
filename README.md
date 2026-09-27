@@ -378,10 +378,12 @@ Two settings cut that second cost:
 - **Settings → Cost optimization → Roll up older history** — bundles old
   messages into one instead of hundreds, taking ~$1 to under a cent. Every
   word is still sent verbatim; only the shape changes, so recall of the
-  bundled part may be slightly softer. Recent turns (20 by default) stay
-  whole. Off by default — recommended if you dip in and out of a conversation
-  for quick exchanges, since short frequent resumes are where replay dominates
-  the bill. On long calls the per-minute charge outweighs it anyway.
+  bundled part may be slightly softer. On by default for new installs, with
+  everything bundled (0 recent turns kept whole); raise that number to keep
+  the latest turns as separate messages. It matters most if you dip in and
+  out of a conversation for quick exchanges, since short frequent resumes are
+  where replay dominates the bill. On long calls the per-minute charge
+  outweighs it anyway.
 
 Tools (web/X search, MCP, image and video generation), text chats and
 background summarisation bill on top. Real spend:

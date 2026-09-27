@@ -868,7 +868,7 @@ export default function SettingsView({ active }) {
                                     {_t("Recent turns kept whole")}
                                 </label>
                                 <input type="number" min="0"
-                                       value={config.replay_rollup_keep_recent ?? 20}
+                                       value={config.replay_rollup_keep_recent ?? 0}
                                        onChange={(ev) => setField("replay_rollup_keep_recent", parseInt(ev.target.value, 10) || 0)} />
                             </div>
                         </div>

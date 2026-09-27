@@ -74,6 +74,55 @@ def preview_voice_prompt(con, agent_row):
     )
 
 
+def _approx_tokens(text, chars_per_token):
+    """Rough token count from a characters-per-token ratio measured with
+    xAI's tokenizer (POST /v1/tokenize-text, grok-4.6, 2026-09-27) on the
+    stock companions: prompts 4.42-4.53, tool-definition JSON 3.97-3.99.
+    English text; a prompt in Japanese or similar packs far fewer
+    characters into a token, so it reads low."""
+    return round(len(text) / chars_per_token)
+
+
+def preview_token_counts(con, agent_row, voice_prompt):
+    """Approximate token sizes of what a solo voice session and a text chat
+    for this agent send up front: the system prompt and the tool
+    definitions, for the companion editor next to the prompt preview."""
+    config = get_config(con)
+    browser, native = _voice_tools(con, agent_row, config)
+    voice_tools = xai_client.build_session_update(
+        voice=None, instructions='', browser_tools=browser,
+        mcp_entries=store.mcp_entries_for(con, agent_row['id'], surface='voice'),
+        native_function_tools=native,
+        enable_web_search=bool(agent_row['enable_web_search']),
+        enable_x_search=bool(agent_row['enable_x_search']),
+    )['session']['tools']
+    # Mirrors an ordinary text turn: user-origin session, browser attached.
+    text_tools = _build_text_tools(
+        con, agent_row,
+        mcp_entries=store.mcp_entries_for(con, agent_row['id'], surface='text'),
+        enable_web_search=bool(agent_row['enable_web_search']),
+        enable_x_search=bool(agent_row['enable_x_search']),
+        enable_code_execution=bool(agent_row['enable_code_execution']),
+        enable_grok_imagine_tools=bool(agent_row['enable_grok_imagine_tools']),
+        enable_memory_tools=bool(agent_row['enable_memory_tools']),
+        enable_affection_tool=bool(agent_row['enable_affection_tool']),
+        enable_delegate_tool=bool(agent_row['enable_delegate_tool']),
+        enable_local_tasks=bool(agent_row['enable_local_tasks']),
+        enable_minecraft=bool(agent_row['enable_minecraft']),
+        enable_companion_texting=bool(agent_row['enable_companion_texting']),
+        enable_voicemail=bool(agent_row['enable_voicemail']),
+        enable_browser_tools=True,
+    )
+    return {
+        'voice_prompt': _approx_tokens(voice_prompt, 4.45),
+        'text_prompt': _approx_tokens(_text_instructions(con, config, agent_row), 4.45),
+        'voice_tools': _approx_tokens(json.dumps(voice_tools), 4.0),
+        'voice_tool_count': len(voice_tools),
+        'text_tools': _approx_tokens(json.dumps(text_tools), 4.0),
+        'text_tool_count': len(text_tools),
+    }
+
+
 # Every time-aware resume note starts with this (see _note_resume_gap) —
 # how the transcript filter recognises the row.
 RESUME_NOTE_PREFIX = '[Conversation resumed '
@@ -971,6 +1020,100 @@ def _with_end_turn(tool):
     }}
 
 
+def _voice_tools(con, agent, config, *, group_peers=None):
+    """(browser tools, native function tools) a voice session for this
+    agent offers right now, MCP servers and xAI's built-in searches aside.
+    Shared by start_session and the companion editor's token counts."""
+    # Browser tool list: set_emotion is static; play_gesture / change_outfit
+    # are built per-agent so their enums/descriptions reflect the avatar's
+    # wardrobe + custom gesture clips.
+    tools = list(browser_tools.BROWSER_TOOLS)
+    # Only while the user's Text-To-VRMA app is answering — same "only when
+    # actually usable" rule as local_task and the Minecraft pair.
+    gesture_gen = text_to_vrma.offered(config, agent)
+    play_gesture = None
+    if agent['enable_gesture_emotion_tools']:
+        play_gesture = browser_tools.build_play_gesture_tool(
+            store.agent_gesture_dicts(con, agent),
+            allow=store.agent_allowed_base_gestures(con, agent),
+            loop_stop=gesture_gen,   # a generated motion can loop too
+        )
+        if play_gesture is not None:   # None = avatar offers no gestures at all
+            tools.append(play_gesture)
+        change_outfit = browser_tools.build_change_outfit_tool(
+            store.agent_outfit_dicts(con, agent), store.agent_appearance(con, agent))
+        if change_outfit is not None:
+            tools.append(change_outfit)
+    else:
+        tools = [t for t in tools if t['name'] != 'set_emotion']
+    # Solo calls only: a group call lays its characters out in a row, and the
+    # renderer refuses the move there — so the tool is not offered either.
+    if agent['enable_move_tool'] and not group_peers:
+        tools.append(browser_tools.MOVE_AROUND_TOOL)
+    if gesture_gen:
+        # Looping needs play_gesture in the session: its 'idle' ends a loop.
+        tools.append(text_to_vrma.build_tool(can_loop=play_gesture is not None,
+                                             engine=config['gesture_gen_engine']))
+    if agent['enable_end_call_tool']:
+        tools.append(browser_tools.END_CALL_TOOL)
+    if agent['enable_call_agents_tool']:
+        # Roster of everyone this agent could bring into the call: the other
+        # voice-enabled agents.
+        other_agents = [a for a in store.list_agents(con)
+                        if a['id'] != agent['id']]
+        add_agent_tool = browser_tools.build_add_agent_tool(agent, other_agents)
+        if add_agent_tool is not None:
+            tools.append(add_agent_tool)
+        remove_agent_tool = browser_tools.build_remove_agent_tool(agent, other_agents)
+        if remove_agent_tool is not None:
+            tools.append(remove_agent_tool)
+
+    if agent['enable_capture_tools']:
+        # Capture tools: take_selfie grabs the live canvas, the screen pair
+        # grab the user-armed share. They capture, they don't generate, so
+        # they sit behind their own provider-agnostic flag, not the imagine
+        # set (the library accepts captures regardless).
+        tools.append(browser_tools.SELFIE_TOOL)
+        tools.append(browser_tools.SCREENSHOT_TOOL)
+        tools.append(browser_tools.ANALYZE_SCREEN_TOOL)
+        tools.append(browser_tools.RECORD_SCREEN_CLIP_TOOL)
+
+    native_function_tools = []
+    if agent['enable_grok_imagine_tools']:
+        native_function_tools.extend(imagine_tools.build_voice_tools(con, agent))
+    if agent['enable_memory_tools']:
+        native_function_tools.extend(memory_tools.MEMORY_TOOLS)
+    if agent['enable_lore_tool'] and lore_tools.has_stories(con, agent['name']):
+        native_function_tools.append(lore_tools.build_recall_tool(con, agent['name']))
+    if agent['enable_affection_tool']:
+        native_function_tools.extend(affection_tools.build_tools(agent))
+    # Only offered when the Grok Build CLI is actually on PATH — in
+    # Docker (or an uninstalled machine) the tool silently disappears.
+    local_tasks = bool(agent['enable_local_tasks']) and local_tools.grok_available()
+    if agent['enable_delegate_tool']:
+        # Voice sessions are never origin='delegated', so no recursion
+        # carve-out is needed here (the text-mode builder handles that).
+        native_function_tools.append(
+            delegate_tools.delegate_tool(with_local_task_note=local_tasks))
+    if local_tasks:
+        native_function_tools.append(local_tools.LOCAL_TASK_TOOL)
+    # Same "only when actually usable" rule as local_task: the pair appears
+    # only while the bot sidecar is connected to /ws/minecraft.
+    if bool(agent['enable_minecraft']) and minecraft_tools.connected():
+        native_function_tools.extend(minecraft_tools.build_tools())
+    if agent['enable_companion_texting']:
+        # Voice sessions are never origin='delegated' or mid-incoming-text,
+        # so no recursion carve-out is needed here (the text-mode builder
+        # handles both).
+        text_tool = companion_texting.build_text_companion_tool(
+            agent, [a for a in store.list_agents(con) if a['id'] != agent['id']])
+        if text_tool is not None:
+            native_function_tools.append(text_tool)
+    # Voice only — see _with_end_turn.
+    return ([_with_end_turn(t) for t in tools],
+            [_with_end_turn(t) for t in native_function_tools])
+
+
 def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
                   manual_turn=False, call_parent_session=None, group_peers=None):
     """Mint an ephemeral xAI session and assemble the realtime tools list.
@@ -1076,98 +1219,11 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     # where saving is strict, for the same imported-package reason.
     keyterms = [t for t in xai_client.parse_keyterms(agent['transcription_keyterms'])
                 if len(t) <= xai_client.KEYTERM_MAX_LEN][:xai_client.KEYTERMS_MAX]
-    # Browser tool list: set_emotion is static; play_gesture / change_outfit
-    # are built per-agent so their enums/descriptions reflect the avatar's
-    # wardrobe + custom gesture clips.
-    tools = list(browser_tools.BROWSER_TOOLS)
     # The face director drives the base avatar's face — the primary leg's.
     # Peer legs: nothing reads their lines for a face.
     face_on = bool(config['face_director']) and not manual_turn
-    # Only while the user's Text-To-VRMA app is answering — same "only when
-    # actually usable" rule as local_task and the Minecraft pair.
-    gesture_gen = text_to_vrma.offered(config, agent)
-    play_gesture = None
-    if agent['enable_gesture_emotion_tools']:
-        play_gesture = browser_tools.build_play_gesture_tool(
-            store.agent_gesture_dicts(con, agent),
-            allow=store.agent_allowed_base_gestures(con, agent),
-            loop_stop=gesture_gen,   # a generated motion can loop too
-        )
-        if play_gesture is not None:   # None = avatar offers no gestures at all
-            tools.append(play_gesture)
-        change_outfit = browser_tools.build_change_outfit_tool(
-            store.agent_outfit_dicts(con, agent), store.agent_appearance(con, agent))
-        if change_outfit is not None:
-            tools.append(change_outfit)
-    else:
-        tools = [t for t in tools if t['name'] != 'set_emotion']
-    # Solo calls only: a group call lays its characters out in a row, and the
-    # renderer refuses the move there — so the tool is not offered either.
-    if agent['enable_move_tool'] and not group_peers:
-        tools.append(browser_tools.MOVE_AROUND_TOOL)
-    if gesture_gen:
-        # Looping needs play_gesture in the session: its 'idle' ends a loop.
-        tools.append(text_to_vrma.build_tool(can_loop=play_gesture is not None,
-                                             engine=config['gesture_gen_engine']))
-    if agent['enable_end_call_tool']:
-        tools.append(browser_tools.END_CALL_TOOL)
-    if agent['enable_call_agents_tool']:
-        # Roster of everyone this agent could bring into the call: the other
-        # voice-enabled agents.
-        other_agents = [a for a in store.list_agents(con)
-                        if a['id'] != agent['id']]
-        add_agent_tool = browser_tools.build_add_agent_tool(agent, other_agents)
-        if add_agent_tool is not None:
-            tools.append(add_agent_tool)
-        remove_agent_tool = browser_tools.build_remove_agent_tool(agent, other_agents)
-        if remove_agent_tool is not None:
-            tools.append(remove_agent_tool)
-
-    if agent['enable_capture_tools']:
-        # Capture tools: take_selfie grabs the live canvas, the screen pair
-        # grab the user-armed share. They capture, they don't generate, so
-        # they sit behind their own provider-agnostic flag, not the imagine
-        # set (the library accepts captures regardless).
-        tools.append(browser_tools.SELFIE_TOOL)
-        tools.append(browser_tools.SCREENSHOT_TOOL)
-        tools.append(browser_tools.ANALYZE_SCREEN_TOOL)
-        tools.append(browser_tools.RECORD_SCREEN_CLIP_TOOL)
-
+    tools, native_function_tools = _voice_tools(con, agent, config, group_peers=group_peers)
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='voice')
-    native_function_tools = []
-    if agent['enable_grok_imagine_tools']:
-        native_function_tools.extend(imagine_tools.build_voice_tools(con, agent))
-    if agent['enable_memory_tools']:
-        native_function_tools.extend(memory_tools.MEMORY_TOOLS)
-    if agent['enable_lore_tool'] and lore_tools.has_stories(con, agent['name']):
-        native_function_tools.append(lore_tools.build_recall_tool(con, agent['name']))
-    if agent['enable_affection_tool']:
-        native_function_tools.extend(affection_tools.build_tools(agent))
-    # Only offered when the Grok Build CLI is actually on PATH — in
-    # Docker (or an uninstalled machine) the tool silently disappears.
-    local_tasks = bool(agent['enable_local_tasks']) and local_tools.grok_available()
-    if agent['enable_delegate_tool']:
-        # Voice sessions are never origin='delegated', so no recursion
-        # carve-out is needed here (the text-mode builder handles that).
-        native_function_tools.append(
-            delegate_tools.delegate_tool(with_local_task_note=local_tasks))
-    if local_tasks:
-        native_function_tools.append(local_tools.LOCAL_TASK_TOOL)
-    # Same "only when actually usable" rule as local_task: the pair appears
-    # only while the bot sidecar is connected to /ws/minecraft.
-    if bool(agent['enable_minecraft']) and minecraft_tools.connected():
-        native_function_tools.extend(minecraft_tools.build_tools())
-    if agent['enable_companion_texting']:
-        # Voice sessions are never origin='delegated' or mid-incoming-text,
-        # so no recursion carve-out is needed here (the text-mode builder
-        # handles both).
-        text_tool = companion_texting.build_text_companion_tool(
-            agent, [a for a in store.list_agents(con) if a['id'] != agent['id']])
-        if text_tool is not None:
-            native_function_tools.append(text_tool)
-    # Voice only — see _with_end_turn.
-    tools = [_with_end_turn(t) for t in tools]
-    native_function_tools = [_with_end_turn(t) for t in native_function_tools]
 
     live_memory_mode = config['live_memory_mode'] if (
         config['typesafe_api_key'] and agent['enable_memory_tools'] and not manual_turn and not group_peers
@@ -1437,8 +1493,8 @@ def _build_replay_items(con, session, config=None):
 
     With `replay_rollup_enabled`, everything older than the most recent
     `replay_rollup_keep_recent` messages is folded into ONE verbatim item, so
-    the resume is billed for a handful of items instead of hundreds. Off (the
-    default), every message replays as its own item exactly as before.
+    the resume is billed for a handful of items instead of hundreds. Off,
+    every message replays as its own item.
     """
     config = config if config is not None else get_config(con)
     msgs = store.session_messages(con, session['id'], where="AND is_summarized_into IS NULL")

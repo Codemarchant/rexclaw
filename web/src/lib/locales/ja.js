@@ -825,8 +825,12 @@ export const JA = {
   "Reasoning effort (text mode)": "推論エフォート（テキストモード）",
   "System prompt": "システムプロンプト",
   "Computed voice prompt (read-only)": "算出されたボイスプロンプト（読み取り専用）",
-  "Exactly what a solo voice session receives: the environment preamble, the saved system prompt, and the dynamic tool/expression/memory sections. Computed from the last saved state; unsaved edits above are not included.":
-    "ソロボイスセッションが受け取る内容そのものです：環境プリアンブル、保存済みシステムプロンプト、動的なツール・表現・メモリのセクション。最後に保存した状態から算出されるため、上の未保存の編集は含まれません。",
+  "Exactly what a solo voice session receives: the environment preamble, the system prompt, and the dynamic tool/expression/memory sections. Includes unsaved edits on this page.":
+    "ソロボイスセッションが受け取る内容そのものです：環境プリアンブル、システムプロンプト、動的なツール・表現・メモリのセクション。このページの未保存の編集も反映されます。",
+  "≈ tokens — system prompt: %s voice, %s text · tools: %s voice (%s tools), %s text (%s tools)":
+    "≈ トークン数 — システムプロンプト：ボイス %s、テキスト %s · ツール：ボイス %s（%s 個）、テキスト %s（%s 個）",
+  "Estimated from characters-per-token ratios measured with Grok's tokenizer on English text (within a few percent there); a prompt written in Japanese or similar reads low. Text chats get a slightly different prompt and a different tool set (no avatar or call tools, plus create_voicemail and code execution).":
+    "Grok のトークナイザーで英語テキストを計測した「1トークンあたりの文字数」から概算しています（英語なら誤差数％）。日本語などで書かれたプロンプトは実際より少なく表示されます。テキストチャットではプロンプトが少し異なり、ツール構成も異なります（アバター・通話ツールなし、create_voicemail とコード実行あり）。",
   "Could not compute the prompt preview": "プロンプトプレビューを算出できませんでした",
   "Computing…": "算出中…",
   "When to call (shown to other companions for group calls)":
