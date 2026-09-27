@@ -3,9 +3,11 @@ import { _t } from "../lib/i18n";
 import SessionsView from "./SessionsView.jsx";
 import MemoriesView from "./MemoriesView.jsx";
 import LoreStoriesPanel from "./LoreStoriesPanel.jsx";
+import RecordingsView from "./RecordingsView.jsx";
 
-/** History tab — Odoo-style umbrella over the three record views: Sessions
- *  (transcripts), Memories, and the Lore stories archive. Sub-views stay
+/** History tab — Odoo-style umbrella over the record views: Sessions
+ *  (transcripts), Memories, the Lore stories archive and Recordings (the
+ *  audio studio playground + companion voicemails). Sub-views stay
  *  mounted (display:none) so switching between them keeps scroll positions
  *  and loaded data; each gets `active` only when both the tab and its
  *  sub-tab are current, preserving the refresh-on-activate behavior. */
@@ -13,6 +15,7 @@ const SUBTABS = [
     { id: "sessions", label: "Sessions", icon: "fa-archive" },
     { id: "memories", label: "Memories", icon: "fa-lightbulb-o" },
     { id: "lore", label: "Lore stories", icon: "fa-book" },
+    { id: "recordings", label: "Recordings", icon: "fa-headphones" },
 ];
 
 export default function HistoryView({ active }) {
@@ -42,6 +45,9 @@ export default function HistoryView({ active }) {
                         </section>
                     </div>
                 </div>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, display: sub === "recordings" ? "" : "none" }}>
+                <RecordingsView active={active && sub === "recordings"} />
             </div>
         </div>
     );

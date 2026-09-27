@@ -46,6 +46,17 @@ const CREDITS = [
         ],
     },
     {
+        title: "Recording studio",
+        items: [
+            ["Freesound: bassimat, PhonZz, Kronek9, Andrewkn",
+             "https://freesound.org",
+             "CC0. The recorded beds heartbeat-drone, void-drone (bassimat), "
+             + "relaxation-pads, angelic-pad (PhonZz) and emanation (Kronek9), and the "
+             + "music space-pad and cosmic-glow (Andrewkn). Sources in "
+             + "assets/audio/beds/CREDITS.md."],
+        ],
+    },
+    {
         title: "Voice activation",
         items: [
             ["Vosk",

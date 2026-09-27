@@ -32,6 +32,7 @@ router = APIRouter(prefix="/api")
 _CONFIG_FIELDS = (
     "enabled", "xai_realtime_url", "xai_client_secrets_url", "xai_responses_url",
     "xai_files_url", "xai_images_url", "xai_images_edits_url", "xai_videos_url",
+    "xai_tts_url",
     "xai_model", "text_model", "summary_model", "director_model", "imagine_model",
     "imagine_video_model", "multi_agent_model", "multi_agent_effort",
     "delegate_fast_model",
@@ -76,6 +77,7 @@ _AGENT_FIELDS = (
     "enable_companion_texting", "texting_tools_enabled",
     "enable_delegate_tool", "enable_multi_agent_delegation",
     "enable_local_tasks", "enable_minecraft", "enable_gesture_gen", "enable_move_tool",
+    "enable_voicemail",
     "enable_end_call_tool", "wake_phrase", "wake_action",
     "time_aware_resume", "speaks_first",
     "idle_events_enabled", "idle_events_min_seconds", "idle_events_max_seconds",

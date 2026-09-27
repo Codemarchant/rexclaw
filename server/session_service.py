@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store, text_to_vrma, turn_director
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store, text_to_vrma, turn_director, voicemail_tools
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -310,7 +310,10 @@ def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=F
             "The avatar / voice / emotion / gesture tools are NOT available "
             "on this surface - ignore any instructions above that mention "
             "`set_emotion`, `play_gesture`, an avatar, or vocal delivery "
-            "through speech expression tags. Respond in text only.\n"
+            "through speech expression tags. Respond in text only."
+            + (" (The one exception: a `create_voicemail` script is spoken, "
+               "so speech tags belong there.)" if agent_row['enable_voicemail'] else "")
+            + "\n"
             "- **Texting rhythm:** Texting comes in a few short messages "
             "more often than one long block - split a reply with `[next]` "
             "on its own line between the parts (a quick reaction, then "
@@ -2372,6 +2375,7 @@ NATIVE_TOOL_NAMES_TEXT = (
     | {delegate_tools.DELEGATE_TOOL_NAME}
     | {local_tools.LOCAL_TASK_TOOL_NAME}
     | {companion_texting.TEXT_COMPANION_TOOL_NAME}
+    | {voicemail_tools.CREATE_VOICEMAIL_TOOL_NAME}
 )
 # Browser tools that round-trip through the text client (dispatch in the
 # page's ToolDispatcher, results fed back via /tool_results). The screen
@@ -2388,6 +2392,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                       enable_local_tasks=False,
                       enable_minecraft=False,
                       enable_companion_texting=False,
+                      enable_voicemail=False,
                       enable_browser_tools=False):
     """Assemble the tools list for /v1/responses calls in text mode.
     enable_browser_tools is False for headless turns (delegated task
@@ -2402,6 +2407,9 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         # source_images (uploads are ingested into the Imagine library).
         for entry in imagine_tools.build_text_tools(con, agent):
             tools.append(entry)
+    if enable_voicemail:
+        # Text only: see voicemail_tools for why voice calls go without it.
+        tools.append(voicemail_tools.build_tool(con))
     if agent['enable_capture_tools']:
         # No take_selfie in text mode: there is no canvas, and the portrait
         # it used to serve now rides create_image/create_video include_self.
@@ -2730,6 +2738,8 @@ def start_text_session(con, *, agent, resume_session=None):
                               and session['origin'] != 'delegated'),
             enable_companion_texting=(bool(agent['enable_companion_texting'])
                                       and session['origin'] != 'delegated'),
+            enable_voicemail=(bool(agent['enable_voicemail'])
+                              and session['origin'] != 'delegated'),
         ),
         'model': config['text_model'],
         'previous_response_id': session['previous_response_id'] or None,
@@ -2945,6 +2955,11 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         # The delegated analyst must not steer the game bot — directing it
         # is the companion's own job (same spirit as the delegate guard).
         enable_minecraft=(bool(agent['enable_minecraft'])
+                          and session['origin'] != 'delegated'
+                          and not minimal_tools),
+        # A recording is for the user to hear; the hidden analyst's session
+        # is one they never see.
+        enable_voicemail=(bool(agent['enable_voicemail'])
                           and session['origin'] != 'delegated'
                           and not minimal_tools),
         # Recursion guard: a companion replying to an incoming companion
@@ -3407,6 +3422,8 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 result = delegate_tools.execute_delegate_tool(con, session, args)
             elif name == local_tools.LOCAL_TASK_TOOL_NAME:
                 result = local_tools.execute_local_task(con, session, args)
+            elif name == voicemail_tools.CREATE_VOICEMAIL_TOOL_NAME:
+                result = voicemail_tools.execute_create_voicemail(con, session, agent, args)
             elif name in minecraft_tools.MINECRAFT_TOOL_NAMES:
                 # Flag check lives in the executors (same {'error': ...} contract
                 # as voice /session/{id}/tool_call).

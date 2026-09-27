@@ -1,4 +1,5 @@
 import { _t } from "../lib/i18n";
+import { formatClock } from "../lib/format_clock";
 import React, { useEffect, useRef, useState } from "react";
 
 /** Transcript renderer, ported from the OWL component. Voice mode renders
@@ -107,6 +108,10 @@ function toolRow(base) {
                 row.video_url = parsed.video_url;
                 row.video_name = parsed.name || parsed.prompt || _t("Generated video");
                 row.video_prompt = parsed.prompt || "";
+            } else if (parsed && typeof parsed === "object" && parsed.audio_url) {
+                row.audio_url = parsed.audio_url;
+                row.audio_name = parsed.name || _t("Voice message");
+                row.audio_seconds = parsed.duration_seconds || 0;
             }
         } catch (_) {
             // result wasn't JSON — fine for non-imagine tools.
@@ -413,6 +418,17 @@ export default function Transcript({
                                 >
                                     <video src={row.video_url} controls preload="metadata" playsInline />
                                     <span className="o_voice_tool_image_label">{row.video_name}</span>
+                                </div>
+                            )}
+                            {row.audio_url && (
+                                <div className="o_voice_tool_audio">
+                                    <span className="o_voice_tool_audio_label">
+                                        <i className="fa fa-headphones" /> {row.audio_name}
+                                        {row.audio_seconds > 0 && (
+                                            <span className="o_voice_tool_audio_len">{formatClock(row.audio_seconds)}</span>
+                                        )}
+                                    </span>
+                                    <audio src={row.audio_url} controls preload="metadata" />
                                 </div>
                             )}
                             {expanded[row.key] && (

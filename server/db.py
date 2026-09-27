@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS config (
     xai_images_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/images/generations',
     xai_images_edits_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/images/edits',
     xai_videos_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/videos/generations',
+    xai_tts_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/tts',
+    -- User override of audio_studio's default writing rules for recordings
+    -- (History → Recordings → Full guide); NULL/empty = the defaults.
+    recording_rules TEXT,
     xai_model TEXT NOT NULL DEFAULT 'grok-voice-latest',
     text_model TEXT NOT NULL DEFAULT 'grok-latest',
     summary_model TEXT NOT NULL DEFAULT 'grok-latest',
@@ -470,6 +474,9 @@ CREATE TABLE IF NOT EXISTS agents (
     -- in a 3D scene background, where there is a room to move through →
     -- opt-in.
     enable_move_tool INTEGER NOT NULL DEFAULT 0,
+    -- create_voicemail: text chat only — a recorded voice note, meditation
+    -- or sleep piece rendered by audio_studio.py (xAI TTS + our timeline).
+    enable_voicemail INTEGER NOT NULL DEFAULT 1,
     -- Group voice calls: enable_call_agents_tool exposes the
     -- add_agent_to_call / remove_agent_from_call browser tools so this agent
     -- can manage the group call; when_to_call_description is shown to OTHER
@@ -677,6 +684,53 @@ CREATE TABLE IF NOT EXISTS live_memory_deliveries (
     memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
     delivered_at TEXT NOT NULL,
     PRIMARY KEY(session_id, memory_id)
+);
+
+-- Audio studio (audio_studio.py). Scripts are the user's own saved scripts
+-- from the History → Recordings playground; the built-in examples ship in
+-- audio_examples.py instead, so app updates can improve them. Recordings
+-- are every rendered file — playground renders (agent_id NULL unless a
+-- companion voice was picked) and companion voicemails (session set).
+CREATE TABLE IF NOT EXISTS audio_scripts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    -- Library group: one of the built-in example categories or the user's own.
+    category TEXT NOT NULL DEFAULT 'My scripts',
+    voice TEXT NOT NULL DEFAULT 'eve',
+    language TEXT NOT NULL DEFAULT 'en',
+    script TEXT NOT NULL,
+    created_at TEXT,
+    updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS audio_recordings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,                  -- playground | voicemail
+    -- Library category of the script it was rendered from (playground only;
+    -- voicemails and older rows are grouped by source when listed).
+    category TEXT,
+    agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+    session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+    voice TEXT,
+    script TEXT NOT NULL,
+    audio_path TEXT NOT NULL,              -- web path under /files
+    duration_seconds REAL,
+    tts_chars INTEGER,
+    created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audio_recordings_created ON audio_recordings (created_at DESC);
+-- The user's uploaded sounds (audio_sounds.py): scripts call them by name.
+CREATE TABLE IF NOT EXISTS audio_sounds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,             -- what scripts call it: {bed NAME} etc.
+    kind TEXT NOT NULL,                    -- bed | music | sound
+    description TEXT NOT NULL DEFAULT '',  -- what it sounds like; shown to companions
+    level REAL NOT NULL DEFAULT 0,         -- default dB offset
+    credit TEXT NOT NULL DEFAULT '',       -- author / licence / source, the user's record
+    file_path TEXT NOT NULL,               -- web path under /files/sounds
+    source_filename TEXT,
+    duration_seconds REAL,
+    created_at TEXT
 );
 
 -- Lore stories: a shared archive of authored stories about the companions'
@@ -1097,6 +1151,12 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN gesture_zoom_out INTEGER NOT NULL DEFAULT 1",
     # move_around: the companion walking about on its own (browser_tools.py).
     "ALTER TABLE agents ADD COLUMN enable_move_tool INTEGER NOT NULL DEFAULT 0",
+    # Audio studio: create_voicemail + the History → Recordings playground.
+    "ALTER TABLE agents ADD COLUMN enable_voicemail INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE config ADD COLUMN xai_tts_url TEXT NOT NULL DEFAULT 'https://api.x.ai/v1/tts'",
+    "ALTER TABLE audio_scripts ADD COLUMN category TEXT NOT NULL DEFAULT 'My scripts'",
+    "ALTER TABLE config ADD COLUMN recording_rules TEXT",
+    "ALTER TABLE audio_recordings ADD COLUMN category TEXT",
     # Face director (see the config schema comment).
     "ALTER TABLE config ADD COLUMN face_director INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE config ADD COLUMN typesafe_api_key TEXT NOT NULL DEFAULT ''",

@@ -823,7 +823,7 @@ EXAMPLE_HEARTBEATS = (
         # for a day, not on a clock. Its reply is a message to the user, so
         # it stays unfolded in the transcript and asks for a desktop
         # notification (which the global switch still gates). Tools stay on
-        # for the picture nudge.
+        # for the picture and voice message nudge.
         "name": "Checking in on you",
         "mode": "silent",
         "trigger_mode": "quiet",
@@ -845,10 +845,11 @@ EXAMPLE_HEARTBEATS = (
             "to make together. Make it specific to the two of you rather "
             "than a generic hello, and never open the same way twice. Keep "
             "it to a few natural lines in your own voice, and end without "
-            "demanding a reply. If your picture tool is available this "
-            "period and it fits the moment, you can send a picture of what "
-            "you are up to or something you made for them. Write only to "
-            "the user; do not narrate or summarise."
+            "demanding a reply. If your picture or voice message tools are "
+            "available this period and it fits the moment, you can send a "
+            "picture of what you are up to or something you made for them, "
+            "or record a short voice message so they hear from you in your "
+            "own voice. Write only to the user; do not narrate or summarise."
         ),
     },
 )

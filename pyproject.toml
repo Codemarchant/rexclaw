@@ -11,6 +11,10 @@ dependencies = [
     "python-multipart>=0.0.9",
     "cryptography>=42",
     "pillow>=10",
+    "numpy>=1.26",
+    "lameenc>=1.7",
+    "soundfile>=0.12",
+    "soxr>=0.3",
 ]
 
 [project.scripts]
