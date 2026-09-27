@@ -78,6 +78,60 @@ const AWAIT_USER_TRANSCRIPT_MS = 5000;
 // _openUserRow), however long the user keeps talking after the pause.
 const USER_ROW_MAX_OPEN_MS = 60000;
 
+// ---- Re-transcribed speech (see _extractNewUserSpeech, restatesFragment) ----
+
+const normWord = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
+
+/** Edit distance between two words is at most `max`. */
+function editDistanceAtMost(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return false;
+    const dp = Array.from({ length: a.length + 1 }, (_, i) => i);
+    for (let j = 1; j <= b.length; j++) {
+        let prevDiag = dp[0];
+        dp[0] = j;
+        for (let i = 1; i <= a.length; i++) {
+            const tmp = dp[i];
+            dp[i] = Math.min(dp[i] + 1, dp[i - 1] + 1,
+                             prevDiag + (a[i - 1] === b[j - 1] ? 0 : 1));
+            prevDiag = tmp;
+        }
+    }
+    return dp[a.length] <= max;
+}
+
+/** Word equality that tolerates the re-transcription's spelling drift
+ *  ("favourite" ↔ "favorite", "colour" ↔ "color"): edit distance ≤1 (≤2 for
+ *  8+ letter words) counts as the same word. */
+function wordsMatch(a, b) {
+    return a === b ||
+        (a.length >= 4 && b.length >= 4 &&
+         editDistanceAtMost(a, b, (a.length >= 8 || b.length >= 8) ? 2 : 1));
+}
+
+/** Whether a final transcript opens by restating an earlier fragment of the
+ *  same sentence. After a pause the transcriber often repeats what it had,
+ *  re-heard: "Okay, sure." → "Okay sure, let's go…", "pick her one." →
+ *  "pick our one.", "I cannot the weather." → "I checked the weather. It
+ *  looks…". Same first word, and more than half the fragment's words in
+ *  order within its length plus two. Measured on real consecutive user
+ *  rows: every restatement scored 0.67 or more, every new line 0.5 or less
+ *  ("I know." → "I forgot about it."). */
+function restatesFragment(fragment, full) {
+    const frag = fragment.split(/\s+/).map(normWord).filter(Boolean);
+    const head = full.split(/\s+/).map(normWord).filter(Boolean).slice(0, frag.length + 2);
+    if (!frag.length || !head.length || !wordsMatch(frag[0], head[0])) return false;
+    // Longest common subsequence, one row at a time.
+    let row = new Array(head.length + 1).fill(0);
+    for (const word of frag) {
+        const next = [0];
+        for (let j = 0; j < head.length; j++) {
+            next.push(wordsMatch(word, head[j]) ? row[j] + 1 : Math.max(row[j + 1], next[j]));
+        }
+        row = next;
+    }
+    return row[head.length] * 2 > frag.length;
+}
+
 // ---- PCM helpers (shared with the call manager for mic capture) ----
 
 export function floatToPcm16(float32) {
@@ -1116,27 +1170,40 @@ export class AgentConnection {
                 this._liveMemory?.stopInput();
             }
             const full = msg.transcript || "";
-            const prevTranscript = this._lastUserTranscriptText;
-            const text = full ? this._extractNewUserSpeech(full) : "";
-            if (text) {
-                // A pause mid-sentence can end the turn early: the streaming
-                // transcriber's text so far lands as this final, and once
-                // the user carries on, the next final repeats it with the
-                // rest. Nothing said in between: finish the open row. Solo
-                // calls only — a peer's reply never passes through this
-                // leg's _appendMessage, so it can't close the row.
-                const open = this._openUserRow;
-                if (open && open.transcript === prevTranscript && !this.manager?.hasPeers?.()
-                    && full.length > prevTranscript.length && full.startsWith(prevTranscript)
-                    && this._pendingAppendQueue.includes(open.msg)) {
-                    open.msg.content = open.view.content = `${open.msg.content} ${text}`;
-                    open.transcript = full;
+            // A pause mid-sentence can end the turn early: what was said so
+            // far lands as this final, and the rest arrives as the next one —
+            // sometimes restating the fragment first ("Okay, sure." → "Okay
+            // sure, let's go…"), sometimes carrying straight on ("after lunch.").
+            // Nothing said in between: finish the open row. Solo calls only —
+            // a peer's reply never passes through this leg's _appendMessage,
+            // so it can't close the row.
+            const open = this._openUserRow;
+            const joinable = open?.fragment != null && !this.manager?.hasPeers?.()
+                && this._pendingAppendQueue.includes(open.msg);
+            let text;
+            if (joinable && full && restatesFragment(open.fragment, full)) {
+                // The re-heard version replaces the fragment.
+                this._lastUserTranscriptText = full;
+                text = full;
+                open.msg.content = open.view.content = open.base ? `${open.base} ${full}` : full;
+                open.fragment = full;
+                open.until = Date.now() + AWAIT_USER_TRANSCRIPT_MS;
+            } else {
+                text = full ? this._extractNewUserSpeech(full) : "";
+                if (text && joinable) {
+                    // "…go for a walk." + "after lunch." — the pause's full stop
+                    // goes when the sentence carries on in lowercase.
+                    open.base = /^\p{Ll}/u.test(text) ? open.msg.content.replace(/\.$/, "") : open.msg.content;
+                    open.msg.content = open.view.content = `${open.base} ${text}`;
+                    open.fragment = text;
                     open.until = Date.now() + AWAIT_USER_TRANSCRIPT_MS;
-                } else {
+                } else if (text) {
                     this._appendMessage({ role: "user", content: text });
                     // Only a spoken row can be finished by a later transcript.
-                    this._openUserRow.transcript = full;
+                    this._openUserRow.fragment = text;
                 }
+            }
+            if (text) {
                 // Manager hook: turn routing + relay to peer legs.
                 try { this.manager.onUserTranscript(this, text); } catch (e) {
                     console.error(`[voice:${this.connId}] onUserTranscript failed`, e);
@@ -1908,7 +1975,6 @@ export class AgentConnection {
             }
         }
         const MIN_STRIP_WORDS = 4;
-        const normWord = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
         const rawWords = transcript.split(/\s+/).filter(Boolean);
         // Normalized words plus a map back to their raw index, so the strip
         // point survives punctuation-only tokens being dropped.
@@ -1927,28 +1993,8 @@ export class AgentConnection {
             .slice(-8)
             .map((m) => m.content.split(/\s+/).map(normWord).filter(Boolean))
             .filter((r) => r.length);
-        // Word equality must tolerate the re-transcription's spelling drift
-        // ("favourite" ↔ "favorite", "colour" ↔ "color"), since a row only
-        // matches when every word does.
-        // Edit distance ≤1 (≤2 for 8+ letter words) counts as the same word.
-        const editDistanceAtMost = (a, b, max) => {
-            if (Math.abs(a.length - b.length) > max) return false;
-            const dp = Array.from({ length: a.length + 1 }, (_, i) => i);
-            for (let j = 1; j <= b.length; j++) {
-                let prevDiag = dp[0];
-                dp[0] = j;
-                for (let i = 1; i <= a.length; i++) {
-                    const tmp = dp[i];
-                    dp[i] = Math.min(dp[i] + 1, dp[i - 1] + 1,
-                                     prevDiag + (a[i - 1] === b[j - 1] ? 0 : 1));
-                    prevDiag = tmp;
-                }
-            }
-            return dp[a.length] <= max;
-        };
-        const wordsMatch = (a, b) => a === b ||
-            (a.length >= 4 && b.length >= 4 &&
-             editDistanceAtMost(a, b, (a.length >= 8 || b.length >= 8) ? 2 : 1));
+        // A row only matches when every word does (wordsMatch allows the
+        // re-transcription's spelling drift).
         // The re-emission starts at some earlier utterance boundary — try
         // each starting row, greedily consume consecutive matching rows,
         // and keep the alignment that explains the most leading words.
