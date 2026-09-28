@@ -2009,7 +2009,17 @@ def generate_session_summary(con, session):
         transcript_lines = []
         if prior_rollup:
             transcript_lines.append(f'[Prior summary]\n{prior_rollup["content"]}\n')
+        last_day = None
         for m in to_summarize:
+            # A local-date marker whenever the day changes: the rows carry no
+            # timestamps otherwise, so the summary could only date events
+            # from stray "Conversation resumed" notes ("Fri 18", no month).
+            created = parse_dt(m['created_at'])
+            if created:
+                day = created.replace(tzinfo=timezone.utc).astimezone().strftime('%a %d %b %Y')
+                if day != last_day:
+                    transcript_lines.append(f'[{day}]')
+                    last_day = day
             if m['role'] == 'user':
                 transcript_lines.append(f'User: {m["content"] or ""}')
             elif m['role'] == 'assistant':
