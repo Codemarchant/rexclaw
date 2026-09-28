@@ -1684,6 +1684,26 @@ if (!app.requestSingleInstanceLock()) {
                 },
                 { useSystemPicker: true },
             );
+            // Downloads (the audio player's ⋮ → Download, download links,
+            // "Save image as…"): ask for the path ourselves and hand it to
+            // the item. Left to Electron's default save dialog, a recording
+            // download never reached the chosen folder; setting the path
+            // is the documented pattern and completes (tested over the
+            // headset-mode https server too). A failure says so instead of
+            // vanishing.
+            session.defaultSession.on("will-download", (event, item, wc) => {
+                const win = BrowserWindow.fromWebContents(wc) || mainWindow || undefined;
+                const target = dialog.showSaveDialogSync(win, {
+                    defaultPath: path.join(app.getPath("downloads"), item.getFilename()),
+                });
+                if (!target) { item.cancel(); return; }
+                item.setSavePath(target);
+                item.once("done", (e, state) => {
+                    if (state === "interrupted") {
+                        dialog.showErrorBox("Download failed", `${item.getFilename()} could not be saved.`);
+                    }
+                });
+            });
             headsetAccess = !!loadSettings().headsetAccess;
             // "Open in mascot mode": boot straight to the desktop overlay.
             // The app window is still created (hidden) — it is where "pop
