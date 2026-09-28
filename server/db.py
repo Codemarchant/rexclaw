@@ -479,6 +479,12 @@ CREATE TABLE IF NOT EXISTS agents (
     -- create_voicemail: text chat only — a recorded voice note, meditation
     -- or sleep piece rendered by audio_studio.py (xAI TTS + our timeline).
     enable_voicemail INTEGER NOT NULL DEFAULT 1,
+    -- perform_song: voice calls — the companion performs a song it has learned
+    -- on the karaoke stage (song_tools.py). Off unless switched on.
+    enable_songs INTEGER NOT NULL DEFAULT 0,
+    -- The Voice Lab profile this companion sings with (voice_profiles.id);
+    -- NULL = the built-in speech-to-singing engine.
+    singing_profile_id INTEGER,
     -- Group voice calls: enable_call_agents_tool exposes the
     -- add_agent_to_call / remove_agent_from_call browser tools so this agent
     -- can manage the group call; when_to_call_description is shown to OTHER
@@ -732,6 +738,79 @@ CREATE TABLE IF NOT EXISTS audio_sounds (
     file_path TEXT NOT NULL,               -- web path under /files/sounds
     source_filename TEXT,
     duration_seconds REAL,
+    created_at TEXT
+);
+
+-- Karaoke stage (songs.py). A song is a chart (sung notes, seconds, MIDI)
+-- plus a backing track in data/files/songs/<folder>/; song_vocals caches
+-- each voice's sung stem (singing.py) with its syllable timing.
+CREATE TABLE IF NOT EXISTS songs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,                  -- ultrastar | companion | example | cover
+    example_key TEXT,                      -- song_examples key for built-in songs
+    agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+    language TEXT NOT NULL DEFAULT 'en',
+    chart TEXT NOT NULL,                   -- JSON {lines: [{notes: [{t, d, p, s, k}]}]}
+    source_text TEXT,                      -- the UltraStar txt / ABC sheet as written
+    style TEXT,                            -- song_synth style of a generated backing
+    folder TEXT NOT NULL,
+    backing_file TEXT,
+    backing_mode TEXT NOT NULL DEFAULT 'as-is',   -- as-is | reduced | instrumental | generated
+    analysis TEXT,                         -- JSON beat grid (music_analysis)
+    duration_seconds REAL,
+    credit TEXT NOT NULL DEFAULT '',
+    -- Covers (a song from a link or a video): the original singer's dry
+    -- lead vocal is the singing guide a voice profile re-sings.
+    guide_file TEXT,
+    guide_median_hz REAL,
+    source_url TEXT,
+    lyrics_source TEXT,                    -- lrclib | whisper | chart
+    created_at TEXT
+);
+CREATE TABLE IF NOT EXISTS song_vocals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    song_id INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+    voice TEXT NOT NULL,
+    transpose INTEGER NOT NULL DEFAULT 0,  -- semitones the chart was moved (whole octaves)
+    vocal_file TEXT NOT NULL,
+    timing TEXT,                           -- JSON {syllables, env, env_fps}
+    tts_chars INTEGER,
+    usd REAL,
+    created_at TEXT,
+    UNIQUE(song_id, voice)
+);
+-- Singing voice profiles (voicelab.py): an RVC voice model the Voice Lab
+-- trained from audio the user uploaded. A companion with one sings through
+-- it (agents.singing_profile_id); song_vocals.voice is then 'profile:<id>'.
+CREATE TABLE IF NOT EXISTS voice_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    model TEXT NOT NULL UNIQUE,            -- the Voice Lab's voice model name
+    status TEXT NOT NULL DEFAULT 'new',    -- new | training | stopped (app quit mid-training) | ready | error
+    stage TEXT,                            -- training progress text
+    progress REAL NOT NULL DEFAULT 0,
+    error TEXT,
+    dataset_dir TEXT,                      -- uploaded recordings (data/voicelab/datasets/<model>)
+    minutes REAL,
+    epochs INTEGER NOT NULL DEFAULT 300,
+    chosen_epoch INTEGER,
+    scores TEXT,                           -- JSON checkpoint word error rates
+    speech_median_hz REAL,                 -- where the voice sits: picks the singing octave
+    created_at TEXT,
+    trained_at TEXT
+);
+-- Dances the stage can perform: the user's MMD (.vmd) or VRMA uploads.
+CREATE TABLE IF NOT EXISTS dances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,                    -- vmd | vrma
+    file_path TEXT NOT NULL,               -- web path under /files/dances
+    song_id INTEGER REFERENCES songs(id) ON DELETE SET NULL,  -- choreography made for this song
+    offset_ms INTEGER NOT NULL DEFAULT 0,  -- when frame 0 plays, on that song's clock
+    arm_angle REAL NOT NULL DEFAULT 30,    -- MMD rest-pose arm angle (VMD only)
+    credit TEXT NOT NULL DEFAULT '',
     created_at TEXT
 );
 
@@ -1189,6 +1268,14 @@ MIGRATIONS = (
     "ALTER TABLE config DROP COLUMN text_max_turns",
     "ALTER TABLE config DROP COLUMN delegate_max_turns",
     "ALTER TABLE config DROP COLUMN text_max_output_tokens",
+    # Karaoke stage: perform_song in voice calls (song_tools.py).
+    "ALTER TABLE agents ADD COLUMN enable_songs INTEGER NOT NULL DEFAULT 0",
+    # Voice Lab singing profiles + covers (voicelab.py, songs.py).
+    "ALTER TABLE agents ADD COLUMN singing_profile_id INTEGER",
+    "ALTER TABLE songs ADD COLUMN guide_file TEXT",
+    "ALTER TABLE songs ADD COLUMN guide_median_hz REAL",
+    "ALTER TABLE songs ADD COLUMN source_url TEXT",
+    "ALTER TABLE songs ADD COLUMN lyrics_source TEXT",
 )
 
 

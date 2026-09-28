@@ -34,8 +34,8 @@ const SILENT_BROWSER_TOOLS = new Set(["play_gesture", "set_emotion", "change_out
 // reply, the suppressed follow-up was its only way to say more. An
 // affectionate exchange is where it most wants to, so the score went up and
 // the reply stopped on a single line. It takes the flag like the rest now.
-const END_TURN_TOOLS = new Set(["set_emotion", "play_gesture", "generate_gesture", "move_around", "remember",
-    "forget", "minecraft_command", "adjust_affection"]);
+const END_TURN_TOOLS = new Set(["set_emotion", "play_gesture", "generate_gesture", "move_around", "perform_song",
+    "remember", "forget", "minecraft_command", "adjust_affection"]);
 
 /** Whether a call's arguments ask to end the turn on it. Malformed arguments
  *  read as "no" — the default, a follow-up reply. */

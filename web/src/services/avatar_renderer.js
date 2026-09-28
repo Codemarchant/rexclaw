@@ -563,6 +563,16 @@ const AUTO_SPEECH_END_S = 0.6;        // silence that counts as the end of a lin
 // the time to close 99% of the gap: k = 1 - exp(-4.605 dt / T).
 const AUTO_BLEND_S = 2.0;
 const AUTO_POS_DAMPING_S = 1.0;
+// Karaoke groove (_applyPerformance): which body part moves on which beat
+// level is sourced there; the sizes are design values (no study reports
+// them) — a 2 cm knee bounce, 2 cm / 1.7° sway, 2.3° torso turn, 4° nod.
+const GROOVE_BOUNCE_M = 0.02;
+const GROOVE_SWAY_M = 0.02;
+const GROOVE_SWAY_ROLL = 0.03;
+const GROOVE_TWIST = 0.04;
+const GROOVE_NOD = 0.07;
+const STAGE_DRIFT_MAX = 0.25;         // rad a stage shot may drift (design)
+const STAGE_CLOSEUP_BLEND = 0.18;     // stage close-up: 18% of the way from face to full (design)
 // Gesture zoom-out (face view only, setting gesture_zoom_out): the face view
 // frames the collarbone up, so a deliberate gesture pulls the camera out for
 // as long as it plays. Out is quick — Cinemachine's 0.5 s blend for a
@@ -690,6 +700,8 @@ class AvatarRenderer {
         this._rawSpeakingIntensity = 0;   // set by setSpeakingIntensity()
         this._speakingIntensity = 0;      // smoothed for animation
         this._fullBody = false;           // false = face shot, true = full-body + orbit
+        this._perf = null;                // a karaoke performance owns the body (beginPerformance)
+        this._stageCam = null;            // its concert camera (stageCut)
         this._orbitControls = null;       // OrbitControls when fullBody mode active
         this._room = null;                // optional GLB environment behind the avatar (see loadRoom)
         this._loadedRoomUrl = null;       // url of the currently-loaded room — idempotency for repeated applies
@@ -1143,6 +1155,8 @@ class AvatarRenderer {
         // than fight the walk clip for bones (face/emotion blendshapes still
         // apply; they're expressionManager-level).
         if (this._moving) return;
+        // A karaoke performance dances the body; gestures wait for it.
+        if (this._perf) return;
         // Any new gesture replaces a running (or still-loading) combo — the
         // partner fades out and the base avatar returns to its spot. No-op
         // when no combo is active.
@@ -1260,6 +1274,7 @@ class AvatarRenderer {
      *  wave or a two-character dance short; auto-played clips themselves
      *  don't count, so emotions still replace each other freely. */
     isGestureBusy() {
+        if (this._perf) return true;
         if (this._comboPartner || this._comboLivePeer) return true;
         const action = this._gestureAction;
         return !!(action && !this._gestureAuto && action.isRunning());
@@ -1276,6 +1291,213 @@ class AvatarRenderer {
         this._gestureAction = null;
         this._currentGestureUrl = null;
         this._queueRelease(this, action);
+    }
+
+    // ------------------------------------------------------------------
+    // Karaoke performance — models/stage.js drives it
+    // ------------------------------------------------------------------
+
+    /** Hand the base avatar's body to a performance. `perf` is
+     *  { prepare(delta) → called before the mixer each frame (sets its
+     *  dance clips' times and weights, the vowels); bodyWeight: how much
+     *  of the body the dance clips hold, 0..1; groove(): the beat phase
+     *  for the groove layer, or null; dispose(): drop its clips }. */
+    beginPerformance(perf) {
+        if (!this.vrm || !this.mixer || !perf) return false;
+        if (this._perf) this.endPerformance();
+        this._unloadComboPartner();
+        this._fadeOutBaseGesture();
+        this._stopLayerClip({ resumeIdle: false });
+        this._perf = perf;
+        return true;
+    }
+
+    /** Give the body back: ease from the last danced pose into the idle
+     *  (the same inertialized return a gesture gets), drop the clips, and
+     *  put the camera back. */
+    endPerformance() {
+        const perf = this._perf;
+        if (!perf) return;
+        this._snapshotPose(this);
+        this._perf = null;
+        try { perf.dispose?.(); } catch (e) { /* non-fatal */ }
+        const idle = this.idleClipAction;
+        if (idle) {
+            try {
+                idle.enabled = true;
+                idle.stopFading();
+                idle.setEffectiveWeight(1);
+                idle.play();
+            } catch (e) { /* */ }
+        }
+        this._endStageCamera();
+    }
+
+    isPerforming() {
+        return !!this._perf;
+    }
+
+    _preparePerformance(delta) {
+        const perf = this._perf;
+        // A baked idle shares the mixer with the dances: it gives way as
+        // they take the body (weights sum to one). Without one the mixer
+        // holds only the dances, at full weight, and _applyPerformance
+        // blends them over the procedural idle.
+        const idle = this.idleClipAction;
+        try { perf.prepare(delta, { normalize: !idle }); } catch (e) { console.error("[stage] prepare failed", e); }
+        if (idle) {
+            idle.enabled = true;
+            idle.stopFading();
+            idle.setEffectiveWeight(Math.max(0, 1 - (perf.bodyWeight || 0)));
+            if (!idle.isRunning()) idle.play();
+        }
+    }
+
+    /** The mixer's dance pose, kept when the procedural idle is about to
+     *  write over a dance that holds only part of the body (a crossfade
+     *  between a dance and the groove). */
+    _capturePerformancePose() {
+        const w = this._perf.bodyWeight || 0;
+        if (w <= 0.001 || w >= 0.999 || this.idleClipAction) return null;
+        const h = this.vrm?.humanoid;
+        if (!h) return null;
+        const pose = (this._perfPose ||= new Map());
+        for (const name of Object.keys(h.humanBones || {})) {
+            const node = h.getNormalizedBoneNode?.(name);
+            if (!node) continue;
+            const q = pose.get(node) || new this.libs.THREE.Quaternion();
+            pose.set(node, q.copy(node.quaternion));
+        }
+        const hips = h.getNormalizedBoneNode?.("hips");
+        this._perfHipsPos = hips ? (this._perfHipsPos || new this.libs.THREE.Vector3()).copy(hips.position) : null;
+        return pose;
+    }
+
+    /** After the idle: blend a partial dance back over it, then lay the
+     *  groove on top where no dance holds the body.
+     *
+     *  Groove (Burger et al. 2014, "Hunting for the beat in the body";
+     *  Toiviainen, Luck & Thompson 2010; a swing-dance point-light study):
+     *  the vertical bounce locks to the beat and comes from the knees, at
+     *  the bottom of the bounce on the beat (a weak but reported tendency);
+     *  the sideways sway and torso rotation lock to the bar, the sway
+     *  turning midway between beats; and the head trails the body by a
+     *  quarter cycle, as expert dancers' do (Sato, Nunome & Ikegami 2015).
+     *  No study reports amplitudes, so GROOVE_* are design values. */
+    _applyPerformance(delta, dancePose) {
+        const perf = this._perf;
+        const h = this.vrm?.humanoid;
+        if (!h) return;
+        const w = perf.bodyWeight || 0;
+        if (dancePose) {
+            for (const [node, q] of dancePose) node.quaternion.slerp(q, w);
+            const hips = h.getNormalizedBoneNode?.("hips");
+            if (hips && this._perfHipsPos) hips.position.lerp(this._perfHipsPos, w);
+        }
+        if (perf.stayInPlace && this._hipsBasePos) {
+            // Keep the dance's height (bounces, crouches), drop its travel.
+            const hips = h.getNormalizedBoneNode?.("hips");
+            if (hips) {
+                hips.position.x = this._hipsBasePos.x;
+                hips.position.z = this._hipsBasePos.z;
+            }
+        }
+        const g = perf.groove?.();
+        const amount = (g?.amount ?? 1) * (1 - w);
+        if (!g || amount <= 0.001) return;
+        const { THREE } = this.libs;
+        const fz = this.vrm.meta?.metaVersion === "0" ? -1 : 1;   // the rig's forward: +Z (1.0) or −Z (0.x)
+        const TAU = Math.PI * 2;
+        const beatsPerBar = g.beatsPerBar || 4;
+        const barPhase = ((g.beatInBar || 0) + g.beatPhase) / beatsPerBar;
+        // Bounce: lowest on the beat.
+        const down = 0.5 + 0.5 * Math.cos(TAU * g.beatPhase);
+        const drop = GROOVE_BOUNCE_M * down * amount;
+        // Sway across the bar, turning midway between beats.
+        const sway = Math.sin(TAU * (barPhase - 0.5 / beatsPerBar));
+        const twist = Math.sin(TAU * barPhase * 2);           // torso rotation over two beats
+        // Head a quarter cycle behind the bounce.
+        const nod = 0.5 + 0.5 * Math.cos(TAU * (g.beatPhase - 0.25));
+        const rot = (name, axis, angle) => {
+            const node = h.getNormalizedBoneNode?.(name);
+            if (!node || !angle) return;
+            const q = (this._grooveQ ||= new THREE.Quaternion());
+            node.quaternion.multiply(q.setFromAxisAngle(axis, angle));
+        };
+        const X = (this._axX ||= new THREE.Vector3(1, 0, 0));
+        const Y = (this._axY ||= new THREE.Vector3(0, 1, 0));
+        const Z = (this._axZ ||= new THREE.Vector3(0, 0, 1));
+        const hips = h.getNormalizedBoneNode?.("hips");
+        if (hips) {
+            hips.position.y -= drop;
+            hips.position.x += fz * GROOVE_SWAY_M * sway * amount;
+        }
+        // Knees bend to make the drop, feet stay flat: thigh forward α,
+        // shin back 2α, foot forward α, with the leg's two halves ≈ equal.
+        const thigh = h.getNormalizedBoneNode?.("leftUpperLeg");
+        const shin = h.getNormalizedBoneNode?.("leftLowerLeg");
+        const legLen = thigh && shin ? Math.max(0.3, Math.abs(shin.position.y) * 2) : 0.8;
+        const alpha = Math.acos(Math.max(0.5, 1 - drop / legLen));
+        for (const side of ["left", "right"]) {
+            rot(`${side}UpperLeg`, X, -fz * alpha);
+            rot(`${side}LowerLeg`, X, 2 * fz * alpha);
+            rot(`${side}Foot`, X, -fz * alpha);
+        }
+        rot("hips", Z, GROOVE_SWAY_ROLL * sway * amount);
+        rot("spine", Z, -GROOVE_SWAY_ROLL * 0.8 * sway * amount);   // keeps the head over the feet
+        rot("spine", Y, GROOVE_TWIST * twist * amount);
+        rot("neck", X, fz * GROOVE_NOD * 0.4 * nod * amount);
+        rot("head", X, fz * GROOVE_NOD * 0.6 * nod * amount);
+    }
+
+    // ------------------------------------------------------------------
+    // Stage camera — cuts between the auto-follow shots on the music
+    // ------------------------------------------------------------------
+
+    /** Cut to a shot: "face", "waist" or "full". `drift` slowly orbits
+     *  within the shot (rad/s) so a held shot stays alive. */
+    stageCut(shot, { side = 1, drift = 0 } = {}) {
+        if (!this.vrm || !this.camera || !this.libs || this._xrActive) return;
+        let def = AUTO_SHOTS.find((s) => s.id === shot) || AUTO_SHOTS[2];
+        // The face view's shot is collarbone-up; a singer dancing needs a
+        // little more room over the head (design).
+        if (def.id === "face") def = { ...def, blend: STAGE_CLOSEUP_BLEND };
+        if (!this._stageCam) this._stageCam = { restore: this._cameraOrbit(), orbitWasOn: !!this._orbitControls };
+        Object.assign(this._stageCam, { shot: def, side, drift, t: 0 });
+        this._disableOrbit();
+    }
+
+    _updateStageCamera(delta) {
+        const sc = this._stageCam;
+        if (!sc.shot || !this.vrm) return;
+        sc.t += delta;
+        const o = this._autoShotOrbit(sc.shot, sc.side);
+        // Drift toward the front, never more than ~14° within one shot.
+        o.az -= Math.min(STAGE_DRIFT_MAX, sc.drift * sc.t) * sc.side;
+        // The shots are framed on the standing pose; a dance moves the
+        // head about (steps, dips, leans). Follow it — fully in a close-up,
+        // less the wider the shot — with 0.35 s damping so the camera rides
+        // the dance instead of shaking with every bounce (design values).
+        const head = this.getHeadWorldPosition();
+        if (head && this._headWorldY != null) {
+            const ground = this._actorGround(this);
+            const k = sc.shot.id === "face" ? 1 : sc.shot.id === "waist" ? 0.6 : 0.3;
+            const want = (this._stageFollowWant ||= new this.libs.THREE.Vector3())
+                .set(head.x - ground.x, head.y - this._headWorldY, head.z - ground.z).multiplyScalar(k);
+            sc.follow ||= want.clone();
+            sc.follow.lerp(want, 1 - Math.exp(-delta / 0.35));
+            o.target.add(sc.follow);
+        }
+        this._applyOrbit(o);
+    }
+
+    _endStageCamera() {
+        const sc = this._stageCam;
+        if (!sc) return;
+        this._stageCam = null;
+        if (this._xrActive) return;
+        this._applyCameraPreset();
+        if (this._fullBody) this._enableOrbit();
     }
 
     /** Ask for a clip to be released to the idle at the next safe point —
@@ -3359,7 +3581,7 @@ class AvatarRenderer {
         const { THREE } = this.libs;
         const face = this._cameraPreset("face");
         const full = this._cameraPreset("full");
-        const t = shot.id === "face" ? 0 : shot.id === "full" ? 1 : AUTO_WAIST_BLEND;
+        const t = shot.blend ?? (shot.id === "face" ? 0 : shot.id === "full" ? 1 : AUTO_WAIST_BLEND);
         const mix = (a, b) => a + (b - a) * t;
         const target = new THREE.Vector3(...face.target.map((v, i) => mix(v, full.target[i])));
         const dist = mix(Math.hypot(face.position[0] - face.target[0], face.position[2] - face.target[2]),
@@ -4720,10 +4942,12 @@ class AvatarRenderer {
         // consumed outside this method — but it only STARTS a discrete
         // event (a weight transfer, an arm adjustment) while the body is
         // visible, so nothing is half over by the time a clip hands back.
+        const dancing = actor === this && this._perf && this._perf.bodyWeight > 0.999;
         const posing = !(actor.idleClipAction?.isRunning()
             || actor._layerAction?.isRunning()
             || actor._gestureAction?.isRunning()
-            || actor._moving);
+            || actor._moving
+            || dancing);
         actor._idle?.update(delta, speak, posing);
         const sig = actor._idle?.sig;
         if (!sig) return;
@@ -4735,7 +4959,8 @@ class AvatarRenderer {
         // little further with every clip. Restore here too, once no clip is
         // actually moving the body.
         if (actor.idleClipAction && actor.idleClipAction.isRunning()) {
-            const layerBusy = actor._layerAction?.isRunning() || actor._gestureAction?.isRunning();
+            const layerBusy = actor._layerAction?.isRunning() || actor._gestureAction?.isRunning()
+                || (actor === this && this._perf);
             if (!layerBusy && actor._hipsBasePos) {
                 actor.vrm.humanoid?.getNormalizedBoneNode?.("hips")
                     ?.position.copy(actor._hipsBasePos);
@@ -4750,6 +4975,9 @@ class AvatarRenderer {
         // Walking — the walk clip owns the bones (procedural idle would
         // overwrite the mixer output every frame; see _loop's update order).
         if (actor._moving) return;
+        // A dance at full weight owns them too (a partial one is blended
+        // over this pose in _applyPerformance).
+        if (dancing) return;
         // Body gain ranges 1.0 (idle) → SPEAK_BODY_GAIN (peak speaking).
         const bodyGain = 1 + (SPEAK_BODY_GAIN - 1) * speak;
 
@@ -5492,6 +5720,9 @@ class AvatarRenderer {
         // Locomotion runs in XR too (walkTo-driven placement from the VR move
         // mode); only the follow-camera below stays flat-mode-only.
         this._updateMovement(delta);
+        // A performance sets its dance clips' times and weights from the
+        // music clock before the mixer poses the bones with them.
+        if (this._perf) this._preparePerformance(delta);
         if (this.mixer) this.mixer.update(delta);
         // Clip releases queued during that update (finished events, stop
         // requests) happen here: the bones hold the clip's final frame, and
@@ -5512,8 +5743,10 @@ class AvatarRenderer {
         if (this.vrm) {
             // Order matters: idle bones first (sets base pose), then mixer if any
             // overrides them, then face-level adjustments on top.
+            const dancePose = this._perf ? this._capturePerformancePose() : null;
             this._applyIdle(this, delta);
             this._applyReturnBlend(this, delta);
+            if (this._perf) this._applyPerformance(delta, dancePose);
             this._face.update(delta);
             this._applyBlink(this);
             this._applyBreath(this);
@@ -5553,7 +5786,10 @@ class AvatarRenderer {
                 } catch (e) { /* non-fatal */ }
             }
         }
-        if (!this._xrActive) {
+        if (!this._xrActive && this._stageCam) {
+            // A performance's concert camera owns the view while it runs.
+            this._updateStageCamera(delta);
+        } else if (!this._xrActive) {
             // After movement so the follow-cam tracks the freshly advanced position.
             this._updateFollowCamera(delta);
             this._updateStaging(delta);

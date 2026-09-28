@@ -312,6 +312,8 @@ export class ToolDispatcher {
                 return this._playGesture(args, { responseId });
             case "move_around":
                 return this._moveAround(args);
+            case "perform_song":
+                return this._performSong(args);
             case "change_outfit":
                 return this._changeOutfit(args);
             case "take_selfie":
@@ -768,6 +770,39 @@ export class ToolDispatcher {
             face_user: "You turned to face the user.",
         };
         return { ok: true, action, ...(res.seconds ? { takes_seconds: res.seconds } : {}), note: notes[action] };
+    }
+
+    /** perform_song: perform a learned song on the karaoke stage (models/
+     *  stage.js). Answered at once: the song runs for minutes, the stage
+     *  mutes the user's mic meanwhile and tells the companion when it ends. */
+    async _performSong({ song, mode = "i_sing" }) {
+        if (!song) return { ok: false, error: "perform_song requires `song`." };
+        if (!this.avatarApi?.stageMove) {
+            return { ok: false, error: "Only the main companion of a call can take the stage." };
+        }
+        const { stage } = await import("./stage.js");
+        if (stage.state.status === "playing" || stage.state.status === "paused") {
+            return { ok: false, error: "A song is already playing on the stage." };
+        }
+        const agentId = this.conversationState?.agentId;
+        const lib = await rpc("/api/songs/bootstrap", { agent_id: agentId });
+        const singer = lib.singer || this.conversationState?.voice;
+        const match = lib.songs.find((s) => s.title === song && s.vocals.some((v) => v.voice === singer))
+            || lib.songs.find((s) => s.title === song);
+        if (!match) return { ok: false, error: `No song called "${song}" on the stage.` };
+        const vocal = match.vocals.find((v) => v.voice === singer);
+        if (!vocal && mode !== "user_sings") return { ok: false, error: `You haven't learned "${song}" yet.` };
+        stage.attach(avatarRenderer);
+        await stage.load(match.id, { agentId });
+        stage.state.mode = mode === "duet" ? "duet" : mode === "user_sings" ? "solo" : "companion";
+        // Starts once the current reply has had a moment to finish.
+        setTimeout(() => stage.play({ call: this.callManager }), 1200);
+        return {
+            ok: true,
+            song: match.title,
+            lasts_seconds: Math.round(match.duration_seconds || 0),
+            note: "The song is starting. Don't talk over it; you'll get a note when it ends.",
+        };
     }
 
     /** Swap the avatar's VRM to the chosen outfit. outfit_id=0 reverts to the

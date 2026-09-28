@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, store, text_to_vrma, turn_director, voicemail_tools
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, song_tools, store, text_to_vrma, turn_director, voicemail_tools
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -989,7 +989,7 @@ def _cross_mode_token_vals(config, session, into_mode):
 # it already has for the other bookkeeping it never announces (remember,
 # forget): speak first and end on the call, or leave it off and go on.
 _END_TURN_TOOLS = frozenset({'set_emotion', 'play_gesture', 'generate_gesture',
-                             'move_around', 'remember', 'forget', 'minecraft_command',
+                             'move_around', 'perform_song', 'remember', 'forget', 'minecraft_command',
                              'adjust_affection'})
 # The nudge for the silent tools belongs HERE and not in the prompt's Affection
 # section: that section is assembled once for both surfaces, and a text session
@@ -1050,6 +1050,12 @@ def _voice_tools(con, agent, config, *, group_peers=None):
     # renderer refuses the move there — so the tool is not offered either.
     if agent['enable_move_tool'] and not group_peers:
         tools.append(browser_tools.MOVE_AROUND_TOOL)
+    # The karaoke stage, solo calls only (one performer on the stage), and
+    # only once the companion has learned a song in its voice.
+    if agent['enable_songs'] and not group_peers:
+        perform = song_tools.build_perform_tool(con, agent)
+        if perform:
+            tools.append(perform)
     if gesture_gen:
         # Looping needs play_gesture in the session: its 'idle' ends a loop.
         tools.append(text_to_vrma.build_tool(can_loop=play_gesture is not None,

@@ -13,7 +13,14 @@ import { wakeState } from "../lib/wake_word";
 import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES as SIZES } from "../lib/mascot_link";
 import { EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
 import { backgroundPickerEntries, currentBackgroundKey, resolveDefaultBackground } from "../lib/background_picker";
+import { stage } from "../models/stage";
 import AvatarCanvas from "./AvatarCanvas.jsx";
+import KaraokeOverlay from "./KaraokeOverlay.jsx";
+
+// Lyrics on the desktop: the note lane just under the window's top edge,
+// the lyrics just above the controls island (bottom 0.6rem, ~2.6rem tall).
+const MASCOT_LANE_TOP = 10;
+const MASCOT_LYRICS_BOTTOM = 56;
 
 // The island toggles (ghost, pin, view, size preset) persist across pop-outs:
 // every pop-out is a FRESH page instance, so without storage each one reset
@@ -40,6 +47,7 @@ function saveMascotPref(patch) {
  *  like the VR handoff. */
 export default function MascotView() {
     const sv = useReactive(voice.state);
+    const stg = useReactive(stage.state);   // karaoke stage (the settings window's Songs tab drives it)
     const scap = useReactive(screenCapture.state);
     const awareState = useReactive(cameraAwareness.state);
     const wk = useReactive(wakeState);
@@ -702,6 +710,14 @@ export default function MascotView() {
                 customGestures: (avatar?.custom_gestures || [])
                     .filter((g) => g.vrma_url)
                     .map((g) => ({ id: g.id, name: g.name, type: g.type, loop: !!g.loop })),
+                // Karaoke stage, for the Songs tab.
+                stage: {
+                    status: stage.state.status,
+                    songId: stage.state.song?.id ?? null,
+                    title: stage.state.song?.title || "",
+                    mode: stage.state.mode,
+                    error: stage.state.error || null,
+                },
             });
         },
         command: (msg) => {
@@ -796,6 +812,25 @@ export default function MascotView() {
                     saveMascotPref({ ghostFade: fade });
                     return;
                 }
+                // Karaoke stage from the Songs tab: the song plays and the
+                // avatar performs here, like the voice view's Stage panel.
+                case "stage": {
+                    const a = msg.action;
+                    const performing = stage.state.status === "playing" || stage.state.status === "paused";
+                    if (a === "play" && !performing) {
+                        stage.attach(avatarRenderer);
+                        Object.assign(stage.state.options, msg.options || {});
+                        (async () => {
+                            if (!(await stage.load(Number(msg.songId), { agentId: selectedAgentId }))) return;
+                            stage.state.mode = ["companion", "duet", "solo"].includes(msg.mode) ? msg.mode : "companion";
+                            await stage.play({ agentName: currentAgent?.name || "", call: voice });
+                        })().catch((e) => { stage.state.error = e.message || String(e); });
+                    } else if (a === "pause") stage.pause();
+                    else if (a === "resume") stage.resume();
+                    else if (a === "stop") stage.stop({ byUser: true });
+                    else if (a === "options") Object.assign(stage.state.options, msg.options || {});
+                    return;
+                }
                 case "set": {
                     const want = !!msg.value;
                     if (msg.key === "ghost" && want !== ghost) toggleGhost();
@@ -825,7 +860,8 @@ export default function MascotView() {
     useEffect(() => { settingsSync.current.publish(); },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [ghost, ghostFade, cursorFollow, pinned, fullBody, sizeIdx, customSize, backdrop, currentAgent,
-         sv.selectedOutfitId, sv.activeBackground, agents, selectedAgentId, sv.status, sv.muted, shareKey]);
+         sv.selectedOutfitId, sv.activeBackground, agents, selectedAgentId, sv.status, sv.muted, shareKey,
+         stg.status, stg.song?.id, stg.mode, stg.error]);
     // Window size rides in the snapshot too — republish when the shell
     // resizes us (presets, scroll, group widening) so the fields track it.
     useEffect(() => {
@@ -987,6 +1023,7 @@ export default function MascotView() {
     return (
         <div className="rx_mascot" ref={rootRef}>
             <AvatarCanvas size="mascot" />
+            <KaraokeOverlay laneTop={MASCOT_LANE_TOP} lyricsBottom={MASCOT_LYRICS_BOTTOM} />
             {affectionHearts.length > 0 && (
                 <div className="rx_mascot_hearts" key={sv.affectionPulse.at}>
                     {affectionHearts.map((h) => (
@@ -1010,6 +1047,14 @@ export default function MascotView() {
                     <button onClick={startOrResume}
                             title={currentAgent?.last_resumable_session ? _t("Resume last") : _t("Start")}>
                         <i className="fa fa-microphone" />
+                    </button>
+                )}
+                {(stg.status === "playing" || stg.status === "paused") && (
+                    // A song on the stage (perform_song, or the Songs tab): the
+                    // lit note stops it. Not a stop icon: End call has that.
+                    <button className="is-active" onClick={() => stage.stop({ byUser: true })}
+                            title={_t("Stop the song")}>
+                        <i className="fa fa-music" />
                     </button>
                 )}
                 {isLive && (

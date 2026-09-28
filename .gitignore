@@ -21,6 +21,8 @@ web/dist/
 /web/test/
 /experiments/
 /docs/live-memory*.md
+# Personal helper scripts (e.g. the voice-dataset generator), never shipped.
+/tools/private/
 desktop/node_modules/
 desktop/dist/
 desktop/runtime/

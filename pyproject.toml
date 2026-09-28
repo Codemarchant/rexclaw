@@ -15,6 +15,7 @@ dependencies = [
     "lameenc>=1.7",
     "soundfile>=0.12",
     "soxr>=0.3",
+    "pyworld-prebuilt>=0.3.6",
 ]
 
 [project.scripts]

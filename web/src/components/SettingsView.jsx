@@ -11,6 +11,7 @@ import { UnsavedBar } from "./UnsavedUI.jsx";
 import HotkeysSettings from "./HotkeysSettings.jsx";
 import ModelsDialog from "./ModelsDialog.jsx";
 import CreditsDialog from "./CreditsDialog.jsx";
+import VoiceLabSettings from "./VoiceLabSettings.jsx";
 
 // Languages the server can fetch a Vosk wake-word model for (keep in sync
 // with WAKE_MODELS in server/routes/misc.py).
@@ -1161,6 +1162,8 @@ export default function SettingsView({ active }) {
                     <input ref={wfInputRef} type="file" accept="application/json,.json"
                            style={{ display: "none" }} onChange={onWorkflowSelected} />
                 </section>
+
+                <VoiceLabSettings />
 
                 <section>
                     <h3><i className="fa fa-magic" /> {_t("Gesture generation (Text-To-VRMA)")}</h3>

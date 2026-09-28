@@ -12,6 +12,9 @@ import { EMOTIONS, EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalo
 import { VRManager } from "../vr/vr_manager";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 import Transcript from "./Transcript.jsx";
+import StagePanel from "./StagePanel.jsx";
+import KaraokeOverlay from "./KaraokeOverlay.jsx";
+import { stage } from "../models/stage";
 
 import { downscaleImageFile, attachmentNote } from "../lib/attachments";
 import { useFileDrop } from "../lib/use_file_drop";
@@ -66,6 +69,7 @@ function ensureIconsPaint(rootRef) {
 
 export default function VoiceView({ active = true }) {
     const sv = useReactive(voice.state);
+    const stg = useReactive(stage.state);
     const ui = useReactive(uiState);
     const wk = useReactive(wakeState);
 
@@ -84,6 +88,7 @@ export default function VoiceView({ active = true }) {
     const [selectedAgentId, setSelectedAgentId] = useState(null);
     const [showHistory, setShowHistory] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
+    const [showStage, setShowStage] = useState(false);
     // Shared-library .vrma files for the manual-triggers picker. Fetched the
     // first time the panel opens (null = not fetched yet); a failed fetch
     // leaves it empty, which just hides the picker.
@@ -1225,6 +1230,7 @@ export default function VoiceView({ active = true }) {
 
             <div className="o_voice_full_avatar">
                 <AvatarCanvas size="full" />
+                <KaraokeOverlay sidePanel={!ui.immersive && (showStage || showSettings)} />
                 {/* Affection pulse: rose shine around the avatar + floating
                     signed delta + heart burst. Keyed on the pulse timestamp
                     so a new adjust_affection remounts the nodes and restarts
@@ -1300,10 +1306,23 @@ export default function VoiceView({ active = true }) {
                             </button>
                         )}
                         <button className={"btn btn-light" + (showSettings ? " active" : "")}
-                                onClick={() => setShowSettings(!showSettings)}
+                                onClick={() => { setShowSettings(!showSettings); setShowStage(false); }}
                                 title={showSettings ? _t("Hide manual triggers") : _t("Show manual emotion/gesture triggers")}>
                             <i className="fa fa-sliders" />
                         </button>
+                        <button className={"btn btn-light" + (showStage ? " active" : "")}
+                                onClick={() => { setShowStage(!showStage); setShowSettings(false); }}
+                                title={showStage ? _t("Hide the stage") : _t("Stage: your companion sings and dances to a song, karaoke style")}>
+                            <i className="fa fa-music" />
+                        </button>
+                        {/* A song on the stage (perform_song, or the Stage panel): stop it
+                            from here without opening the panel. */}
+                        {(stg.status === "playing" || stg.status === "paused") && (
+                            <button className="btn btn-danger" onClick={() => stage.stop({ byUser: true })}
+                                    title={_t("Stop the song")}>
+                                <i className="fa fa-stop" />
+                            </button>
+                        )}
                         <button className={"btn btn-light" + (!showControls ? " active" : "")}
                                 onClick={() => setShowControls(!showControls)}
                                 title={showControls ? _t("Hide agent selector + call controls") : _t("Show agent selector + call controls")}>
@@ -1341,6 +1360,10 @@ export default function VoiceView({ active = true }) {
                         )}
                     </div>
                 </div>}
+
+                {!ui.immersive && showStage && (
+                    <StagePanel agent={findAgent(selectedAgentId)} />
+                )}
 
                 {!ui.immersive && showSettings && (
                     <div className="o_voice_full_settings">

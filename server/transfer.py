@@ -609,10 +609,11 @@ def import_heartbeats(con, rows, agent_id):
 
 def _agent_portable_fields():
     """The agent save/duplicate whitelist minus avatar_id — the avatar link
-    travels by pack_key/name instead. Imported lazily: routes.misc imports
-    this module at load time."""
+    travels by pack_key/name instead — and singing_profile_id, a Voice Lab
+    model that only exists on this install. Imported lazily: routes.misc
+    imports this module at load time."""
     from .routes.misc import _AGENT_FIELDS
-    return tuple(k for k in _AGENT_FIELDS if k != "avatar_id")
+    return tuple(k for k in _AGENT_FIELDS if k not in ("avatar_id", "singing_profile_id"))
 
 
 def _idle_event_fields():

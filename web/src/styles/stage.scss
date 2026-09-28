@@ -1,0 +1,317 @@
+// Voice view → Stage: the karaoke panel (StagePanel.jsx), the song picker
+// popup (SongPicker.jsx, also in the mascot settings window) and the lyrics /
+// note-lane overlay drawn over the avatar (KaraokeOverlay.jsx).
+
+.rx_stage_panel {
+    width: 340px;
+
+    // The chosen song and the "Choose song…" button.
+    .rx_stage_current {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.4rem;
+
+        .btn { flex: none; }
+    }
+
+    .rx_stage_song {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        flex: 1;
+        color: #e2e8f0;
+    }
+
+    .rx_stage_song_title {
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .rx_stage_ready {
+        color: #f472b6;
+        margin-left: 0.4rem;
+        font-size: 0.72rem;
+    }
+
+    .rx_stage_song_meta {
+        font-size: 0.7rem;
+        color: rgba(255, 255, 255, 0.55);
+    }
+
+    .rx_stage_modes,
+    .rx_stage_transport,
+    .rx_stage_actions,
+    .rx_stage_teach { margin: 0.45rem 0; }
+
+    .rx_stage_actions select {
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 0.4rem;
+        font-size: 0.78rem;
+        padding: 0.2rem 0.4rem;
+
+        option { background: #1e293b; color: white; }
+    }
+
+    .rx_stage_progress {
+        font-size: 0.78rem;
+        color: rgba(255, 255, 255, 0.8);
+        margin: 0.35rem 0;
+    }
+
+    input[type="range"] { flex: 1; }
+    input[type="number"] {
+        width: 5.5rem;
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 0.4rem;
+        padding: 0.15rem 0.4rem;
+        font-size: 0.78rem;
+    }
+
+    .rx_stage_db {
+        font-size: 0.72rem;
+        color: rgba(255, 255, 255, 0.65);
+        width: 3rem;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rx_stage_credit,
+    .rx_stage_hint {
+        font-size: 0.7rem;
+        color: rgba(255, 255, 255, 0.55);
+        margin: 0.3rem 0;
+    }
+
+}
+
+// Song picker popup (rx_dialog, light).
+.rx_dialog--songs {
+    max-width: 38rem;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 2rem);
+
+    .rx_songs_head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.75rem;
+
+        h4 { margin: 0; }
+    }
+    .rx_songs_tabs { display: flex; gap: 0.35rem; }
+
+    .rx_songs_progress {
+        font-size: 0.82rem;
+        color: #475569;
+        margin-bottom: 0.6rem;
+    }
+
+    .rx_songs_search {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+
+        input { flex: 1; min-width: 0; }
+        select { flex: none; width: auto; }
+    }
+
+    .rx_songs_filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin-bottom: 0.6rem;
+    }
+    .rx_songs_chip {
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+        color: #334155;
+        border-radius: 999px;
+        padding: 0.15rem 0.65rem;
+        font-size: 0.78rem;
+
+        span { color: #94a3b8; margin-left: 0.2rem; }
+        &.is-active {
+            background: #db2777;
+            border-color: #db2777;
+            color: #fff;
+            span { color: rgba(255, 255, 255, 0.8); }
+        }
+    }
+
+    .rx_songs_list {
+        flex: 1;
+        min-height: 8rem;
+        max-height: 55vh;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+        margin-bottom: 0.9rem;
+
+        &.is-short { max-height: 40vh; }
+    }
+    .rx_songs_empty {
+        padding: 1.5rem 1rem;
+        text-align: center;
+        color: #64748b;
+        font-size: 0.85rem;
+    }
+
+    .rx_songs_row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding-right: 0.5rem;
+        border-bottom: 1px solid #f1f5f9;
+
+        &:last-child { border-bottom: none; }
+        &:hover { background: #f8fafc; }
+        &.is-selected { background: #fdf2f8; }
+    }
+    .rx_songs_pick {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        text-align: left;
+        background: none;
+        border: none;
+        padding: 0.5rem 0.75rem;
+        color: inherit;
+    }
+    .rx_songs_title { font-weight: 600; font-size: 0.9rem; }
+    .rx_songs_meta {
+        font-size: 0.75rem;
+        color: #64748b;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+    }
+
+    .rx_songs_body {
+        overflow-y: auto;
+        margin-bottom: 0.9rem;
+
+        h5 {
+            margin: 0.9rem 0 0.35rem;
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #64748b;
+
+            &:first-child { margin-top: 0; }
+        }
+        p { margin: 0 0 0.6rem; font-size: 0.82rem; }
+    }
+    .rx_songs_inline {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+
+        input[type="text"] { flex: 1; min-width: 12rem; }
+        label { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; margin: 0; }
+        input[type="number"] { width: 5.5rem; }
+    }
+    .rx_songs_dance {
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid #f1f5f9;
+
+        &:last-child { border-bottom: none; }
+    }
+    .rx_songs_dance_head {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-bottom: 0.35rem;
+        font-size: 0.85rem;
+
+        .btn { margin-left: auto; }
+    }
+}
+
+.rx_songs_learned {
+    color: #db2777;
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+}
+
+// Mascot settings → Songs (light settings window).
+.rx_mascot_song_card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin-top: 0.6rem;
+
+    .btn { flex: none; }
+}
+.rx_mascot_song_row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.4rem;
+
+    .rx_check { margin: 0; }
+    select { width: auto; }
+    input[type="range"] { flex: 1; }
+    label { margin: 0; }
+}
+
+.rx_stage_overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 7;   // above the canvas, under the affection effect (8) and the topbar (10)
+
+    .rx_stage_canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+    }
+
+    .rx_stage_score {
+        position: absolute;
+        top: 1rem;
+        right: 1.2rem;
+        font: 700 1.6rem/1 system-ui, sans-serif;
+        color: #fff;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .rx_stage_final {
+        position: absolute;
+        left: 50%;
+        top: 38%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        color: #fff;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+        animation: rx_stage_final_in 0.6s ease-out;
+
+        .rx_stage_final_title { font: 600 1.4rem/1.2 system-ui, sans-serif; opacity: 0.9; }
+        .rx_stage_final_score {
+            font: 800 3.2rem/1.1 system-ui, sans-serif;
+            color: #ffd25a;
+            span { font-size: 1.2rem; color: #fff; opacity: 0.7; }
+        }
+    }
+}
+
+@keyframes rx_stage_final_in {
+    from { opacity: 0; transform: translate(-50%, -40%) scale(0.9); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}

@@ -57,6 +57,36 @@ const CREDITS = [
         ],
     },
     {
+        title: "Karaoke stage",
+        items: [
+            ["WORLD vocoder (Masanori Morise) via pyworld",
+             "https://github.com/mmorise/World",
+             "Modified BSD (WORLD), MIT (pyworld). Analyses a companion's spoken lyrics "
+             + "and re-sings them onto the melody."],
+            ["LRCLIB",
+             "https://lrclib.net",
+             "Synced lyrics for songs imported from a link or a video."],
+        ],
+    },
+    {
+        title: "Voice Lab (optional download)",
+        items: [
+            ["Ultimate RVC (JackismyShephard)",
+             "https://github.com/JackismyShephard/ultimate-rvc",
+             "MIT. Trains the singing voice profiles, re-sings vocals in them and separates "
+             + "songs into music and vocals (audio-separator models)."],
+            ["faster-whisper",
+             "https://github.com/SYSTRAN/faster-whisper",
+             "MIT. Times the lyrics of imported songs and scores voice checkpoints."],
+            ["yt-dlp",
+             "https://github.com/yt-dlp/yt-dlp",
+             "Unlicense. Fetches songs from links."],
+            ["uv (Astral)",
+             "https://github.com/astral-sh/uv",
+             "MIT / Apache-2.0. Sets up the Voice Lab's own Python environment."],
+        ],
+    },
+    {
         title: "Voice activation",
         items: [
             ["Vosk",

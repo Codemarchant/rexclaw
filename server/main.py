@@ -16,7 +16,7 @@ from . import heartbeat, parent_watch
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, init_db
 from .errors import UserError
-from .routes import audio, avatars, heartbeats, live_chat, minecraft, misc, text, voice
+from .routes import audio, avatars, heartbeats, live_chat, minecraft, misc, songs, text, voice, voicelab
 from .lore_seeds import seed_lore_if_empty
 from .seeds import migrate_default_outfit_sections, seed_if_empty
 
@@ -71,6 +71,8 @@ app.include_router(avatars.router)
 app.include_router(minecraft.router)
 app.include_router(live_chat.router)
 app.include_router(audio.router)
+app.include_router(songs.router)
+app.include_router(voicelab.router)
 
 # Bundled VRM/VRMA/GLB assets + generated/uploaded files + user avatar packs.
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")

@@ -9,6 +9,7 @@ import "./styles/text_full_view.scss";
 import "./styles/share_popover.scss";
 import "./styles/mascot.scss";
 import "./styles/memory_galaxy.scss";
+import "./styles/stage.scss";
 
 // Desktop mascot overlay (#mascot): the Electron window is transparent, so
 // the page must be too. Tag the root before first paint — the CSS override

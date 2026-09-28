@@ -24,6 +24,7 @@
 import { rpc } from "./rpc";
 import { _t } from "./i18n";
 import { notification } from "./notification";
+import { stage } from "../models/stage";
 
 // Keep in sync with server/idle_events.py NOTE_PREFIX: the saved copy of a
 // note is a system row the transcript hides by this prefix.
@@ -108,8 +109,12 @@ export class IdleEventScheduler {
 
     /** Anything that holds an event back, on any leg of the call: a reply
      *  being generated or still playing, a tool round owing its follow-up,
-     *  the user mid-utterance, a compaction restart. */
+     *  the user mid-utterance, a compaction restart - or a song on the
+     *  karaoke stage: its vocal plays outside the call and the user's mic is
+     *  muted, so the call looks silent, and a check-in fired mid-song had
+     *  the companion talk over it as if it had ended. */
     _busy() {
+        if (stage.state.status === "playing" || stage.state.status === "paused") return true;
         return [...this.call.connections.values()].some((c) => !c.isTerminal && (
             c._responseInFlight || c._pendingToolReply || c._toolReplyStarting
             || c._assistantAudioActive() || c._userSpeaking || c.state.compacting

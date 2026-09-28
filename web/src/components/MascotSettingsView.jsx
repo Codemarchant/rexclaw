@@ -4,6 +4,7 @@ import { _t } from "../lib/i18n";
 import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES } from "../lib/mascot_link";
 import { AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 import { EMOTIONS, GESTURES } from "../models/avatar_catalog";
+import MascotSongsTab from "./MascotSongsTab.jsx";
 
 /** Mascot settings window (/#mascot-settings) — the mascot's full control
  *  panel in one friendly place, opened from the overlay island's ⚙ or the
@@ -196,6 +197,10 @@ export default function MascotSettingsView() {
                         <button className={"btn btn-sm " + (tab === "emotions" ? "btn-primary" : "btn-light")}
                                 onClick={() => setTab("emotions")}>
                             <i className="fa fa-smile-o" /> {_t("Emotions & gestures")}
+                        </button>
+                        <button className={"btn btn-sm " + (tab === "songs" ? "btn-primary" : "btn-light")}
+                                onClick={() => setTab("songs")}>
+                            <i className="fa fa-music" /> {_t("Songs")}
                         </button>
                     </div>
                     {!alive && (
@@ -573,6 +578,8 @@ export default function MascotSettingsView() {
                         </section>
                     )}
                 </>}
+
+                {tab === "songs" && <MascotSongsTab mascot={mascot} alive={alive} send={send} />}
             </div>
         </div>
     );
