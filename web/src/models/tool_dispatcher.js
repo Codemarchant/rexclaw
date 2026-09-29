@@ -312,6 +312,10 @@ export class ToolDispatcher {
                 return this._playGesture(args, { responseId });
             case "move_around":
                 return this._moveAround(args);
+            case "continue_after_beat":
+                // Nothing to do here: the follow-up reply it earns is the
+                // point (agent_connection._handleFunctionCall).
+                return { ok: true, note: "Go on: this is your next turn." };
             case "perform_song":
                 return this._performSong(args);
             case "change_outfit":

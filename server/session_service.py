@@ -1050,6 +1050,10 @@ def _voice_tools(con, agent, config, *, group_peers=None):
     # renderer refuses the move there — so the tool is not offered either.
     if agent['enable_move_tool'] and not group_peers:
         tools.append(browser_tools.MOVE_AROUND_TOOL)
+    # A second turn of its own; solo calls only - in a group call the turn
+    # director hands out the floor.
+    if not group_peers:
+        tools.append(browser_tools.CONTINUE_AFTER_BEAT_TOOL)
     # The karaoke stage, solo calls only (one performer on the stage), and
     # only once the companion has learned a song in its voice.
     if agent['enable_songs'] and not group_peers:

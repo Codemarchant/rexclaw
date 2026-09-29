@@ -276,6 +276,49 @@ MOVE_AROUND_TOOL = {
     },
 }
 
+# continue_after_beat: a second turn of the companion's own. A voice reply
+# can't start another on its own - a follow-up only comes when a tool result
+# lands - so "sing it, then rate it" in two turns happened only by accident,
+# when some other call sat between them. This call exists for that follow-up
+# and nothing else (agent_connection gives it one; it takes no end_turn). The
+# chain is capped at CONTINUE_MAX_IN_A_ROW until the user speaks (a design
+# value, a loop guard), and the description says so, so the model can plan.
+#
+# Wording (2026-09-28): the mechanics spelled out (Letta dropped MemGPT's
+# request_heartbeat because models don't grasp such a mechanism otherwise),
+# and the cases where a second turn is the only way: a sequence where each
+# call gets its own spoken line. Gestures in one reply do play in order, but
+# all behind that reply's single line - speech can't follow a call within a
+# reply. The end_turn line is how agent_connection works: another call's
+# end_turn in the same reply never cancels the follow-up this one owes.
+# The pacing line is how the browser runs it: the follow-up waits for this
+# reply's audio to finish playing (agent_connection._maybeCreateToolReply),
+# not for its gestures; a gesture starts when its call arrives, and one from
+# a later reply cuts in at once (tool_dispatcher._playGestureInTurn).
+CONTINUE_MAX_IN_A_ROW = 6
+CONTINUE_AFTER_BEAT_TOOL = {
+    "name": "continue_after_beat",
+    "description": (
+        "Mark that you want another speaking turn after this one: your reply "
+        "ends, and you speak again right after as a fresh turn. Use it "
+        "whenever there is more to come from you:\n"
+        "- moves that each need their own line as they happen: announce a move "
+        "and make it, then the next one in your next turn;\n"
+        "- anything else you want to go on to after this reply.\n"
+        "Several tool calls in one reply are still fine when they don't need "
+        "their own lines: gestures in one reply play one after another.\n"
+        "Pacing: your next turn starts once this turn's speech has finished "
+        "playing, after a short gap, so when it's all talk, keep going in the "
+        "same reply instead. Gestures and moves start as soon as you call them, "
+        "usually while your line is still playing, and one from your next turn "
+        "replaces one still running. "
+        "If the user speaks first, the turn is theirs. Up to "
+        f"{CONTINUE_MAX_IN_A_ROW} turns in a row before the user speaks. "
+        "(Works whatever your other tool calls do, even with their end_turn set.)"
+    ),
+    "parameters": {"type": "object", "properties": {}},
+}
+
 END_CALL_TOOL = {
     "name": "end_call",
     "description": (

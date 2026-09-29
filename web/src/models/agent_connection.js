@@ -18,7 +18,13 @@ const XAI_SERVER_SIDE_TOOLS = new Set([
 // Tools whose calls/results are visually noisy in the transcript but carry
 // no information the user cares about (the avatar visibly performs the
 // action). Still dispatched normally — we just skip the transcript entries.
-const SILENT_BROWSER_TOOLS = new Set(["play_gesture", "set_emotion", "change_outfit", "move_around"]);
+const SILENT_BROWSER_TOOLS = new Set(["play_gesture", "set_emotion", "change_outfit", "move_around",
+    "continue_after_beat"]);
+
+// continue_after_beat: turns in a row the companion may take before the user
+// speaks or types again (server/browser_tools.py CONTINUE_MAX_IN_A_ROW, which
+// the tool description quotes: keep the two in step). A loop guard.
+const CONTINUE_MAX_IN_A_ROW = 6;
 
 // Tools the model may call with `end_turn: true` (voice sessions only — the
 // server adds the flag to their schemas, session_service._with_end_turn). The
@@ -1231,6 +1237,7 @@ export class AgentConnection {
             this._pendingToolReply = false;
             this._nextResponseIsToolReply = false;
             this._owedContextResponse = false;
+            this._continueStreak = 0;   // the user took a turn (see continue_after_beat)
             // Idle events hold off while the user has the floor — a long
             // utterance must not outlast the quiet timer (lib/idle_events.js).
             this._userSpeaking = true;
@@ -1861,7 +1868,14 @@ export class AgentConnection {
         // This turn now owes a follow-up response.create once the tool
         // round-trip completes — unless this call ends the turn (end_turn,
         // see END_TURN_TOOLS).
-        const endTurn = END_TURN_TOOLS.has(name) && endsTurn(argumentsJson);
+        let endTurn = END_TURN_TOOLS.has(name) && endsTurn(argumentsJson);
+        // continue_after_beat exists for the follow-up this earns. Past
+        // CONTINUE_MAX_IN_A_ROW since the user last spoke or typed, it ends
+        // the turn instead (the tool description says so).
+        if (name === "continue_after_beat") {
+            this._continueStreak = (this._continueStreak || 0) + 1;
+            if (this._continueStreak > CONTINUE_MAX_IN_A_ROW) endTurn = true;
+        }
         // A repeat end_call while the call is already hanging up owes no
         // reply: the first one's goodbye is the last line.
         const repeatEndCall = name === "end_call" && !!this.manager?.endingCall;
@@ -2489,6 +2503,7 @@ export class AgentConnection {
     sendText(text, { promptResponse = true } = {}) {
         text = (text || "").trim();
         if (!text) return false;
+        this._continueStreak = 0;   // the user took a turn (see continue_after_beat)
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
             this.env.services.notification?.add?.(
                 _t("Connect first before sending a typed message."),
