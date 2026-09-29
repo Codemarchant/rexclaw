@@ -89,8 +89,10 @@ def build_text_companion_tool(agent, other_agents):
 def _tagged_message(agent, message):
     return (
         f'{CONTEXT_PREFIX}"{agent["name"]}": another companion is texting '
-        f'you, not the user; this is not a live call, so reply naturally, '
-        f'as you would to any other companion.]\n{message}'
+        f'you, not the user; this is not a live call. Whatever you write '
+        f'back is sent to them as your reply text, so just write it: no '
+        f'tool is needed to answer. Reply naturally, as you would to any '
+        f'other companion.]\n{message}'
     )
 
 

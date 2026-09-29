@@ -436,6 +436,7 @@ def run_heartbeat(con, hb, *, source='scheduler'):
 
     Returns True when the turn completed."""
     from . import session_service as svc  # lazy: circular import
+    from .companion_texting import TEXT_COMPANION_TOOL_NAME
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     ok = False
@@ -495,13 +496,17 @@ def run_heartbeat(con, hb, *, source='scheduler'):
             note = (f'Stopped searching after {turn["search_capped"]} searches; '
                     f'wrote the entry without them.')
 
-        if (hb['allow_companion_texting']
+        texted = any(r.get('name') == TEXT_COMPANION_TOOL_NAME
+                     for r in turn.get('native_results') or [])
+        if (hb['allow_companion_texting'] and not texted
                 and (turn.get('assistant_text') or '').strip() == NO_TEXT_SENTINEL):
             # Decided not to text anyone — drop this tick's rows (the
             # injected context line + the sentinel reply) so a string of
             # "nothing happened" ticks doesn't clutter the transcript. Safe
             # to delete locally: the xAI response chain lives on the
             # session's previous_response_id, not on these local rows.
+            # A tick that did text someone often still closes with the
+            # sentinel; its exchange must stay in the transcript.
             con.execute("DELETE FROM messages WHERE session_id = ? AND id > ?",
                         (session['id'], before_id))
 
