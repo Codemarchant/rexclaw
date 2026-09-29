@@ -1,9 +1,10 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { notification } from "../lib/notification";
 import { confirmAsk } from "../lib/confirm";
 import { formatClock } from "../lib/format_clock";
+import Pager, { usePager } from "./Pager.jsx";
 
 /** History → Recordings → Your sounds: the user's uploaded beds, music and
  *  sound effects (server/audio_sounds.py). Each upload gets the fields the
@@ -61,7 +62,28 @@ export default function SoundLibrary({ sounds, kinds, onChange }) {
     const [adding, setAdding] = useState(null);   // {…fields, file}
     const [editing, setEditing] = useState(null); // {id, …fields}
     const [busy, setBusy] = useState(false);
+    const [query, setQuery] = useState("");
+    const [kindFilter, setKindFilter] = useState("all");
     const fileRef = useRef(null);
+
+    const kindCounts = useMemo(() => {
+        const counts = {};
+        for (const s of sounds) counts[s.kind] = (counts[s.kind] || 0) + 1;
+        return counts;
+    }, [sounds]);
+    // A kind filter whose last sound was deleted falls back to all.
+    useEffect(() => {
+        if (kindFilter !== "all" && !kindCounts[kindFilter]) setKindFilter("all");
+    }, [kindCounts, kindFilter]);
+    // The search matches the name, description and credit.
+    const visible = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        return sounds.filter((s) => (kindFilter === "all" || s.kind === kindFilter)
+            && (!q || [s.name, s.description, s.credit].join("\n").toLowerCase().includes(q)));
+    }, [sounds, query, kindFilter]);
+    const pager = usePager(visible.length);
+    const { setPage } = pager;
+    useEffect(() => { setPage(0); }, [query, kindFilter, setPage]);
 
     const pickFile = (file) => {
         if (!file) return;
@@ -108,9 +130,30 @@ export default function SoundLibrary({ sounds, kinds, onChange }) {
     };
 
     return (
-        <section>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                <h3 style={{ margin: 0 }}><i className="fa fa-music" /> {_t("Your sounds")}</h3>
+        <>
+            <p className="text-muted small" style={{ margin: "0.4rem 0 0.2rem" }}>
+                {_t("Upload your own beds, music and sound effects (WAV, FLAC, OGG or MP3). Scripts call them by name, and companions see each one with your description in their guide, so they can use it in voice messages. Only upload audio you have the rights to use.")}
+            </p>
+            <details className="rx_studio_help" style={{ margin: "0 0 0.4rem" }}>
+                <summary>{_t("How sounds play in a script")}</summary>
+                <p className="text-muted small" style={{ margin: "0.3rem 0 0" }}>
+                    {_t("Beds and music loop under the voice until changed: a new {bed NAME} or {music NAME} crossfades to it, and {bed off} or {music off} stops it (add fade=10s for a slower fade). A sound effect plays once, and by default the script waits for it to finish so it is heard on its own. Add a length to cut it short ({sound thunder 5s}), or add under to play it beneath the next lines without waiting ({sound rain under}).")}
+                </p>
+            </details>
+            <div className="rx_mem_toolbar">
+                {sounds.length > 0 && (
+                    <>
+                        <input type="text" value={query} placeholder={_t("Search names, descriptions, credits…")}
+                               onChange={(ev) => setQuery(ev.target.value)} />
+                        <select value={kindFilter} style={{ width: "auto" }}
+                                onChange={(ev) => setKindFilter(ev.target.value)}>
+                            <option value="all">{_t("All kinds (%s)", sounds.length)}</option>
+                            {Object.entries(kinds).filter(([k]) => kindCounts[k]).map(([k, label]) => (
+                                <option key={k} value={k}>{_t(label)} ({kindCounts[k]})</option>
+                            ))}
+                        </select>
+                    </>
+                )}
                 {!adding && (
                     <button className="btn btn-sm" style={{ marginLeft: "auto" }}
                             onClick={() => { setAdding({ ...BLANK }); setTimeout(() => fileRef.current?.click(), 0); }}>
@@ -118,12 +161,6 @@ export default function SoundLibrary({ sounds, kinds, onChange }) {
                     </button>
                 )}
             </div>
-            <p className="text-muted small" style={{ margin: "0.4rem 0 0.6rem" }}>
-                {_t("Upload your own beds, music and sound effects (WAV, FLAC, OGG or MP3). Scripts call them by name, and companions see each one with your description in their guide, so they can use it in voice messages. Only upload audio you have the rights to use.")}
-            </p>
-            <p className="text-muted small" style={{ margin: "0 0 0.6rem" }}>
-                {_t("Beds and music loop under the voice until changed: a new {bed NAME} or {music NAME} crossfades to it, and {bed off} or {music off} stops it (add fade=10s for a slower fade). A sound effect plays once, and by default the script waits for it to finish so it is heard on its own. Add a length to cut it short ({sound thunder 5s}), or add under to play it beneath the next lines without waiting ({sound rain under}).")}
-            </p>
             {adding && (
                 <div className="rx_agent_editor rx_studio_sound_form">
                     <label>{_t("File")}</label>
@@ -141,7 +178,15 @@ export default function SoundLibrary({ sounds, kinds, onChange }) {
             {!sounds.length && !adding && (
                 <p className="text-muted small">{_t("No sounds yet.")}</p>
             )}
-            {sounds.map((s) => (editing && editing.id === s.id) ? (
+            {visible.length < sounds.length && (
+                <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
+                    {visible.length
+                        ? _t("%s of %s sounds", visible.length, sounds.length)
+                        : _t("No sounds match.")}
+                </p>
+            )}
+            <Pager pager={pager} />
+            {pager.slice(visible).map((s) => (editing && editing.id === s.id) ? (
                 <div key={s.id} className="rx_agent_editor rx_studio_sound_form">
                     <SoundFields value={editing} kinds={kinds} onChange={setEditing} />
                     <p className="text-muted small" style={{ margin: "0.4rem 0 0" }}>
@@ -179,6 +224,7 @@ export default function SoundLibrary({ sounds, kinds, onChange }) {
                     <audio src={s.file_path} controls preload="none" />
                 </div>
             ))}
-        </section>
+            <Pager pager={pager} />
+        </>
     );
 }

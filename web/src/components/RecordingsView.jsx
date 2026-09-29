@@ -7,6 +7,7 @@ import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { formatClock } from "../lib/format_clock";
 import { fmtLocal } from "./HeartbeatsPanel.jsx";
 import SoundLibrary from "./SoundLibrary.jsx";
+import Pager, { usePager } from "./Pager.jsx";
 
 /** History → Recordings: the audio studio playground.
  *
@@ -23,6 +24,10 @@ const NEW_CATEGORY = "__new__";
 const STUDIO = "__studio__";
 const EMPTY = { kind: "new", id: null, name: "", category: DEFAULT_CATEGORY, voice: "",
     language: "en", pace: 1.0, script: "" };
+
+/** Whose a recording is: the companion that sent it, or STUDIO for the
+ *  playground's own renders. */
+const recCompanionOf = (r) => (r.source === "voicemail" ? (r.agent_name || _t("a companion")) : STUDIO);
 
 /** Characters that will actually be spoken (directive lines and L:/R: prefixes excluded). */
 function speechChars(script) {
@@ -184,6 +189,8 @@ export default function RecordingsView({ active }) {
     const [rulesDraft, setRulesDraft] = useState(null);     // text while the writing rules are being edited
     const [recFilter, setRecFilter] = useState("all");      // recordings list: category shown
     const [recCompanion, setRecCompanion] = useState("all"); // …and whose (STUDIO = playground renders)
+    const [recQuery, setRecQuery] = useState("");            // …and matching this text
+    const [libTab, setLibTab] = useState("recordings");      // tab under the studio: recordings | sounds
     const loaded = useRef(false);
 
     const load = async () => {
@@ -364,18 +371,29 @@ export default function RecordingsView({ active }) {
     const recCompanions = useMemo(() => {
         const counts = {};
         for (const r of data?.recordings || []) {
-            const key = r.source === "voicemail" ? (r.agent_name || _t("a companion")) : STUDIO;
+            const key = recCompanionOf(r);
             counts[key] = (counts[key] || 0) + 1;
         }
         return Object.entries(counts).sort(([a], [b]) =>
             (a === STUDIO) - (b === STUDIO) || a.localeCompare(b));
     }, [data]);
-    const recCompanionOf = (r) => (r.source === "voicemail" ? (r.agent_name || _t("a companion")) : STUDIO);
     // A filter whose last recording was deleted falls back to all.
     useEffect(() => {
         if (recFilter !== "all" && !recCategories.some(([c]) => c === recFilter)) setRecFilter("all");
         if (recCompanion !== "all" && !recCompanions.some(([c]) => c === recCompanion)) setRecCompanion("all");
     }, [recCategories, recFilter, recCompanions, recCompanion]);
+    // The search matches the name, voice, sender, category and script text.
+    const visibleRecs = useMemo(() => {
+        const q = recQuery.trim().toLowerCase();
+        return (data?.recordings || []).filter((rec) => (recFilter === "all" || rec.category === recFilter)
+            && (recCompanion === "all" || recCompanionOf(rec) === recCompanion)
+            && (!q || [rec.name, rec.voice, rec.agent_name, _t(rec.category || ""), rec.script]
+                .join("\n").toLowerCase().includes(q)));
+    }, [data, recFilter, recCompanion, recQuery]);
+    const recPager = usePager(visibleRecs.length);
+    const { setPage: setRecPage } = recPager;
+    // A new search or filter starts back on the first page.
+    useEffect(() => { setRecPage(0); }, [recFilter, recCompanion, recQuery, setRecPage]);
 
     const activeGroup = draft.kind === "example"
         ? data?.examples.find((e) => e.id === draft.id)?.category
@@ -591,13 +609,31 @@ export default function RecordingsView({ active }) {
                         </div>
                     </div>
                 </section>
-                <SoundLibrary sounds={data.sounds} kinds={data.sound_kinds}
-                              onChange={(p) => setData((d) => ({ ...d, sounds: p.sounds, guide: p.guide }))} />
                 <section>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.4rem" }}>
-                        <h3 style={{ margin: 0 }}><i className="fa fa-list" /> {_t("Recordings")}</h3>
+                    {/* Recordings and sounds both grow long, so they share one
+                        tabbed panel below the studio instead of stacking. */}
+                    <div className="rx_mem_filters" style={{ marginBottom: "0.2rem" }}>
+                        {[
+                            ["recordings", "fa-list", _t("Recordings"), data.recordings.length],
+                            ["sounds", "fa-music", _t("Your sounds"), data.sounds.length],
+                        ].map(([id, icon, label, n]) => (
+                            <button key={id} type="button"
+                                    className={"rx_mem_chip" + (libTab === id ? " is-active" : "")}
+                                    onClick={() => setLibTab(id)}>
+                                <i className={"fa " + icon} /> {label} {n}
+                            </button>
+                        ))}
+                    </div>
+                    <div style={{ display: libTab === "sounds" ? "" : "none" }}>
+                        <SoundLibrary sounds={data.sounds} kinds={data.sound_kinds}
+                                      onChange={(p) => setData((d) => ({ ...d, sounds: p.sounds, guide: p.guide }))} />
+                    </div>
+                    <div style={{ display: libTab === "recordings" ? "" : "none" }}>
                         {data.recordings.length > 0 && (
-                            <span style={{ marginLeft: "auto", display: "flex", gap: "0.5rem" }}>
+                            <div className="rx_mem_toolbar">
+                                <input type="text" value={recQuery}
+                                       placeholder={_t("Search names, voices, companions, script text…")}
+                                       onChange={(ev) => setRecQuery(ev.target.value)} />
                                 <select value={recCompanion} style={{ width: "auto" }}
                                         onChange={(ev) => setRecCompanion(ev.target.value)}>
                                     <option value="all">{_t("All companions (%s)", data.recordings.length)}</option>
@@ -612,56 +648,64 @@ export default function RecordingsView({ active }) {
                                         <option key={c} value={c}>{_t(c)} ({n})</option>
                                     ))}
                                 </select>
-                            </span>
-                        )}
-                    </div>
-                    {!data.recordings.length && (
-                        <p className="text-muted small">{_t("Nothing recorded yet. Generate one above, or ask a companion for a voice message in chat.")}</p>
-                    )}
-                    {data.recordings.filter((rec) => (recFilter === "all" || rec.category === recFilter)
-                        && (recCompanion === "all" || recCompanionOf(rec) === recCompanion)).map((rec) => (
-                        <div key={rec.id} className="rx_studio_rec">
-                            <div className="rx_studio_rec_head">
-                                <strong>{rec.name}</strong>
-                                <span className="rx_studio_badge">
-                                    {rec.source === "voicemail"
-                                        ? _t("from %s", rec.agent_name || _t("a companion"))
-                                        : _t(rec.category)}
-                                </span>
-                                <span className="text-muted small">
-                                    {rec.voice} · {formatClock(rec.duration_seconds)} · {fmtLocal(rec.created_at)}
-                                </span>
-                                <span style={{ marginLeft: "auto", display: "flex", gap: "0.6rem" }}>
-                                    <button className="btn btn-sm btn-link p-0" title={_t("Open the script in the editor")}
-                                            onClick={() => guardedOpen(() => openScript({
-                                                ...EMPTY, name: rec.name, voice: rec.voice || "eve", script: rec.script,
-                                            }))}>
-                                        <i className="fa fa-pencil" /> {_t("Script")}
-                                    </button>
-                                    <a className="btn btn-sm btn-link p-0" href={rec.audio_path}
-                                       download={`${rec.name}.mp3`} title={_t("Download the mp3")}>
-                                        <i className="fa fa-download" />
-                                    </a>
-                                    {/* Files an extension wrote beside the recording, named
-                                        like the mp3 download so players pair them up. */}
-                                    {(rec.extra_files || []).map((url) => {
-                                        const suffix = url.split("/").pop().split(".").slice(1).join(".");
-                                        return (
-                                            <a key={url} className="btn btn-sm btn-link p-0" href={url}
-                                               download={`${rec.name}.${suffix}`} title={_t("Download %s", `.${suffix}`)}>
-                                                <i className="fa fa-file-code-o" /> .{suffix}
-                                            </a>
-                                        );
-                                    })}
-                                    <button className="btn btn-sm btn-link p-0" title={_t("Delete")}
-                                            onClick={() => removeRecording(rec)}>
-                                        <i className="fa fa-trash-o" />
-                                    </button>
-                                </span>
                             </div>
-                            <audio src={rec.audio_path} controls preload="none" />
-                        </div>
-                    ))}
+                        )}
+                        {!data.recordings.length && (
+                            <p className="text-muted small">{_t("Nothing recorded yet. Generate one above, or ask a companion for a voice message in chat.")}</p>
+                        )}
+                        {visibleRecs.length < data.recordings.length && (
+                            <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
+                                {visibleRecs.length
+                                    ? _t("%s of %s recordings", visibleRecs.length, data.recordings.length)
+                                    : _t("No recordings match.")}
+                            </p>
+                        )}
+                        <Pager pager={recPager} />
+                        {recPager.slice(visibleRecs).map((rec) => (
+                            <div key={rec.id} className="rx_studio_rec">
+                                <div className="rx_studio_rec_head">
+                                    <strong>{rec.name}</strong>
+                                    <span className="rx_studio_badge">
+                                        {rec.source === "voicemail"
+                                            ? _t("from %s", rec.agent_name || _t("a companion"))
+                                            : _t(rec.category)}
+                                    </span>
+                                    <span className="text-muted small">
+                                        {rec.voice} · {formatClock(rec.duration_seconds)} · {fmtLocal(rec.created_at)}
+                                    </span>
+                                    <span style={{ marginLeft: "auto", display: "flex", gap: "0.6rem" }}>
+                                        <button className="btn btn-sm btn-link p-0" title={_t("Open the script in the editor")}
+                                                onClick={() => guardedOpen(() => openScript({
+                                                    ...EMPTY, name: rec.name, voice: rec.voice || "eve", script: rec.script,
+                                                }))}>
+                                            <i className="fa fa-pencil" /> {_t("Script")}
+                                        </button>
+                                        <a className="btn btn-sm btn-link p-0" href={rec.audio_path}
+                                           download={`${rec.name}.mp3`} title={_t("Download the mp3")}>
+                                            <i className="fa fa-download" />
+                                        </a>
+                                        {/* Files an extension wrote beside the recording, named
+                                            like the mp3 download so players pair them up. */}
+                                        {(rec.extra_files || []).map((url) => {
+                                            const suffix = url.split("/").pop().split(".").slice(1).join(".");
+                                            return (
+                                                <a key={url} className="btn btn-sm btn-link p-0" href={url}
+                                                   download={`${rec.name}.${suffix}`} title={_t("Download %s", `.${suffix}`)}>
+                                                    <i className="fa fa-file-code-o" /> .{suffix}
+                                                </a>
+                                            );
+                                        })}
+                                        <button className="btn btn-sm btn-link p-0" title={_t("Delete")}
+                                                onClick={() => removeRecording(rec)}>
+                                            <i className="fa fa-trash-o" />
+                                        </button>
+                                    </span>
+                                </div>
+                                <audio src={rec.audio_path} controls preload="none" />
+                            </div>
+                        ))}
+                        <Pager pager={recPager} />
+                    </div>
                 </section>
             </div>
         </div>
