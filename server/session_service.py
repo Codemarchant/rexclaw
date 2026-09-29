@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, song_tools, store, text_to_vrma, turn_director, voicemail_tools
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, plugins, song_tools, store, text_to_vrma, turn_director, voicemail_tools
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 
@@ -112,6 +112,7 @@ def preview_token_counts(con, agent_row, voice_prompt):
         enable_companion_texting=bool(agent_row['enable_companion_texting']),
         enable_voicemail=bool(agent_row['enable_voicemail']),
         enable_browser_tools=True,
+        plugin_origin='manual',
     )
     return {
         'voice_prompt': _approx_tokens(voice_prompt, 4.45),
@@ -1119,6 +1120,11 @@ def _voice_tools(con, agent, config, *, group_peers=None):
             agent, [a for a in store.list_agents(con) if a['id'] != agent['id']])
         if text_tool is not None:
             native_function_tools.append(text_tool)
+    # Extensions (plugins.py) decide for themselves what to offer. Voice
+    # calls always have the user on the line, hence origin 'manual'.
+    native_function_tools.extend(plugins.tool_definitions(
+        con, agent, 'voice', 'manual',
+        taken={t['name'] for t in tools + native_function_tools}))
     # Voice only — see _with_end_turn.
     return ([_with_end_turn(t) for t in tools],
             [_with_end_turn(t) for t in native_function_tools])
@@ -1356,6 +1362,9 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # Fixed for the call, unlike the motion switches: the prompt this
         # session got describes set_emotion one way or the other.
         'face_director': face_on,
+        # Every tool the browser proxies to /tool_call — its own list knows
+        # the built-in ones, not the ones an extension adds.
+        'native_tools': [t['name'] for t in native_function_tools],
         'replay_items': replay_items,
         'transcript_history': transcript_history,
         'transcript_truncated': transcript_truncated,
@@ -1792,6 +1801,9 @@ def end_session(con, session, *, reason='client', total_input_tokens=0, total_ou
     # resume of another companion queued behind it for minutes.
     con.commit()
     session = store.get_session(con, session['id'])
+    # Before the summary round-trip: an extension winding down something the
+    # session started shouldn't wait on it.
+    plugins.emit('session_end', con=con, session=session)
 
     if session['needs_summary']:
         try:
@@ -2469,10 +2481,13 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                       enable_minecraft=False,
                       enable_companion_texting=False,
                       enable_voicemail=False,
-                      enable_browser_tools=False):
+                      enable_browser_tools=False,
+                      plugin_origin=None):
     """Assemble the tools list for /v1/responses calls in text mode.
     enable_browser_tools is False for headless turns (delegated task
-    sessions) - a browser round-trip needs a browser to answer it."""
+    sessions) - a browser round-trip needs a browser to answer it.
+    plugin_origin is the session origin extension tools are offered for;
+    None offers none."""
     tools = []
     for entry in mcp_entries or []:
         tools.append(entry)
@@ -2485,7 +2500,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
             tools.append(entry)
     if enable_voicemail:
         # Text only: see voicemail_tools for why voice calls go without it.
-        tools.append(voicemail_tools.build_tool(con))
+        tools.append(voicemail_tools.build_tool(con, agent))
     if agent['enable_capture_tools']:
         # No take_selfie in text mode: there is no canvas, and the portrait
         # it used to serve now rides create_image/create_video include_self.
@@ -2521,6 +2536,10 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
             agent, [a for a in store.list_agents(con) if a['id'] != agent['id']])
         if text_tool is not None:
             tools.append(text_tool)
+    if plugin_origin:
+        tools.extend(plugins.tool_definitions(
+            con, agent, 'text', plugin_origin,
+            taken={t['name'] for t in tools if t.get('name')}))
     if enable_web_search:
         tools.append({'type': 'web_search'})
     if enable_x_search:
@@ -2816,6 +2835,7 @@ def start_text_session(con, *, agent, resume_session=None):
                                       and session['origin'] != 'delegated'),
             enable_voicemail=(bool(agent['enable_voicemail'])
                               and session['origin'] != 'delegated'),
+            plugin_origin=session['origin'],
         ),
         'model': config['text_model'],
         'previous_response_id': session['previous_response_id'] or None,
@@ -3052,6 +3072,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         # Headless turns (delegate task sessions) have no browser to answer
         # a browser_tools round-trip — don't offer the screen tools there.
         enable_browser_tools=not headless,
+        plugin_origin=None if minimal_tools else session['origin'],
     )
     instructions = _text_instructions(con, config, agent)
     instructions_hash = _instructions_hash(con, config, agent)
@@ -3526,7 +3547,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                     if result.get('ok'):
                         companion_texts_sent += 1
             else:
-                result = {'error': f'Unknown tool: {name}'}
+                result = plugins.execute_tool(con, session, agent, name, args, 'text')
+                if result is None:
+                    result = {'error': f'Unknown tool: {name}'}
             output_str = json.dumps(result, default=str)
             _persist_text_message(
                 con, session,

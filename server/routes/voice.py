@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
-from .. import affection_tools, companion_texting, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, session_service, store, text_to_vrma, xai_client
+from .. import affection_tools, companion_texting, delegate_tools, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, plugins, session_service, store, text_to_vrma, xai_client
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -171,6 +171,10 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
     if tool_name == text_to_vrma.GENERATE_GESTURE_TOOL_NAME:
         # Flag + mode checks live in the executor (same {'error': ...} contract).
         return text_to_vrma.execute_generate_gesture(con, session, agent, arguments)
+    result = plugins.execute_tool(con, session, agent, tool_name, arguments, 'voice')
+    if result is not None:
+        con.commit()
+        return result
     raise ValidationError(f"Unknown native tool: {tool_name}")
 
 

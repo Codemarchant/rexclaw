@@ -87,8 +87,11 @@ const NO_DUPLICATE_WHILE_RUNNING = new Set([
 const EMOTION_REPEAT_TURNS = 10;
 
 export class ToolDispatcher {
-    constructor({ avatarApi, avatarRenderer, sendWs, conversationState, sessionId, callManager, faceDirector = false }) {
+    constructor({ avatarApi, avatarRenderer, sendWs, conversationState, sessionId, callManager, faceDirector = false, nativeTools = [] }) {
         this.faceDirector = faceDirector;   // the face director runs this call (see _setEmotion)
+        // The session's own list of server-side tools: covers the ones an
+        // extension adds, which NATIVE_TOOL_NAMES can't know about.
+        this.nativeTools = new Set([...NATIVE_TOOL_NAMES, ...nativeTools]);
         // Voice call manager (the voice service singleton) — powers the
         // add_agent_to_call tool. Null on surfaces without group calls
         // (text mode), where the tool isn't offered anyway.
@@ -295,7 +298,7 @@ export class ToolDispatcher {
     }
 
     async _invoke(name, args, { responseId = null } = {}) {
-        if (NATIVE_TOOL_NAMES.has(name)) {
+        if (this.nativeTools.has(name)) {
             if (!this.sessionId) {
                 throw new Error("Native tool dispatch requires sessionId.");
             }

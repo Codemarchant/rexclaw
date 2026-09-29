@@ -485,6 +485,8 @@ CREATE TABLE IF NOT EXISTS agents (
     -- create_voicemail: text chat only — a recorded voice note, meditation
     -- or sleep piece rendered by audio_studio.py (xAI TTS + our timeline).
     enable_voicemail INTEGER NOT NULL DEFAULT 1,
+    -- Extensions' tool switches (plugins.py): JSON {extension id: true}.
+    extension_tools TEXT NOT NULL DEFAULT '{}',
     -- perform_song: voice calls — the companion performs a song it has learned
     -- on the karaoke stage (song_tools.py). Off unless switched on.
     enable_songs INTEGER NOT NULL DEFAULT 0,
@@ -1282,6 +1284,7 @@ MIGRATIONS = (
     "ALTER TABLE songs ADD COLUMN guide_median_hz REAL",
     "ALTER TABLE songs ADD COLUMN source_url TEXT",
     "ALTER TABLE songs ADD COLUMN lyrics_source TEXT",
+    "ALTER TABLE agents ADD COLUMN extension_tools TEXT NOT NULL DEFAULT '{}'",
 )
 
 

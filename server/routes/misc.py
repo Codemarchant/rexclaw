@@ -77,7 +77,7 @@ _AGENT_FIELDS = (
     "enable_companion_texting", "texting_tools_enabled",
     "enable_delegate_tool", "enable_multi_agent_delegation",
     "enable_local_tasks", "enable_minecraft", "enable_gesture_gen", "enable_move_tool",
-    "enable_voicemail", "enable_songs", "singing_profile_id",
+    "enable_voicemail", "enable_songs", "singing_profile_id", "extension_tools",
     "enable_end_call_tool", "wake_phrase", "wake_action",
     "time_aware_resume", "speaks_first",
     "idle_events_enabled", "idle_events_min_seconds", "idle_events_max_seconds",

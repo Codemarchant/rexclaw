@@ -414,6 +414,30 @@ browser ── fetch ──────► FastAPI :8990      (sessions, memory,
 FastAPI ── SQLite + local files             (data/rexclaw.sqlite3, data/files/)
 ```
 
+### Extensions
+
+Add your own companion tools without touching the app's code: an extension is
+a folder with a `plugin.json` and an `__init__.py`, placed in `data/plugins/`
+or in a folder listed under Settings → Extensions. Extensions load when the
+app starts and run with its full access, so only use ones you trust.
+
+```python
+# data/plugins/dice/plugin.json: {"id": "dice", "name": "Dice", "rexclaw_api": 1}
+import random
+
+def setup(api):
+    api.add_companion_toggle('Dice roller')           # a switch in each companion's Tools
+    api.add_tools(
+        lambda con, agent, surface, origin: [{         # surface: 'voice' or 'text'
+            'type': 'function', 'name': 'roll_dice', 'description': 'Roll an N-sided die.',
+            'parameters': {'type': 'object', 'properties': {'sides': {'type': 'integer'}}}}],
+        lambda name, args, ctx: {'result': random.randint(1, int(args.get('sides') or 6))})
+```
+
+To keep an extension working across updates, use only the `api` calls; the
+app's own modules can change. The full list (routes, a page, events,
+recording-script directives) is in `server/plugins.py`.
+
 ## 📋 Notes
 
 ### Credits

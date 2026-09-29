@@ -427,6 +427,30 @@ browser ── fetch ──────► FastAPI :8990      （セッション
 FastAPI ── SQLite + ローカルファイル        （data/rexclaw.sqlite3, data/files/）
 ```
 
+### 拡張機能
+
+アプリ本体のコードに手を入れずに、独自のコンパニオン用ツールを追加できます。
+拡張機能は `plugin.json` と `__init__.py` を含むフォルダで、`data/plugins/`
+か、設定 → 拡張機能 で指定したフォルダに置きます。拡張機能はアプリの起動時に
+読み込まれ、アプリと同じ権限で動作するので、信頼できるものだけを使ってください。
+
+```python
+# data/plugins/dice/plugin.json: {"id": "dice", "name": "Dice", "rexclaw_api": 1}
+import random
+
+def setup(api):
+    api.add_companion_toggle('Dice roller')           # 各コンパニオンのツール欄にスイッチ
+    api.add_tools(
+        lambda con, agent, surface, origin: [{         # surface: 'voice' または 'text'
+            'type': 'function', 'name': 'roll_dice', 'description': 'Roll an N-sided die.',
+            'parameters': {'type': 'object', 'properties': {'sides': {'type': 'integer'}}}}],
+        lambda name, args, ctx: {'result': random.randint(1, int(args.get('sides') or 6))})
+```
+
+アップデート後も動作させるには `api` の呼び出しだけを使ってください（アプリ
+内部のモジュールは変わることがあります）。API の一覧（ルート、ページ、
+イベント、録音スクリプトのディレクティブ）は `server/plugins.py` にあります。
+
 ## 📋 注記
 
 ### クレジット

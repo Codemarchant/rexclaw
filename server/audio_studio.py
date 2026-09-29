@@ -34,7 +34,7 @@ import zlib
 import numpy as np
 import requests
 
-from . import audio_sounds, store, xai_client
+from . import audio_sounds, plugins, store, xai_client
 from .db import FILES_DIR
 from .errors import UserError
 
@@ -628,7 +628,7 @@ def guide(config, sounds=None):
         'tags': SPEECH_TAGS,
         'value_types': VALUE_TYPES,
         'directive_rules': DIRECTIVE_RULES,
-        'directives': DIRECTIVES,
+        'directives': DIRECTIVES + plugins.directive_guides(),
         'sounds': _sound_list(sounds),
         'rules_default': default_rules_text(),
         'rules_custom': (config['recording_rules'] or '').strip() or None,
@@ -637,11 +637,12 @@ def guide(config, sounds=None):
     }
 
 
-def guide_text(rules=None, sounds=None):
+def guide_text(rules=None, sounds=None, agent=None):
     """The same guide as plain text, for the create_voicemail description.
     `rules` replaces the default writing rules (the user's override);
     `sounds` lists the user's uploads. {music} / {sound} are left out while
-    there is nothing of that kind to call, so they cost no context."""
+    there is nothing of that kind to call, so they cost no context. `agent`
+    limits extension directives to the ones that companion has switched on."""
     listed = _sound_list(sounds)
     kinds = {s['kind'] for s in listed}
     out = ['HOW A SCRIPT WORKS']
@@ -658,7 +659,7 @@ def guide_text(rules=None, sounds=None):
     out += [f'- {r}' for r in DIRECTIVE_RULES]
     out.append('Values used below (UPPERCASE words are values you fill in):')
     out += [f'  {name}: {definition}' for name, definition in VALUE_TYPES]
-    for section, entries in DIRECTIVES:
+    for section, entries in DIRECTIVES + plugins.directive_guides(agent):
         out += ['', f'{section}:']
         for d in entries:
             if d.get('needs') and d['needs'] not in kinds:
@@ -689,6 +690,9 @@ def guide_text(rules=None, sounds=None):
 # ---------------------------------------------------------------------------
 
 _DIRECTIVE = re.compile(r'^\{\s*(/?[a-z][a-z-]*)\s*(.*?)\s*\}$', re.I)
+# Directive names parse() handles itself; an extension can't take these.
+_BUILT_IN = {'scatter', 'underlay', 'dual', 'target', 'silence', 'voice', 'pronounce', 'pace',
+             'fx', 'pan', 'breathe', 'chime', 'sound', *LAYERS}
 _DURATION = re.compile(r'^(?:(\d+(?:\.\d+)?)\s*m(?:in)?)?\s*(?:(\d+(?:\.\d+)?)\s*s(?:ec)?)?$', re.I)
 _SENTENCE_END = re.compile(r'(?<=[.!?…])\s+')
 
@@ -818,7 +822,8 @@ def parse(script, *, voice, pace=1.0, sounds=None):
             else:
                 warnings.append(f'{where}: no open block to close')
             continue
-        if block and cmd in ('silence', 'breathe', 'chime', 'sound', *LAYERS):
+        extension = None if cmd in _BUILT_IN else plugins.directive(cmd)
+        if block and (cmd in ('silence', 'breathe', 'chime', 'sound', *LAYERS) or extension):
             warnings.append(f'{where}: not allowed inside {{{block["t"]}}}; move it outside the block')
             continue
         if cmd in ('scatter', 'underlay', 'dual'):
@@ -983,6 +988,18 @@ def parse(script, *, voice, pace=1.0, sounds=None):
                     rest.append(tok)
             events.append({'t': 'sound', 'name': name, 'under': under, 'cap': cap,
                            'level': sounds[name]['level'] + _level(rest, warnings, where)})
+        elif extension:
+            # An extension's directive (plugins.py): it reads its own
+            # arguments and its data rides the timeline as a mark.
+            plugin_id, read = extension
+            try:
+                data = read(arg, warnings, where)
+            except Exception as e:
+                _logger.exception('extension %s: {%s} parse failed', plugin_id, cmd)
+                warnings.append(f'{where}: {e}')
+                continue
+            if data is not None:
+                events.append({'t': 'mark', 'directive': cmd, 'data': data})
         else:
             warnings.append(f'{where}: unknown directive, skipped')
     flush()
@@ -1294,8 +1311,9 @@ def _thump_clip():
 
 def _layout(events, clips, target, warnings, library=None):
     """Place everything on the timeline. Returns (placements, segments,
-    swell, duration_seconds) — placements are (start_sample, stereo,
-    is_voice); segments are layer spans for the block renderer."""
+    swell, duration_seconds, marks) — placements are (start_sample, stereo,
+    is_voice); segments are layer spans for the block renderer; marks are
+    where extension directives landed."""
     def dur(key):
         return len(clips[key]) / SR
 
@@ -1348,6 +1366,7 @@ def _layout(events, clips, target, warnings, library=None):
     placements = []
     swell_spans = []
     changes = []  # (time, event) for layers
+    marks = []    # extension directives, for plugins.recording_rendered
 
     def place_say(ev, at, gain_db=0.0):
         key = (ev['text'], ev['voice'], ev['speed'])
@@ -1411,6 +1430,8 @@ def _layout(events, clips, target, warnings, library=None):
             placements.append((int(cur * SR), sound_clip(ev), False))
         elif t == 'layer':
             changes.append((cur, ev))
+        elif t == 'mark':
+            marks.append({'at': round(cur, 3), 'directive': ev['directive'], 'data': ev['data']})
         if t == 'silence':
             cur += ev['sec'] * (scale if ev['elastic'] else 1.0)
         else:
@@ -1447,7 +1468,7 @@ def _layout(events, clips, target, warnings, library=None):
                 'out': np.linspace(1, 0, fb - fa), 'rest': np.zeros(fb - fa)}[kind]
         # Breathing that runs past the length cap is cut to fit.
         swell[fa:min(fb, n_frames)] = ramp[:n_frames - fa]
-    return placements, segments, swell, total
+    return placements, segments, swell, total, marks
 
 
 def _fix_dual_pans(events):
@@ -1677,7 +1698,8 @@ def _encode(mixer, gain):
 def render(con, config, script, *, voice, language='auto', pace=1.0):
     """Render `script` to an mp3 under FILES_DIR.
 
-    Returns {'audio_url', 'duration_seconds', 'tts_chars', 'usd', 'warnings'}.
+    Returns {'audio_url', 'duration_seconds', 'tts_chars', 'usd', 'warnings',
+    'notes'} — notes are what extensions' render hooks tell the companion.
     Raises UserError for anything the caller should show (no key, empty
     script, a TTS failure)."""
     if not config['xai_api_key']:
@@ -1721,7 +1743,7 @@ def render(con, config, script, *, voice, language='auto', pace=1.0):
     chars = sum(len(text) for text, _v, _s in requests_)
     usd = chars * TTS_USD_PER_CHAR
 
-    placements, segments, swell, total = _layout(events, clips, target, warnings, library)
+    placements, segments, swell, total, marks = _layout(events, clips, target, warnings, library)
     mixer = _Mixer(placements, segments, swell, total, library)
 
     # Pass 1: loudness + peak, block by block.
@@ -1744,6 +1766,17 @@ def render(con, config, script, *, voice, language='auto', pace=1.0):
     data = _encode(mixer, gain)
     fname = f'audio_{uuid.uuid4().hex}.mp3'
     (FILES_DIR / fname).write_bytes(data)
+    # Extensions that follow the recording (plugins.py) get where everything
+    # landed. voice_activity is the ducker's 0..1 speech envelope, FRAME/s.
+    notes = plugins.recording_rendered(FILES_DIR / fname, {
+        'duration': round(total, 3),
+        'marks': marks,
+        'speech': sorted([round(s / SR, 3), round((s + clip.shape[1]) / SR, 3)]
+                         for s, clip, is_voice in placements if is_voice),
+        'layers': [{k: v for k, v in seg.items() if k != 't'} for seg in segments],
+        'voice_activity': mixer.duck,
+        'frame_rate': FRAME,
+    })
     _logger.info('audio render: %s, %d TTS chars, %.1f s wall', _mmss(total), chars,
                  time.monotonic() - started)
     return {
@@ -1752,4 +1785,5 @@ def render(con, config, script, *, voice, language='auto', pace=1.0):
         'tts_chars': chars,
         'usd': round(usd, 4),
         'warnings': warnings,
+        'notes': notes,
     }

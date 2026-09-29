@@ -642,6 +642,17 @@ export default function RecordingsView({ active }) {
                                        download={`${rec.name}.mp3`} title={_t("Download the mp3")}>
                                         <i className="fa fa-download" />
                                     </a>
+                                    {/* Files an extension wrote beside the recording, named
+                                        like the mp3 download so players pair them up. */}
+                                    {(rec.extra_files || []).map((url) => {
+                                        const suffix = url.split("/").pop().split(".").slice(1).join(".");
+                                        return (
+                                            <a key={url} className="btn btn-sm btn-link p-0" href={url}
+                                               download={`${rec.name}.${suffix}`} title={_t("Download %s", `.${suffix}`)}>
+                                                <i className="fa fa-file-code-o" /> .{suffix}
+                                            </a>
+                                        );
+                                    })}
                                     <button className="btn btn-sm btn-link p-0" title={_t("Delete")}
                                             onClick={() => removeRecording(rec)}>
                                         <i className="fa fa-trash-o" />

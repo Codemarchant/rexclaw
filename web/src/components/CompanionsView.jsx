@@ -660,6 +660,20 @@ export default function CompanionsView({ active }) {
 function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, saveAgent, dirty,
                              registerChildEditor, cancel }) {
     const idScope = editingAgent.id ?? "new";
+    // Running extensions that add a tool switch here (server/plugins.py).
+    const [extensionToggles, setExtensionToggles] = useState([]);
+    useEffect(() => {
+        rpc("/api/extensions/list", {})
+            .then((res) => setExtensionToggles(res.extensions.filter((x) => x.companion_toggle)))
+            .catch(() => {});
+    }, []);
+    const extensionTools = (() => {
+        try { return JSON.parse(editingAgent.extension_tools || "{}"); } catch { return {}; }
+    })();
+    const setExtensionTool = (id, on) => setEditingAgent({
+        ...editingAgent,
+        extension_tools: JSON.stringify({ ...extensionTools, [id]: on || undefined }),
+    });
     // Stable per-panel registration callbacks (see lib/child_editor.js).
     const regHeartbeats = useCallback((e) => registerChildEditor("heartbeats", e), [registerChildEditor]);
     const regMcp = useCallback((e) => registerChildEditor("mcp", e), [registerChildEditor]);
@@ -819,6 +833,17 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                                checked={!!editingAgent[key]}
                                onChange={(ev) => setEditingAgent({ ...editingAgent, [key]: ev.target.checked ? 1 : 0 })} />
                         <label htmlFor={`flag-${idScope}-${key}`} title={tooltip ? _t(tooltip) : undefined}>{_t(label)}</label>
+                    </span>
+                ))}
+                {extensionToggles.map((ext) => (
+                    <span key={`ext-${ext.id}`} className="rx_check">
+                        <input id={`flag-${idScope}-ext-${ext.id}`} type="checkbox"
+                               checked={!!extensionTools[ext.id]}
+                               onChange={(ev) => setExtensionTool(ext.id, ev.target.checked)} />
+                        <label htmlFor={`flag-${idScope}-ext-${ext.id}`}
+                               title={ext.companion_toggle.help || undefined}>
+                            {ext.companion_toggle.label}
+                        </label>
                     </span>
                 ))}
             </div>

@@ -66,12 +66,13 @@ _PARAMETERS = {
 }
 
 
-def build_tool(con):
+def build_tool(con, agent=None):
     """create_voicemail for a text turn. Built per session because its
     description carries the user's writing rules (config.recording_rules)
-    and uploaded sounds, both edited in History → Recordings."""
+    and uploaded sounds, both edited in History → Recordings, and the
+    extension directives this companion has switched on."""
     guide = audio_studio.guide_text(audio_studio.rules_text(get_config(con)),
-                                    audio_sounds.catalog(con))
+                                    audio_sounds.catalog(con), agent)
     return {
         'type': 'function',
         'name': CREATE_VOICEMAIL_TOOL_NAME,
@@ -145,4 +146,6 @@ def execute_create_voicemail(con, session, agent, arguments):
     }
     if result['warnings']:
         payload['warnings'] = result['warnings']
+    if result['notes']:
+        payload['extensions'] = result['notes']
     return payload

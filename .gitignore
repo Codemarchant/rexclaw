@@ -23,6 +23,8 @@ web/dist/
 /docs/live-memory*.md
 # Personal helper scripts (e.g. the voice-dataset generator), never shipped.
 /tools/private/
+# Private extensions repo, nested here for convenience (its own git).
+/rexclaw-privatemods/
 desktop/node_modules/
 desktop/dist/
 desktop/runtime/

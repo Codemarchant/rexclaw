@@ -12,6 +12,7 @@ import HotkeysSettings from "./HotkeysSettings.jsx";
 import ModelsDialog from "./ModelsDialog.jsx";
 import CreditsDialog from "./CreditsDialog.jsx";
 import VoiceLabSettings from "./VoiceLabSettings.jsx";
+import ExtensionsSettings from "./ExtensionsSettings.jsx";
 
 // Languages the server can fetch a Vosk wake-word model for (keep in sync
 // with WAKE_MODELS in server/routes/misc.py).
@@ -1270,6 +1271,8 @@ export default function SettingsView({ active }) {
                         {_t("Rexclaw in Docker or WSL while Text-To-VRMA runs on Windows? The app only listens on 127.0.0.1, so it has to be on the same machine as the Rexclaw server (the desktop app and run.bat are). Generated motions land in data/assets/generated/text_to_vrma/ and show up in every avatar's Library picker.")}
                     </p>
                 </section>
+
+                <ExtensionsSettings />
 
                 <div className="rx_settings_footer">
                     <button className="btn btn-link" onClick={() => setCreditsOpen(true)}>

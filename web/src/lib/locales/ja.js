@@ -1998,4 +1998,17 @@ export const JA = {
   "UltraStar songs": "UltraStar の曲",
   "Modified BSD (WORLD), MIT (pyworld). Analyses a companion's spoken lyrics and re-sings them onto the melody.":
     "修正 BSD（WORLD）、MIT（pyworld）。コンパニオンが読み上げた歌詞を分析し、メロディに乗せて歌い直します。",
+  "Extensions": "拡張機能",
+  "Add-ons that live outside the app: each is a folder with a plugin.json. Put them in %s, or list other folders below. Extensions load when Rexclaw starts, so changes here apply after a restart. Only install extensions you trust: they run with the same access as the app.":
+    "アプリ本体の外にあるアドオンです。それぞれ plugin.json を含むフォルダです。%s に置くか、下に別のフォルダを指定してください。拡張機能は Rexclaw の起動時に読み込まれるため、ここでの変更は再起動後に反映されます。拡張機能はアプリと同じ権限で動作するので、信頼できるものだけを入れてください。",
+  "No extensions found.": "拡張機能は見つかりませんでした。",
+  "Running": "実行中",
+  "Loads after a restart": "再起動後に読み込まれます",
+  "Turns off after a restart": "再起動後にオフになります",
+  "Open": "開く",
+  "Extra extension folders (one per line)": "追加の拡張機能フォルダ（1 行に 1 つ）",
+  "e.g. C:\\Users\\me\\my-extensions": "例: C:\\Users\\me\\my-extensions",
+  "Save folders": "フォルダを保存",
+  "Restart Rexclaw to apply the changes.": "変更を反映するには Rexclaw を再起動してください。",
+  "Download %s": "%s をダウンロード",
 };

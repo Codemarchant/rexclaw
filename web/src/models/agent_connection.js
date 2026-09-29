@@ -595,6 +595,7 @@ export class AgentConnection {
             // Fixed for the call, like the prompt it goes with: with the
             // face director on, set_emotion is the big beat, not per line.
             faceDirector: !!payload.face_director,
+            nativeTools: payload.native_tools || [],
         });
 
         // Kick mic acquisition off in parallel with the WS connecting (the

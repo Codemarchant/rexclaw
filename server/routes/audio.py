@@ -7,6 +7,7 @@ including the voicemails companions send from text chat, which land in the
 same list.
 """
 import logging
+import os
 import time
 
 import requests
@@ -60,15 +61,37 @@ def _fetch_voices(config):
 FROM_COMPANIONS = 'From companions'
 
 
+def _sidecars():
+    """Files extensions wrote beside recordings (plugins.py): mp3 stem →
+    sorted file names. One directory scan for the whole list."""
+    found = {}
+    try:
+        entries = list(os.scandir(FILES_DIR))
+    except OSError:
+        return found
+    for entry in entries:
+        stem, dot, rest = entry.name.partition('.')
+        if stem.startswith('audio_') and dot and rest != 'mp3':
+            found.setdefault(stem, []).append(entry.name)
+    return {stem: sorted(names) for stem, names in found.items()}
+
+
+def _stem(audio_path):
+    return audio_path.rsplit('/', 1)[-1].partition('.')[0]
+
+
 def _recordings(con):
     rows = con.execute(
         """SELECT r.*, a.name AS agent_name FROM audio_recordings r
            LEFT JOIN agents a ON a.id = r.agent_id
            ORDER BY r.created_at DESC, r.id DESC""").fetchall()
+    sidecars = _sidecars()
     # Voicemails group under their own heading; playground rows from before
     # recordings carried a category fall back to the default one.
     return [{**dict(r), 'category': FROM_COMPANIONS if r['source'] == 'voicemail'
-             else (r['category'] or DEFAULT_CATEGORY)} for r in rows]
+             else (r['category'] or DEFAULT_CATEGORY),
+             'extra_files': [f'/files/{name}' for name in sidecars.get(_stem(r['audio_path']), [])]}
+            for r in rows]
 
 
 DEFAULT_CATEGORY = 'My scripts'
@@ -236,9 +259,11 @@ def audio_recording_delete(payload: dict = Body(default={}), con=Depends(db_con)
     if row:
         con.execute("DELETE FROM audio_recordings WHERE id = ?", (rec_id,))
         con.commit()
-        path = FILES_DIR / row['audio_path'].rsplit('/', 1)[-1]
-        try:
-            path.unlink(missing_ok=True)
-        except OSError as e:
-            _logger.warning('could not delete %s: %s', path, e)
+        name = row['audio_path'].rsplit('/', 1)[-1]
+        for fname in [name] + _sidecars().get(_stem(name), []):
+            path = FILES_DIR / fname
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as e:
+                _logger.warning('could not delete %s: %s', path, e)
     return {'recordings': _recordings(con)}

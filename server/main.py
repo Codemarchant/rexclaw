@@ -12,11 +12,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import heartbeat, parent_watch
+from . import heartbeat, parent_watch, plugins
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, init_db
 from .errors import UserError
-from .routes import audio, avatars, heartbeats, live_chat, minecraft, misc, songs, text, voice, voicelab
+from .routes import audio, avatars, extensions, heartbeats, live_chat, minecraft, misc, songs, text, voice, voicelab
 from .lore_seeds import seed_lore_if_empty
 from .seeds import migrate_default_outfit_sections, seed_if_empty
 
@@ -60,7 +60,13 @@ def startup():
     # spins up when active heartbeats exist — activating one later starts
     # it lazily from the save route.
     heartbeat.start_scheduler_if_needed()
+    plugins.emit('startup')
     _logger.info("Rexclaw Companions server ready.")
+
+
+@app.on_event("shutdown")
+def shutdown():
+    plugins.emit('shutdown')
 
 
 app.include_router(voice.router)
@@ -73,6 +79,10 @@ app.include_router(live_chat.router)
 app.include_router(audio.router)
 app.include_router(songs.router)
 app.include_router(voicelab.router)
+app.include_router(extensions.router)
+# Extensions (data/plugins/ and listed folders) add their routes, pages and
+# tools here: after the app's own routes, before the SPA catch-all below.
+plugins.load_all(app)
 
 # Bundled VRM/VRMA/GLB assets + generated/uploaded files + user avatar packs.
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
