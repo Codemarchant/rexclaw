@@ -204,8 +204,9 @@ export class LookPost {
         this._quad.render(this.renderer);
     }
 
-    /** Render `scene` through the bloom onto the canvas. */
-    render(scene, camera) {
+    /** Render `scene` through the bloom onto the canvas — or into `target`
+     *  (sRGB-encoded, premultiplied) when the art style repaints it next. */
+    render(scene, camera, target = null) {
         const r = this.renderer;
         this._ensureTargets();
         r.setRenderTarget(this._sceneRT);
@@ -233,7 +234,7 @@ export class LookPost {
 
         this._composite.uniforms.tScene.value = this._sceneRT.texture;
         this._composite.uniforms.tBloom.value = (n === 1 ? down[0] : up[0]).texture;
-        this._pass(this._composite, null);
+        this._pass(this._composite, target);
     }
 
     dispose() {

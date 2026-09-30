@@ -39,6 +39,7 @@ import {
 import { IdleMotion } from "./idle_motion";
 import { FaceMotion } from "./face_motion";
 import { LookPost } from "./look_post";
+import { ArtStyle } from "./art_style";
 import { MoodMarks } from "./mood_marks";
 import { Ambience, MOOD_AMBIENCE } from "./ambience";
 
@@ -799,6 +800,9 @@ class AvatarRenderer {
         this._look = null;                // LookPost glow pass, only while the preset uses one
         this._portraitBlur = null;        // backdrop blur (px) written by the Portrait preset
         this._lookFxEl = null;            // CSS effects overlay on the full-screen host
+        this._art = null;                 // ArtStyle repaint (services/art_style.js), while a style shows or fades
+        this._artPref = "off";            // the user's Look → Art style pick
+        this._artBackdropCache = null;    // { key, backdrop } — the full host's CSS backdrop as a texture source
         this._moodMarks = null;           // MoodMarks sprites, while the pref is on
         this._ambience = null;            // Ambience particles (services/ambience.js), once any is picked
         this._ambiencePref = "off";       // the user's Look → Ambience pick
@@ -846,6 +850,7 @@ class AvatarRenderer {
         const prefs = loadRenderPrefs();
         this.setLightingPreset(prefs.lighting);
         this.setEffectsPreset(prefs.effects);
+        this.setArtStyle(prefs.art);
         this.setMoodMarks(prefs.moodMarks);
         this.setTouchPhysics(prefs.touch);
         this.setAmbience(prefs.ambience);
@@ -853,6 +858,7 @@ class AvatarRenderer {
         onRenderPrefsChange((p) => {
             this.setLightingPreset(p.lighting);
             this.setEffectsPreset(p.effects);
+            this.setArtStyle(p.art);
             this.setMoodMarks(p.moodMarks);
             this.setTouchPhysics(p.touch);
             this.setAmbience(p.ambience);
@@ -4334,10 +4340,15 @@ class AvatarRenderer {
      *  `includeBackground` composites the current 2D backdrop (animated
      *  video frame or image background) under the WebGL frame; without it
      *  the background stays transparent. Note a GLB room ('scene'
-     *  backgrounds) lives IN the WebGL scene, so it appears either way. */
-    async captureSnapshot({ maxSize = 1024, includeBackground = false } = {}) {
+     *  backgrounds) lives IN the WebGL scene, so it appears either way.
+     *
+     *  The Look → Art style paints the shot as it paints the screen (with
+     *  the backdrop only when it is asked for); `art: false` takes the
+     *  plain render instead — for likeness references and portraits. */
+    async captureSnapshot({ maxSize = 1024, includeBackground = false, art = true } = {}) {
         if (!this.renderer || !this.scene || !this.camera) return null;
-        this._draw();
+        const draw = () => this._draw({ art, backdrop: includeBackground });
+        draw();
         const src = this.renderer.domElement;
         if (!src.width || !src.height) return null;
         const scale = Math.min(1, maxSize / Math.max(src.width, src.height));
@@ -4351,9 +4362,10 @@ class AvatarRenderer {
             await this._drawBackdropOnto(ctx, w, h);
             // The awaited image load may have let the render loop overwrite
             // the drawing buffer — render again right before reading it.
-            this._draw();
+            draw();
         }
         ctx.drawImage(src, 0, 0, w, h);
+        this._draw();   // back to the on-screen look before the canvas is presented
         return out.toDataURL("image/png");
     }
 
@@ -4455,9 +4467,11 @@ class AvatarRenderer {
         figure.width = w;
         figure.height = h;
         // Render right before the read — the drawing buffer isn't preserved
-        // (see captureSnapshot).
-        this._draw();
+        // (see captureSnapshot). Plain, without the art style: the page
+        // inks the photo itself and composites the backdrop separately.
+        this._draw({ art: false });
         figure.getContext("2d").drawImage(src, 0, 0, w, h);
+        this._draw();
         return { figure, backdrop, face: this.photoFacePoint(), room: bg?.type === "scene",
                  peerFaces: Object.fromEntries(peerIds.map((id) => [id, this.photoFacePoint(id)])) };
     }
@@ -6451,12 +6465,105 @@ class AvatarRenderer {
     }
 
     /** Draw the frame onto the canvas — through the glow pass while one is
-     *  on. Every flat-mode render goes through here (the loop, selfies, the
-     *  mascot's alpha hit-test) so the canvas never flips between looks;
-     *  XR renders straight to the headset. */
-    _draw() {
+     *  on, then the art style while one is on. Every flat-mode render goes
+     *  through here (the loop, selfies, the mascot's alpha hit-test) so the
+     *  canvas never flips between looks; XR renders straight to the headset.
+     *  `art: false` draws the plain frame (the Manga photoshoot inks its own
+     *  and needs the figure apart from the backdrop), `backdrop: false`
+     *  paints the characters alone (a transparent selfie). Callers passing
+     *  either draw once more with no options after reading the canvas. */
+    _draw({ art = true, backdrop = true } = {}) {
+        if (this._art && art && !this._xrActive) {
+            const drawn = this._art.render(this.scene, this.camera, {
+                look: this._look, backdrop: backdrop ? this._artBackdrop() : null,
+            });
+            if (drawn) return;
+            if (!this._art.active) {   // faded all the way out
+                this._art.dispose();
+                this._art = null;
+            }
+        }
         if (this._look && !this._xrActive) this._look.render(this.scene, this.camera);
         else this.renderer.render(this.scene, this.camera);
+    }
+
+    // ── Art style ────────────────────────────────────────────────────────
+    // The whole frame repainted in a medium (services/art_style.js). On the
+    // full-screen host the backdrop is painted too — the CSS layer under the
+    // canvas is handed to the art pass as a texture and the painting comes
+    // out opaque over it. Everywhere else (the see-through mascot, mini
+    // hosts) only the characters are painted and the canvas keeps its alpha.
+
+    /** Look → Art style: an ART_STYLES id or 'off'. The pass only exists
+     *  while a style shows or is fading out; before the renderer exists the
+     *  id is remembered and applied by _initRenderer. */
+    setArtStyle(id) {
+        this._artPref = id || "off";
+        if (!this.renderer) return;
+        if (this._artPref !== "off") this._art ||= new ArtStyle(this.libs.THREE, this.renderer);
+        this._art?.set(this._artPref);
+    }
+
+    /** What the art pass paints under the characters: the backdrop video's
+     *  current frame, or the host's CSS background (image, gradient or
+     *  colour) — full-screen host only, null elsewhere. */
+    _artBackdrop() {
+        const host = this.activeCanvas;
+        if (!host?.classList?.contains("o_voice_avatar_canvas--full")) return null;
+        const video = this._bgVideoEl;
+        if (video && video.readyState >= 2 && video.videoWidth) {
+            return { source: video, width: video.videoWidth, height: video.videoHeight, key: video.src };
+        }
+        return this._artCssBackdrop(host);
+    }
+
+    /** The host's CSS background as a texture source, cached on its inline
+     *  style, classes and size. An image background loads as an <img>;
+     *  anything else (the gradient presets, the SCSS default, solid colours)
+     *  is rasterised through an SVG foreignObject at the host's CSS size —
+     *  the browser draws its own gradient, so nothing is approximated.
+     *  Loading is async: until it lands, the background colour stands in. */
+    _artCssBackdrop(host) {
+        const w = host.clientWidth || 1, h = host.clientHeight || 1;
+        const key = `${host.className}|${host.style.cssText}|${w}x${h}`;
+        const cache = this._artBackdropCache;
+        if (cache?.key === key) return cache.backdrop;
+        const style = host.ownerDocument.defaultView.getComputedStyle(host);
+        const color = style.backgroundColor;
+        const image = style.backgroundImage;
+        const entry = { key, backdrop: { color, key } };
+        this._artBackdropCache = entry;
+        const url = /^url\("?(.*?)"?\)$/.exec(image || "")?.[1];
+        const img = new Image();
+        img.decoding = "async";
+        img.onload = () => {
+            if (this._artBackdropCache !== entry) return;
+            if (url) {
+                entry.backdrop = { source: img, width: img.naturalWidth, height: img.naturalHeight, color, key };
+                return;
+            }
+            // Draw the SVG onto a canvas so the texture upload reads plain
+            // pixels (and a taint shows up here, not inside WebGL).
+            const canvas = host.ownerDocument.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            try {
+                canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+                canvas.getContext("2d").getImageData(0, 0, 1, 1);
+                entry.backdrop = { source: canvas, width: w, height: h, color, key };
+            } catch (e) { /* tainted — keep the colour */ }
+        };
+        if (url) {
+            img.src = url;
+        } else if (image && image !== "none") {
+            const esc = (s) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+            img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+                `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">`
+                + `<foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" `
+                + `style="width:${w}px;height:${h}px;background-color:${esc(color)};background-image:${esc(image)}"/>`
+                + "</foreignObject></svg>");
+        }
+        return entry.backdrop;
     }
 
     /** Host-dependent half of the effects preset. The glow spills past the

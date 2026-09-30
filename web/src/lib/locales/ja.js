@@ -748,6 +748,16 @@ export const JA = {
   "Anime colour": "アニメ撮影風カラー",
   "Portrait": "ポートレート",
   "Cinematic": "シネマティック",
+  "Art style": "画風",
+  "Oil painting": "油彩",
+  "Watercolour": "水彩",
+  "Manga ink": "漫画のペン入れ",
+  "Risograph": "リソグラフ",
+  "Pixel art": "ドット絵",
+  "Repaint the whole scene live in a medium: oil on canvas, watercolour, manga ink and screentone, a three-colour risograph print or pixel art. Your companion keeps moving, talking and blinking inside the painting.":
+    "シーン全体をリアルタイムで描き直します：キャンバスの油彩、水彩、漫画のペンとスクリーントーン、三色のリソグラフ印刷、ドット絵。コンパニオンは絵の中でも動き、話し、まばたきします。",
+  "Repaint your companion live in a medium, like a paper cut-out on the desktop.":
+    "コンパニオンをリアルタイムで画材風に描き直します。デスクトップの上の切り絵のように。",
   "Ambience": "アンビエンス",
   "Rain": "雨",
   "Snow": "雪",

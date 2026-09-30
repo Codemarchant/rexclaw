@@ -359,7 +359,9 @@ export class ToolDispatcher {
         if (!args?.include_self) return args;
         if (name !== "create_image" && name !== "create_video") return args;
         if (args.outfit) return args;
-        const shot = await this._takeSelfie({ include_background: true });
+        // Plain render: the snapshot is a likeness reference, not a picture
+        // in the on-screen art style.
+        const shot = await this._takeSelfie({ include_background: true, art: false });
         const ref = shot?.imagine_image_id || shot?.image_url;
         if (!shot?.ok || !ref) return args;
         return { ...args, self_snapshot: ref };
@@ -369,14 +371,14 @@ export class ToolDispatcher {
      *  an Imagine-library image the model can feed straight into
      *  create_video. Awaited (not fire-and-forget) — the whole point is
      *  returning the image_url in the function_call_output. */
-    async _takeSelfie({ include_background } = {}) {
+    async _takeSelfie({ include_background, art = true } = {}) {
         if (!this.sessionId) {
             return { ok: false, error: "take_selfie requires an active session." };
         }
         // Backdrop in frame unless explicitly declined — the scene is the
         // reason to take a live selfie rather than create_image include_self.
         const dataUrl = await avatarRenderer.captureSnapshot?.({
-            includeBackground: include_background !== false,
+            includeBackground: include_background !== false, art,
         });
         if (!dataUrl) {
             return { ok: false, error: "No live avatar canvas to capture." };

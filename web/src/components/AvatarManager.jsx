@@ -565,7 +565,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
             }
             // Let the idle pose settle out of T-pose before the shot.
             await new Promise((r) => setTimeout(r, 600));
-            const dataUrl = await avatarRenderer.captureSnapshot({ maxSize: 1024 });
+            const dataUrl = await avatarRenderer.captureSnapshot({ maxSize: 1024, art: false });
             if (!dataUrl) throw new Error(_t("Could not render the avatar."));
             return await rpc("/api/avatars/set_portrait", {
                 pack_key, filename, kind, image_data_url: dataUrl,

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES } from "../lib/mascot_link";
-import { AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
+import { AMBIENCE_OPTIONS, ART_STYLE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 import { EMOTIONS, GESTURES } from "../models/avatar_catalog";
 import MascotSongsTab from "./MascotSongsTab.jsx";
 
@@ -441,6 +441,16 @@ export default function MascotSettingsView() {
                             <select id="rx_ms_effects" value={renderPrefs.effects}
                                     onChange={(ev) => updateRenderPrefs({ effects: ev.target.value })}>
                                 {EFFECTS_PRESET_OPTIONS.map(([id, label]) => (
+                                    <option key={id} value={id}>{_t(label)}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="rx_mascot_set_item">
+                            <label htmlFor="rx_ms_art">{_t("Art style")}</label>
+                            <select id="rx_ms_art" value={renderPrefs.art}
+                                    title={_t("Repaint your companion live in a medium, like a paper cut-out on the desktop.")}
+                                    onChange={(ev) => updateRenderPrefs({ art: ev.target.value })}>
+                                {ART_STYLE_OPTIONS.map(([id, label]) => (
                                     <option key={id} value={id}>{_t(label)}</option>
                                 ))}
                             </select>

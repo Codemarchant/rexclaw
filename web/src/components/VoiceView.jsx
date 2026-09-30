@@ -23,7 +23,7 @@ import { screenCapture } from "../lib/screen_capture";
 import { cameraAwareness } from "../lib/camera_awareness";
 import ShareButton from "./ShareButton.jsx";
 import { refreshStoredOutfit, storeOutfitPref, storedOutfit } from "../lib/outfit_pref";
-import { AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
+import { AMBIENCE_OPTIONS, ART_STYLE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 import {
     backgroundPickerEntries as pickerEntries,
     currentBackgroundKey as pickerCurrentKey,
@@ -1414,6 +1414,16 @@ export default function VoiceView({ active = true }) {
                                 <select id="rx_fv_effects" value={renderPrefs.effects}
                                         onChange={(ev) => updateRenderPrefs({ effects: ev.target.value })}>
                                     {EFFECTS_PRESET_OPTIONS.map(([id, label]) => (
+                                        <option key={id} value={id}>{_t(label)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="o_voice_full_settings_row">
+                                <label htmlFor="rx_fv_art">{_t("Art style")}</label>
+                                <select id="rx_fv_art" value={renderPrefs.art}
+                                        title={_t("Repaint the whole scene live in a medium: oil on canvas, watercolour, manga ink and screentone, a three-colour risograph print or pixel art. Your companion keeps moving, talking and blinking inside the painting.")}
+                                        onChange={(ev) => updateRenderPrefs({ art: ev.target.value })}>
+                                    {ART_STYLE_OPTIONS.map(([id, label]) => (
                                         <option key={id} value={id}>{_t(label)}</option>
                                     ))}
                                 </select>

@@ -1,4 +1,4 @@
-// Renderer look prefs — the lighting, effects and ambience presets, the
+// Renderer look prefs — the lighting, effects, art style and ambience presets, the
 // mood-reactive ambience switch, mood marks and the cursor touch physics
 // switch. Per-browser (localStorage), shared
 // by every surface that shows the avatar: the full-screen view, the desktop
@@ -13,7 +13,7 @@ const STORAGE_KEY = "rexclaw.render_prefs";
 const CHANGE_EVENT = "rexclaw:render-prefs";
 
 export const DEFAULT_RENDER_PREFS = {
-    lighting: "default", effects: "off", ambience: "off", moodAmbience: false, moodMarks: true, touch: true,
+    lighting: "default", effects: "off", art: "off", ambience: "off", moodAmbience: false, moodMarks: true, touch: true,
 };
 
 // [id, English label] — labels go through _t() at the UI. Ids are the keys
@@ -43,6 +43,17 @@ export const EFFECTS_PRESET_OPTIONS = [
     ["cinematic", "Cinematic"],
 ];
 
+// [id, English label] — ids are the keys of ART_STYLES in
+// services/art_style.js: the whole frame repainted in a medium.
+export const ART_STYLE_OPTIONS = [
+    ["off", "Off"],
+    ["oil", "Oil painting"],
+    ["watercolour", "Watercolour"],
+    ["ink", "Manga ink"],
+    ["riso", "Risograph"],
+    ["pixel", "Pixel art"],
+];
+
 // [id, English label] — ids are the systems in services/ambience.js.
 export const AMBIENCE_OPTIONS = [
     ["off", "Off"],
@@ -63,6 +74,7 @@ export function loadRenderPrefs() {
         prefs = { ...DEFAULT_RENDER_PREFS };
     }
     if (!EFFECTS_PRESET_OPTIONS.some(([id]) => id === prefs.effects)) prefs.effects = "off";
+    if (!ART_STYLE_OPTIONS.some(([id]) => id === prefs.art)) prefs.art = "off";
     return prefs;
 }
 
