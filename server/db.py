@@ -118,6 +118,12 @@ CREATE TABLE IF NOT EXISTS config (
     -- on/off toggle: create_image/create_video's include_user is only
     -- ever offered when this is actually set (see imagine_tools.py).
     user_photo_path TEXT,
+    -- The user as a character: an avatar (and one of its outfits by name,
+    -- '' = its main look) that stands in for them in Manga Diary panels —
+    -- posed beside the companion in the photoshoot, the reference for
+    -- Imagine-drawn two-shots. NULL = the user stays off-panel.
+    user_avatar_id INTEGER,
+    user_avatar_outfit TEXT NOT NULL DEFAULT '',
     summary_threshold_tokens INTEGER NOT NULL DEFAULT 64000,
     summary_threshold_tokens_text INTEGER NOT NULL DEFAULT 1000000,
     summary_keep_recent_messages INTEGER NOT NULL DEFAULT 2,
@@ -936,6 +942,28 @@ CREATE TABLE IF NOT EXISTS heartbeats (
     created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_heartbeats_due ON heartbeats (active, past_due, next_run_at);
+
+-- Manga Diary (History → Manga): a comic page drawn from an episode (or a
+-- conversation's latest stretch). The script is the model's panel plan
+-- (server/manga.py); the image is the page the browser composed from its
+-- photoshoot of the live avatar. Keeping the script lets the page be
+-- re-shot later (another outfit, another scene).
+CREATE TABLE IF NOT EXISTS manga_pages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+    episode_id INTEGER REFERENCES memories(id) ON DELETE SET NULL,
+    -- Pages storyboarded together (and any continued after them) share a
+    -- chapter: the id of its first page. page_no orders them.
+    chapter_id INTEGER,
+    page_no INTEGER NOT NULL DEFAULT 1,
+    title TEXT NOT NULL,
+    layout TEXT NOT NULL DEFAULT 'page',     -- page | yonkoma
+    script_json TEXT NOT NULL DEFAULT '{}',
+    image_path TEXT,                         -- web path under /files
+    created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_manga_pages_agent ON manga_pages (agent_id, id);
 """
 
 
@@ -1285,6 +1313,11 @@ MIGRATIONS = (
     "ALTER TABLE songs ADD COLUMN source_url TEXT",
     "ALTER TABLE songs ADD COLUMN lyrics_source TEXT",
     "ALTER TABLE agents ADD COLUMN extension_tools TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE manga_pages ADD COLUMN episode_id INTEGER REFERENCES memories(id) ON DELETE SET NULL",
+    "ALTER TABLE config ADD COLUMN user_avatar_id INTEGER",
+    "ALTER TABLE config ADD COLUMN user_avatar_outfit TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE manga_pages ADD COLUMN chapter_id INTEGER",
+    "ALTER TABLE manga_pages ADD COLUMN page_no INTEGER NOT NULL DEFAULT 1",
 )
 
 

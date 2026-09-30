@@ -72,8 +72,9 @@ function outlined(ctx, s, color, build) {
     ctx.fill(p);
 }
 
-// Glyph painters, (ctx, s) on an s×s canvas.
-const GLYPHS = {
+// Glyph painters, (ctx, s) on an s×s canvas. Also letter the Manga Diary
+// pages (lib/manga_page.js).
+export const GLYPHS = {
     note(ctx, s) {
         outlined(ctx, s, "#ffb938", (p) => {
             p.ellipse(s * 0.36, s * 0.74, s * 0.15, s * 0.11, -0.4, 0, TAU);

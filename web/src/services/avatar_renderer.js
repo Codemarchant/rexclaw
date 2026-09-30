@@ -551,6 +551,16 @@ const AUTO_SHOTS = [
     { id: "full",  weight: 0.25, yaw: 35 * Math.PI / 180 },
 ];
 const AUTO_WAIST_BLEND = 0.5;         // waist-up = halfway from the face shot to the full one (unsourced)
+// Manga Diary photo framings (framePhoto) — design values, tuned by eye.
+const PHOTO_FACE_RISE = 0.06;         // m, head bone (skull base) → centre of the face
+const PHOTO_FACE_RADIUS = 0.11;       // m, face "radius" for layout (chin to brow ≈ 0.2 m)
+const PHOTO_CLOSEUP_DIST = 0.62;      // × the face view's distance
+const PHOTO_WIDE_DIST = 1.5;          // × the full view's distance
+const PHOTO_THREE_QUARTER = 28 * Math.PI / 180;
+const PHOTO_LOW_RISE = 0.45;          // × distance below the target (~24° up)
+const PHOTO_HIGH_RISE = 0.5;          // × distance above it (~27° down)
+const PHOTO_DUTCH = 11 * Math.PI / 180;
+const PHOTO_MIN_CAMERA_Y = 0.12;      // m, keep the lens above the floor
 // Timing is Rui/Gupta/Grudin/He 2004 ("Automating lecture capture and
 // broadcast"): no shot shorter than 5 s, a wide shot no longer than 10 s,
 // consecutive shots must differ, and a change wants a motive — here the
@@ -4345,6 +4355,111 @@ class AvatarRenderer {
         }
         ctx.drawImage(src, 0, 0, w, h);
         return out.toDataURL("image/png");
+    }
+
+    // ------------------------------------------------------------------
+    // Photo camera — the Manga Diary photoshoot (lib/manga_shoot.js)
+    // ------------------------------------------------------------------
+
+    /** Take the camera for a photoshoot. Rides the stage-camera hold: while
+     *  _stageCam exists every camera system (follow, auto, gesture zoom,
+     *  orbit) stands down, and with no `shot` the stage camera itself stays
+     *  where framePhoto() put it. False when there is nothing to shoot. */
+    beginPhotoShoot() {
+        if (!this.vrm || !this.camera || !this.libs || this._xrActive || this._perf) return false;
+        if (!this._stageCam) this._stageCam = { restore: this._cameraOrbit(), orbitWasOn: !!this._orbitControls };
+        this._stageCam.shot = null;
+        this._disableOrbit();
+        return true;
+    }
+
+    endPhotoShoot() {
+        if (this._stageCam && !this._stageCam.shot) this._endStageCamera();
+    }
+
+    /** Frame one still. `shot` closeup | bust | waist | full | wide builds on
+     *  the auto-follow shots (bust = the face view's framing); `angle` front
+     *  | left | right | low | high | dutch. Angle sizes are design values. */
+    framePhoto(shot, angle) {
+        if (!this._stageCam || this._stageCam.shot || !this.vrm) return;
+        const blend = { waist: AUTO_WAIST_BLEND, full: 1, wide: 1 }[shot] ?? 0;
+        const side = angle === "left" ? -1 : 1;
+        const o = this._autoShotOrbit({ id: "photo", yaw: 0, blend }, side);
+        // A two-shot faces the pair, not the companion's inward turn (the
+        // group layout angles each character toward the middle).
+        if (this._peers.size) o.az -= this._actorFacing(this);
+        if (shot === "closeup") {
+            const head = this.getHeadWorldPosition();
+            if (head) o.target.set(head.x, head.y + PHOTO_FACE_RISE, head.z);
+            o.dist *= PHOTO_CLOSEUP_DIST;
+        } else if (shot === "wide") {
+            o.dist *= PHOTO_WIDE_DIST;
+        }
+        if (angle === "left" || angle === "right") o.az += side * PHOTO_THREE_QUARTER;
+        if (angle === "low") o.rise -= o.dist * PHOTO_LOW_RISE;
+        if (angle === "high") o.rise += o.dist * PHOTO_HIGH_RISE;
+        // A low angle on a wide shot would put the lens under the floor.
+        o.rise = Math.max(o.rise, PHOTO_MIN_CAMERA_Y - o.target.y);
+        this._applyOrbit(o);
+        if (angle === "dutch") this.camera.rotateZ(PHOTO_DUTCH * side);
+        this.camera.updateMatrixWorld();
+    }
+
+    /** Where the face sits in the current frame: centre as fractions of the
+     *  canvas width/height and a face radius as a fraction of its height.
+     *  The base avatar's, or with `peerId` that peer's. Null when the face
+     *  is behind the camera. */
+    photoFacePoint(peerId = null) {
+        const actor = peerId ? this._peers.get(peerId) : this;
+        const bone = actor?.vrm?.humanoid?.getNormalizedBoneNode?.("head");
+        const head = bone && this.libs ? bone.getWorldPosition(new this.libs.THREE.Vector3()) : null;
+        if (!head || !this.camera || !this.renderer) return null;
+        const { THREE } = this.libs;
+        this.camera.updateMatrixWorld();
+        const c = new THREE.Vector3(head.x, head.y + PHOTO_FACE_RISE, head.z);
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+        const top = c.clone().addScaledVector(up, PHOTO_FACE_RADIUS);
+        c.project(this.camera);
+        top.project(this.camera);
+        if (c.z > 1) return null;
+        const { width: w, height: h } = this.renderer.domElement;
+        const cx = (c.x + 1) / 2 * w;
+        const cy = (1 - c.y) / 2 * h;
+        const ty = (1 - top.y) / 2 * h;
+        const tx = (top.x + 1) / 2 * w;
+        return { x: cx / w, y: cy / h, r: Math.hypot(tx - cx, ty - cy) / h };
+    }
+
+    /** One photoshoot frame as separate layers: `figure`, the WebGL frame
+     *  (transparent around the avatar unless a GLB room is the background —
+     *  then `room` is true and the room is in it), and `backdrop`, the 2D
+     *  image/video background or null when there is none worth drawing
+     *  (the static studio presets — the page draws its own). `peerFaces`
+     *  maps each of `peerIds` to where that peer's face landed. */
+    async capturePhoto({ maxSize = 1400, peerIds = [] } = {}) {
+        if (!this.renderer || !this.scene || !this.camera) return null;
+        const src = this.renderer.domElement;
+        if (!src.width || !src.height) return null;
+        const scale = Math.min(1, maxSize / Math.max(src.width, src.height));
+        const w = Math.max(1, Math.round(src.width * scale));
+        const h = Math.max(1, Math.round(src.height * scale));
+        const bg = this._currentBackground;
+        let backdrop = null;
+        if ((bg?.type === "image" || bg?.type === "imagine") && bg.image_url || this._bgVideoEl) {
+            backdrop = document.createElement("canvas");
+            backdrop.width = w;
+            backdrop.height = h;
+            await this._drawBackdropOnto(backdrop.getContext("2d"), w, h);
+        }
+        const figure = document.createElement("canvas");
+        figure.width = w;
+        figure.height = h;
+        // Render right before the read — the drawing buffer isn't preserved
+        // (see captureSnapshot).
+        this._draw();
+        figure.getContext("2d").drawImage(src, 0, 0, w, h);
+        return { figure, backdrop, face: this.photoFacePoint(), room: bg?.type === "scene",
+                 peerFaces: Object.fromEntries(peerIds.map((id) => [id, this.photoFacePoint(id)])) };
     }
 
     /** Hit-test the rendered avatar at host-relative CSS coordinates.

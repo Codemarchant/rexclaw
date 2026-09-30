@@ -35,6 +35,11 @@ export const uiState = reactive({
     // plumbing and resumes once it becomes active.
     requestedTab: null,
     pendingResume: null,
+    // Manga Diary: pendingManga {agentId, sessionId, pageId?, scripts} asks
+    // the Voice view to run the photoshoot; openMangaPage (a page id) asks
+    // History → Manga to show the result.
+    pendingManga: null,
+    openMangaPage: null,
 });
 
 export function exitImmersive() {

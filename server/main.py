@@ -16,7 +16,8 @@ from . import heartbeat, parent_watch, plugins
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, init_db
 from .errors import UserError
-from .routes import audio, avatars, extensions, heartbeats, live_chat, minecraft, misc, songs, text, voice, voicelab
+from .routes import (audio, avatars, extensions, heartbeats, live_chat, manga, minecraft, misc, songs, text,
+                     voice, voicelab)
 from .lore_seeds import seed_lore_if_empty
 from .seeds import migrate_default_outfit_sections, seed_if_empty
 
@@ -79,6 +80,7 @@ app.include_router(live_chat.router)
 app.include_router(audio.router)
 app.include_router(songs.router)
 app.include_router(voicelab.router)
+app.include_router(manga.router)
 app.include_router(extensions.router)
 # Extensions (data/plugins/ and listed folders) add their routes, pages and
 # tools here: after the app's own routes, before the SPA catch-all below.

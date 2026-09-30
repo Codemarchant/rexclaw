@@ -71,6 +71,7 @@ export default function SettingsView({ active }) {
     // draft/Save flow) — no separate on/off toggle, its presence is what
     // gates create_image/create_video's include_user.
     const [photoUploading, setPhotoUploading] = useState(false);
+    const [avatarOptions, setAvatarOptions] = useState([]);   // "Your avatar" picker
     const photoInputRef = useRef(null);
     // Local generation: workflow JSON files load through one hidden file
     // input into the draft config (saved with the rest); the server's
@@ -130,6 +131,7 @@ export default function SettingsView({ active }) {
             setHotkeys(parsed);
             inspectWorkflows(cfg);
             markDirty(false);   // freshly loaded = pristine
+            rpc("/api/avatars/list", {}).then(setAvatarOptions).catch(() => { /* picker stays empty */ });
         } catch (e) {
             notification.add(e?.message || _t("Could not load settings"), { type: "danger" });
         }
@@ -389,6 +391,39 @@ export default function SettingsView({ active }) {
                             <input ref={photoInputRef} type="file" accept="image/png,image/jpeg,image/webp"
                                    style={{ display: "none" }} onChange={onUserPhotoSelected} />
                         </div>
+                    </div>
+                    <div style={{ marginTop: "0.75rem" }}>
+                        <label>{_t("Your avatar (optional)")}</label>
+                        <p className="text-muted small" style={{ margin: "0 0 0.4rem" }}>
+                            {_t("An avatar that plays you in Manga Diary pages: it stands beside your companion in the photoshoot, and its portrait is your likeness in Imagine-drawn panels.")}
+                        </p>
+                        {(() => {
+                            const chosen = avatarOptions.find((a) => Number(a.id) === Number(config.user_avatar_id));
+                            return (
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                                    {chosen?.portrait_url && (
+                                        <img src={chosen.portrait_url} alt=""
+                                             style={{ width: "3.5rem", height: "3.5rem", objectFit: "cover", borderRadius: "0.4rem" }} />
+                                    )}
+                                    <select value={config.user_avatar_id || ""} style={{ width: "auto" }}
+                                            onChange={(ev) => {
+                                                setField("user_avatar_id", ev.target.value ? Number(ev.target.value) : null);
+                                                setField("user_avatar_outfit", "");
+                                            }}>
+                                        <option value="">{_t("None: you stay off-panel")}</option>
+                                        {avatarOptions.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                    </select>
+                                    {chosen?.outfit_names?.length > 0 && (
+                                        <select value={config.user_avatar_outfit || ""} style={{ width: "auto" }}
+                                                title={_t("Outfit")}
+                                                onChange={(ev) => setField("user_avatar_outfit", ev.target.value)}>
+                                            <option value="">{_t("Main outfit")}</option>
+                                            {chosen.outfit_names.map((n) => <option key={n} value={n}>{n}</option>)}
+                                        </select>
+                                    )}
+                                </div>
+                            );
+                        })()}
                     </div>
                 </section>
 

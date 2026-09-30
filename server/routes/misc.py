@@ -43,6 +43,7 @@ _CONFIG_FIELDS = (
     "gesture_gen_enabled", "gesture_gen_url", "gesture_gen_engine", "gesture_gen_planner",
     "gesture_gen_speed", "gesture_gen_model",
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
+    "user_avatar_id", "user_avatar_outfit",
     "summary_threshold_tokens", "summary_threshold_tokens_text",
     "summary_keep_recent_messages",
     "replay_rollup_enabled", "replay_rollup_keep_recent",
@@ -566,7 +567,12 @@ def avatars_list(payload: dict = Body(default={}), con=Depends(db_con)):
         " (SELECT COUNT(*) FROM avatar_outfits o WHERE o.avatar_id = a.id) AS outfit_count"
         " FROM avatars a WHERE a.active = 1 ORDER BY a.sequence, a.name",
     ).fetchall()
-    return [{**dict(r), "portrait_url": portraits.portrait_url(r["vrm_path"])} for r in rows]
+    return [{**dict(r), "portrait_url": portraits.portrait_url(r["vrm_path"]),
+             # Settings → "Your avatar" picks one of these by name.
+             "outfit_names": [o["name"] for o in con.execute(
+                 "SELECT name FROM avatar_outfits WHERE avatar_id = ? ORDER BY sequence, id",
+                 (r["id"],))]}
+            for r in rows]
 
 
 @router.post("/agents/delete")

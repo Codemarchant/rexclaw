@@ -14,6 +14,7 @@ import AvatarCanvas from "./AvatarCanvas.jsx";
 import Transcript from "./Transcript.jsx";
 import StagePanel from "./StagePanel.jsx";
 import KaraokeOverlay from "./KaraokeOverlay.jsx";
+import MangaStudio from "./MangaStudio.jsx";
 import { stage } from "../models/stage";
 
 import { downscaleImageFile, attachmentNote } from "../lib/attachments";
@@ -246,6 +247,35 @@ export default function VoiceView({ active = true }) {
         })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active, ui.pendingResume]);
+
+    // Manga Diary handoff from History → Manga: the companion poses here,
+    // on the renderer this view owns. Not mid-call — the photoshoot takes
+    // the avatar's face, body and camera for half a minute.
+    const [mangaJob, setMangaJob] = useState(null);
+    useEffect(() => {
+        const job = uiState.pendingManga;
+        if (!active || !job || !agents.length) return;
+        uiState.pendingManga = null;
+        if (isLive || isConnecting) {
+            notification.add(_t("End the call first: your companion can't pose for the manga mid-call."), { type: "warning" });
+            uiState.requestedTab = "history";
+            return;
+        }
+        const agent = findAgent(job.agentId);
+        if (!agent?.avatar?.vrm_url) {
+            notification.add(_t("This companion has no avatar to pose."), { type: "danger" });
+            uiState.requestedTab = "history";
+            return;
+        }
+        setSelectedAgentId(Number(job.agentId));
+        setMangaJob({ ...job, avatarId: agent.avatar.id, avatar: agent.avatar, agentName: agent.name });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [active, ui.pendingManga, agents]);
+    const closeManga = useCallback((pageId) => {
+        setMangaJob(null);
+        if (pageId) uiState.openMangaPage = pageId;
+        uiState.requestedTab = "history";
+    }, []);
 
     useEffect(() => {
         if (!agents.length) return;
@@ -1231,6 +1261,7 @@ export default function VoiceView({ active = true }) {
             <div className="o_voice_full_avatar">
                 <AvatarCanvas size="full" />
                 <KaraokeOverlay sidePanel={!ui.immersive && (showStage || showSettings)} />
+                {mangaJob && createPortal(<MangaStudio job={mangaJob} onClose={closeManga} />, document.body)}
                 {/* Affection pulse: rose shine around the avatar + floating
                     signed delta + heart burst. Keyed on the pulse timestamp
                     so a new adjust_affection remounts the nodes and restarts
