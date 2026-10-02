@@ -8,50 +8,74 @@
   English | [<a href="./docs/README.ja-JP.md">日本語</a>]
 </p>
 
-**Living anime voice companions on your own machine — powered by xAI Grok Voice Realtime, bring-your-own-key.**
+**Living anime voice companions on your own machine. Bring your own models: Grok, OpenAI, Claude, or fully local.**
+
+**[⬇ Download for Windows](https://github.com/Codemarchant/rexclaw/releases/latest)** · [From source](#-from-source) · [Docker](#-docker)
 
 Talk to a 3D VRM avatar that lip-syncs, emotes and gestures as they answer
-you, in 3D scenes you can walk them through. Persistent memory grows across
-sessions, Grok Imagine generates images and video, text chat is file-aware,
-and your own MCP tools plug in. Everything runs locally except the model
-itself: your data lives in a SQLite file on your disk, and your API key never
-leaves your machine.
+you, in 3D scenes you can walk them through. Memory grows across sessions,
+voice and text chat share one conversation, and companions can search the
+web, see your screen, make images and video, and use your own MCP tools.
+
+By default calls run on xAI's Grok Realtime with your own xAI key. Or build
+a voice setup from OpenAI, Claude, ElevenLabs, Fish Audio and others, or from
+models on your own computer with no API key at all (see
+[Models & providers](#-models--providers)). Your data lives in a SQLite file
+on your disk, and your API keys are stored only on your machine.
 
 ---
 
 ## ✨ Features
 
+### Conversation
+
 | | |
 |---|---|
-| 🎙️ **Real-time voice** | Speech-in, speech-out via Grok Voice Realtime — sub-second latency, natural turn-taking with server VAD, barge-in that actually works. No STT/TTS pipeline to wire up. |
-| 🌍 **Speaks any language** | Grok Voice is multilingual out of the box. Switch language mid-sentence — your companion follows. |
-| 💬 **One conversation, voice or text** | A session is never locked to the mode it started in: begin a voice call, continue it as a written chat, pick the same thread back up by voice later — history, tool activity and memory carry across both surfaces. |
-| 🧠 **Memory that grows with you** | Two layers: rolling in-session compaction keeps a conversation alive indefinitely (resume days later, they pick up where you left off), and durable cross-session memories — name, projects, preferences — reviewable and deletable in Settings. |
-| 💗 **Affection meter** | Opt-in per companion: a persistent affection score they quietly nudge as the relationship warms or cools, with editable rules for how behaviour changes per level — and a burst of hearts around the avatar when a moment lands. |
-| 🧍 **Living 3D avatars** | three.js + @pixiv/three-vrm: viseme lip-sync from the live audio, idle breath/blink/eye-saccades, camera eye contact, emotions and body-language gestures the model triggers itself mid-conversation. Full-body view comes with the standard three.js orbit camera — drag to orbit, Shift+drag to move the character around the frame, scroll wheel to zoom. In the face view the camera pulls out while a gesture plays, so a clap or a dance is never out of shot, then eases back in (Settings → Background Avatar Motion). |
-| 🚶 **Walkable 3D scenes** | GLB environments as backgrounds with WASD/arrow walk mode and a trailing camera. A grid playground ships in the box. In a group call, number keys pick which character you're steering. Switch the movement mode to **Camera - auto follow** and the camera directs itself: it follows your companion, moves between face, waist-up and full-body shots when they finish a line, and pulls out wide when they walk or gesture. With the opt-in **Locomotion tools** (`move_around`) your companion uses the room on their own: walks right up to you, steps back, wanders or paces, or follows your view around the scene. |
-| 📞 **Multi-agent group calls** | Add companions to a live call — or let them invite each other ("call Rex for this one"). Each joins with its own voice, avatar and memory; a fast LLM turn director decides who speaks next, with no audio cross-feeding between agents. They can text each other too (`text_companion`) — a quick message and one reply back, outside of a live call. |
-| 🖥️ **Desktop mascot mode** | In the desktop app, pop the avatar out of the window: a small frameless, transparent, always-on-top overlay floats your companion on the desktop while you work — live call and all. Drag the character (or the handle) anywhere, pin/unpin, cycle sizes, snap to a corner or send them to another monitor from the tray icon, pop back in — the conversation resumes across the handoff. **Ghost mode** goes further: clicks pass straight through the window and the avatar fades out of your cursor's way (real per-pixel hit-testing), so they can stand over your work without ever being in it. Every one of those is on a system-wide hotkey, and the app can open straight into mascot mode at launch. |
-| ⌨️ **Hotkeys** | Rebindable shortcuts (Settings → Hotkeys) for calls, mute, screen share and every mascot control — registered system-wide in the desktop app, so they work while you're in another application. |
-| 🗣️ **Voice activation** | Say a companion's wake phrase — "hey Eve" — and the call starts (resuming the last conversation or starting fresh, per companion); ask them to hang up and they end it themselves. Detection runs entirely on your machine with a small offline speech model: nothing is billed and no audio goes anywhere until the call actually starts. Pair it with "hide the avatar between calls" and the mascot waits invisible on your desktop, appearing when called. |
-| 🥽 **VR & mixed reality (WebXR)** | Stand with your companion in VR — or in your real room via passthrough MR on headset browsers that support it — with spatial audio at the avatar's head, controller haptics, an in-headset panel (mute, emotions, gestures, move mode), physical hand-to-hair/clothing contact, and an opt-in full-body ragdoll you can grab. |
-| 🤝 **Combo gestures** | Two-character VRMA animations — dancing together, hugs — where a partner VRM joins the scene in sync with your avatar, with per-character placement controls. A live call peer is borrowed as the partner instead of spawning a duplicate. |
-| 🕺 **Gesture generation (`generate_gesture`)** | Opt-in per companion: ask for a move that isn't in their gesture list ("do a curtsy", "shadow-box for me") and they invent it on the spot. The motion is made by the free, open-source [Text-To-VRMA](https://github.com/Kirakun0328/text-to-vrma/releases) app running on your own computer, over its local API: NVIDIA's ARDY motion model locally (free, a few seconds per motion on a GPU), or OpenAI / Claude / Codex keyframes. Connect it in Settings → Gesture generation. Every motion is saved to the shared animation library, so the good ones can become regular gestures on any avatar. In a 3D scene a motion that walks somewhere leaves them standing where it ended. |
-| 🎨 **Grok Imagine built in** | Ask them to redecorate (`change_background` swaps the live scene), generate images into the transcript, edit photos you upload in chat, or remix anything in the Imagine library — selfies, uploads, past generations — into new images (`create_image` with `source_images`). Uploaded images are saved to the library at upload time, so "edit that photo" keeps working turns — or whole sessions — later. |
-| 🎬 **Imagine video** | Ask for a living scene and `change_background` generates an animated looping backdrop instead of a still — both stay selectable in the background picker. `create_video` drops short clips with native sound into the transcript, and can animate a library image (image-to-video), put the people and things from earlier generations into a new clip (reference-to-video), continue a clip with what happens next (extension), or tweak one in place — "add sunglasses" (editing). Companions can even `take_selfie` — snapshot their current look, pose and outfit straight off the canvas, with or without the scene backdrop — and star in their own clips. And you can share your own photos mid-call (paperclip) for the same treatment: animate them or put their subjects into new clips — stick to photos of yourself or of people who are happy to appear. Per-second Grok Imagine pricing, so clips stay short and cheap. |
-| 🎧 **Voice messages & recording studio** | Ask a companion in chat for a voice note, a bedtime story or a guided meditation, and they record it in their own voice (`create_voicemail`), with timed silences, guided breathing, ambient beds (ocean, rain, drone), binaural beats and hypnosis-style voice effects mixed in. Write and render your own scripts in History → Recordings, starting from a dozen built-in examples. |
-| 🎤 **Karaoke stage** | Your companion sings a song in their own voice and dances to it, with the lyrics on screen, in the voice view or on the desktop mascot. Choose a built-in song or import one from [UltraStar](https://usdb.animux.de), then let them sing, sing a duet, or take the mic yourself and get scored. Opt-in per companion, they can also perform a song they know during a voice call (`perform_song`). The optional **Voice Lab** (a download in Settings, best with an NVIDIA GPU) trains a singing voice for a companion from your recordings, and turns a song from a link or a video into karaoke that they sing in that voice. |
-| 🕵️ **Background analyst (`delegate_task`)** | Companions hand complex work — file/image analysis, coding, deep research — to a hidden text-mode analyst with the vision and document reading the realtime voice model lacks. Each task runs in its own persistent workspace the companion can continue across turns ("now fix the bug you just found"), with automatic server-side compaction. The voice-mode paperclip now accepts **any file type**: images keep feeding the Imagine tools, documents (PDF, CSV, …) upload to xAI and get read via `delegate_task`. Optional per-companion multi-agent mode (off by default) routes the hardest questions to xAI's multi-agent model, where several agents collaborate and a leader synthesizes. |
-| 🛠️ **Local computer tasks (`local_task`)** | Opt-in per companion: hand real on-machine work to the [Grok Build CLI](https://docs.x.ai/build) — ask your companion to write a script, generate files, or analyse a local project, and a coding agent on your own computer does it for real (files, code, shell). Tasks are continuable ("now add a dark mode") and confined to a configurable working folder (Settings → Local computer tasks; defaults to a dedicated workspace in the data folder). Library files (uploads, screenshots) can be attached to a task — working copies land in the workspace for the agent to use or modify. Runs with no confirmation prompts inside that folder, so it's **off by default** — and the tool only appears when the `grok` CLI is installed on the machine (it never works in Docker). Billing: if you signed into the Grok CLI, tasks bill that login; otherwise your Rexclaw API key is used. |
-| ⛏️ **Minecraft bot (`minecraft_command`)** | Opt-in per companion: your companion joins your Minecraft world as a real player and plays alongside you. Tell them by voice — "come mine with me", "get us some food", "build a shelter before dark" — and the bot plans and plays autonomously (pathfinding, mining, crafting, combat, chests), while your companion keeps talking with you and reacts aloud to what happens in the world ("found diamonds!"). Runs as a separate sidecar process (`game_integrations/minecraft/` folder) with its own cheaper text-model brain that writes little JavaScript plans against a skill library; the voice call only carries directives and highlights, so long jobs don't inflate call cost. **Off by default** — it executes model-generated scripts in your world, so use it on your own or trusted servers. |
-| 🖥️ **Screen & camera sharing** | Share your screen or your camera from one button (Screen / Camera switch at the top of its panel) and your companion can see what you see — ask them to look at a photo, an article, an error (`take_screenshot`, `analyze_screen`), hold something up to the camera, or show them a moment from a video or game with `record_screen_clip` (up to 90 s, sound included if you share screen audio). Camera works everywhere the screen can't: phones, tablets and headsets over the HTTPS address. Captures post to the transcript and save to the library for later. Red dot while recording; nothing is captured unless you armed the share and the companion asks. |
-| 👀 **Camera awareness (optional)** | With the camera shared, tick *Notice presence, expressions & gestures* and small face and hand models run on your device: wave, give a thumbs up or down, a peace or OK sign or rock-on and your companion reacts (rude gestures too); they also notice you stepping away, coming back or yawning. Everything is sparse natural-language hints, never images or scores, nothing leaves the device. Off by default, per browser; the models ship in the release packages so it works offline. |
-| 💓 **Heartbeats** | Per-companion scheduled prompts that keep them living between your conversations — every N minutes/hours/days they can write a diary entry, check on something, or **call you first**: the app rings like the wake word did, and your companion opens the call with whatever their heartbeat told them to do. Each heartbeat knows when it last ran and when you last actually talked, so "if it's been over 4 hours, write about what you've been up to" works. Schedules missed while the app was closed never fire on their own — they wait as *past due* for your one-click decision (run once now, or skip to the next slot). |
-| 📺 **Idle events & stream chat** | Opt-in per companion: when a voice call goes quiet, your companion gets one of your prompts, picked by weight — a check-in after a silence, a topic to riff on — or reads the latest messages from your Twitch/YouTube stream chat and answers viewers by name. Set up the chat in Settings → Live chat: Twitch needs just the channel name, YouTube a Data API key. |
-| 👥 **A fully written crew** | Eve, Ara, Rex, Sal and Leo — five companions with backstories, speech quirks and matching voices. Fork them or build your own. |
-| 📦 **Portable companions** | Export a whole companion as one shareable zip — settings and prompt, plus the avatar pack, lore stories, memories and conversation history, each on its own toggle (memories and history are off by default, so a share never carries your personal history by accident) — and import someone else's in one click. Avatar packs also export/import on their own, and memories travel as a versioned JSON file. Back up, move machines, or share a finished companion with the community. |
-| 🔌 **Remote MCP tools** | Attach any number of remote MCP servers per companion, with bearer auth and per-tool whitelists — configured in the UI. |
-| 🔒 **Self-hosted & BYOK** | One SQLite file, local image storage, a localhost-only server. The browser opens its realtime socket straight to xAI with a short-lived token — the long-lived key stays server-side on your machine. |
+| 🎙️ **Real-time voice** | Speech in, speech out, with natural turn-taking and interruptions that work. Runs on Grok Realtime by default, or on OpenAI Realtime or your own speech-to-text → brain → voice pipeline ([Models & providers](#-models--providers)). Grok voices are multilingual: switch language mid-sentence and your companion follows. |
+| 💬 **One conversation, voice or text** | Start a call, continue it as a written chat, pick it back up by voice later. History, tool activity and memory carry across both, and text chat reads the files and images you attach. |
+| 🧠 **Memory that grows with you** | Long conversations are summarised as they go, so you can resume one days later, and lasting memories (your name, projects, preferences) carry across sessions. Review and delete them under History → Memories, or fly through them as a 3D star map in the Memory Galaxy. |
+| 📞 **Group calls** | Add companions to a live call, or let them invite each other ("call Rex for this one"). Each joins with its own voice, avatar and memory, and a turn director decides who speaks next. Outside a call they can text each other (`text_companion`). |
+| 🗣️ **Voice activation** | Say a companion's wake phrase ("hey Eve") and the call starts; ask them to hang up and they end it themselves. Detection runs offline on your machine, so nothing is sent or billed until the call starts. |
+| 💓 **Heartbeats** | Scheduled prompts per companion: write a diary entry, check on something, or **call you first**. Schedules missed while the app was closed never fire on their own; they wait as *past due* for your one-click decision. |
+| 📺 **Idle events & stream chat** | Opt-in per companion: when a call goes quiet they get one of your prompts, or read your Twitch/YouTube chat and answer viewers by name (Settings → Live chat). |
+| 💗 **Affection meter** | Opt-in per companion: a score they nudge as the relationship warms or cools, with editable rules for how they behave at each level, and a burst of hearts when a moment lands. |
+
+### Avatar & stage
+
+| | |
+|---|---|
+| 🧍 **Living 3D avatars** | VRM characters with lip-sync from the live audio, idle breathing, blinking and eye contact, plus emotions, gestures and outfit changes the model triggers itself. Orbit, move and zoom freely; hair and clothes react to your cursor. |
+| 🎨 **Look** | Lighting presets from golden hour to stage spotlight, effects, and ambience (rain, snow, cherry petals, fireflies) that can follow their mood. **Art styles** repaint the live scene as oil, watercolour, manga ink, risograph or pixel art. |
+| 🚶 **Walkable 3D scenes** | GLB environments with WASD walk mode and a trailing camera. **Camera - auto follow** directs itself between face, waist-up and full-body shots, and with the opt-in **Locomotion tools** (`move_around`) your companion walks up to you, steps back, wanders or follows your view. |
+| 🖥️ **Desktop mascot** | In the Windows app, pop the avatar out as a frameless, always-on-top overlay that floats on your desktop, live call and all. Drag it, resize it, snap it to a corner or another monitor. **Ghost mode** lets clicks pass through and fades the avatar out of your cursor's way. |
+| ⌨️ **Hotkeys** | Rebindable shortcuts for calls, mute, screen share and every mascot control, system-wide in the Windows app (Settings → Hotkeys). |
+| 🥽 **VR & mixed reality** | WebXR on headset browsers: stand with your companion in VR, or in your own room via passthrough, with spatial audio, controller haptics, an in-headset panel, hand-to-hair and clothing contact, and an opt-in ragdoll you can grab. |
+| 🤝 **Combo gestures** | Two-character animations (dancing together, hugs) where a partner joins the scene in sync. In a group call, the other companion plays the partner. |
+| 🕺 **Gesture generation** | Opt-in (`generate_gesture`): ask for a move that isn't in their list ("do a curtsy") and they invent it on the spot, made by the free [Text-To-VRMA](https://github.com/Kirakun0328/text-to-vrma/releases) app on your computer (Settings → Gesture generation). Motions are saved to the shared library, so good ones can become regular gestures. |
+| 🎤 **Karaoke stage** | Your companion sings in their own voice and dances, with the lyrics on screen. Use the built-in songs or import from [UltraStar](https://usdb.animux.de), then let them sing, duet, or take the mic yourself and get scored. Opt-in, they can perform a song they know mid-call (`perform_song`). The optional **Voice Lab** (a download in Settings, best with an NVIDIA GPU) trains a singing voice from your recordings and turns a song from a link into karaoke. |
+
+### What they can do
+
+| | |
+|---|---|
+| 🎬 **Images & video** | `create_image`, `create_video` and `change_background` generate into the transcript or swap the live scene, from a prompt or by remixing library images: selfies off the canvas (`take_selfie`), your uploads, past generations. Video can animate an image, extend a clip or edit one in place. Renders on Grok Imagine or your own ComfyUI server. Only use photos of yourself or of people happy to appear. |
+| 📸 **Screen & camera sharing** | Share your screen or camera and your companion can look when asked (`take_screenshot`, `analyze_screen`) or record a clip of up to 90 s. Camera sharing also works on phones, tablets and headsets. Nothing is captured unless you armed the share and the companion asks. |
+| 👀 **Camera awareness** | Optional, with the camera shared: small on-device face and hand models let them react to a wave, a thumbs up, a yawn or you stepping away. Only short text hints reach the companion; no images leave your device. |
+| 🎧 **Voice messages & recording studio** | Ask in chat for a voice note, a bedtime story or a guided meditation and they record it in their own voice (`create_voicemail`), with timed silences, guided breathing, ambient beds, binaural beats and voice effects. Write and render your own scripts in History → Recordings. |
+| 📖 **Manga Diary** | Turns an episode of a conversation into a manga page: a storyboard is written from that stretch, your companion poses for every panel, and the shots are inked into screentone art and lettered (History → Manga). |
+| 🕵️ **Background tasks** | `delegate_task` hands research, document and image analysis or coding to a background session with search, code execution and file reading, which the companion can continue across turns ("now fix the bug you just found"). In a call, the paperclip takes any file type. |
+| 🛠️ **Local computer tasks** | Opt-in (`local_task`): real files, code and shell on your machine through the [Grok Build CLI](https://docs.x.ai/build), confined to a working folder you choose (Settings → Local computer tasks). It runs without confirmation prompts inside that folder, so it's **off by default**. Never offered in Docker. |
+| ⛏️ **Minecraft bot** | Opt-in: your companion joins your Minecraft world as a real player, plays on your spoken directions and reacts aloud to what happens ("found diamonds!"). **Off by default**: it runs model-written scripts in your world, so use your own or trusted servers. |
+| 🔌 **Remote MCP tools** | Attach remote MCP servers per companion, with bearer auth and per-tool whitelists, all from the UI. |
+| 🧩 **Extensions** | Drop-in folders that add your own companion tools, pages and voice engines. |
+
+### Yours
+
+| | |
+|---|---|
+| 👥 **A fully written crew** | Eve, Ara, Rex, Sal and Leo: five companions with backstories, speech quirks and matching voices. Fork them or build your own. |
+| 📦 **Portable companions** | Export a companion as one zip (settings, avatar pack, lore, and on request memories and history) and import someone else's in one click. Avatar packs and memories travel on their own too. |
+| 🔒 **Self-hosted** | One SQLite file, local file storage, a localhost-only server. API keys stay on your machine; speech-to-speech calls connect the browser straight to the provider with a short-lived token. |
 
 ## 🚀 Quick start
 
@@ -59,11 +83,15 @@ leaves your machine.
 
 Grab `Rexclaw-<version>-win.zip` from the
 [latest release](https://github.com/Codemarchant/rexclaw/releases/latest),
-unzip, run `Rexclaw.exe`. Fully self-contained — no Python, Node or Docker
-needed (Windows 10/11, 64-bit) — and it includes the desktop-only features
-the browser version can't offer: the pop-out desktop mascot (with ghost
-mode, tray controls and the transcript window) and one-click VR / HTTPS
-device access.
+unzip, run `Rexclaw.exe`. Self-contained: no Python, Node or Docker needed
+(Windows 10/11, 64-bit). It also has what the browser version can't offer:
+the pop-out desktop mascot (ghost mode, tray controls, transcript window),
+system-wide hotkeys and one-click VR / HTTPS device access.
+
+- The app isn't code-signed yet, so the first launch shows a SmartScreen
+  warning: **More info → Run anyway**.
+- Your data lives in `%APPDATA%\Rexclaw\data\`, not in the unzipped folder.
+  To update, download the new zip and replace the folder; nothing is lost.
 
 ### 🛠 From source
 
@@ -80,15 +108,6 @@ On Windows, the packaged app above is the easier path — `run.bat` is mainly
 for development, or for running the browser version without the desktop
 shell.
 
-Then in the app: **Settings → paste your xAI API key** (grab one at
-[x.ai/api](https://x.ai/api)) → back to **Voice** → pick a companion → **Start**.
-
-> **Optional:** a [TypeSafe](https://typesafe.ai) API key switches on the expressive face
-> and head, and hands the background gestures and group-call turn-taking to TypeSafe's Jev
-> judgment model — a per-sentence read in ~250 ms for a fraction of a penny an hour. Without
-> one, gestures and turn-taking fall back to the xAI turn director and the expressive face
-> stays off.
-
 ### 🐳 Docker
 
 ```bash
@@ -103,6 +122,70 @@ VR headset on your network, enable HTTPS mode in `docker-compose.yml`
 (port mapping `"8990:8990"` + `REXCLAW_SSL=1` under `environment:`) —
 details in [Using VR](#-using-vr).
 
+### 🔑 First run
+
+Companions need somewhere to think and speak. Pick one:
+
+- **Grok Realtime (the default, quickest):** **Settings → xAI connection**,
+  paste your xAI API key (grab one at [x.ai/api](https://x.ai/api)), then
+  **Voice** → pick a companion → **Start**.
+- **Another provider, or local models:** **Settings → Models & providers →
+  Add connection**, build a voice setup from it and make it the default.
+  Details in [Models & providers](#-models--providers).
+
+> **Optional:** a [TypeSafe](https://typesafe.ai) API key switches on the expressive face
+> and head, and hands the background gestures and group-call turn-taking to TypeSafe's Jev
+> judgment model, a per-sentence read in ~250 ms for a fraction of a penny an hour. Without
+> one, gestures and turn-taking fall back to the xAI turn director (or, with no xAI key, to
+> the quick model of the companion's voice setup brain) and the expressive face stays off.
+
+## 🧠 Models & providers
+
+**Grok Realtime** is built in: one xAI model hears you and answers, with the
+most natural timing. Everything else is a **voice setup** you build in
+**Settings → Models & providers**:
+
+1. **Add connection**: a provider key or a local server, entered once.
+   Presets cover OpenAI, Anthropic (Claude), Groq, OpenRouter, DeepSeek,
+   ElevenLabs, Fish Audio, Ollama, LM Studio, speaches and Kokoro-FastAPI.
+   Any other OpenAI-compatible server works too.
+2. **Add voice setup**: calls run either on a speech-to-speech model
+   (OpenAI Realtime) or as three stages you mix freely:
+
+   | Stage | Runs on |
+   |---|---|
+   | Speech to text | xAI, OpenAI, Groq, OpenRouter, or a local Whisper server |
+   | Brain | Grok, OpenAI, Claude, DeepSeek, Groq, OpenRouter, or a local model (LM Studio, Ollama, llama.cpp, vLLM) |
+   | Voice | Grok voices, OpenAI, ElevenLabs, Fish Audio, or a local voice (Kokoro, speaches) |
+
+3. Press **Test** on the setup, then make it the **Default for companions**,
+   or pick it per companion under **Companions → Edit → Voice & brain**.
+   A companion can have its own voice on each setup, and its text chat can
+   run on the same brain (**Text chat brain**).
+
+The app's own tools (memory, avatar control, selfies, screen sharing, group
+calls, texting, songs already learned) work on any brain, and three-stage
+setups detect the end of your turn on your computer (Silero VAD + Smart
+Turn). A few things depend on the provider, and the companion editor badges
+each tool with what it needs:
+
+- **Web search, code execution and MCP servers** run at the brain's
+  provider, so they need a Grok, OpenAI (its own API) or Claude brain.
+  X search is Grok only. Other brains, local ones included, have none of
+  them.
+- **`delegate_task`** runs on the companion's own brain when that is OpenAI
+  or Claude, otherwise on Grok.
+- **Images and video** need an xAI key (Grok Imagine) or your own ComfyUI
+  server.
+- **xAI only:** teaching a companion new songs, Manga Diary, multi-agent
+  delegation and local computer tasks (Grok Build CLI).
+
+An xAI key is optional: on a setup with no xAI stage, calls, text chat,
+summaries and memory all run on that setup's providers, and with every stage
+on your own computer the conversations never leave the machine. Hardware,
+model picks and LM Studio settings are in
+**[Running companions on local models](docs/local-models.md)**.
+
 ## 👥 Meet the crew
 
 https://github.com/user-attachments/assets/ff569423-325c-4fb2-ac4f-f538e9c03895
@@ -113,17 +196,15 @@ https://github.com/user-attachments/assets/ff569423-325c-4fb2-ac4f-f538e9c03895
 - **Sal** — philosophical frog who knows he's software and finds retirement interesting. Precise, comfortable with silence.
 - **Leo** — veteran theatre stage manager. "Standby… go." Dignified, composed, earns every gesture.
 
-All five are editable in the **Companions** tab — prompt, voice, avatar,
-and per-tool access. **New companion** starts you from a structured persona
-template; **Restore presets** brings back any of the originals you've deleted.
+All five are editable in the **Companions** tab: prompt, voice, avatar,
+voice setup and per-tool access. **New companion** starts you from a
+structured persona template; **Restore presets** brings back any of the
+originals you've deleted.
 
-**Tip — keep one long-running conversation:** prefer **Resume last** over
-**Start** when you come back. Each Start creates a brand-new session; Resume
-last continues the same rolling conversation, which is what lets your
-companion carry context across days — older turns are automatically compacted
-into summaries and distilled into memories, so the thread never outgrows its
-context window. Works across modes too: the resumed conversation continues
-seamlessly whether you pick it up on the Voice or the Chat tab.
+**Tip:** when you come back, prefer **Resume last** over **Start**. Start
+opens a brand-new session; Resume last continues the same conversation, on
+the Voice or the Chat tab. Older turns are summarised and distilled into
+memories, so the thread never outgrows the model's context.
 
 ## 🎭 Custom avatars — avatar packs
 
@@ -238,17 +319,23 @@ Motion Pack) covers the built-ins, and packs can add custom clips per avatar.
 
 ## 📦 Export & import
 
-Everything is portable, each from its own tab. **Companions**: the download
-icon exports a companion as one zip — settings plus the avatar pack, lore
-stories, memories, conversation history and heartbeats, each on its own
-toggle (memories, history and heartbeats default to off: they are about you,
-not the character; heartbeats always import inactive, ready to review) — and
-**Import** recreates it as a new companion. Nothing is ever overwritten (deleting an import can't
-touch an original), and MCP connections never leave — they can carry auth
-secrets. **Avatars**: any avatar exports as a self-contained pack zip;
-**Import pack** accepts one (or any hand-zipped pack folder). **Memories**:
-a versioned JSON file, following the companion filter; re-importing skips
-duplicates.
+Everything is portable:
+
+- **Companions** (download icon on the Companions tab): one zip with the
+  companion's settings, plus the avatar pack, lore stories, memories,
+  conversation history, heartbeats and idle events, each on its own toggle.
+  The ones about you rather than the character (memories, history,
+  heartbeats, idle events) default to off, and heartbeats and idle events
+  always import switched off, ready to review. **Import** recreates it as a
+  new companion; nothing is ever overwritten.
+- **What never leaves:** MCP connections and provider connections, since
+  they can carry keys. A companion's voice setup travels by name only: on
+  import it links to a setup of the same name if you have one, otherwise it
+  uses your default.
+- **Avatars:** any avatar exports as a self-contained pack zip; **Import
+  pack** accepts one, or any hand-zipped pack folder.
+- **Memories** (History → Memories): a versioned JSON file, following the
+  companion filter. Re-importing skips duplicates.
 
 ## 🥽 Using VR
 
@@ -307,29 +394,35 @@ flow above is the recommended one.)
 ## 🔌 Remote MCP connections
 
 Give a companion extra tools by attaching remote MCP servers:
-**Companions → Edit → Remote MCP connections**. Each connection
-takes a server label, the endpoint URL, an optional bearer token (stored
-write-only — it's never echoed back to the browser), optional extra headers,
-an allowed-tools whitelist, and toggles for voice/text sessions.
+**Companions → Edit → Remote MCP connections**. Each connection takes a
+server label, the endpoint URL, an optional bearer token (stored write-only,
+never echoed back to the browser), optional extra headers, an allowed-tools
+whitelist, and toggles for voice and text sessions.
 
-How it works: the connection is injected into the session's tool list and
-**xAI's servers call the MCP endpoint directly** — The URL must be **publicly reachable over HTTPS**
+The connection is added to the session's tool list and **the brain's
+provider calls the MCP endpoint directly** (xAI, OpenAI's own API or
+Anthropic), so the URL must be **publicly reachable over HTTPS**. Claude
+takes the bearer token but not extra headers. Other brains (local models,
+Groq, OpenRouter, DeepSeek) have no MCP tools.
 
 ## ⛏️ Minecraft bot
 
-Your companion can join your Minecraft world as its own player — you direct
-them by voice, they play for real, and they react aloud to what happens in
-the world. The bot runs as a sidecar process:
+Your companion can join your Minecraft (Java Edition) world as its own
+player: you direct them by voice, they play for real, and they react aloud
+to what happens. The bot runs as a sidecar process next to the game. It
+isn't part of the Windows zip, so run it from a source checkout (Node 18+):
 
 ```bash
-cd minecraft
+cd game_integrations/minecraft
 npm install
 node index.js --port <lan port> --username <YourCompanionsName>
 ```
 
-Then enable **Minecraft bot** for a companion (Companions → Edit) and see
-**Settings → Minecraft bot**. Full setup, configuration, architecture and
-safety notes: **[game_integrations/minecraft/README.md](game_integrations/minecraft/README.md)**.
+Then enable **Minecraft bot** for a companion (Companions → Edit) and set it
+up on the **Games** tab: your in-game name, and where the bot's planner runs
+(Grok, OpenAI, Claude or a local server). Full setup, configuration,
+architecture and safety notes:
+**[game_integrations/minecraft/README.md](game_integrations/minecraft/README.md)**.
 
 ## 🖥️ Local generation (ComfyUI)
 
@@ -355,47 +448,51 @@ frame, there is no reference-to-video, extension, editing or voices, and
 rendering takes minutes rather than seconds. The companion's **Image &
 video tools** toggle still decides whether the tools are offered at all.
 
-## 💰 xAI cost optimisation
+## 💰 Costs
 
-- **Voice is billed per minute the call is open, not per minute you talk** —
-  ~$0.05/min on `grok-voice-think-fast-1.0`, ~$0.08/min on 2.0, and **every
-  companion in a group call bills its own connection**, so three in a call is
-  roughly triple the rate whether they're speaking or not. **Muting does not
-  stop it either.** End calls instead of leaving them minimised. (xAI closes a
-  call by itself after 15 minutes with no speech.)
+Rexclaw is free. You pay your providers directly, and models on your own
+computer cost nothing.
+
+**Voice setups** bill per use, at each provider's rates: transcription
+time, tokens, characters spoken. A quiet call costs little or nothing.
+
+**Grok Realtime** bills by connection time, which is worth knowing:
+
+- **Voice is billed per minute the call is open, not per minute you talk**:
+  ~$0.05/min on `grok-voice-think-fast-1.0`, ~$0.08/min on 2.0. **Every
+  companion in a group call bills its own connection**, so three in a call
+  is roughly triple the rate whether they're speaking or not, and **muting
+  doesn't stop it**. End calls instead of leaving them minimised. (xAI closes
+  a call by itself after 15 minutes with no speech.)
 - **Resuming a conversation costs ~$0.004 per message of unsummarised
   history**, since it is replayed to xAI to restore the companion's memory.
-  Summarising resets that count — only what has built up since the last
-  summary replays message by message — so a 250-message backlog is about
-  **$1 every resume**.
+  Only what has built up since the last summary replays message by message,
+  so a 250-message backlog is about **$1 every resume**.
 
 Two settings cut that second cost:
 
-- **Settings → Context management → Voice summarization threshold** — lower it
-  and conversations summarise more often, so less unsummarised history piles
-  up between resumes. Long-running conversations benefit most. The trade is a
-  few more summary calls, and more of the conversation carried as recap rather
-  than word for word.
-- **Settings → Cost optimization → Roll up older history** — bundles old
+- **Settings → Conversation length → Grok Realtime calls: summarise after**:
+  lower it and conversations summarise more often, so less history piles up
+  between resumes. The trade is a few more summary calls, and more of the
+  conversation carried as a recap rather than word for word.
+- **Settings → Grok Realtime calls → Roll up older history**: bundles old
   messages into one instead of hundreds, taking ~$1 to under a cent. Every
-  word is still sent verbatim; only the shape changes, so recall of the
-  bundled part may be slightly softer. On by default for new installs, with
-  everything bundled (0 recent turns kept whole); raise that number to keep
-  the latest turns as separate messages. It matters most if you dip in and
-  out of a conversation for quick exchanges, since short frequent resumes are
-  where replay dominates the bill. On long calls the per-minute charge
-  outweighs it anyway.
+  word is still sent; only the shape changes, so recall of the bundled part
+  may be slightly softer. On by default for new installs. It matters most if
+  you dip in and out of a conversation for quick exchanges; on long calls
+  the per-minute charge outweighs it anyway.
 
-Tools (web/X search, MCP, image and video generation), text chats and
-background summarisation bill on top. Real spend:
+Tools (web and X search, MCP, image and video generation), text chats and
+background summarisation bill on top. Real xAI spend:
 [xAI console](https://console.x.ai) · rates: [xAI pricing](https://docs.x.ai/docs/models).
 
 ## 🛠 Development
 
 ```
-server/   FastAPI + SQLite backend     → edit, restart (or uvicorn --reload)
-web/src/  React + Vite frontend        → edit, then npm run build
-data/     your DB, images, avatar packs → just data, nothing to build
+server/   FastAPI + SQLite backend       → edit, restart (or uvicorn --reload)
+web/src/  React + Vite frontend          → edit, then npm run build
+desktop/  Electron shell (Windows app)   → npm start; packaging in desktop/README.md
+data/     your DB, images, avatar packs  → just data, nothing to build
 ```
 
 - Hot-reload frontend dev: `cd web && npm run dev` → http://localhost:5990
@@ -409,9 +506,11 @@ data/     your DB, images, avatar packs → just data, nothing to build
 ### Architecture
 
 ```
-browser ── WebSocket ──► xAI Realtime API   (voice — direct, ephemeral token)
-browser ── fetch ──────► FastAPI :8990      (sessions, memory, imagine, config)
-FastAPI ── SQLite + local files             (data/rexclaw.sqlite3, data/files/)
+browser ── WebSocket ──► xAI / OpenAI Realtime   (speech-to-speech calls: direct, short-lived token)
+browser ── WebSocket ──► FastAPI :8990           (voice setups: speech to text → brain → voice)
+browser ── fetch ──────► FastAPI :8990           (sessions, memory, imagine, config)
+FastAPI ── HTTP(S) ────► your providers, or model servers on this machine
+FastAPI ── SQLite + local files                  (data/rexclaw.sqlite3, data/files/)
 ```
 
 ### Extensions
@@ -436,11 +535,9 @@ def setup(api):
 
 To keep an extension working across updates, use only the `api` calls; the
 app's own modules can change. The full list (routes, a page, events,
-recording-script directives) is in `server/plugins.py`.
+recording-script directives, voice engines) is in `server/plugins.py`.
 
-## 📋 Notes
-
-### Credits
+## 📋 Credits
 
 Also in the app, under **Settings → Credits**. Licences are as stated by
 each project.
@@ -472,6 +569,11 @@ each project.
   **[faster-whisper](https://github.com/SYSTRAN/faster-whisper)** (MIT),
   **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** (Unlicense) and
   **[uv](https://github.com/astral-sh/uv)** (MIT/Apache-2.0).
+- Voice pipeline — **[Silero VAD](https://github.com/snakers4/silero-vad)**
+  (MIT, Silero Team), the bundled voice detector, and
+  **[Smart Turn](https://github.com/pipecat-ai/smart-turn)** (BSD 2-Clause,
+  Daily), the bundled end-of-turn model, whose audio features are ported from
+  Pipecat (portions Apache-2.0, Hugging Face Transformers).
 - **[Vosk](https://alphacephei.com/vosk/)** (Apache-2.0) — offline speech
   models for wake phrases.
 - **[MediaPipe](https://github.com/google-ai-edge/mediapipe)** (Apache-2.0) —

@@ -945,7 +945,7 @@ DIRECTOR_INSTRUCTIONS = (
 
 
 def decide_next_speaker(*, xai_api_key, responses_url, model, transcript_lines,
-                        participants, user_name='User', floor_key=None):
+                        participants, user_name='User', floor_key=None, complete=None):
     """One-shot classification: who speaks next in a group voice call?
 
     :param transcript_lines: list of '[Name]: text' strings, oldest first
@@ -976,7 +976,8 @@ def decide_next_speaker(*, xai_api_key, responses_url, model, transcript_lines,
         'Answer with exactly one token: user or one participant key from '
         'the list. Nothing else.'
     )
-    body = create_response(
+    body = _respond(
+        complete,
         xai_api_key=xai_api_key,
         responses_url=responses_url,
         model=model,
@@ -1040,7 +1041,7 @@ SPEECH_GESTURE_INSTRUCTIONS = (
 
 
 def select_speech_gesture(*, xai_api_key, responses_url, model, line,
-                          library_lines, recent_ids=(), just_played=None):
+                          library_lines, recent_ids=(), just_played=None, complete=None):
     """One-shot pick of a library gesture for a spoken line (or none).
 
     :param line: the sentence the companion is saying
@@ -1058,7 +1059,8 @@ def select_speech_gesture(*, xai_api_key, responses_url, model, line,
         + f'\nJust played, do NOT pick again: {just_played or "none"}\n\n'
         f'Line: "{line}"\n\nJSON:'
     )
-    body = create_response(
+    body = _respond(
+        complete,
         xai_api_key=xai_api_key,
         responses_url=responses_url,
         model=model,
@@ -1099,13 +1101,24 @@ TITLE_INSTRUCTIONS = (
 )
 
 
-def generate_title(*, xai_api_key, responses_url, summary_model, transcript):
+def _respond(complete, **kwargs):
+    """create_response, or `complete` when the caller runs this job on
+    another brain (a companion on a local model keeps its summaries, titles
+    and memories local): complete(instructions=, input_items=) returns the
+    same body shape. The xAI-only arguments are ignored then."""
+    if complete is not None:
+        return complete(instructions=kwargs['instructions'], input_items=kwargs['input_items'])
+    return create_response(**kwargs)
+
+
+def generate_title(*, xai_api_key, responses_url, summary_model, transcript, complete=None):
     """Produce a short descriptive title for a fresh conversation.
 
     Returns a (title_text, usage_dict) tuple — the usage block is surfaced so
     callers can track cost_in_usd_ticks.
     """
-    body = create_response(
+    body = _respond(
+        complete,
         xai_api_key=xai_api_key,
         responses_url=responses_url,
         model=summary_model,
@@ -1136,7 +1149,7 @@ def generate_title(*, xai_api_key, responses_url, summary_model, transcript):
 
 
 def generate_summary(*, xai_api_key, responses_url, summary_model, transcript,
-                     reasoning_effort=None, max_words=0, update_only=False):
+                     reasoning_effort=None, max_words=0, update_only=False, complete=None):
     """Compress a conversation transcript into a single rolled-up summary string.
 
     Wrapping the whole transcript inside one user message (rather than sending
@@ -1144,7 +1157,8 @@ def generate_summary(*, xai_api_key, responses_url, summary_model, transcript,
     model treats the transcript as a live dialog and "responds" as the next
     assistant turn instead of summarizing it.
     """
-    body = create_response(
+    body = _respond(
+        complete,
         xai_api_key=xai_api_key,
         responses_url=responses_url,
         model=summary_model,
@@ -1182,7 +1196,7 @@ def generate_summary(*, xai_api_key, responses_url, summary_model, transcript,
     )
     text = _extract_response_text(body)
     if not text:
-        raise UserError("xAI returned no text for the summary.")
+        raise UserError("The model returned no text for the summary.")
     return text, (body.get('usage') if isinstance(body, dict) else None) or {}
 
 
@@ -1249,7 +1263,7 @@ def _strip_json_fences(text):
 
 def generate_memory_extraction(*, xai_api_key, responses_url, summary_model,
                                transcript, existing_core=None, known_tags=None,
-                               reasoning_effort=None):
+                               reasoning_effort=None, complete=None):
     """Extract durable memory from a rolled-up transcript.
 
     Returns `(parsed_or_None, usage_dict)`. `parsed` is a dict
@@ -1267,7 +1281,8 @@ def generate_memory_extraction(*, xai_api_key, responses_url, summary_model,
     ) or '  (none yet)'
     tags_line = ', '.join(known_tags or []) or '(none yet)'
 
-    body = create_response(
+    body = _respond(
+        complete,
         xai_api_key=xai_api_key,
         responses_url=responses_url,
         model=summary_model,

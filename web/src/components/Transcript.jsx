@@ -54,6 +54,24 @@ function markdownToSafeHtml(text) {
     return s;
 }
 
+/** Voice rows are plain text, but a companion on a voice setup can write a
+ *  link into its reply (the voice skips it; the transcript keeps it): make
+ *  markdown links and bare http(s) URLs clickable, everything else as is. */
+const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()]+[^\s<>().,!?;:'"])/g;
+function withLinks(text) {
+    if (!text || !text.includes("http")) return text;
+    const out = [];
+    let last = 0;
+    for (const m of text.matchAll(LINK_RE)) {
+        if (m.index > last) out.push(text.slice(last, m.index));
+        const href = m[2] || m[3];
+        out.push(<a key={m.index} href={href} target="_blank" rel="noopener noreferrer">{m[1] || href}</a>);
+        last = m.index + m[0].length;
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+}
+
 /** Text mode lets the model send several "texts" in one reply by putting
  *  `[next]` on its own line between them (see the text-mode Surface prompt
  *  in session_service). The reply is stored as ONE row with the tags in it —
@@ -309,15 +327,24 @@ export default function Transcript({
     const toggleRow = (key) => setExpanded((e) => ({ ...e, [key]: !e[key] }));
     const renderAttachments = (msg) => msg.attachments && msg.attachments.length > 0 && (
         <div className="o_voice_msg_attachments">
-            {msg.attachments.map((att, attIdx) => (
-                <span
-                    key={`${att.xai_file_id}-${attIdx}`}
-                    className="o_voice_msg_attachment_chip"
-                    title={att.filename + (att.size_bytes ? ` (${att.size_bytes} bytes)` : "")}
-                >
-                    <i className="fa fa-paperclip" /> <span>{att.filename}</span>
-                </span>
-            ))}
+            {msg.attachments.map((att, attIdx) => {
+                const title = att.filename + (att.size_bytes ? ` (${att.size_bytes} bytes)` : "");
+                // A file with a library copy opens from the chat; an image
+                // shows a small preview.
+                return att.url ? (
+                    <a key={`${att.xai_file_id}-${attIdx}`} className="o_voice_msg_attachment_chip"
+                       href={att.url} target="_blank" rel="noreferrer" download={att.filename} title={title}>
+                        {(att.mimetype || "").startsWith("image/")
+                            ? <img className="o_voice_msg_attachment_thumb" src={att.url} alt="" />
+                            : <i className="fa fa-paperclip" />}
+                        {" "}<span>{att.filename}</span>
+                    </a>
+                ) : (
+                    <span key={`${att.xai_file_id}-${attIdx}`} className="o_voice_msg_attachment_chip" title={title}>
+                        <i className="fa fa-paperclip" /> <span>{att.filename}</span>
+                    </span>
+                );
+            })}
         </div>
     );
 
@@ -521,7 +548,7 @@ export default function Transcript({
                             agent's name — show it instead of the generic role
                             so three-way exchanges read clearly. */}
                         {!i && <div className="o_voice_msg_role">{fromCompanion ? msg.fold.name : (msg.speaker || msg.role)}</div>}
-                        <div className="o_voice_msg_content">{chunk}</div>
+                        <div className="o_voice_msg_content">{withLinks(chunk)}</div>
                         {i === chunks.length - 1 && renderAttachments(msg)}
                     </div>
                 ));

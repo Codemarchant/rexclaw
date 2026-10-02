@@ -26,3 +26,4 @@
 *.jpeg binary
 *.webp binary
 *.ico  binary
+*.onnx binary

@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, plugins, song_tools, store, text_to_vrma, turn_director, voicemail_tools
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
+from .pipeline import session as pipeline_session, setups as voice_setups
 
 _logger = logging.getLogger(__name__)
 
@@ -66,11 +67,15 @@ def preview_voice_prompt(con, agent_row):
     Mirrors the assembly in start_voice_session minus the group-call note,
     which is per-call."""
     config = get_config(con)
+    setup = voice_setups.for_agent(con, agent_row, config)
     return (
         _env_preamble(config)
         + _appearance_section(con, agent_row)
         + _render_prompt(agent_row)
-        + _env_postamble(con, agent_row, mode='voice', face=bool(config['face_director']))
+        + _env_postamble(con, agent_row, mode='voice', face=bool(config['face_director']),
+                         speech_tags=setup.speech_tags if setup else True,
+                         tag_guide=setup.tag_guide(agent_row) if setup else '',
+                         spoken_text=bool(setup and not setup.realtime))
     )
 
 
@@ -215,7 +220,7 @@ def _note_resume_affection(con, session, agent):
     ))
 
 
-def _env_preamble(config, stable=False):
+def _env_preamble(config, stable=False, clock_at_end=False):
     """Static environmental context prepended to every agent's system prompt.
 
     Small, static, foundational: the app surface, the user's local datetime
@@ -227,10 +232,18 @@ def _env_preamble(config, stable=False):
 
     `stable=True` masks the clock — the render used for prompt-change
     detection (text_prompt_stale), where a ticking value would make every
-    render differ.
+    render differ. `clock_at_end=True` points at a time note the caller adds
+    after the conversation instead (_brain_leg): a stateless brain resends
+    the prompt every leg, and a clock in its first lines would stop a local
+    server's prompt cache from reusing any of it.
     """
     now_local = datetime.now().astimezone()
-    now_str = '<now>' if stable else now_local.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')
+    if stable:
+        now_str = '<now>'
+    elif clock_at_end:
+        now_str = 'given in the latest time note in the conversation'
+    else:
+        now_str = now_local.strftime('%Y-%m-%d %H:%M:%S %Z (%z)')
     identity_line = ""
     if config['include_user_name_in_prompt'] and config['user_display_name']:
         identity_line = f"- **User name:** {config['user_display_name']!r}.\n"
@@ -276,7 +289,7 @@ def _tool_use_section(agent_row, mode):
         consumers.append('delegate_task')
     if agent_row['enable_local_tasks'] and local_tools.grok_available():
         consumers.append('local_task')
-    if agent_row['provider'] == 'grok' and agent_row['enable_grok_imagine_tools']:
+    if agent_row['enable_grok_imagine_tools']:
         consumers.append('create_video')
     if agent_row['enable_capture_tools'] and consumers:
         listed = ' and '.join(filter(None, [', '.join(consumers[:-1]), consumers[-1]]))
@@ -342,7 +355,8 @@ def _group_call_note(agent_row, group_peers, manual_turn):
     return ''.join(lines)
 
 
-def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=False):
+def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=False,
+                   speech_tags=True, tag_guide='', spoken_text=False):
     """Dynamic context appended AFTER the agent's system prompt.
 
     Memory grows over time and benefits from recency bias - sitting
@@ -351,6 +365,10 @@ def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=F
     The text-mode disclaimer overrides voice-tool references the system_prompt
     may contain, placed AFTER what it overrides. `face`: the face director
     runs this call (see start_session), which changes what set_emotion is for.
+    `speech_tags`: the call's voice renders Grok speech tags (False on a
+    pipeline whose text-to-speech engine can't). `tag_guide`: that engine's
+    own speech-tag section instead (setups.Setup.tag_guide). `spoken_text`: a pipeline
+    call, where a text model's reply is read out by a voice.
     """
     sections = [_tool_use_section(agent_row, mode)]
     if mode == 'text':
@@ -362,7 +380,9 @@ def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=F
             "`set_emotion`, `play_gesture`, an avatar, or vocal delivery "
             "through speech expression tags. Respond in text only."
             + (" (The one exception: a `create_voicemail` script is spoken, "
-               "so speech tags belong there.)" if agent_row['enable_voicemail'] else "")
+               "so speech tags belong there.)" if agent_row['enable_voicemail']
+               and (voicemail_tools.renders_tags(con, agent_row, get_config(con))
+                    or voicemail_tools.tag_guide(con, agent_row, get_config(con))) else "")
             + "\n"
             "- **Texting rhythm:** Texting comes in a few short messages "
             "more often than one long block - split a reply with `[next]` "
@@ -376,13 +396,30 @@ def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=F
             "special reason (😊 😅 🙄); most messages still carry none.\n"
         )
     else:
-        sections.append(
+        surface = (
             "## Surface\n"
             "- **Voice call:** This is a live spoken conversation - the user "
             "hears you and sees you as your 3D avatar on screen.\n"
         )
-    if (agent_row['provider'] == 'grok'
-            and agent_row['enable_grok_imagine_tools'] and agent_row['voice']
+        if spoken_text:
+            # Pipeline calls: a text model writes, a text-to-speech voice
+            # reads it verbatim. A speech-to-speech model never writes chat
+            # formatting; a text model does (a live test answered with
+            # bullet lists, citation links and a minute of speech), and it
+            # wrote a tool call into its reply as "[set_emotion: neutral]".
+            surface += (
+                "- **Your words are spoken:** A voice reads everything you "
+                "write, word for word. Write only what you would say out loud "
+                "- no lists, headings or emoji - and keep to "
+                "the length of a turn in a spoken conversation: when there is "
+                "more to tell, say the part that matters most and let the user "
+                "ask for the rest.\n"
+                "- **Tools are called, not written:** Use a tool only by "
+                "calling it. A tool's name or arguments written into your reply "
+                "would be read out loud.\n"
+            )
+        sections.append(surface)
+    if (agent_row['enable_grok_imagine_tools'] and agent_row['voice']
             and imagine_tools.video_reference_supported(get_config(con))):
         # create_video can put a spoken voice in the clip, chosen by id. The
         # agent has no other way to learn its own — the voice is applied to
@@ -407,7 +444,8 @@ def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=F
     # section — centralized so tuning happens once and user-created
     # companions inherit the behavior without template text.
     if mode == 'voice':
-        expression = _expression_section(con, agent_row, face=face)
+        expression = _expression_section(con, agent_row, face=face, speech_tags=speech_tags,
+                                         tag_guide=tag_guide)
         if expression:
             sections.append(expression)
         habits = _tool_habits_section(con, agent_row, solo=solo)
@@ -508,11 +546,13 @@ def _affection_section(agent_row, stable=False):
     )
 
 
-def _expression_section(con, agent_row, face=False):
+def _expression_section(con, agent_row, face=False, speech_tags=True, tag_guide=''):
     """Voice-surface expression guidance, injected centrally so it stays
     personality-agnostic and provider mechanics never live in companion
-    prompts. Speech expression tags are a Grok voice-API feature, so they
-    render only for grok-provider companions; the avatar emotion/gesture
+    prompts. Speech expression tags are a Grok voice feature, so they
+    render only when the call's voice is Grok's (`speech_tags`); a voice
+    with tags of its own gets its engine's section instead, as the
+    companion has it (`tag_guide`); the avatar emotion/gesture
     guidance is browser-side and provider-agnostic, gated only on the tools
     being enabled. HOW a companion uses any of it (register, frequency,
     which tags fit) is the author-editable *_style field's territory - each
@@ -523,7 +563,7 @@ def _expression_section(con, agent_row, face=False):
     # -> narration). Without that the model shows everything the cheapest
     # way - prose ("I giggle") - and the tags and avatar tools go unused.
     parts = []
-    if agent_row['provider'] == 'grok':
+    if speech_tags:
         block = (
             "## Speech expression tags\n"
             "You can mark up speech with tags that shape how a line is rendered. "
@@ -591,6 +631,8 @@ def _expression_section(con, agent_row, face=False):
                 f"for them:\n{style}"
             )
         parts.append(block)
+    elif tag_guide:
+        parts.append("## Speech expression tags\n" + tag_guide)
     # generate_gesture (text_to_vrma.py) has its own toggle and is only named
     # while the user's Text-To-VRMA app is answering — same gate as the tool.
     config = get_config(con)
@@ -760,7 +802,7 @@ def _tool_habits_section(con, agent_row, solo=True):
             "back\", \"I pace\") is a `move_around` call in that same turn. "
             "You keep talking while you walk.\n"
         )
-    if agent_row['provider'] == 'grok' and agent_row['enable_grok_imagine_tools']:
+    if agent_row['enable_grok_imagine_tools']:
         lines.append(
             "- When the conversation moves to a described location or scene, "
             "redecorate with `change_background` to match - no need to say "
@@ -1086,7 +1128,9 @@ def _voice_tools(con, agent, config, *, group_peers=None):
         # set (the library accepts captures regardless).
         tools.append(browser_tools.SELFIE_TOOL)
         tools.append(browser_tools.SCREENSHOT_TOOL)
-        tools.append(browser_tools.ANALYZE_SCREEN_TOOL)
+        # Analysis runs on Grok vision, or on a local brain that sees.
+        if config['xai_api_key'] or vision_brain(con, agent, config, 'voice'):
+            tools.append(browser_tools.ANALYZE_SCREEN_TOOL)
         tools.append(browser_tools.RECORD_SCREEN_CLIP_TOOL)
 
     native_function_tools = []
@@ -1101,16 +1145,20 @@ def _voice_tools(con, agent, config, *, group_peers=None):
     # Only offered when the Grok Build CLI is actually on PATH — in
     # Docker (or an uninstalled machine) the tool silently disappears.
     local_tasks = bool(agent['enable_local_tasks']) and local_tools.grok_available()
-    if agent['enable_delegate_tool']:
+    # Tools that run on the app's xAI key are left out without one — the
+    # same "only when actually usable" rule as local_task and Minecraft.
+    has_xai = bool(config['xai_api_key'])
+    if agent['enable_delegate_tool'] and (has_xai or delegate_brain(con, agent, config)):
         # Voice sessions are never origin='delegated', so no recursion
         # carve-out is needed here (the text-mode builder handles that).
         native_function_tools.append(
-            delegate_tools.delegate_tool(with_local_task_note=local_tasks))
+            delegate_tools.delegate_tool(with_local_task_note=local_tasks,
+                                         own_sandbox=brain_runs_code(con, agent, config, 'voice')))
     if local_tasks:
         native_function_tools.append(local_tools.LOCAL_TASK_TOOL)
     # Same "only when actually usable" rule as local_task: the pair appears
     # only while the bot sidecar is connected to /ws/minecraft.
-    if bool(agent['enable_minecraft']) and minecraft_tools.connected():
+    if bool(agent['enable_minecraft']) and minecraft_tools.connected() and minecraft_tools.brain_ready(con):
         native_function_tools.extend(minecraft_tools.build_tools())
     if agent['enable_companion_texting']:
         # Voice sessions are never origin='delegated' or mid-incoming-text,
@@ -1158,10 +1206,29 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     if not config['enabled']:
         raise UserError("Companions are currently disabled in Settings.")
 
+    # The companion's voice setup (server/pipeline/setups.py). A pipeline
+    # setup gets this server's realtime-compatible socket instead of xAI's,
+    # and needs an xAI key only when one of its engines runs on it. A
+    # speech-to-speech setup (setup.realtime) gets its provider's socket.
+    setup = voice_setups.for_agent(con, agent, config)
+    realtime = setup.realtime if setup else None
+    pipeline = setup is not None and realtime is None
+    needs_xai_key = setup.uses_xai_key if setup else True
     xai_key = config['xai_api_key']
-    if not xai_key:
-        raise UserError("xAI API key is not configured. Set it in Settings.")
-    voice_model = config['xai_model']
+    if needs_xai_key and not xai_key:
+        raise UserError(
+            "This companion's calls use xAI, and no xAI API key is set. Add one in "
+            "Settings, or pick a voice setup that runs on another provider or local models "
+            "(Settings → Models & providers, then this companion's Voice setup)." if setup is None else
+            f'The voice setup "{setup.name}" uses xAI for a stage, and no xAI API key is '
+            "set. Add one in Settings, or switch that stage to another connection.")
+    # A voice with no account-wide default (ElevenLabs) can't speak without one:
+    # say where to set it rather than failing on every sentence of the call.
+    if pipeline and setup.stages['tts'][0].needs_voice and not setup.voice_for(agent):
+        raise UserError(f'{agent["name"]} has no {setup.stages["tts"][0].label} voice yet: set their voice '
+                        f'on the Companions tab, or the voice setup\'s default voice in Settings → '
+                        f'Models & providers.')
+    voice_model = 'pipeline' if pipeline else (realtime[1].get('model') if realtime else config['xai_model'])
 
     if resume_session:
         session_id = resume_session['id']
@@ -1209,22 +1276,33 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     # is deleted below.
     con.commit()
 
-    # Mint the ephemeral xAI token (the browser uses it to open the WebSocket).
-    try:
-        xai_resp = xai_client.mint_ephemeral_token(
-            xai_api_key=xai_key,
-            client_secrets_url=config['xai_client_secrets_url'],
-            expires_after_seconds=3600,
-        )
-    except Exception:
-        # Roll back ONLY a freshly-created session — never delete a session we
-        # were resuming. For resume, leave it in 'draft' for a retry.
-        if not resume_session:
-            con.execute("DELETE FROM sessions WHERE id = ?", (session['id'],))
-            con.commit()
-        raise
+    # Mint the ephemeral xAI token (the browser uses it to open the WebSocket)
+    # — or, on the pipeline, a one-use grant for this server's own socket.
+    if pipeline:
+        xai_resp = {'token': pipeline_session.mint_grant(session['id'], setup.id)}
+        realtime_url = '/api/voice/pipeline'
+    else:
+        try:
+            if realtime:
+                xai_resp = realtime[0].mint(realtime[1])
+            else:
+                xai_resp = xai_client.mint_ephemeral_token(
+                    xai_api_key=xai_key,
+                    client_secrets_url=config['xai_client_secrets_url'],
+                    expires_after_seconds=3600,
+                )
+        except Exception:
+            # Roll back ONLY a freshly-created session — never delete a session we
+            # were resuming. For resume, leave it in 'draft' for a retry.
+            if not resume_session:
+                con.execute("DELETE FROM sessions WHERE id = ?", (session['id'],))
+                con.commit()
+            raise
+        realtime_url = xai_resp['url'] if realtime else config['xai_realtime_url']
+    if realtime and realtime[0].rate:
+        audio_sample_rate = realtime[0].rate   # the browser reopens its mic at this rate
 
-    effective_voice = agent['voice']
+    effective_voice = setup.voice_for(agent) if setup else agent['voice']
     # Speaking pace, xAI's audio.output.speed. Clamped here, at the point of
     # use: an imported companion package writes the column as-is.
     try:
@@ -1253,7 +1331,10 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
             + _appearance_section(con, agent)
             + _render_prompt(agent)
             + _group_call_note(agent, group_peers, manual_turn)
-            + _env_postamble(con, agent, mode='voice', solo=not group_peers, face=face_on)
+            + _env_postamble(con, agent, mode='voice', solo=not group_peers, face=face_on,
+                             speech_tags=setup.speech_tags if setup else True,
+                             tag_guide=setup.tag_guide(agent) if setup else '',
+                             spoken_text=pipeline)
         ),
         browser_tools=tools,
         mcp_entries=mcp_entries,
@@ -1264,6 +1345,13 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         manual_turn=manual_turn,
         stream_transcription=live_memory_mode == 'on' or (face_on and bool(config['typesafe_api_key'])),
     )
+    if pipeline and brain_runs_code(con, agent, config, 'voice'):
+        # A setup brain with a code sandbox runs code on calls too; Grok
+        # Realtime has no code tool, so the realtime-shaped update has none.
+        session_update['session']['tools'].append({'type': 'code_interpreter'})
+    if realtime:
+        session_update = realtime[0].session_update(session_update, realtime[1], voice=effective_voice,
+                                                    keyterms=keyterms, manual_turn=manual_turn)
 
     if resume_session and not call_parent_session:
         _note_resume_gap(con, session, agent)
@@ -1280,7 +1368,10 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     transcript_history = []
     transcript_truncated = False
     if resume_session:
-        replay_items = _build_replay_items(con, session, config)
+        replay_items = _build_replay_items(con, session, config, rollup=not pipeline)
+        if realtime:
+            replay_items = realtime[0].wire_items(replay_items, tool_names={
+                t['name'] for t in session_update['session']['tools'] if t.get('type') == 'function'})
         transcript_history, transcript_truncated = _build_transcript_history(
             con, session, limit=config['transcript_display_limit'] or 0,
         )
@@ -1340,8 +1431,12 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         'agent_id': agent['id'],
         'agent_name': agent['name'],
         'xai_ephemeral_token': xai_resp['token'],
-        'xai_realtime_url': config['xai_realtime_url'],
+        'xai_realtime_url': realtime_url,
         'xai_model': voice_model,
+        # Which provider's dialect the socket speaks, and the audio rate it
+        # needs (None = any): agent_connection.js adapts to both.
+        'protocol': realtime[0].protocol if realtime else 'xai',
+        'audio_sample_rate': realtime[0].rate if realtime else None,
         'voice': effective_voice,
         'session_update': session_update,
         'live_memory_mode': live_memory_mode,
@@ -1370,7 +1465,18 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         'transcript_truncated': transcript_truncated,
         'total_input_tokens': session['total_input_tokens'] or 0,
         'total_output_tokens': session['total_output_tokens'] or 0,
-        'summary_threshold_tokens': config['summary_threshold_tokens'] or 0,
+        # A setup's brain summarises at its own size, flagged by the server:
+        # the meter shows the last request's size against it ('request'),
+        # updated by the pipeline after every reply. Realtime: tokens spent
+        # since the last summary against Settings' Grok budget ('total').
+        # A speech-to-speech setup measures its replies the same way against
+        # its own 'Summarise at', reported from the browser (append_messages).
+        'budget': 'request' if setup else 'total',
+        'summary_threshold_tokens': (_request_budget(realtime or setup.stages['llm']) if setup
+                                     else config['summary_threshold_tokens'] or 0),
+        'context_tokens': (session['context_tokens'] or _estimate_request_tokens(
+            con, agent, 'voice', replay_items, session_update['session'].get('instructions') or ''))
+        if setup else 0,
         'tokens_at_last_summary': session['tokens_at_last_summary'] or 0,
         # A resume can land on a session whose compaction is already owed
         # (flagged earlier, then failed or interrupted). Only /append used to
@@ -1380,7 +1486,10 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # Idle auto-hangup budget (minutes, 0 = off). The browser owns the
         # clock — it is the side that knows when anyone last spoke, typed or
         # ran a tool — so the setting rides along with the session start.
-        'call_inactivity_minutes': config['call_inactivity_minutes'] or 0,
+        # Grok Realtime only: it bills every connected minute. A voice-setup
+        # call costs little or nothing while quiet (OpenAI Realtime bills
+        # tokens, not minutes), so it stays up.
+        'call_inactivity_minutes': 0 if setup else config['call_inactivity_minutes'] or 0,
         # Idle events: the usable events plus the quiet-time range and the
         # unanswered cap (None = off). The browser runs the clock, same
         # reasoning as above - see web/src/lib/idle_events.js.
@@ -1501,7 +1610,7 @@ def _render_history_block(msgs, own_name):
     )
 
 
-def _build_replay_items(con, session, config=None):
+def _build_replay_items(con, session, config=None, rollup=True):
     """Ordered conversation.item.create payloads for resuming a session.
 
     Filters out messages rolled up into a summary; the summary message itself
@@ -1514,6 +1623,12 @@ def _build_replay_items(con, session, config=None):
     `replay_rollup_keep_recent` messages is folded into ONE verbatim item, so
     the resume is billed for a handful of items instead of hundreds. Off,
     every message replays as its own item.
+
+    `rollup=False` (the pipeline voice engine) always replays item by item:
+    the per-item charge is a realtime-API cost the pipeline doesn't have,
+    and a text model reading the folded block imitates it — tool calls
+    rendered there as prose ("(Eve used play_gesture with …)") came back as
+    spoken text ("play_gesture with gesture is spin") instead of calls.
     """
     config = config if config is not None else get_config(con)
     msgs = store.session_messages(con, session['id'], where="AND is_summarized_into IS NULL")
@@ -1521,7 +1636,7 @@ def _build_replay_items(con, session, config=None):
     others = [m for m in msgs if not m['is_summary_rollup']]
     own_name = store.get_agent(con, session['agent_id'])['name'] or ''
 
-    if config['replay_rollup_enabled']:
+    if config['replay_rollup_enabled'] and rollup:
         keep = max(0, config['replay_rollup_keep_recent'] or 0)
         tail = others[-keep:] if keep else []
         head = rollups + others[:len(others) - len(tail)]
@@ -1641,13 +1756,16 @@ def _build_transcript_history(con, session, limit=None):
     return items, truncated
 
 
-def append_messages(con, session, messages, total_input_tokens=None, total_output_tokens=None):
+def append_messages(con, session, messages, total_input_tokens=None, total_output_tokens=None,
+                    context_tokens=None):
     """Bulk-create message rows + persist running token totals.
 
     The browser sends running totals (not deltas) on every flush; persistence
     rule is "write whichever is larger" - idempotent against retries and
     tolerant of out-of-order RPCs. After persisting, re-evaluate the summary
-    threshold using token pressure since the last rollup.
+    threshold using token pressure since the last rollup. `context_tokens`:
+    the last reply's size on a speech-to-speech call, measured against its
+    model's 'Summarise at' (_measure_request).
     """
     if session['state'] != 'active':
         raise ValidationError("Cannot append to a session that is not active.")
@@ -1682,7 +1800,14 @@ def append_messages(con, session, messages, total_input_tokens=None, total_outpu
     session = store.get_session(con, session['id'])
 
     config = get_config(con)
-    if session['mode'] == 'text':
+    if context_tokens:
+        realtime = _call_realtime(con, session, config)
+        if realtime:
+            _measure_request(con, session, realtime, {'input_tokens': int(context_tokens)})
+            session = store.get_session(con, session['id'])
+    if _on_setup_budget(con, session, config):
+        threshold_tokens = 0   # the setup's brain flags it (setups.context_full)
+    elif session['mode'] == 'text':
         threshold_tokens = config['summary_threshold_tokens_text'] or 0
     else:
         threshold_tokens = config['summary_threshold_tokens'] or 0
@@ -1874,12 +1999,18 @@ def maybe_generate_session_title(con, session):
             f'Assistant: {(assistant_row["content"] or "").strip()}'
         )
         config = get_config(con)
+        # The caller's rows go in now: holding them in an open transaction
+        # through the title request (a local model can take a while) would
+        # make every other writer wait — a voice call's request-size write
+        # among them.
+        con.commit()
         try:
             title, usage = xai_client.generate_title(
                 xai_api_key=config['xai_api_key'],
                 responses_url=config['xai_responses_url'],
                 summary_model=config['summary_model'],
                 transcript=transcript,
+                complete=_background_complete(con, session, config),
             )
         except Exception:
             _logger.exception('Auto-title generation failed for session %s', session['id'])
@@ -1947,6 +2078,7 @@ def _extract_and_store_memories(con, session, config, to_summarize, transcript):
         existing_core=existing_core,
         known_tags=memory_tools.known_tags(con),
         reasoning_effort=None,
+        complete=_background_complete(con, session, config),
     )
     store.accrue_usd_ticks(con, store.extract_cost_ticks(usage))
     if not parsed:
@@ -1990,8 +2122,16 @@ def generate_session_summary(con, session):
             (session['id'],),
         ).fetchall()
 
+        # Nothing old enough to absorb. On a setup brain the request that
+        # asked for this summary is then all prompt, tools and the kept
+        # turns, so its size becomes the floor (setups.context_full) —
+        # else every reply would ask again.
+        nothing_absorbed = {'needs_summary': 0}
+        if session['context_tokens']:
+            nothing_absorbed['context_floor'] = session['context_tokens']
+
         if keep_recent and len(user_assistant_rows) <= keep_recent:
-            store.update_session(con, session['id'], needs_summary=0)
+            store.update_session(con, session['id'], **nothing_absorbed)
             return None
 
         cutoff_sequence = None
@@ -2013,7 +2153,7 @@ def generate_session_summary(con, session):
         to_summarize = con.execute(q, params).fetchall()
 
         if not to_summarize:
-            store.update_session(con, session['id'], needs_summary=0)
+            store.update_session(con, session['id'], **nothing_absorbed)
             return None
 
         prior_rollup = con.execute(
@@ -2065,11 +2205,13 @@ def generate_session_summary(con, session):
         # the older text untouched; once it passes summary_consolidate_words
         # one pass rewrites the whole thing under summary_max_words (see
         # the config schema comment for the sources).
-        max_words = config['summary_max_words'] or 0
+        # A session on a voice setup's brain uses that brain's limits
+        # (engines.conversation_fields); the rest use Settings'.
+        brain = _session_brain(con, session, config)
+        max_words, consolidate_words = voice_setups.summary_limits(brain[1] if brain else None, config)
         update_only = bool(
             max_words and prior_rollup
-            and _approx_words(prior_rollup['content'])
-            < (config['summary_consolidate_words'] or 0))
+            and _approx_words(prior_rollup['content']) < consolidate_words)
         summary_text, summary_usage = xai_client.generate_summary(
             xai_api_key=config['xai_api_key'],
             responses_url=config['xai_responses_url'],
@@ -2078,6 +2220,7 @@ def generate_session_summary(con, session):
             reasoning_effort=None,
             max_words=max_words,
             update_only=update_only,
+            complete=_background_complete(con, session, config),
         )
         store.accrue_usd_ticks(con, store.extract_cost_ticks(summary_usage))
         if update_only:
@@ -2111,6 +2254,8 @@ def generate_session_summary(con, session):
             summary=summary_text,
             needs_summary=0,
             tokens_at_last_summary=current_total,
+            context_tokens=0,
+            context_floor=-1,   # the next request measures it
         )
 
         # Commit the finished rollup before extraction: extraction is another
@@ -2237,12 +2382,18 @@ def speech_gesture_select(con, *, session, line, recent_ids=(), words=None):
 
 def _gesture_pick_grok(con, config, *, session, line, candidates, recent, just_played, words):
     """The director model reads the whole library as prompt text and names
-    an id. Returns (gesture, word, word_index, ticks, failure_reason)."""
+    an id - or, without an xAI key, the companion's own provider on its
+    quick model (_provider_side_complete). Returns (gesture, word,
+    word_index, ticks, failure_reason)."""
     xai_key = config['xai_api_key']
     model = config['director_model'] or config['text_model'] or config['summary_model']
+    complete = None
     if not xai_key or not model:
-        return None, None, None, 0, 'no_model_configured'
+        complete = _provider_side_complete(con, session['agent_id'], config, 'gesture')
+        if complete is None:
+            return None, None, None, 0, 'no_model_configured'
     gesture, word, usage = xai_client.select_speech_gesture(
+        complete=complete,
         xai_api_key=xai_key,
         responses_url=config['xai_responses_url'],
         model=model,
@@ -2385,12 +2536,13 @@ def director_decide(con, *, session, transcript_lines, participants, user_name=N
     # pays the director on every single turn — after each user utterance
     # AND each agent turn — so it is the one place where the difference
     # between a ~250 ms read and a ~1.5 s one is dead air between speakers.
-    # No key keeps the director model.
+    # No key keeps the director model, or the companion's own provider
+    # without an xAI key.
     if config['typesafe_api_key']:
         return _director_jev(con, config, user_name=clean_user, participants=clean_participants,
                              lines=clean_lines, floor_key=clean_floor)
-    return _director_grok(con, config, user_name=clean_user, participants=clean_participants,
-                          lines=clean_lines, floor_key=clean_floor)
+    return _director_grok(con, config, agent_id=session['agent_id'], user_name=clean_user,
+                          participants=clean_participants, lines=clean_lines, floor_key=clean_floor)
 
 
 def _director_jev(con, config, *, user_name, participants, lines, floor_key):
@@ -2419,14 +2571,20 @@ def _director_jev(con, config, *, user_name, participants, lines, floor_key):
     return {'next': decision}
 
 
-def _director_grok(con, config, *, user_name, participants, lines, floor_key):
-    """The director model reads the rules as prose and names one token."""
+def _director_grok(con, config, *, agent_id, user_name, participants, lines, floor_key):
+    """The director model reads the rules as prose and names one token -
+    or, without an xAI key, the companion's own provider on its quick
+    model (_provider_side_complete)."""
     xai_key = config['xai_api_key']
     model = config['director_model'] or config['text_model'] or config['summary_model']
+    complete = None
     if not xai_key or not model:
-        return {'next': None}
+        complete = _provider_side_complete(con, agent_id, config, 'director')
+        if complete is None:
+            return {'next': None}
     try:
         decision, usage = xai_client.decide_next_speaker(
+            complete=complete,
             xai_api_key=xai_key,
             responses_url=config['xai_responses_url'],
             model=model,
@@ -2489,6 +2647,9 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
     plugin_origin is the session origin extension tools are offered for;
     None offers none."""
     tools = []
+    # Tools that run on the app's xAI key are left out without one (see
+    # _voice_tools).
+    has_xai = bool(get_config(con)['xai_api_key'])
     for entry in mcp_entries or []:
         tools.append(entry)
     if enable_grok_imagine_tools:
@@ -2498,7 +2659,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         # source_images (uploads are ingested into the Imagine library).
         for entry in imagine_tools.build_text_tools(con, agent):
             tools.append(entry)
-    if enable_voicemail:
+    if enable_voicemail and voicemail_tools.available(con, agent, get_config(con)):
         # Text only: see voicemail_tools for why voice calls go without it.
         tools.append(voicemail_tools.build_tool(con, agent))
     if agent['enable_capture_tools']:
@@ -2508,7 +2669,8 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         # TEXT_BROWSER_TOOL_NAMES), so they need one.
         if enable_browser_tools:
             for shared_tool in (browser_tools.SCREENSHOT_TOOL,
-                                browser_tools.ANALYZE_SCREEN_TOOL,
+                                *([browser_tools.ANALYZE_SCREEN_TOOL]
+                                  if has_xai or vision_brain(con, agent, get_config(con), 'text') else []),
                                 browser_tools.RECORD_SCREEN_CLIP_TOOL):
                 tools.append({
                     'type': 'function',
@@ -2525,11 +2687,20 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         for entry in affection_tools.build_tools(agent):
             tools.append(entry)
     local_tasks = enable_local_tasks and local_tools.grok_available()
-    if enable_delegate_tool:
-        tools.append(delegate_tools.delegate_tool(with_local_task_note=local_tasks))
+    config = get_config(con)
+    if enable_delegate_tool and (has_xai or delegate_brain(con, agent, config)):
+        # A text brain that reads attachments or runs code itself (a setup's
+        # Claude or OpenAI brain) isn't told it can't, so it doesn't hand
+        # those to delegate_task.
+        brain = voice_setups.text_brain_for(con, agent, config)
+        sees = (brain is not None and not brain[0].uses_xai_key
+                and bool(brain[1].get('vision') or brain[0].file_types(brain[1])))
+        tools.append(delegate_tools.delegate_tool(
+            with_local_task_note=local_tasks, sees_files=sees,
+            own_sandbox=enable_code_execution and brain_runs_code(con, agent, config, 'text')))
     if local_tasks:
         tools.append(local_tools.LOCAL_TASK_TOOL)
-    if enable_minecraft and minecraft_tools.connected():
+    if enable_minecraft and minecraft_tools.connected() and minecraft_tools.brain_ready(con):
         tools.extend(minecraft_tools.build_tools())
     if enable_companion_texting:
         text_tool = companion_texting.build_text_companion_tool(
@@ -2549,7 +2720,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
     return tools
 
 
-def _text_input_items_from_rows(con, session, rows):
+def _text_input_items_from_rows(con, session, rows, structured_tools=False, attach_to=(), part_for=None):
     """Convert message rows into Responses-API `input` items.
 
     Shared by the fresh-chain full replay (_replay_text_messages) and the
@@ -2566,6 +2737,17 @@ def _text_input_items_from_rows(con, session, rows):
     Group-call attribution mirrors _build_replay_items: assistant rows spoken
     by ANOTHER participant replay as speaker-labelled user-side lines so the
     model never mistakes a peer's words for its own.
+
+    `structured_tools` (a companion whose text chat runs on its voice
+    setup's brain — every leg replays the whole conversation, no stored
+    chain): tool rows with a call id replay as function_call /
+    function_call_output items instead, which that path's engines accept
+    and pair up themselves. A text model shown tool traffic as notes
+    starts writing its calls as notes too.
+
+    `part_for(imagine_image_id)` (that path too) turns an attached file
+    into a content part the brain reads; only messages in `attach_to` get
+    them (_brain_text_items: the last FILE_TURNS user messages).
     """
     own_name = store.get_agent(con, session['agent_id'])['name'] or ''
     items = []
@@ -2594,33 +2776,65 @@ def _text_input_items_from_rows(con, session, rows):
                     f'({_label(a)})'
                     for a in lib_atts
                 )
+                # A recent message's files themselves, for a brain that
+                # reads them (attachment_part).
+                shown, sandboxed = [], []
+                if part_for is not None and m['id'] in attach_to:
+                    for a in lib_atts:
+                        part = part_for(a['imagine_image_id'])
+                        if part:
+                            content.append(part)
+                            (sandboxed if part.get('sandbox') else shown).append(f'"{a["filename"]}"')
+                # Files included here are the brain's to read itself; told
+                # only to delegate them, Claude passed a photo it could see
+                # to delegate_task (2026-10-02).
+                here = ''.join((
+                    f' Included in this message: {", ".join(shown)} - read them yourself.' if shown else '',
+                    f' In your code execution sandbox: {", ".join(sandboxed)} - open them there.'
+                    if sandboxed else ''))
                 content.append({'type': 'input_text', 'text': (
                     f'[User attached file(s), saved in the files library: '
-                    f'{refs}. Images: pass the imagine_image_id to '
+                    f'{refs}.{here} Images: pass the imagine_image_id to '
                     f'create_image source_images to edit, or create_video '
                     f'source_image/reference_images to animate. Videos: pass '
                     f'it as create_video edit_video to modify or extend_video '
-                    f'to continue. Any file: pass the imagine_image_id to '
+                    f'to continue. Any file{" not included here" if shown or sandboxed else ""}: '
+                    f'pass the imagine_image_id to '
                     f'delegate_task files to read/analyze it - these refs '
                     f'stay valid even though the original upload has '
                     f'expired.]'
                 )})
             items.append({'role': 'user', 'content': content})
         elif m['role'] == 'assistant':
-            if not text:
+            # Files the companion's code sandbox made with this reply
+            # (_save_brain_files), by library id like the user's uploads.
+            made = [a for a in store.attachments_for_message(con, m['id']) if a['imagine_image_id']] \
+                if structured_tools else []
+            if not text and not made:
                 continue
-            if m['speaker'] and m['speaker'] != own_name:
+            if text and m['speaker'] and m['speaker'] != own_name:
                 items.append({
                     'role': 'user',
                     'content': [{'type': 'input_text',
                                  'text': f'[{m["speaker"]}]: {text}'}],
                 })
-            else:
+            elif text:
                 items.append({'role': 'assistant', 'content': [{'type': 'output_text', 'text': text}]})
+            if made:
+                refs = '; '.join(f'"{a["filename"]}" = imagine_image_id {a["imagine_image_id"]}' for a in made)
+                items.append({'role': 'system', 'content': [{'type': 'input_text', 'text': (
+                    f'[Files from your code sandbox, shown to the user and saved in the files library: {refs}]')}]})
         elif m['role'] == 'system':
             if not text:
                 continue
             items.append({'role': 'system', 'content': [{'type': 'input_text', 'text': text}]})
+        elif structured_tools and m['role'] == 'tool_call' and m['xai_call_id']:
+            items.append({'type': 'function_call', 'call_id': m['xai_call_id'],
+                          'name': m['tool_name'] or '', 'arguments': m['tool_arguments_json'] or '{}'})
+        elif structured_tools and m['role'] == 'tool_result' and m['xai_call_id']:
+            items.append({'type': 'function_call_output', 'call_id': m['xai_call_id'],
+                          'name': m['tool_name'] or '',
+                          'output': _truncate_for_summary(m['tool_result_json'] or text)})
         elif m['role'] == 'tool_call':
             args = _truncate_for_summary(m['tool_arguments_json'] or text)
             items.append({
@@ -2656,6 +2870,342 @@ def _replay_text_messages(con, session, exclude_ids=None):
     rollups = [m for m in rows if m['is_summary_rollup']]
     others = [m for m in rows if not m['is_summary_rollup']]
     return _text_input_items_from_rows(con, session, rollups + others)
+
+
+# How long an attached file rides along: on its message while that is one
+# of the last FILE_TURNS user messages, then as its text ref only. A file
+# costs its full size in every request it is in - sent inline or named by a
+# Files API id alike - and the replies after it already say what it held;
+# the ref keeps it reachable (delegate_task, the Imagine tools). A design
+# pick, not a sourced number.
+FILE_TURNS = 3
+IMAGE_MAX_SIDE = 1280   # px, longest side, before encoding for a local brain
+# A text file goes to a brain as text up to this many characters (~12k
+# tokens), the cut said in the text.
+TEXT_FILE_MAX_CHARS = 50_000
+_TEXT_FILE_TYPES = ('application/json', 'application/xml', 'application/x-yaml', 'application/yaml',
+                    'application/javascript', 'application/x-sh', 'application/sql', 'application/toml')
+_TEXT_FILE_EXTS = ('.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.jsonl', '.xml', '.yaml', '.yml',
+                   '.toml', '.ini', '.cfg', '.log', '.html', '.htm', '.css', '.js', '.ts', '.jsx', '.tsx',
+                   '.py', '.java', '.c', '.h', '.cpp', '.cs', '.go', '.rs', '.rb', '.php', '.sh', '.sql', '.srt')
+
+
+def _image_jpeg(path):
+    """An image file as JPEG bytes scaled to IMAGE_MAX_SIDE, or None."""
+    import io
+    from PIL import Image
+    try:
+        with Image.open(path) as im:
+            im = im.convert('RGB')
+            im.thumbnail((IMAGE_MAX_SIDE, IMAGE_MAX_SIDE))
+            buf = io.BytesIO()
+            im.save(buf, 'JPEG', quality=85)
+    except (OSError, ValueError):
+        return None
+    return buf.getvalue()
+
+
+def _brain_file_id(con, brain, imagine_image_id, filename, data, mimetype):
+    """The brain provider's Files API id for a library file (uploaded once
+    per provider account, reused until it expires - brain_files), or None
+    when the brain's engine has no Files API. Upload errors raise."""
+    import hashlib
+    cls, settings = brain
+    account = hashlib.sha256('|'.join((cls.id, settings.get('base_url') or '', settings.get('api_key') or ''))
+                             .encode('utf-8')).hexdigest()[:16]
+    cached = con.execute('SELECT file_id, expires_at FROM brain_files WHERE imagine_image_id = ? AND account = ?',
+                         (imagine_image_id, account)).fetchone()
+    margin = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5)).isoformat(timespec='seconds')
+    if cached and (not cached['expires_at'] or cached['expires_at'] > margin):
+        return cached['file_id']
+    uploaded = cls.upload_file(settings, filename=filename, data=data, mimetype=mimetype,
+                               expires_seconds=get_config(con)['file_default_expiry_seconds'] or 0)
+    if uploaded is None:
+        return None
+    con.execute('INSERT OR REPLACE INTO brain_files (imagine_image_id, account, file_id, expires_at) '
+                'VALUES (?, ?, ?, ?)', (imagine_image_id, account, *uploaded))
+    con.commit()   # text chat holds no write lock across the brain request
+    return uploaded[0]
+
+
+def attachment_part(con, imagine_image_id, brain, sandbox=False):
+    """A library file as a content part for a voice-setup brain, or None
+    (its text ref is all the brain gets):
+      - an image, to a brain that sees: by Files API id where the engine
+        has one (OpenAI, Claude), else inline, scaled to IMAGE_MAX_SIDE;
+      - a file type the brain reads (LlmEngine.file_types: PDFs, Office
+        documents on OpenAI): by Files API id, else inline;
+      - a text file, to any brain: its text, up to TEXT_FILE_MAX_CHARS;
+      - with `sandbox` (the brain's code execution is on), any other file
+        its sandbox takes (LlmEngine.sandbox_accepts - Claude: any, OpenAI:
+        its listed types), and a text file too long to send whole:
+        uploaded into the code sandbox to open there.
+    A failed upload leaves the file as its ref."""
+    import base64
+    cls, settings = brain
+    row = con.execute('SELECT name, image_path, mimetype FROM imagine_images WHERE id = ?',
+                      (imagine_image_id,)).fetchone()
+    if not row or not row['image_path']:
+        return None
+    path = FILES_DIR / row['image_path'].rsplit('/', 1)[-1]
+    name = row['name'] or path.name
+    mimetype = row['mimetype'] or ''
+    try:
+        if mimetype.startswith('image/'):
+            if not settings.get('vision'):
+                return None
+            data = _image_jpeg(path)
+            if data is None:
+                return None
+            file_id = _brain_file_id(con, brain, imagine_image_id, f'{name.rsplit(".", 1)[0]}.jpg', data,
+                                     'image/jpeg')
+            return ({'type': 'input_image', 'file_id': file_id} if file_id else
+                    {'type': 'input_image', 'image_url': 'data:image/jpeg;base64,' + base64.b64encode(data).decode('ascii')})
+        if mimetype in cls.file_types(settings):
+            data = path.read_bytes()
+            file_id = _brain_file_id(con, brain, imagine_image_id, name, data, mimetype)
+            return ({'type': 'input_file', 'file_id': file_id, 'filename': name} if file_id else
+                    {'type': 'input_file', 'filename': name,
+                     'file_data': f'data:{mimetype};base64,' + base64.b64encode(data).decode('ascii')})
+        sandbox = sandbox and cls.sandbox_accepts(settings, name)
+        if mimetype.startswith('text/') or mimetype in _TEXT_FILE_TYPES \
+                or name.lower().endswith(_TEXT_FILE_EXTS):
+            data = path.read_bytes()
+            text = data.decode('utf-8', 'replace')
+            if len(text) <= TEXT_FILE_MAX_CHARS or not sandbox:
+                cut = (f', the first {TEXT_FILE_MAX_CHARS:,} of {len(text):,} characters'
+                       if len(text) > TEXT_FILE_MAX_CHARS else '')
+                return {'type': 'input_text', 'text': f'\n\n[Contents of "{name}"{cut}]\n{text[:TEXT_FILE_MAX_CHARS]}'}
+        elif sandbox:
+            data = path.read_bytes()
+        else:
+            return None
+        file_id = _brain_file_id(con, brain, imagine_image_id, name, data, mimetype or 'application/octet-stream')
+        return {'type': 'input_file', 'file_id': file_id, 'filename': name, 'sandbox': True} if file_id else None
+    except OSError:
+        return None
+    except Exception:
+        _logger.warning('Could not upload %r for the %s brain; it stays a reference', name, cls.label,
+                        exc_info=True)
+    return None
+
+
+def _brain_text_items(con, session, brain=None, sandbox=False):
+    """The whole conversation for one leg on a voice-setup brain (see
+    _brain_leg): every row not rolled into a summary, summaries first, tool
+    traffic as structured pairs. With the `brain` it is for, the files of
+    the last FILE_TURNS user messages go along as the brain reads them
+    (attachment_part; `sandbox`: its code execution is on); without one (a
+    size estimate), refs only."""
+    rows = con.execute("SELECT * FROM messages WHERE session_id = ? AND is_summarized_into IS NULL "
+                       "ORDER BY sequence ASC, id ASC", (session['id'],)).fetchall()
+    rollups = [m for m in rows if m['is_summary_rollup']]
+    others = [m for m in rows if not m['is_summary_rollup']]
+    recent = {m['id'] for m in [m for m in others if m['role'] == 'user'][-FILE_TURNS:]}
+    return _text_input_items_from_rows(
+        con, session, rollups + others, structured_tools=True, attach_to=recent,
+        part_for=(lambda imagine_image_id: attachment_part(con, imagine_image_id, brain, sandbox))
+        if brain else None)
+
+
+def _run_brain(brain, config, *, instructions, items, tools=(), conversation_key='rexclaw'):
+    """One request to a voice-setup brain (a non-xAI engine: Ollama, LM
+    Studio, any OpenAI-compatible server, Claude), run to the end from sync
+    code: (reply text with any <think> block removed, output items - the
+    function calls to run, the MCP calls the provider already ran and the
+    files its code sandbox made ('brain_file') -, usage). A provider search loop past the limit raises
+    xai_client.SearchLimitExceeded, as on xAI."""
+    import asyncio
+    import concurrent.futures
+    from .pipeline.llm import SearchLimit
+    from .pipeline.text import ThinkFilter
+    cls, settings = brain
+
+    async def run():
+        engine = cls(settings, config)
+        text, calls, usage = [], [], {}
+        try:
+            async for ev in engine.stream(instructions=instructions, items=items, tools=list(tools),
+                                          conversation_key=conversation_key):
+                if ev[0] == 'text':
+                    text.append(ev[1])
+                elif ev[0] == 'tool_call':
+                    calls.append({'type': 'function_call', 'call_id': ev[1], 'name': ev[2],
+                                  'arguments': ev[3]})
+                elif ev[0] == 'hosted_call':
+                    calls.append(ev[1])
+                elif ev[0] == 'file':
+                    calls.append({'type': 'brain_file', 'file_id': ev[1]})
+                elif ev[0] == 'usage':
+                    usage = ev[1] or {}
+        except SearchLimit as e:
+            raise xai_client.SearchLimitExceeded(str(e)) from e
+        finally:
+            await engine.close()
+        return ''.join(text), calls, usage
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        reply, calls, usage = asyncio.run(run())
+    else:   # called from a thread that runs an event loop: give it its own
+        with concurrent.futures.ThreadPoolExecutor(1) as pool:
+            reply, calls, usage = pool.submit(asyncio.run, run()).result()
+    think = ThinkFilter()   # a local reasoning model's <think> block
+    return (think.feed(reply) + think.flush()).strip(), calls, usage
+
+
+def _save_brain_files(con, session, agent, brain, file_ids):
+    """Files a setup brain's code sandbox made (Claude's $OUTPUT_DIR),
+    downloaded from the provider into the files library (kind
+    'code_output'), as attachments for the reply: the user opens them from
+    the chat, and later turns can hand them to the Imagine tools or
+    delegate_task by imagine_image_id like an upload. One that fails to
+    download is logged and skipped."""
+    cls, settings = brain
+    out = []
+    for file_id in file_ids:
+        try:
+            filename, data, mimetype = cls.download_file(settings, file_id)
+        except Exception:
+            _logger.warning('Could not download %s from the %s brain', file_id, cls.label, exc_info=True)
+            continue
+        name = (filename or 'file').replace('\\', '/').rsplit('/', 1)[-1].replace('\n', ' ')[:120] or 'file'
+        ext = ('.' + name.rsplit('.', 1)[1].lower()) if '.' in name else (mimetypes.guess_extension(mimetype) or '')
+        fname = f'imagine_{uuid.uuid4().hex}{ext}'
+        (FILES_DIR / fname).write_bytes(data)
+        row_id = con.execute(
+            "INSERT INTO imagine_images (name, agent_id, session_id, kind, prompt, image_path, mimetype, created_at) "
+            "VALUES (?, ?, ?, 'code_output', ?, ?, ?, ?)",
+            (name, agent['id'], session['id'], name, f'/files/{fname}', mimetype, utcnow())).lastrowid
+        out.append({'xai_file_id': f'{LOCAL_FILE_PREFIX}{file_id}', 'filename': name, 'size_bytes': len(data),
+                    'mimetype': mimetype, 'imagine_image_id': row_id, 'url': f'/files/{fname}'})
+    return out
+
+
+def _brain_leg(con, config, session, agent, brain, instructions, tools):
+    """One text-chat leg on a companion's voice-setup brain, returned in
+    the Responses-API body shape the text loop reads. Stateless: there is
+    no stored chain, so each leg sends the whole conversation, rebuilt from
+    the message rows — the user's message, and every tool call and result
+    this turn has persisted so far, included. Function tools, plus the
+    hosted ones (web search, code execution, MCP servers) the brain's
+    provider runs itself (LlmEngine.hosted_for). A provider error becomes
+    a UserError, so the caller's MCP retry sees it."""
+    from .pipeline.llm import LlmError
+    # The prompt names no time (clock_at_end) so it stays byte-identical
+    # leg to leg; the clock rides here, after the conversation.
+    now = datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z (%z)')
+    cls, settings = brain
+    hosted = set(cls.hosted_for(settings))
+    tools = [t for t in tools if t.get('type') == 'function' or t.get('type') in hosted]
+    sandbox = any(t.get('type') == 'code_interpreter' for t in tools)
+    items = _brain_text_items(con, session, brain, sandbox) + [
+        {'role': 'system', 'content': [{'type': 'input_text', 'text': f'[Time note] Current datetime (user local): {now}'}]}]
+    try:
+        reply, calls, usage = _run_brain(brain, config, instructions=instructions, items=items, tools=tools,
+                                         conversation_key=f'rexclaw:{agent["id"]}')
+    except LlmError as e:
+        raise UserError(f"Text chat request failed: {e}") from e
+    output = [{'type': 'message', 'content': [{'type': 'output_text', 'text': reply}]}] if reply else []
+    return {'id': None, 'output': output + calls, 'usage': usage}
+
+
+def vision_brain(con, agent, config, mode):
+    """The companion's own brain on this surface when it is local and sees
+    images (the brain's 'Can see images'): analyze_screen runs there rather
+    than on Grok vision, so the picture stays on this computer. Else None."""
+    if mode == 'voice':
+        setup = voice_setups.for_agent(con, agent, config)
+        brain = setup.stages['llm'] if setup else None
+    else:
+        brain = voice_setups.text_brain_for(con, agent, config)
+    if brain is not None and not brain[0].uses_xai_key and brain[1].get('vision'):
+        return brain
+    return None
+
+
+def delegate_brain(con, agent, config):
+    """(LlmEngine class, settings) delegate_task runs on: the companion's
+    voice setup brain when its provider runs web search and code itself
+    (Claude, OpenAI's own API) - the companion's deep-focus mode on its own
+    model, with its files, sandbox and summaries there too. Else None: the
+    app's Grok (delegation was built on xAI's tools; a local brain has
+    neither search nor a sandbox)."""
+    setup = voice_setups.for_agent(con, agent, config)
+    if setup is None:
+        return None
+    cls, settings = setup.stages['llm']
+    if cls.uses_xai_key or not {'web_search', 'code_interpreter'} <= set(cls.hosted_for(settings)):
+        return None
+    return cls, settings
+
+
+def quick_brain(brain):
+    """A brain on its engine's quick model (the 'quick_model' field: Claude
+    Haiku 4.5 by default) for quick looks - analyze_screen, delegate_task's
+    'fast' checks - the way Grok uses Settings' fast text model. The brain
+    as it is when the field is empty or the engine has none."""
+    if brain is None:
+        return None
+    cls, settings = brain
+    quick = (settings.get('quick_model') or '').strip()
+    return (cls, {**settings, 'model': quick}) if quick else brain
+
+
+def brain_runs_code(con, agent, config, mode):
+    """True when the companion's code execution runs on its own brain on
+    this surface: a voice setup's brain whose provider has a code sandbox
+    (Claude, OpenAI's own API - LlmEngine.hosted_for). Calls then get the
+    tool too (Grok Realtime has none), and delegate_task stops being the
+    way to run code."""
+    if not agent['enable_code_execution']:
+        return False
+    if mode == 'voice':
+        setup = voice_setups.for_agent(con, agent, config)
+        # A speech-to-speech call has no code tool; its brain runs code
+        # for it through delegate_task.
+        brain = setup.stages['llm'] if setup and not setup.realtime else None
+    else:
+        brain = voice_setups.text_brain_for(con, agent, config)
+    return bool(brain) and not brain[0].uses_xai_key and 'code_interpreter' in brain[0].hosted_for(brain[1])
+
+
+def _background_complete(con, session, config):
+    """Where a session's summary, title and memory extraction run: on the
+    brain the session itself runs on when that isn't xAI's (_session_brain),
+    so a conversation held on a local model stays local. None = the app's
+    Grok (config.summary_model). Returns xai_client's `complete` hook."""
+    brain = _session_brain(con, session, config)
+    if brain is None or brain[0].uses_xai_key:
+        return None
+
+    def complete(*, instructions, input_items):
+        text, _calls, usage = _run_brain(brain, config, instructions=instructions, items=input_items,
+                                         conversation_key=f'rexclaw-background:{session["agent_id"]}')
+        return {'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': text}]}],
+                'usage': {}}   # local: nothing billed
+    return complete
+
+
+def _provider_side_complete(con, agent_id, config, job):
+    """xai_client's `complete` hook for the call side jobs that run on
+    Grok's director model (group-call turn director, speech gestures), for
+    an install without an xAI key: the companion's voice setup brain on its
+    quick model (quick_brain - the main model when it has none). None when
+    the setup's brain is xAI's or the companion is on Grok Realtime."""
+    agent = store.get_agent(con, agent_id)
+    setup = voice_setups.for_agent(con, agent, config) if agent else None
+    brain = quick_brain(setup.stages['llm']) if setup else None
+    if brain is None or brain[0].uses_xai_key:
+        return None
+
+    def complete(*, instructions, input_items):
+        text, _calls, _usage = _run_brain(brain, config, instructions=instructions, items=input_items,
+                                          conversation_key=f'rexclaw-{job}:{agent_id}')
+        return {'output': [{'type': 'message', 'content': [{'type': 'output_text', 'text': text}]}],
+                'usage': {}}
+    return complete
 
 
 def _interim_text_messages(con, session, exclude_ids=None):
@@ -2727,8 +3277,13 @@ def start_text_session(con, *, agent, resume_session=None):
     config = get_config(con)
     if not config['enabled']:
         raise UserError("Companions are currently disabled in Settings.")
-    if not config['xai_api_key']:
-        raise UserError("xAI API key is not configured. Set it in Settings.")
+    # A companion chatting on a local brain needs no xAI key.
+    brain = voice_setups.text_brain_for(con, agent, config)
+    if not config['xai_api_key'] and not (brain and not brain[0].uses_xai_key):
+        raise UserError(
+            "This companion chats on Grok, and no xAI API key is set. Add one in Settings, "
+            "or give it a voice setup whose brain is another provider or a local model (Settings → Models & providers, "
+            "then this companion's Voice setup) - its chat follows that brain.")
 
     if resume_session:
         resume_vals = {'state': 'draft', 'ended_at': None}
@@ -2780,6 +3335,7 @@ def start_text_session(con, *, agent, resume_session=None):
                     'filename': a['filename'],
                     'size_bytes': a['size_bytes'],
                     'mimetype': a['mimetype'],
+                    'url': store.library_url(con, a['imagine_image_id']),
                 }
                 for a in store.attachments_for_message(con, m['id'])
             ]
@@ -2844,7 +3400,13 @@ def start_text_session(con, *, agent, resume_session=None):
         'transcript_truncated': transcript_truncated,
         'total_input_tokens': session['total_input_tokens'] or 0,
         'total_output_tokens': session['total_output_tokens'] or 0,
-        'summary_threshold_tokens': config['summary_threshold_tokens_text'] or 0,
+        # A setup's brain: the meter shows the last request's size against
+        # its 'Summarise at' ('request'); otherwise tokens spent since the
+        # last summary against Settings' Grok text budget ('total').
+        'budget': 'request' if brain else 'total',
+        'summary_threshold_tokens': _request_budget(brain) if brain else config['summary_threshold_tokens_text'] or 0,
+        'context_tokens': (session['context_tokens'] or _estimate_request_tokens(
+            con, agent, 'text', _brain_text_items(con, session))) if brain else 0,
         'tokens_at_last_summary': session['tokens_at_last_summary'] or 0,
         'summary': session['summary'] or None,
         # Same as the voice start payload: an owed compaction is announced
@@ -2898,6 +3460,74 @@ def _accrue_text_usage(con, session, usage):
     store.accrue_usd_ticks(con, store.extract_cost_ticks(usage))
 
 
+def _measure_request(con, session, brain, usage):
+    """Record a request to a setup's brain: its size for the budget meter,
+    and the summary it owes once that reaches the brain's 'Summarise at'
+    (setups.context_full). Returns the size, None when unmeasured."""
+    tokens = voice_setups.request_tokens(usage)
+    if not tokens:
+        return None
+    # The first request after a summary (floor -1) sets the floor.
+    floor = tokens if session['context_floor'] < 0 else session['context_floor']
+    vals = {'context_tokens': tokens, 'context_floor': floor}
+    if voice_setups.context_full(brain[1], tokens, floor):
+        vals['needs_summary'] = 1
+    store.update_session(con, session['id'], **vals)
+    return tokens
+
+
+def _estimate_request_tokens(con, agent, mode, items, voice_prompt=''):
+    """Roughly how big the next request to a setup's brain will be — the
+    budget meter's figure when nothing has been measured since the last
+    summary: prompt and tools (the companion editor's estimates) plus the
+    conversation."""
+    counts = preview_token_counts(con, agent, voice_prompt)
+    base = (counts['voice_prompt'] + counts['voice_tools'] if mode == 'voice'
+            else counts['text_prompt'] + counts['text_tools'])
+    return base + _approx_tokens(json.dumps(items, ensure_ascii=False), 4.0)
+
+
+def _request_budget(brain):
+    """The budget meter's limit for a setup's brain: its 'Summarise at'."""
+    return int(brain[1].get('compact_at') or 0)
+
+
+def _session_brain(con, session, config):
+    """(LlmEngine class, settings) of the voice setup brain this session's
+    conversation runs on — calls on a setup, text chat on its brain
+    (setups.text_brain_for), a delegated task on delegate_brain — else
+    None: the app's Grok."""
+    agent = store.get_agent(con, session['agent_id']) if session['agent_id'] else None
+    if agent is None:
+        return None
+    if session['origin'] == 'delegated':
+        return delegate_brain(con, agent, config)
+    if session['mode'] == 'voice':
+        setup = voice_setups.for_agent(con, agent, config)
+        return setup.stages['llm'] if setup else None
+    return voice_setups.text_brain_for(con, agent, config)
+
+
+def _on_setup_budget(con, session, config):
+    """True when this session's conversation runs on a voice setup's brain,
+    whose own 'Summarise at' size decides when to summarise
+    (setups.context_full, checked as each request comes back) instead of
+    Settings' Grok budgets. A speech-to-speech call (setup.realtime) too:
+    the browser reports each reply's size and append_messages measures it
+    against the realtime model's own 'Summarise at'."""
+    return _session_brain(con, session, config) is not None
+
+
+def _call_realtime(con, session, config):
+    """(RealtimeEngine class, settings) when this session's calls run on a
+    speech-to-speech setup, else None."""
+    if session['mode'] != 'voice' or session['origin'] == 'delegated' or not session['agent_id']:
+        return None
+    agent = store.get_agent(con, session['agent_id'])
+    setup = voice_setups.for_agent(con, agent, config) if agent else None
+    return setup.realtime if setup else None
+
+
 def _maybe_flag_summary_text(con, session):
     """Threshold check for text mode. Sets needs_summary when the configured
     text threshold has been crossed since the last rollup."""
@@ -2919,12 +3549,13 @@ def _maybe_flag_summary_text(con, session):
 _AGENT_EFFORT = object()   # text_send_turn sentinel: use the agent's reasoning_effort
 
 
-def _text_instructions(con, config, agent, stable=False):
+def _text_instructions(con, config, agent, stable=False, clock_at_end=False):
     """The system prompt a text turn sends when it opens a response chain.
     `stable=True` renders the change-detection variant: identical text with
-    the volatile bits (clock, affection snapshot) masked."""
+    the volatile bits (clock, affection snapshot) masked. `clock_at_end`:
+    see _env_preamble."""
     return (
-        _env_preamble(config, stable=stable)
+        _env_preamble(config, stable=stable, clock_at_end=clock_at_end)
         + _appearance_section(con, agent)
         + _render_prompt(agent)
         + _env_postamble(con, agent, mode='text', stable=stable)
@@ -2959,7 +3590,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                    extra_content_blocks=None, tool_results=None, headless=False,
                    suppress_companion_text=False, companion_text_max_calls=None,
                    minimal_tools=False,
-                   model=None, reasoning_effort=_AGENT_EFFORT):
+                   model=None, reasoning_effort=_AGENT_EFFORT, quick=False):
     """Drive one or more /v1/responses legs until the assistant returns plain
     text or needs the browser. Server-side function tools (imagine + memory +
     delegate) execute inline; TEXT_BROWSER_TOOL_NAMES calls return a
@@ -2972,7 +3603,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     resolved input_image / input_file blocks to the first leg's user
     content. `model` / `reasoning_effort` override the configured text model
     and the agent's effort for this turn (delegate_task's fast-model path —
-    pass reasoning_effort=None for a non-reasoning model).
+    pass reasoning_effort=None for a non-reasoning model). `quick` runs a
+    setup brain on its quick model instead (quick_brain - delegate_task's
+    'fast' on the companion's own brain).
     `suppress_companion_text` is companion_texting's recursion guard: set
     for the one turn where this session is replying to an incoming
     companion text, so it can never itself initiate one back — this is
@@ -2989,8 +3622,29 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
 
     config = get_config(con)
     agent = store.get_agent(con, session['agent_id'])
+    # A companion whose text chat follows its voice setup's brain
+    # (setups.text_brain_for); a delegated task runs on delegate_brain - the
+    # companion's own brain when its provider searches and runs code, else
+    # Grok. Callers pinning a model (delegate_task's fast model) stay on
+    # the app's Grok.
+    brain = None
+    if model is None:
+        brain = (delegate_brain(con, agent, config) if session['origin'] == 'delegated'
+                 else voice_setups.text_brain_for(con, agent, config))
+        if quick and brain is not None and not brain[0].uses_xai_key:
+            brain = quick_brain(brain)
+    # A setup's brain, xAI's or not, is summarised at its own size
+    # (setups.context_full), not at the Grok text budget.
+    setup_brain = brain
+    context_tokens = None
+    if brain is not None and brain[0].uses_xai_key:
+        # An xAI brain keeps everything text chat has — the stored chain,
+        # web/X search, MCP; only the model and effort come from the setup.
+        model = brain[1].get('model') or None
+        reasoning_effort = brain[1].get('reasoning_effort') or None
+        brain = None
     xai_key = config['xai_api_key']
-    if not xai_key:
+    if not xai_key and brain is None:
         raise UserError("xAI API key is not configured.")
 
     # Persist the user message + attachments on the FIRST leg only.
@@ -3074,7 +3728,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         enable_browser_tools=not headless,
         plugin_origin=None if minimal_tools else session['origin'],
     )
-    instructions = _text_instructions(con, config, agent)
+    instructions = _text_instructions(con, config, agent, clock_at_end=brain is not None)
     instructions_hash = _instructions_hash(con, config, agent)
 
     pending_outputs = []
@@ -3111,6 +3765,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     max_iterations = 8
     accumulated_native_echo = []
     accumulated_mcp_results_echo = []
+    # Files a setup brain's code sandbox made this turn, saved to the library
+    # and attached to the reply (_save_brain_files).
+    accumulated_files = []
     # Legs that spoke: a tool-calling turn can say something BEFORE or
     # BETWEEN tool calls, not just in the final leg — accumulate so the
     # value this function returns reflects everything actually said this
@@ -3163,7 +3820,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 file_id = entry if isinstance(entry, str) else (
                     entry.get('xai_file_id') if isinstance(entry, dict) else None
                 )
-                if file_id:
+                if file_id and not file_id.startswith(LOCAL_FILE_PREFIX):
                     content.append({'type': 'input_file', 'file_id': file_id})
                 if isinstance(entry, dict) and entry.get('imagine_image_id'):
                     mt = entry.get('mimetype') or ''
@@ -3209,40 +3866,45 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         con.commit()
 
         try:
-            body = xai_client.create_response(
-                xai_api_key=xai_key,
-                responses_url=config['xai_responses_url'],
-                model=model or config['text_model'],
-                input_items=input_items,
-                instructions=None if chain_alive else instructions,
-                tools=tools,
-                # The last leg writes the reply. A turn that spent every leg
-                # on tool calls ended without one — companion-text replies
-                # filing memories until the cap left the sender with "had
-                # nothing to say back" — and the final leg's calls ran with
-                # their results never read.
-                tool_choice='none' if max_iterations == 0 else None,
-                reasoning_effort=((agent['reasoning_effort'] or 'low')
-                                  if reasoning_effort is _AGENT_EFFORT else reasoning_effort),
-                previous_response_id=previous_response_id,
-                prompt_cache_key=f'rexclaw:{agent["id"]}',
-                # Caps xAI's own loop inside this one leg — max_iterations
-                # above only counts our function-call legs. max_turns is
-                # xAI's cap across all its tools but isn't enforced for web
-                # search, so the stream watchdog (max_search_calls) is the
-                # real cap on searching — see the config schema comment.
-                max_turns=config['xai_max_turns'] or None,   # 0 = not sent
-                max_search_calls=max_searches or None,
-                # Streamed from xAI and folded back into the plain body (see
-                # xai_client._post_stream) — nothing downstream changes. A
-                # long reasoning leg is otherwise one silent connection for
-                # the whole generation, the same shape that got the
-                # summariser cut off unanswered at ~60 s; events keep bytes
-                # flowing. Also xAI's own advice for agentic tool calling.
-                # A drop mid-stream retries the leg (tokens, not tool
-                # side-effects: tools only run once the body is complete).
-                stream=True,
-            )
+            if brain is not None:
+                # The last leg writes the reply: no tools offered on it.
+                body = _brain_leg(con, config, session, agent, brain, instructions,
+                                  [] if max_iterations == 0 else tools)
+            else:
+                body = xai_client.create_response(
+                    xai_api_key=xai_key,
+                    responses_url=config['xai_responses_url'],
+                    model=model or config['text_model'],
+                    input_items=input_items,
+                    instructions=None if chain_alive else instructions,
+                    tools=tools,
+                    # The last leg writes the reply. A turn that spent every leg
+                    # on tool calls ended without one — companion-text replies
+                    # filing memories until the cap left the sender with "had
+                    # nothing to say back" — and the final leg's calls ran with
+                    # their results never read.
+                    tool_choice='none' if max_iterations == 0 else None,
+                    reasoning_effort=((agent['reasoning_effort'] or 'low')
+                                      if reasoning_effort is _AGENT_EFFORT else reasoning_effort),
+                    previous_response_id=previous_response_id,
+                    prompt_cache_key=f'rexclaw:{agent["id"]}',
+                    # Caps xAI's own loop inside this one leg — max_iterations
+                    # above only counts our function-call legs. max_turns is
+                    # xAI's cap across all its tools but isn't enforced for web
+                    # search, so the stream watchdog (max_search_calls) is the
+                    # real cap on searching — see the config schema comment.
+                    max_turns=config['xai_max_turns'] or None,   # 0 = not sent
+                    max_search_calls=max_searches or None,
+                    # Streamed from xAI and folded back into the plain body (see
+                    # xai_client._post_stream) — nothing downstream changes. A
+                    # long reasoning leg is otherwise one silent connection for
+                    # the whole generation, the same shape that got the
+                    # summariser cut off unanswered at ~60 s; events keep bytes
+                    # flowing. Also xAI's own advice for agentic tool calling.
+                    # A drop mid-stream retries the leg (tokens, not tool
+                    # side-effects: tools only run once the body is complete).
+                    stream=True,
+                )
         except xai_client.SearchLimitExceeded as e:
             # xAI's own search loop ran past the cap and the stream was
             # closed, cancelling the response — nothing of it is stored, so
@@ -3275,9 +3937,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
             # unreachable host vs unresolvable/invalid server_url ("cannot
             # resolve Server URL", invalid-argument 400). Either way the fix
             # is the same — drop MCP and retry.
+            # A setup brain's provider (OpenAI, Claude) words it its own
+            # way; any failure naming MCP gets the same one retry.
             if (not mcp_dropped and mcp_entries
                     and ('Failed to connect to MCP server' in str(e)
-                         or 'cannot resolve Server URL' in str(e))):
+                         or 'cannot resolve Server URL' in str(e)
+                         or (brain is not None and 'mcp' in str(e).lower()))):
                 _logger.warning(
                     'MCP server unreachable for session %s; retrying turn '
                     'without MCP tools: %s', session['id'], e)
@@ -3297,7 +3962,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 # the last leg is still the one that writes the reply.
                 max_iterations += 1
                 continue
-            if chain_alive and is_first_leg:
+            if brain is None and chain_alive and is_first_leg:
                 # The chain can be rejected server-side — response id expired
                 # or purged before our 29-day cutoff, or the chained endpoint
                 # refusing the injected cross-mode input. The client wraps
@@ -3321,7 +3986,8 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
             con.commit()
             raise
         except Exception as e:
-            if chain_alive and is_first_leg:
+            # (A voice-setup brain has no chain: its failure is just a failure.)
+            if brain is None and chain_alive and is_first_leg:
                 # Same chain fallback for transport-level failures (timeouts,
                 # connection resets) that don't surface as UserError.
                 _logger.warning(
@@ -3345,6 +4011,8 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         response_id = body.get('id') or None
         usage = body.get('usage') or {}
         _accrue_text_usage(con, session, usage)
+        if setup_brain is not None:
+            context_tokens = _measure_request(con, session, setup_brain, usage) or context_tokens
 
         if response_id:
             vals = {'previous_response_id': response_id, 'last_response_at': utcnow()}
@@ -3359,6 +4027,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         assistant_text_chunks = []
         function_calls = []
         mcp_results_echo = []
+        made_files = []
         incomplete_reason = None
         if isinstance(body.get('incomplete_details'), dict):
             incomplete_reason = body['incomplete_details'].get('reason')
@@ -3379,6 +4048,8 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                     'name': item.get('name'),
                     'arguments': item.get('arguments') or '{}',
                 })
+            elif itype == 'brain_file' and brain is not None:
+                made_files.append(item['file_id'])
             elif itype == 'mcp_call':
                 # Server-side MCP execution at xAI: persist the call+result
                 # rows so MCP failures are visible in the transcript.
@@ -3419,8 +4090,13 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 })
 
         assistant_text = ''.join(assistant_text_chunks).strip()
+        made = _save_brain_files(con, session, agent, brain, made_files) if made_files else []
+        if assistant_text or made:
+            # Files ride on the reply that made them, like a user's upload
+            # on their message (an empty reply still carries them).
+            _persist_text_message(con, session, role='assistant', content=assistant_text, attachments=made)
+            accumulated_files.extend(made)
         if assistant_text:
-            _persist_text_message(con, session, role='assistant', content=assistant_text)
             fresh = store.get_session(con, session['id'])
             if not fresh['title_generated']:
                 maybe_generate_session_title(con, fresh)
@@ -3442,7 +4118,8 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         accumulated_mcp_results_echo.extend(mcp_results_echo)
 
         if not function_calls:
-            _maybe_flag_summary_text(con, session)
+            if setup_brain is None:
+                _maybe_flag_summary_text(con, session)
             fresh = store.get_session(con, session['id'])
             con.commit()
             return {
@@ -3450,9 +4127,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 'response_id': response_id,
                 'assistant_text': assistant_text,
                 'mcp_results': accumulated_mcp_results_echo,
+                'files': accumulated_files,
                 'native_results': accumulated_native_echo,
                 'incomplete_reason': incomplete_reason,
                 'usage': usage,
+                # Setup brains: the last request's size, for the meter.
+                'context_tokens': context_tokens,
                 # Recomputed after the turn: a memory the model just wrote
                 # changes the prompt a fresh chain would carry.
                 'prompt_stale': text_prompt_stale(con, fresh, agent, config),
@@ -3594,8 +4274,10 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                     for fc in browser_calls
                 ],
                 'mcp_results': accumulated_mcp_results_echo,
+                'files': accumulated_files,
                 'native_results': accumulated_native_echo,
                 'usage': usage,
+                'context_tokens': context_tokens,
                 'cap_warning': False,
                 'cap_exceeded': False,
                 'mcp_unavailable': mcp_dropped,
@@ -3612,6 +4294,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         'response_id': previous_response_id,
         'assistant_text': '\n\n'.join(accumulated_assistant_text_parts),
         'mcp_results': accumulated_mcp_results_echo,
+        'files': accumulated_files,
         'native_results': accumulated_native_echo,
         'incomplete_reason': 'tool_loop_cap',
         'usage': {},
@@ -3644,7 +4327,12 @@ def text_compact(con, session):
                          previous_response_id=None, last_response_at=None,
                          chain_tail_sequence=0)
     con.commit()
-    return {'compacted': True, 'rollup_id': rollup_id}
+    result = {'compacted': True, 'rollup_id': rollup_id}
+    agent = store.get_agent(con, session['agent_id'])
+    if voice_setups.text_brain_for(con, agent, get_config(con)) is not None:
+        result['context_tokens'] = _estimate_request_tokens(
+            con, agent, 'text', _brain_text_items(con, store.get_session(con, session['id'])))
+    return result
 
 
 def manual_compact(con, session):
@@ -3671,6 +4359,11 @@ def manual_compact(con, session):
     return {'compacted': True, 'summary': store.get_session(con, session['id'])['summary']}
 
 
+# Chat attachment ids for files kept in the library only (never sent to
+# xAI's Files API); the xAI turn path skips them.
+LOCAL_FILE_PREFIX = 'local:'
+
+
 def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
     """Server-side proxy for /v1/files, shared by both surfaces.
 
@@ -3687,19 +4380,26 @@ def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
         raise ValidationError("Session is not active.")
     config = get_config(con)
     xai_key = config['xai_api_key']
-    if not xai_key:
-        raise UserError("xAI API key is not configured.")
     max_bytes = 48 * 1024 * 1024  # xAI's per-file ceiling for chat
     if len(content_bytes) > max_bytes:
         raise UserError(f"File too large ({len(content_bytes)} bytes). Max is 48 MB.")
-    result = xai_client.upload_file(
-        xai_api_key=xai_key,
-        files_url=config['xai_files_url'],
-        filename=filename,
-        content_bytes=content_bytes,
-        mimetype=mimetype,
-        expires_after_seconds=config['file_default_expiry_seconds'] or 0,
-    )
+    agent = store.get_agent(con, session['agent_id'])
+    brain = voice_setups.text_brain_for(con, agent, config)
+    if not xai_key or (brain is not None and not brain[0].uses_xai_key):
+        # A companion chatting on a local brain (or no xAI key at all): the
+        # file stays here, in the library below — never uploaded to xAI. A
+        # brain that sees gets images from there (_brain_text_items).
+        result = {'file_id': f'{LOCAL_FILE_PREFIX}{uuid.uuid4().hex}', 'filename': filename or 'upload',
+                  'expires_at': None, 'size_bytes': len(content_bytes), 'mimetype': mimetype}
+    else:
+        result = xai_client.upload_file(
+            xai_api_key=xai_key,
+            files_url=config['xai_files_url'],
+            filename=filename,
+            content_bytes=content_bytes,
+            mimetype=mimetype,
+            expires_after_seconds=config['file_default_expiry_seconds'] or 0,
+        )
     # EVERY upload also lands in the files library (imagine_images, kind
     # 'upload'), whatever its type. The xai_file_id alone is (a) invisible
     # to the imagine tools — without a library row an image can never be
@@ -3710,7 +4410,6 @@ def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
     # cached on the row so tools reuse it while it's still valid.
     # Ingestion failure must not break the upload; the file still works as
     # a plain chat attachment for this turn.
-    agent = store.get_agent(con, session['agent_id'])
     try:
         mt = mimetype or 'application/octet-stream'
         fallback = ('Uploaded image' if mt.startswith('image/')
@@ -3729,7 +4428,8 @@ def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
                VALUES (?, ?, ?, 'upload', ?, ?, ?, NULL, ?, ?, ?)""",
             (name or fallback, agent['id'], session['id'],
              name or fallback, image_path, mimetype, utcnow(),
-             result.get('file_id'), result.get('expires_at')),
+             *((None, None) if result['file_id'].startswith(LOCAL_FILE_PREFIX)
+               else (result.get('file_id'), result.get('expires_at')))),
         )
         result = dict(result, imagine_image_id=cur.lastrowid,
                       image_url=image_path)

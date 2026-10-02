@@ -16,6 +16,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 from .. import audio_examples, audio_sounds, audio_studio, voicemail_tools
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import UserError
+from ..pipeline import setups as voice_setups
 from .common import db_con
 
 _logger = logging.getLogger(__name__)
@@ -56,6 +57,59 @@ def _fetch_voices(config):
         voices = _FALLBACK_VOICES + voices
     _voices_cache.update(at=time.monotonic(), voices=voices)
     return voices
+
+
+def _engine_voices(con, config):
+    """The voices that aren't xAI's, for the playground's picker: each voice
+    setup whose voice runs on another engine (its default voice there), and
+    each companion whose calls use one (the voice its voice messages are
+    recorded in). `value` is what /render and a saved script take as the
+    voice; a setup's may carry a voice of that engine after it
+    ('setup:3:<voice>', labelled by `voice_hint`) in place of the setup's
+    default. `tag_guide` is that voice's own speech-tag section, if any."""
+    out = []
+    for row in con.execute('SELECT id, name FROM voice_setups ORDER BY sequence, id').fetchall():
+        setup = voice_setups.get(con, row['id'])
+        if setup.tts_connection != voice_setups.XAI:
+            cls, settings = setup.stages['tts']
+            out.append({'value': f'setup:{row["id"]}', 'label': row['name'], 'engine': cls.label,
+                        'voice_hint': cls.voice_hint, 'tag_guide': cls.tag_guide(settings),
+                        'default_voice': settings.get('voice') or '', 'needs_voice': cls.needs_voice})
+    for agent in con.execute('SELECT * FROM agents ORDER BY sequence, id').fetchall():
+        setup = voice_setups.for_agent(con, agent, config)
+        if setup is not None and setup.tts_connection != voice_setups.XAI:
+            out.append({'value': f'agent:{agent["id"]}', 'agent_id': agent['id'], 'label': agent['name'],
+                        'engine': setup.stages['tts'][0].label, 'tag_guide': setup.tag_guide(agent)})
+    return out
+
+
+def _speaker_for(con, config, voice):
+    """(voice, speaker) to render a playground voice with: one of
+    _engine_voices' values speaks through its engine
+    (audio_studio.engine_speaker); anything else is an xAI voice (speaker
+    None). A setup or companion that has since moved to an xAI voice
+    renders with that."""
+    kind, _, ref = voice.partition(':')
+    if kind == 'agent' and ref.isdigit():
+        agent = con.execute('SELECT * FROM agents WHERE id = ?', (int(ref),)).fetchone()
+        if agent is None:
+            raise UserError('That companion no longer exists. Pick another voice.')
+        return voicemail_tools.call_voice(con, agent, config)
+    ref, _, own = ref.partition(':')
+    if kind == 'setup' and ref.isdigit():
+        setup = voice_setups.get(con, ref)
+        if setup is None:
+            raise UserError('That voice setup no longer exists. Pick another voice.')
+        tts = setup.stages['tts']
+        engine_voice = own.strip() or tts[1].get('voice') or ''
+        if setup.tts_connection == voice_setups.XAI:
+            return engine_voice or 'eve', None
+        if tts[0].needs_voice and not engine_voice:
+            raise UserError(f'"{setup.name}" has no default {tts[0].label} voice: type one in the field '
+                            f'beside the voice picker, or set the setup\'s default voice in Settings → '
+                            f'Models & providers.')
+        return engine_voice, audio_studio.engine_speaker(tts, config, engine_voice)
+    return voice, None
 
 
 FROM_COMPANIONS = 'From companions'
@@ -113,6 +167,7 @@ def audio_bootstrap(payload: dict = Body(default={}), con=Depends(db_con)):
         'scripts': _scripts(con),
         'recordings': _recordings(con),
         'voices': _fetch_voices(config),
+        'engine_voices': _engine_voices(con, config),
         'sounds': _sounds(con),
         'sound_kinds': audio_sounds.KINDS,
         'guide': audio_studio.guide(config, audio_sounds.catalog(con)),
@@ -240,8 +295,12 @@ def audio_render(payload: dict = Body(default={}), con=Depends(db_con)):
     language = audio_studio.normalize_language(payload.get('language') or 'auto')
     if not language:
         raise UserError('Language must be a language code such as en, ja or nl, or auto.')
-    result = audio_studio.render(con, get_config(con), script, voice=voice, language=language,
-                                 pace=max(0.7, min(1.5, pace)))
+    config = get_config(con)
+    # The recording keeps the picked voice (a companion's or a setup's stays
+    # 'agent:…' / 'setup:…'), so opening it again picks the same one.
+    engine_voice, speaker = _speaker_for(con, config, voice)
+    result = audio_studio.render(con, config, script, voice=engine_voice, language=language,
+                                 pace=max(0.7, min(1.5, pace)), speaker=speaker)
     category = ' '.join((payload.get('category') or '').split())[:60] or DEFAULT_CATEGORY
     rec_id = voicemail_tools.store_recording(con, name=name, source='playground',
                                              script=script, voice=voice, result=result,

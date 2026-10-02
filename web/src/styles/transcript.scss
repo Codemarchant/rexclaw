@@ -485,5 +485,15 @@
         background: rgba(255, 255, 255, 0.6);
         color: #1e293b;
         font-size: 0.7rem;
+        text-decoration: none;
+    }
+
+    a.o_voice_msg_attachment_chip:hover { border-color: rgba(100, 116, 139, 0.9); }
+
+    .o_voice_msg_attachment_thumb {
+        width: 2.2rem;
+        height: 2.2rem;
+        object-fit: cover;
+        border-radius: 0.35rem;
     }
 }

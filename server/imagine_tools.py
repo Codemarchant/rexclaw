@@ -707,7 +707,12 @@ def _session_tools(con, agent, *, selfie):
     if backend_for(config, 'create_image') == 'local' and not (
             _local_slot_ready(config, 'image') or _local_slot_ready(config, 'image_edit')):
         image = None
-    if backend_for(config, 'create_video') == 'local':
+    # Grok Imagine without an xAI key can't render either: same rule.
+    if backend_for(config, 'create_image') == 'xai' and not config['xai_api_key']:
+        image = None
+    if backend_for(config, 'create_video') == 'xai' and not config['xai_api_key']:
+        video = None
+    elif backend_for(config, 'create_video') == 'local':
         if not (_local_slot_ready(config, 'video') or _local_slot_ready(config, 'video_i2v')):
             video = None
         else:
@@ -728,6 +733,8 @@ def build_voice_tools(con, agent):
     background = build_change_background_tool(config)
     if backend_for(config, 'change_background') == 'local' and not (
             _local_slot_ready(config, 'image') or _local_slot_ready(config, 'video')):
+        background = None
+    elif backend_for(config, 'change_background') == 'xai' and not config['xai_api_key']:
         background = None
     return [t for t in (background, image, video) if t]
 

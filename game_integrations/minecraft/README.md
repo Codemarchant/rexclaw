@@ -23,7 +23,7 @@ opened**. Set `--username` to your companion's name so the character in the
 world is them.
 
 Then, in Rexclaw: enable **Minecraft bot** for the companion (Companions →
-Edit), and set your own in-game username under **Settings → Minecraft bot**
+Edit), and set your own in-game username under **Games → Minecraft bot**
 so the bot treats your orders as its user's. The `minecraft_command` /
 `minecraft_status` tools appear only in calls started while the sidecar is
 connected.
@@ -47,15 +47,16 @@ not reach a Windows-hosted world — use Windows for both).
 
 When the Rexclaw server is reachable beyond localhost (Docker/LAN), set
 `REXCLAW_MC_TOKEN=<secret>` on the server and pass the same value with
-`--token` here — the WebSocket carries your xAI API key, and the token stops
-anyone else on the network from opening it.
+`--token` here — the WebSocket carries the bot brain's API key, and the token
+stops anyone else on the network from opening it.
 
 ## How it works
 
 The sidecar connects to the game via [mineflayer](https://github.com/PrismarineJS/mineflayer)
 (a protocol-level Minecraft client — the server sees a real player) and to
 Rexclaw over WebSocket. Directives from your companion wake the bot's own
-brain — a text model (Settings → Minecraft bot, your API key) that answers
+brain — a text model (Games → Minecraft bot: Grok on your xAI key, or an
+OpenAI, Claude or local connection from Settings → Models & providers) that answers
 each event with a small JavaScript plan, executed in a sandbox against a
 skill library (pathfinding, mining, crafting + a recursive recipe planner,
 smelting, chests, combat, building blocks, torches, armor, sleeping) with
@@ -70,7 +71,7 @@ so "stop and follow me" takes effect at once. Sequences belong inside one
 directive ("mine 16 iron, then come back to me"), which the bot plays out
 as a single goal.
 
-Two brain models are configured (Settings → Minecraft bot): the fast
+Two brain models are configured (Games → Minecraft bot): the fast
 default, and a stronger reasoning model for hard tasks. The companion picks
 the strong one per directive (`hard_model` flag — building, long crafting
 chains), and any task escalates to it automatically after a failed attempt,

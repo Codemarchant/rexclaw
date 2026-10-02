@@ -92,7 +92,11 @@ class TextService {
         this.state.agentName = payload.agent?.name || null;
         this.agentThumbnailUrl = payload.agent?.chat_thumbnail_url || null;
         this.state.tokenLimit = payload.summary_threshold_tokens || 0;
-        this.state.tokenUsage = Math.max(
+        // 'request' (chat on a voice setup's brain): the last request's size
+        // against its 'Summarise at'. 'total': tokens spent since the last
+        // summary against the Grok text budget.
+        this._requestBudget = payload.budget === "request";
+        this.state.tokenUsage = this._requestBudget ? (payload.context_tokens || 0) : Math.max(
             0,
             (payload.total_input_tokens + payload.total_output_tokens) - (payload.tokens_at_last_summary || 0),
         );
@@ -299,7 +303,9 @@ class TextService {
             // mirrors what the server's _accrue_text_usage charges to the
             // session. Without this the header counter only reflected the
             // initial baseline at session start.
-            if (current.usage && typeof current.usage.total_tokens === "number") {
+            if (this._requestBudget) {
+                if (typeof current.context_tokens === "number") this.state.tokenUsage = current.context_tokens;
+            } else if (current.usage && typeof current.usage.total_tokens === "number") {
                 this.state.tokenUsage = (this.state.tokenUsage || 0) + current.usage.total_tokens;
             }
             if (current.type === "cap_exceeded") {
@@ -367,10 +373,13 @@ class TextService {
             }
             // Append any assistant text the server already streamed back.
             const assistantText = current.assistant_text || "";
-            if (assistantText) {
+            // Files the brain's code sandbox made, on the reply that made them.
+            const files = current.files || [];
+            if (assistantText || files.length) {
                 this.state.messages.push({
                     role: "assistant",
                     content: assistantText,
+                    attachments: files,
                     sequence: this._nextSeq(),
                     incomplete_reason: current.incomplete_reason || null,
                     // Searches cut at the cap; the reply was written without them.
@@ -474,7 +483,7 @@ class TextService {
             // Server bumps tokens_at_last_summary to the current running total
             // when a rollup is created, so the user-facing budget restarts at 0.
             if (result?.compacted) {
-                this.state.tokenUsage = 0;
+                this.state.tokenUsage = this._requestBudget ? (result.context_tokens || 0) : 0;
                 // Keep the local transcript untouched — same as voice mode's
                 // compaction restart. Compaction changes what replays to the
                 // MODEL (absorbed rows → one rollup); the user keeps seeing

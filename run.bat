@@ -14,7 +14,10 @@ if "%REXCLAW_PORT%"=="" (set PORT=8990) else (set PORT=%REXCLAW_PORT%)
 set PY=.venv\Scripts\python.exe
 
 rem ---- Python venv + backend deps ------------------------------------------
-"%PY%" -c "import fastapi, uvicorn, requests, cryptography" >nul 2>&1
+rem The list ends with the newest dependencies, so an install from before
+rem they were added (a `git pull` doesn't install anything) is set up again
+rem instead of failing at start.
+"%PY%" -c "import fastapi, uvicorn, requests, cryptography, soxr, httpx, websockets, onnxruntime" >nul 2>&1
 if errorlevel 1 (
     echo [rexclaw] setting up Python environment...
     if exist .venv rmdir /s /q .venv

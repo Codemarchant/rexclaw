@@ -155,6 +155,8 @@ def session_replay(session_id: int, payload: dict = Body(default={}), con=Depend
                         "filename": a["filename"],
                         "size_bytes": a["size_bytes"],
                         "mimetype": a["mimetype"],
+                        # The library copy, to open from the chat.
+                        "url": store.library_url(con, a["imagine_image_id"]),
                     }
                     for a in store.attachments_for_message(con, m["id"])
                 ],

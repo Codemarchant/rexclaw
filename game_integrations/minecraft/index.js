@@ -65,10 +65,16 @@ if (process.env.XAI_API_KEY) {
 }
 
 bridge.onConfig = (msg) => {
+    // A key and a model belong to their endpoint: an empty one keeps the
+    // current value (the standalone fallback above) only while the endpoint
+    // stays the same, never against a different server.
+    const moved = !!msg.base_url && msg.base_url !== brain.config.baseUrl;
     brain.configure({
-        apiKey: msg.api_key || brain.config.apiKey,
-        model: msg.model || brain.config.model,
-        hardModel: msg.hard_model || brain.config.hardModel,
+        apiKey: msg.api_key || (moved ? null : brain.config.apiKey),
+        model: msg.model || (moved ? null : brain.config.model),
+        // "" = the hard model is switched off in Settings.
+        hardModel: msg.hard_model ?? brain.config.hardModel,
+        keyless: !!msg.keyless,
         baseUrl: msg.base_url || brain.config.baseUrl,
         name: msg.name || brain.config.name,
         master: msg.master ?? brain.config.master,
@@ -81,9 +87,9 @@ bridge.onDirective = (msg) => {
     if (!msg.text) return;
     // Honest ack: an unconfigured brain silently dropping directives left
     // the companion narrating work that never started.
-    if (!brain.config.apiKey || !brain.config.model) {
+    if (!brain.configured) {
         log("directive dropped — brain not configured (no API key/model yet)");
-        bridge.event("error", "I can't act on that — my brain has no API key yet (set one in Rexclaw Settings, then reconnect me).", "high");
+        bridge.event("error", "I can't act on that — my brain has no API key or model yet (set them in Rexclaw, Games → Minecraft bot).", "high");
         return;
     }
     log(`directive${msg.hard ? " (hard model)" : ""}: ${msg.text}`);

@@ -110,7 +110,7 @@ class VoiceCallService {
         // ---- idle-call watchdog ----
         // xAI bills a realtime call by connection time, so a call left open
         // after everyone stopped talking keeps costing money. Configured in
-        // Settings → Cost optimization; 0 disables it.
+        // Settings → Grok Realtime calls; 0 disables it (voice-setup calls get 0).
         this._inactivityMinutes = 0;
         this._lastActivityAt = 0;
         this._inactivityTimer = null;
@@ -172,6 +172,26 @@ class VoiceCallService {
             this.audioContext.resume().catch(() => {});
         }
         return this.audioContext;
+    }
+
+    /** Reopen the capture context at a rate a call requires (OpenAI Realtime:
+     *  24 kHz only). Called by the mic-bearing leg between its audio prep and
+     *  startMic, so no mic or worklet is attached yet; the browser resamples
+     *  the device's audio into the context. */
+    useSampleRate(rate) {
+        if (this.audioContext && this.audioContext.state !== "closed" && this.audioContext.sampleRate === rate) return;
+        if (this.micProcessor || this.micStream) {
+            console.warn(`[voice] capture already running at ${this._sampleRate}Hz — can't switch to ${rate}Hz`);
+            return;
+        }
+        if (this.audioContext && this.audioContext.state !== "closed") {
+            try { this.audioContext.close(); } catch (_) { /* swallow */ }
+        }
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        this.audioContext = new Ctor({ sampleRate: rate });
+        this._sampleRate = this.audioContext.sampleRate;
+        this._micWorkletReady = false;
+        if (this.audioContext.state === "suspended") this.audioContext.resume().catch(() => {});
     }
 
     /** Pick the closest xAI-supported PCM rate. Ties break to the lower rate. */
@@ -628,6 +648,12 @@ class VoiceCallService {
 
     hasPeers() {
         return this.activePeers().length > 0;
+    }
+
+    /** A companion said something: the user's open row on every leg is
+     *  finished, so the next words start a new one. */
+    closeUserRows() {
+        for (const conn of this.connections.values()) conn.closeUserRow();
     }
 
     activePeers() {
@@ -1295,8 +1321,10 @@ class VoiceCallService {
     /** The user's spoken words arrived (primary leg's transcription). Relay
      *  them to every peer, then let the LLM director pick who answers.
      *  The primary's server-VAD auto-response is held back while the
-     *  director deliberates so the answer can come from any leg. */
-    onUserTranscript(conn, text) {
+     *  director deliberates so the answer can come from any leg.
+     *  `joinedRow`: the primary added `text` onto the user's open row (a
+     *  sentence a pause cut short) — the whole row as it now reads. */
+    onUserTranscript(conn, text, joinedRow = null) {
         this.noteActivity();
         if (conn === this.primary) this._userVoiceAt = Date.now();
         this.idleEvents.noteUser();
@@ -1312,8 +1340,13 @@ class VoiceCallService {
             peer.injectContextItem(`[${label}]: ${text}`, { promptResponse: false });
             // Full-conversation tracking: the user's words belong in every
             // leg's session record, not just the primary's (which persists
-            // them via its own transcription append).
-            peer.recordMessage({ role: "user", content: text });
+            // them via its own transcription append). A joined sentence
+            // stays one row here too while this leg still holds its copy.
+            if (!joinedRow) {
+                peer.recordMessage({ role: "user", content: text }, { holdOpen: true });
+            } else if (!peer.reviseHeldUserRow(joinedRow)) {
+                peer.recordMessage({ role: "user", content: text });
+            }
         }
         // Kill primary's server-VAD auto-response for this turn — whether it
         // already started (cancel) or is yet to arrive (one-shot suppression
@@ -1418,6 +1451,7 @@ class VoiceCallService {
     onAgentFinalTranscript(conn, text) {
         this.noteActivity();
         if (!this.hasPeers()) return;
+        this.closeUserRows();
         if (conn.role === "peer") {
             // Display-only mirror: the peer leg already persisted the row
             // to ITS OWN session via its append queue.

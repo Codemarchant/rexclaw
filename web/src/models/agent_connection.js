@@ -83,7 +83,6 @@ const AWAIT_USER_TRANSCRIPT_MS = 5000;
 // Ceiling on how long a user row waits for the rest of its sentence (see
 // _openUserRow), however long the user keeps talking after the pause.
 const USER_ROW_MAX_OPEN_MS = 60000;
-
 // ---- Re-transcribed speech (see _extractNewUserSpeech, restatesFragment) ----
 
 const normWord = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}']/gu, "");
@@ -371,6 +370,8 @@ export class AgentConnection {
         // view is purely an xAI-context concern.
         if (!isCompactionRestart) {
             this.state.messages = [];
+            // A call gets one reconnect after a dropped socket (_onWsClose).
+            this._dropReconnected = false;
         }
         this._sessionEnded = false;
         this._dispatchedCallIds = new Set();
@@ -404,12 +405,18 @@ export class AgentConnection {
         // the session-record replay — flushing them again would duplicate.
         this._deferredContextItems = [];
         this._runningTokens = { input: 0, output: 0 };
+        this._lastRequestTokens = 0;   // a fresh socket's replies are measured anew
+        this._sessionExpired = false;
+        if (!isCompactionRestart) this._rateLimitNoticeShown = false;
         // Re-arm the daily-cap soft-warning latch so the toast can fire
         // once per session (not once per browser session).
         this.state.tokenCapWarningShown = false;
         // Don't touch _compacting here — it's a per-restart lock owned by
-        // _maybeRunCompaction's finally block. Pending flag is fine to clear.
-        this._compactionPending = false;
+        // _maybeRunCompaction's finally block. Pending flag is fine to clear,
+        // except on a restart: the swap has cleared it already, and a
+        // reconnect after a drop keeps the wait for a summary still being
+        // written (_reconnectAfterDrop).
+        if (!isCompactionRestart) this._compactionPending = false;
 
         // Eagerly create the playback context so the first audio chunk has
         // a resumed context to schedule on (Connect click = user gesture).
@@ -458,6 +465,16 @@ export class AgentConnection {
         // re-adds these agents once the call is live (_restoreCallRoster).
         this._callPeerAgents = payload.call_peer_agents || [];
         this._sessionUpdate = payload.session_update;
+        // The socket's dialect: xAI's, or OpenAI Realtime on a speech-to-
+        // speech setup (server/pipeline/realtime.py), which differ in auth,
+        // response.create and MCP follow-ups. OpenAI also takes 24 kHz audio
+        // only: the mic-bearing leg reopens the shared capture at that rate
+        // (its mic hasn't started yet); any leg plays its audio at it.
+        this._protocol = payload.protocol || "xai";
+        if (payload.audio_sample_rate && payload.audio_sample_rate !== this._sampleRate) {
+            if (this.hearsMic) this.manager.useSampleRate(payload.audio_sample_rate);
+            this._sampleRate = payload.audio_sample_rate;
+        }
         this._configureLiveMemory(payload);
         // Two parallel feeds from start_session:
         //   * replay_items     — compacted (filtered + rollup-hoisted),
@@ -486,7 +503,12 @@ export class AgentConnection {
         // Compact-budget display (see the original singleton for details).
         this._tokensAtLastSummary = payload.tokens_at_last_summary || 0;
         this.state.tokenLimit = payload.summary_threshold_tokens || 0;
-        this.state.tokenUsage = Math.max(
+        // 'request' (a voice setup's brain): the meter shows the last
+        // request's size against its 'Summarise at', sent by the pipeline
+        // after every reply (rexclaw.context_tokens). 'total': tokens spent
+        // since the last summary, counted from response.done.
+        this._requestBudget = payload.budget === "request";
+        this.state.tokenUsage = this._requestBudget ? (payload.context_tokens || 0) : Math.max(
             0,
             (this._runningTokens.input + this._runningTokens.output) - this._tokensAtLastSummary,
         );
@@ -561,11 +583,19 @@ export class AgentConnection {
 
         // Open WebSocket. xAI's docs say the ephemeral token goes in the WS
         // sub-protocol with the `xai-client-secret.` prefix. Be defensive
-        // about whether the minted token already carries it.
-        const url = `${payload.xai_realtime_url}?model=${encodeURIComponent(payload.xai_model)}`;
+        // about whether the minted token already carries it. The pipeline
+        // voice engine answers on this app's own server (a path, not a URL),
+        // speaking the same protocol (server/pipeline/session.py).
+        let base = payload.xai_realtime_url;
+        if (base.startsWith("/")) {
+            base = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}${base}`;
+        }
+        const url = `${base}?model=${encodeURIComponent(payload.xai_model)}`;
         const rawToken = payload.xai_ephemeral_token || "";
-        const tokenForWs = rawToken.startsWith("xai-client-secret.")
-            ? rawToken
+        // OpenAI: a browser socket carries its ephemeral key (ek_…) as an
+        // `openai-insecure-api-key.` sub-protocol (OpenAI voice-websockets guide).
+        const tokenForWs = this._protocol === "openai" ? `openai-insecure-api-key.${rawToken}`
+            : rawToken.startsWith("xai-client-secret.") ? rawToken
             : `xai-client-secret.${rawToken}`;
         try {
             this.ws = new WebSocket(url, ["realtime", tokenForWs]);
@@ -892,8 +922,12 @@ export class AgentConnection {
                     + `"${(msg.transcript || "").slice(0, 80)}"`);
                 return;
             }
-            // Already recovered from response.done (late-arriving final).
-            if (this._assistantFinalAppended) {
+            // Already recovered from response.done (late-arriving final). One
+            // reply can speak in several message items (OpenAI: words, a
+            // tool call, more words), each with its own final - so where the
+            // event names its item, "already" means that item, not the reply.
+            const itemId = this._protocol === "openai" ? msg.item_id || null : null;
+            if (itemId ? this._finalItemIds?.has(itemId) : this._assistantFinalAppended) {
                 console.debug(`[voice:${this.connId}] transcript.done after recovery — ignored`);
                 this._assistantTranscriptInProgress = "";
                 return;
@@ -901,6 +935,7 @@ export class AgentConnection {
             const finalText = msg.transcript || this._assistantTranscriptInProgress;
             if (finalText) {
                 this._deferOrAppendAssistantFinal(finalText);
+                if (itemId) (this._finalItemIds ??= new Set()).add(itemId);
             }
             this._assistantTranscriptInProgress = "";
             return;
@@ -935,6 +970,13 @@ export class AgentConnection {
             const usage = innerUsage && Object.keys(innerUsage).length
                 ? innerUsage
                 : msg.usage;
+            // A reply that didn't complete is the usual reason a turn goes
+            // unanswered: say why at a level the console shows by default
+            // (OpenAI: status_details {type, reason, error}).
+            if (status && status !== "completed") {
+                console.info(`[voice:${this.connId}] reply ${status}:`,
+                    JSON.stringify(msg.response?.status_details || {}));
+            }
             console.debug(
                 `[voice:${this.connId}] response`, respId, "done:", status,
                 usage
@@ -946,10 +988,22 @@ export class AgentConnection {
             if (usage) {
                 this._runningTokens.input += usage.input_tokens || 0;
                 this._runningTokens.output += usage.output_tokens || 0;
-                this.state.tokenUsage = Math.max(
-                    0,
-                    (this._runningTokens.input + this._runningTokens.output) - (this._tokensAtLastSummary || 0),
-                );
+                if (this._protocol === "openai") {
+                    // OpenAI resends the whole conversation each reply, so a
+                    // reply's size is the conversation's: the meter's figure,
+                    // and sent with the next /append for the setup's own
+                    // 'Summarise at' (session_service.append_messages). A reply
+                    // cancelled before it started reports 0 - not a size.
+                    if (usage.input_tokens > 0) {
+                        this._lastRequestTokens = usage.input_tokens + (usage.output_tokens || 0);
+                        if (this._requestBudget) this.state.tokenUsage = this._lastRequestTokens;
+                    }
+                } else if (!this._requestBudget) {
+                    this.state.tokenUsage = Math.max(
+                        0,
+                        (this._runningTokens.input + this._runningTokens.output) - (this._tokensAtLastSummary || 0),
+                    );
+                }
             }
             // Cancelled responses (e.g. our barge-in cancel) shouldn't reset
             // _responseInFlight here — the speech_started handler already
@@ -961,7 +1015,20 @@ export class AgentConnection {
                 // types fall through this handler without a trace). Prefer
                 // the accumulated deltas; fall back to the transcript
                 // embedded in response.done's own output items.
-                if (!this._assistantFinalAppended) {
+                if (this._protocol === "openai") {
+                    // Per message item (see transcript.done): any item whose
+                    // final never arrived is recovered from its own output.
+                    for (const item of msg.response?.output || []) {
+                        if (item?.type !== "message" || this._finalItemIds?.has(item.id)) continue;
+                        const text = (item.content || []).map((p) => p?.transcript || p?.text || "").join("");
+                        if (!text) continue;
+                        console.warn(`[voice:${this.connId}] no transcript.done for ${item.id} — `
+                            + `recovered assistant line from response.done`);
+                        this._deferOrAppendAssistantFinal(text);
+                        (this._finalItemIds ??= new Set()).add(item.id);
+                    }
+                    this._assistantTranscriptInProgress = "";
+                } else if (!this._assistantFinalAppended) {
                     let text = this._assistantTranscriptInProgress || "";
                     if (!text) {
                         for (const item of msg.response?.output || []) {
@@ -1002,6 +1069,9 @@ export class AgentConnection {
                 this._pendingToolReply = false;
                 this._owedContextResponse = false;
             }
+            if (status === "failed" && msg.response?.status_details?.error?.code === "rate_limit_exceeded") {
+                this._retryAfterRateLimit(msg.response.status_details.error.message || "");
+            }
             // If a /append earlier flagged needs_compaction during this
             // response, restart now that the model is idle.
             this._maybeRunCompaction();
@@ -1014,7 +1084,10 @@ export class AgentConnection {
             const expected = this._sessionUpdate?.session || {};
             if (sess.audio?.input?.transcription) {
                 const wasStreaming = this._liveMemoryStreaming;
-                this._streamingTranscription = sess.audio.input.transcription.model === "grok-transcribe";
+                // The pipeline voice engine says so outright: its transcriber
+                // can be any model.
+                this._streamingTranscription = sess.audio.input.transcription.model === "grok-transcribe"
+                    || sess.audio.input.transcription.streaming === true;
                 this._liveMemoryStreaming = this._liveMemory?.mode !== "off" && this._streamingTranscription;
                 if (wasStreaming !== this._liveMemoryStreaming) {
                     console.debug(`[voice:${this.connId}] live memory`, {
@@ -1107,8 +1180,10 @@ export class AgentConnection {
             // transcript starts for the speech gesture selector.
             this.avatarApi?.setConversationState?.({ listening: false, thinking: true, responseStarted: true });
             // Tracks whether this response's assistant line reached the
-            // transcript — drives the response.done recovery fallback.
+            // transcript — drives the response.done recovery fallback (per
+            // message item where the provider names them, _finalItemIds).
             this._assistantFinalAppended = false;
+            this._finalItemIds = new Set();
             console.debug(`[voice:${this.connId}] response started:`, this._currentResponseId);
             // call_id is RESPONSE-scoped per the spec — clear the dedupe sets
             // so turn 2's call_id "0" isn't suppressed by turn 1's.
@@ -1168,8 +1243,14 @@ export class AgentConnection {
             return; // Partial hypotheses never enter durable conversation history.
         }
         // User transcript — record into the local transcript only. With
-        // server_vad active, xAI auto-creates the response itself.
-        if (msg.type === "conversation.item.input_audio_transcription.completed") {
+        // server_vad active, xAI auto-creates the response itself. OpenAI
+        // reports a turn it couldn't transcribe (noise, a cough) as `failed`:
+        // an empty final, so the assistant lines held for it are released.
+        if (msg.type === "conversation.item.input_audio_transcription.failed") {
+            console.info(`[voice:${this.connId}] user turn not transcribed:`, JSON.stringify(msg.error || {}));
+        }
+        if (msg.type === "conversation.item.input_audio_transcription.completed"
+            || msg.type === "conversation.item.input_audio_transcription.failed") {
             // Belt and braces for the idle-events flag: the utterance is over
             // unless this final belongs to one that already ended.
             if (!this._staleSpeechItem(msg.item_id)) {
@@ -1181,13 +1262,12 @@ export class AgentConnection {
             // far lands as this final, and the rest arrives as the next one —
             // sometimes restating the fragment first ("Okay, sure." → "Okay
             // sure, let's go…"), sometimes carrying straight on ("after lunch.").
-            // Nothing said in between: finish the open row. Solo calls only —
-            // a peer's reply never passes through this leg's _appendMessage,
-            // so it can't close the row.
+            // Nothing said in between: finish the open row. In a group call a
+            // peer's line closes it through the manager (closeUserRows).
             const open = this._openUserRow;
-            const joinable = open?.fragment != null && !this.manager?.hasPeers?.()
-                && this._pendingAppendQueue.includes(open.msg);
+            const joinable = open?.fragment != null && this._pendingAppendQueue.includes(open.msg);
             let text;
+            let joinedRow = null;
             if (joinable && full && restatesFragment(open.fragment, full)) {
                 // The re-heard version replaces the fragment.
                 this._lastUserTranscriptText = full;
@@ -1195,8 +1275,12 @@ export class AgentConnection {
                 open.msg.content = open.view.content = open.base ? `${open.base} ${full}` : full;
                 open.fragment = full;
                 open.until = Date.now() + AWAIT_USER_TRANSCRIPT_MS;
+                joinedRow = open.msg.content;
             } else {
-                text = full ? this._extractNewUserSpeech(full) : "";
+                // The repeat-stripping is for xAI, whose finals can re-emit
+                // earlier speech. OpenAI transcribes each committed turn on
+                // its own, so a repeated "Yes." is a new turn, not an echo.
+                text = !full ? "" : this._protocol === "openai" ? full : this._extractNewUserSpeech(full);
                 if (text && joinable) {
                     // "…go for a walk." + "after lunch." — the pause's full stop
                     // goes when the sentence carries on in lowercase.
@@ -1204,6 +1288,7 @@ export class AgentConnection {
                     open.msg.content = open.view.content = `${open.base} ${text}`;
                     open.fragment = text;
                     open.until = Date.now() + AWAIT_USER_TRANSCRIPT_MS;
+                    joinedRow = open.msg.content;
                 } else if (text) {
                     this._appendMessage({ role: "user", content: text });
                     // Only a spoken row can be finished by a later transcript.
@@ -1212,7 +1297,7 @@ export class AgentConnection {
             }
             if (text) {
                 // Manager hook: turn routing + relay to peer legs.
-                try { this.manager.onUserTranscript(this, text); } catch (e) {
+                try { this.manager.onUserTranscript(this, text, joinedRow); } catch (e) {
                     console.error(`[voice:${this.connId}] onUserTranscript failed`, e);
                 }
             }
@@ -1396,6 +1481,9 @@ export class AgentConnection {
                 xai_previous_item_id: null,
             });
             this._mcpCallArgs?.delete(msg.call_id);
+            // OpenAI's response.done can come before its MCP calls finish, and
+            // it doesn't answer with the result unprompted (realtime-mcp guide).
+            if (this._protocol === "openai" && !this._responseInFlight) this._maybeCreateResponse();
             return;
         }
         // MCP tool discovery failure — the model runs without ANY of our
@@ -1426,6 +1514,24 @@ export class AgentConnection {
                 || /no active response/i.test(errMsg)
                 || /does not match current response/i.test(errMsg)) {
                 console.debug(`[voice:${this.connId}] benign cancel race:`, errMsg);
+                return;
+            }
+            // Our response.create landed while a reply was already running
+            // (the provider started one for the user's speech, or two parts of
+            // the app asked at once - a group-call join greeting and a
+            // director grant). That reply is real and still in flight: keep
+            // the flags and drop the request, as before. Owing it a second
+            // reply made a joining companion greet twice (2026-10-02).
+            if (errCode === "conversation_already_has_active_response"
+                || /already has an active response/i.test(errMsg)) {
+                console.debug(`[voice:${this.connId}] response.create refused — a reply is already running`);
+                return;
+            }
+            // OpenAI Realtime ends a session at 60 minutes (and closes the
+            // socket): the call carries on over a fresh one (_onWsClose).
+            if (errCode === "session_expired" || /maximum duration/i.test(errMsg)) {
+                console.info(`[voice:${this.connId}] session reached its time limit — reconnecting`);
+                this._sessionExpired = true;
                 return;
             }
             // Inactivity / stream-idle timeout — recoverable: reset in-flight
@@ -1485,6 +1591,16 @@ export class AgentConnection {
             this.state.thinking = false;
             return;
         }
+        // Pipeline voice engine only: where each reply's time went
+        // (transcription, the brain's first words, the first audio).
+        if (msg.type === "rexclaw.context_tokens") {
+            if (this._requestBudget) this.state.tokenUsage = msg.tokens || 0;
+            return;
+        }
+        if (msg.type === "rexclaw.pipeline_metrics") {
+            console.debug(`[voice:${this.connId}] pipeline timing`, msg);
+            return;
+        }
         // Unhandled event type. Deliberately logged: xAI renames/adds events
         // between revisions, and a silently-ignored one already cost us the
         // assistant transcript persistence once. debug level keeps the
@@ -1510,6 +1626,21 @@ export class AgentConnection {
     _onWsClose(ev) {
         this._liveMemory?.cancel();
         if (this._sessionEnded) return;  // we initiated the close
+        // 1006: the connection died rather than being closed (xAI's side or
+        // the network dropped it mid-call). Reopen it once per call, resuming
+        // the conversation; a second drop ends the call, so a connection
+        // that keeps dying can't reconnect (and bill) forever. Not while
+        // connecting — a refused handshake reports 1006 too — and not in
+        // the middle of a swap.
+        // A provider's session time limit (OpenAI: 60 minutes) is not a
+        // failing connection, so it doesn't use up that one reconnect.
+        const expired = !!this._sessionExpired;
+        this._sessionExpired = false;
+        if ((expired || (ev?.code === 1006 && !this._dropReconnected)) && this.state.status === "live"
+            && !this._compacting && this.state.sessionId) {
+            this._reconnectAfterDrop({ expired });
+            return;
+        }
         // Don't recursively call end() — its async teardown races concurrent
         // state transitions. Full cleanup happens on the user's End click or
         // implicitly on the next start().
@@ -1670,7 +1801,8 @@ export class AgentConnection {
             }
         }
         this.cancelActiveResponse('live-memory-context');
-        const itemId = `lm_${crypto.randomUUID()}`;
+        // 32 characters at most: OpenAI Realtime caps client-chosen item ids.
+        const itemId = `lm_${crypto.randomUUID().replace(/-/g, "").slice(0, 29)}`;
         const note = `[System] (live memory ${memory.memory_id})\n${memory.note}`;
         if (this.injectContextItem(note, { itemId, promptResponse: false })) {
             this._liveMemory.take();
@@ -1720,7 +1852,10 @@ export class AgentConnection {
         this._responseInFlight = true;
         this.state.thinking = true;  // gap until the next audio/transcript chunk arrives
         console.debug(`[voice:${this.connId}] → response.create`);
-        this._sendWs({ type: "response.create", response: { modalities: ["text", "audio"] } });
+        // OpenAI renamed `modalities` (output_modalities, one of text/audio)
+        // and rejects the old name; the session already says audio.
+        this._sendWs(this._protocol === "openai" ? { type: "response.create" }
+            : { type: "response.create", response: { modalities: ["text", "audio"] } });
         return true;
     }
 
@@ -1739,15 +1874,16 @@ export class AgentConnection {
         const hadResponse = this._responseInFlight;
         const audioActive = this._assistantAudioActive();
         if (!hadResponse && !audioActive) return;
-        if (hadResponse) {
-            // Deliberately NO response_id: passing one raced xAI's own
-            // response lifecycle — by the time the cancel landed the id was
-            // often stale ("Response ID … does not match current response").
-            // A bare cancel kills whatever is currently in progress, which
-            // is exactly the intent here: this leg stops talking now.
-            console.debug(`[voice:${this.connId}] → response.cancel (${reason})`, this._currentResponseId);
-            this._sendWs({ type: "response.cancel" });
-        }
+        // Deliberately NO response_id: passing one raced xAI's own
+        // response lifecycle — by the time the cancel landed the id was
+        // often stale ("Response ID … does not match current response").
+        // A bare cancel kills whatever is currently in progress, which
+        // is exactly the intent here: this leg stops talking now. Sent for
+        // a finished reply's playing tail too: xAI answers "no active
+        // response" (benign), and the voice pipeline trims the reply to
+        // what was heard.
+        console.debug(`[voice:${this.connId}] → response.cancel (${reason})`, this._currentResponseId);
+        this._sendWs({ type: "response.cancel" });
         this._stopAssistantAudio();
         this.avatarApi?.setSpeakingIntensity?.(0);
         this._responseInFlight = false;
@@ -1794,6 +1930,33 @@ export class AgentConnection {
      *  and (2) every tool's function_call_output has been submitted.
      *  See the original singleton for the full rationale (mirrors LiveKit's
      *  and Pipecat's one-reply-per-tool-round gating). */
+    /** OpenAI's per-minute token limit refused a reply (its account tier:
+     *  40,000 tokens a minute on tier 1, and every reply resends the whole
+     *  conversation). The turn would otherwise go unanswered: wait the time
+     *  OpenAI names ("try again in 10.689s"), then reply — unless the user
+     *  has spoken since, whose turn then gets the reply instead. */
+    _retryAfterRateLimit(message) {
+        const wait = parseFloat(/try again in ([\d.]+)\s*s/i.exec(message)?.[1]) || 10;
+        const speechTurn = this._speechTurnRevision;
+        clearTimeout(this._rateLimitTimer);
+        this._rateLimitTimer = setTimeout(() => {
+            if (this._sessionEnded || this._userSpeaking || this._responseInFlight
+                || speechTurn !== this._speechTurnRevision) return;
+            console.info(`[voice:${this.connId}] → response.create (after rate limit)`);
+            this._maybeCreateResponse();
+        }, Math.ceil(wait * 1000) + 500);
+        if (!this._rateLimitNoticeShown) {
+            // Once per call: the reason is the account, not this turn.
+            this._rateLimitNoticeShown = true;
+            this.env.services.notification?.add?.(
+                _t("OpenAI's per-minute token limit for your account was reached, so this reply waits %s s. "
+                    + "Each reply resends the whole conversation; OpenAI raises the limit as your account's usage tier goes up.",
+                    Math.ceil(wait)),
+                { type: "warning" },
+            );
+        }
+    }
+
     async _maybeCreateToolReply() {
         if (!this._pendingToolReply) return;
         // Wait for the floor, but stay owed: a slow tool the user talked over
@@ -2097,6 +2260,7 @@ export class AgentConnection {
         // up exactly like the primary's.
         if (this.role === "peer" && this.manager?.state
             && (msg.role === "tool_call" || msg.role === "tool_result")) {
+            this.manager.closeUserRows?.();
             this.manager.state.messages.push({
                 ...msg,
                 speaker: this.agentName || undefined,
@@ -2131,13 +2295,34 @@ export class AgentConnection {
      *  the FULL group conversation, not just its own lines. Rows ride the
      *  same debounced /append queue as _appendMessage, so ordering against
      *  the leg's own rows is preserved and compaction replay picks them up
-     *  from the DB naturally. */
-    recordMessage(msg) {
+     *  from the DB naturally. `holdOpen` keeps a relayed user row open like
+     *  the primary's own, so the rest of a sentence a pause cut short can
+     *  still join it (reviseHeldUserRow). */
+    recordMessage(msg, { holdOpen = false } = {}) {
         if (!this.state.sessionId || this._sessionEnded) return;
         this._pendingAppendQueue.push(msg);
+        if (holdOpen) {
+            this._openUserRow = { msg, view: null, openedAt: Date.now(), until: Date.now() + AWAIT_USER_TRANSCRIPT_MS };
+        }
         if (!this._appendFlushTimer) {
             this._appendFlushTimer = setTimeout(() => this._flushAppendQueue({ holdOpenUserRow: true }), 1500);
         }
+    }
+
+    /** Group call: the primary joined the user's pause-split sentence into
+     *  one row — give this leg's held copy the same words. False when the
+     *  copy is gone (already saved, or someone spoke since). */
+    reviseHeldUserRow(content) {
+        const open = this._openUserRow;
+        if (!open || open.view || !this._pendingAppendQueue.includes(open.msg)) return false;
+        open.msg.content = content;
+        open.until = Date.now() + AWAIT_USER_TRANSCRIPT_MS;
+        return true;
+    }
+
+    /** Someone else spoke in a group call: the open user row is finished. */
+    closeUserRow() {
+        this._openUserRow = null;
     }
 
     async _flushAppendQueue(opts) {
@@ -2182,6 +2367,7 @@ export class AgentConnection {
                 // takes the max so retries are idempotent.
                 total_input_tokens: this._runningTokens.input,
                 total_output_tokens: this._runningTokens.output,
+                ...(this._lastRequestTokens ? { context_tokens: this._lastRequestTokens } : {}),
             });
             // Server flagged the session for mid-session compaction.
             if (resp && resp.needs_compaction) {
@@ -2406,6 +2592,43 @@ export class AgentConnection {
         await this._closeWsOnly();
         await this.start(agentId, sessionId, true);
         this.state.muted = savedMuted;
+    }
+
+    /** The socket died mid-call (1006, see _onWsClose): reconnect the way
+     *  the compaction swap does — rows flushed, then start() in resume mode,
+     *  which keeps the transcript, rebuilds the live context from the
+     *  session record and doesn't greet again. Words said as it dropped are
+     *  lost. If the reopen fails, start() reports it like any failed call. */
+    async _reconnectAfterDrop({ expired = false } = {}) {
+        if (!expired) this._dropReconnected = true;
+        const sessionId = this.state.sessionId;
+        const agentId = this.lastAgentId || this.state.agentId;
+        console.warn(`[voice:${this.connId}] ${expired ? "session time limit reached" : "connection dropped (1006)"}`
+            + ` — reconnecting session ${sessionId}`);
+        const savedMuted = this.state.muted;
+        // A finished summary waiting for its swap is in the context start()
+        // rebuilds, so this reconnect is that swap. One still being written
+        // keeps its wait and is swapped in once it lands.
+        const swapped = this._compactionRollupReady;
+        if (swapped) this._compactionPending = false;
+        this._compacting = true;   // holds a summary swap off meanwhile
+        try {
+            await this._closeWsOnly();
+            await this.start(agentId, sessionId, true);
+        } catch (e) {
+            console.error(`[voice:${this.connId}] reconnect failed`, e);
+            this._fail(_t("Voice connection lost and could not be reopened."));
+        } finally {
+            this._compacting = false;
+            this.state.muted = savedMuted;
+            if (swapped) {
+                this._compactionPromise = null;
+                this._compactionRollupReady = false;
+                this.state.summarizing = false;
+            } else {
+                this._maybeRunCompaction();   // the summary may have landed meanwhile
+            }
+        }
     }
 
     /** Tear down the active WebSocket + this leg's audio plumbing without

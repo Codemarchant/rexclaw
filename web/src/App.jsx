@@ -133,19 +133,25 @@ export default function App() {
     const ns = useReactive(notifyState);
     const openChatReq = ns.openChat;
     useEffect(() => { if (openChatReq) requestTab("chat"); }, [openChatReq]);
-    // First-run pointer: nothing works without an xAI key, and a fresh
-    // install has no reason to know it lives under Settings. Checked on
-    // load and again whenever the tab changes (i.e. after leaving Settings)
-    // so the banner clears itself once a key is saved. Dismiss lasts for
-    // the window's lifetime only. It comes back next launch until a key
-    // exists, which is the point.
+    // First-run pointer: companions need either an xAI key or a voice setup
+    // that runs entirely on local models, and a fresh install has no reason
+    // to know either lives under Settings. Checked on load and again
+    // whenever the tab changes (i.e. after leaving Settings) so the banner
+    // clears itself once a key or a fully local setup is saved. Dismiss
+    // lasts for the window's lifetime only.
     const [needsKey, setNeedsKey] = useState(false);
     const [keyBannerDismissed, setKeyBannerDismissed] = useState(false);
     useEffect(() => {
         if (keyBannerDismissed) return;
         let cancelled = false;
         rpc("/api/config/get", {})
-            .then((cfg) => { if (!cancelled) setNeedsKey(!cfg.has_api_key); })
+            .then((cfg) => {
+                // A speech-to-speech setup needs its realtime and brain stages off xAI.
+                const local = (cfg.voice_setups || []).some((s) => (s.stages?.realtime ? ["realtime", "llm"]
+                    : ["stt", "llm", "tts"]).every(
+                    (stage) => s.stages?.[stage]?.connection && s.stages[stage].connection !== "xai"));
+                if (!cancelled) setNeedsKey(!cfg.has_api_key && !local);
+            })
             .catch(() => { /* server unreachable; the views report that themselves */ });
         return () => { cancelled = true; };
     }, [tab, keyBannerDismissed]);
@@ -222,7 +228,7 @@ export default function App() {
                     <i className="fa fa-key" />
                     <span>
                         {_t("Companions talk through your own xAI (Grok) account, which bills you directly for usage.")}{" "}
-                        {_t("Add your API key in Settings to get started.")}{" "}
+                        {_t("Add your API key in Settings to get started - or run them on another provider or models on this computer (Settings → Models & providers).")}{" "}
                         <a href="https://console.x.ai" target="_blank" rel="noreferrer">{_t("Get a key")}</a>
                     </span>
                     {tab !== "settings" && (

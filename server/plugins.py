@@ -55,6 +55,16 @@ stable across versions.
                                   audio_studio.DIRECTIVES dicts, or a
                                   function returning one (called each time
                                   the guide is built, for live details).
+    api.add_voice_engine(stage, engine_class)
+                                  a speech-to-text ('stt'), brain ('llm') or
+                                  text-to-speech ('tts') engine for voice
+                                  calls on the pipeline voice engine: a
+                                  subclass of SttEngine / LlmEngine /
+                                  TtsEngine from server.pipeline.engines,
+                                  with a unique `id`, a `label` and its
+                                  settings `fields`. It is offered in
+                                  Settings → Models & providers beside
+                                  the built-in ones.
     api.on_recording_rendered(fn) fn(mp3_path, timeline) after each render.
                                   timeline = {'duration', 'marks': [{'at',
                                   'directive', 'data'}], 'speech': [[start,
@@ -112,6 +122,7 @@ class _Plugin:
         self.handlers = {event: [] for event in EVENTS}
         self.directives = {}    # name → (parse, guide)
         self.render_hooks = []
+        self.voice_engines = []  # (stage, engine class)
         self.routers = []
         self.static = None      # folder served at /plugins/<id>/
         self.companion_toggle = None   # {'label', 'help'}: a switch in the companion form
@@ -159,6 +170,13 @@ class PluginAPI:
 
     def on_recording_rendered(self, fn):
         self._plugin.render_hooks.append(fn)
+
+    def add_voice_engine(self, stage, engine_class):
+        if stage not in ('stt', 'llm', 'tts'):
+            raise ValueError(f"unknown voice engine stage {stage!r} (known: stt, llm, tts)")
+        if not getattr(engine_class, 'id', ''):
+            raise ValueError('a voice engine class needs an id')
+        self._plugin.voice_engines.append((stage, engine_class))
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +286,7 @@ def _load(plugin):
         _logger.exception('extension %s failed to load', plugin.id)
         plugin.error = f'{type(e).__name__}: {e}'
         plugin.providers, plugin.render_hooks, plugin.directives = [], [], {}
+        plugin.voice_engines = []
         plugin.handlers = {event: [] for event in EVENTS}
         plugin.page = plugin.companion_toggle = None
         return
@@ -417,3 +436,8 @@ def recording_rendered(mp3_path, timeline):
             if isinstance(note, str) and note.strip():
                 notes.append(note.strip())
     return notes
+
+
+def voice_engines(stage):
+    """Engine classes extensions add for one voice pipeline stage."""
+    return [cls for plugin in _active() for s, cls in plugin.voice_engines if s == stage]

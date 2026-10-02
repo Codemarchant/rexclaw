@@ -223,19 +223,79 @@ def build_tools():
     return [MINECRAFT_COMMAND_TOOL, MINECRAFT_STATUS_TOOL]
 
 
-def sidecar_config(con, agent=None):
-    """The config message pushed to the sidecar on connect: the brain runs on
-    the user's key, with its own (cheaper) model than the voice session."""
+# Default models per brain connection kind: (standard, hard). The bot's
+# planner writes JavaScript from a long API reference, a cheap fast model's
+# job; the hard one is the rare escape hatch. Claude: Haiku 4.5 (fastest)
+# and Sonnet 5.5. OpenAI: gpt-6-luna (fastest, cheapest) and gpt-6-astra
+# (most capable) - OpenAI's models page, 2026-10-02. Other
+# OpenAI-compatible servers: no default - the model is typed.
+_BRAIN_DEFAULTS = {'xai': ('grok-4.20-non-reasoning', 'grok-4.5'),
+                   'anthropic': ('claude-haiku-4-5', 'claude-sonnet-5-5'),
+                   'openai_cloud': ('gpt-6-luna', 'gpt-6-astra'),
+                   'openai': ('', '')}
+_BRAIN_KINDS = ('openai', 'openai_cloud', 'anthropic')
+
+
+def brain_endpoint(con):
+    """Where the bot's planner sends its /chat/completions requests:
+    {'kind', 'base_url', 'api_key', 'name'} for Settings' Minecraft brain
+    connection - the app's xAI key (default), an OpenAI-compatible
+    connection (Settings → Models & providers), or a Claude connection through
+    Anthropic's OpenAI-compatible endpoint (the planner sends plain text in
+    and gets code back, so that layer's missing caching and thinking output
+    don't matter here). None when the chosen connection is gone."""
+    from .pipeline import setups
     config = get_config(con)
+    choice = (config['minecraft_brain_connection'] or 'xai').strip()
+    if choice == 'xai':
+        return {'kind': 'xai', 'base_url': 'https://api.x.ai/v1', 'api_key': config['xai_api_key'] or '',
+                'name': 'xAI'}
+    conn = setups._connections(con).get(setups._conn_id(choice))
+    if not conn or conn['kind'] not in _BRAIN_KINDS:
+        return None
+    s = conn['settings']
+    if conn['kind'] == 'anthropic':
+        base = (s.get('base_url') or 'https://api.anthropic.com').rstrip('/') + '/v1'
+    elif conn['kind'] == 'openai_cloud':
+        base = (s.get('base_url') or 'https://api.openai.com/v1').rstrip('/')
+    else:
+        base = (s.get('base_url') or '').rstrip('/')
+    return {'kind': conn['kind'], 'base_url': base, 'api_key': s.get('api_key') or '', 'name': conn['name']}
+
+
+def brain_ready(con):
+    """True when the bot's planner has somewhere to think: a model (typed,
+    or the connection kind's default) and a key for a hosted connection (a
+    local OpenAI-compatible server needs none)."""
+    ep = brain_endpoint(con)
+    if ep is None:
+        return False
+    if not (get_config(con)['minecraft_brain_model'] or _BRAIN_DEFAULTS.get(ep['kind'], ('', ''))[0]):
+        return False
+    return bool(ep['api_key']) or (ep['kind'] == 'openai' and bool(ep['base_url']))
+
+
+def sidecar_config(con, agent=None):
+    """The config message pushed to the sidecar on connect and with every
+    directive (so a Settings change applies without restarting it): the
+    brain runs on the user's own connection, with its own (cheaper) model
+    than the voice session."""
+    config = get_config(con)
+    ep = brain_endpoint(con) or {'kind': 'xai', 'base_url': 'https://api.x.ai/v1', 'api_key': ''}
+    model, hard = _BRAIN_DEFAULTS.get(ep['kind'], ('', ''))
     return {
         'type': 'config',
-        'api_key': config['xai_api_key'] or '',
-        'model': config['minecraft_brain_model'] or 'grok-4.20-non-reasoning',
+        'api_key': ep['api_key'],
+        # A local OpenAI-compatible server takes no key: the sidecar plans
+        # without one instead of waiting for it.
+        'keyless': ep['kind'] == 'openai' and not ep['api_key'],
+        'base_url': ep['base_url'],
+        'model': config['minecraft_brain_model'] or model,
         # The stronger model is a rare escape hatch, not the default: it
         # thinks for ~70s a turn and tends to over-plan (bundling materials
         # it doesn't have into one brittle script). Empty here = disabled
         # entirely, for both the per-directive flag and failure escalation.
-        'hard_model': config['minecraft_brain_model_hard'] or 'grok-4.5',
+        'hard_model': config['minecraft_brain_model_hard'] or hard,
         'name': (agent and agent['name']) or 'your companion',
         'master': config['minecraft_master'] or '',
     }
@@ -249,15 +309,17 @@ def execute_minecraft_command(con, session, agent, arguments):
         return {'error': 'directive is required.'}
     if not connected():
         return {'error': 'The Minecraft bot is not connected right now — the sidecar (game_integrations/minecraft/ folder, `node index.js`) must be running.'}
-    if not get_config(con)['xai_api_key']:
-        return {'error': 'No xAI API key is configured (Settings) — the bot brain cannot plan without one.'}
+    if not brain_ready(con):
+        return {'error': 'The bot brain has no model to plan with — set its connection (Game integrations '
+                         '→ Minecraft) and that connection\'s API key.'}
     # What this directive is about to displace (last reported goal, ≤10s
     # old) — so the reply can tell the companion what it set aside.
     prior_goal = ((link.snapshot().get('status') or {}).get('goal') or '').strip()
-    # Keep the game-side persona in sync with whoever is directing: the
+    # Keep the game-side persona in sync with whoever is directing (the
     # sidecar connected before any session existed, so its config only had
-    # a placeholder name. Cheap to resend on every directive.
-    link.send({'type': 'config', 'name': agent['name'] or 'your companion'})
+    # a placeholder name), and the brain with Settings. Cheap to resend on
+    # every directive.
+    link.send(sidecar_config(con, agent))
     # Always interrupting: a delayed directive still replaced the goal, it
     # just did so minutes later, which read as the bot ignoring the user.
     # Sequencing belongs inside the directive text, not in a queue.

@@ -17,8 +17,10 @@ PY="$VENV/bin/python"
 # ---- Python venv + backend deps --------------------------------------------
 # A venv that was moved/copied from another path is silently broken (its
 # scripts hard-code the old location), so probe it by actually importing the
-# deps rather than just checking the folder exists.
-if ! "$PY" -c "import fastapi, uvicorn, requests, cryptography" >/dev/null 2>&1; then
+# deps rather than just checking the folder exists. The list ends with the
+# newest dependencies, so an install from before they were added (a `git
+# pull` doesn't install anything) is set up again instead of failing at start.
+if ! "$PY" -c "import fastapi, uvicorn, requests, cryptography, soxr, httpx, websockets, onnxruntime" >/dev/null 2>&1; then
     echo "[rexclaw] setting up Python environment…"
     rm -rf "$VENV"
     if command -v uv >/dev/null 2>&1; then

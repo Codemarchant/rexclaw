@@ -19,6 +19,7 @@ from starlette.background import BackgroundTask
 
 from .. import avatar_packs, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client
 from ..db import ASSETS_DIR, FILES_DIR, shipped_column_defaults, utcnow
+from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
 from ..errors import UserError
 from .common import db_con
@@ -33,7 +34,7 @@ _CONFIG_FIELDS = (
     "enabled", "xai_realtime_url", "xai_client_secrets_url", "xai_responses_url",
     "xai_files_url", "xai_images_url", "xai_images_edits_url", "xai_videos_url",
     "xai_tts_url",
-    "xai_model", "text_model", "summary_model", "director_model", "imagine_model",
+    "xai_model", "default_voice_setup", "text_model", "summary_model", "director_model", "imagine_model",
     "imagine_video_model", "multi_agent_model", "multi_agent_effort",
     "delegate_fast_model",
     "imagine_image_backend", "imagine_video_backend", "imagine_background_backend",
@@ -50,7 +51,7 @@ _CONFIG_FIELDS = (
     "call_inactivity_minutes", "hotkeys_json", "hotkeys_global_enabled",
     "wake_word_enabled", "wake_word_language",
     "local_task_workdir",
-    "minecraft_brain_model", "minecraft_brain_model_hard", "minecraft_master",
+    "minecraft_brain_model", "minecraft_brain_model_hard", "minecraft_master", "minecraft_brain_connection",
     "live_chat_twitch_channel", "live_chat_youtube_video",
     "live_chat_ignored_users", "live_chat_blocked_words",
     "transcript_display_limit", "heartbeat_notifications",
@@ -63,10 +64,12 @@ _CONFIG_FIELDS = (
 )
 
 _AGENT_FIELDS = (
-    "name", "active", "sequence", "provider", "voice", "voice_speed", "system_prompt", "avatar_id",
+    "name", "active", "sequence", "provider", "voice", "voice_speed",
+    "voice_setup", "pipeline_voice", "text_brain",
+    "system_prompt", "avatar_id",
     "reasoning_effort", "transcription_keyterms",
     "enable_code_execution", "enable_gesture_emotion_tools",
-    "enable_lore_tool", "expression_style", "speech_tag_style",
+    "enable_lore_tool", "expression_style", "speech_tag_style", "speech_tag_guides",
     "enable_web_search", "enable_x_search", "enable_grok_imagine_tools", "enable_capture_tools",
     "enable_cross_companion_imagine",
     "enable_memory_tools", "core_memory_cap",
@@ -103,6 +106,13 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     out["has_typesafe_api_key"] = bool(row["typesafe_api_key"])
     # The YouTube Data API key (live chat): write-only too.
     out["has_youtube_api_key"] = bool(row["live_chat_youtube_api_key"])
+    # Voice connections and setups (API keys masked to "saved" flags) and
+    # every engine's field descriptions to draw them.
+    voice = voice_setups.public(con)
+    out["voice_connections"] = voice["connections"]
+    out["voice_setups"] = voice["setups"]
+    out["voice_catalog"] = pipeline_engines.catalog()
+    out["smart_turn_available"] = smart_turn.available()
     out["spend_today_usd"] = row["spend_today_usd"]
     out["spend_lifetime_usd"] = row["spend_lifetime_usd"]
     out["user_photo_url"] = row["user_photo_path"] or None
@@ -111,6 +121,12 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     out["local_task_cli_path"] = local_tools.grok_binary()
     # Live sidecar probe (not persisted): same role for the Minecraft bot.
     out["minecraft_connected"] = minecraft_tools.connected()
+    # Connections its planner can use (OpenAI-compatible or Claude, from
+    # Models & providers), for the Game integrations tab's picker.
+    out["minecraft_brain_connections"] = [
+        {"id": str(r["id"]), "name": r["name"], "kind": r["kind"]}
+        for r in con.execute("SELECT id, name, kind FROM voice_connections "
+                             "WHERE kind IN ('openai', 'openai_cloud', 'anthropic') ORDER BY sequence, id")]
     return out
 
 
@@ -119,6 +135,19 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
     updates = {k: payload[k] for k in _CONFIG_FIELDS if k in payload}
     if 'live_memory_mode' in updates and updates['live_memory_mode'] not in ('off', 'on'):
         raise UserError('Invalid live memory mode.')
+    # Voice connections + setups: replaced wholesale by the page's lists.
+    # New setups arrive with temporary ids, so the default is resolved
+    # after they have rows.
+    if isinstance(payload.get("voice_setups"), list) and isinstance(payload.get("voice_connections"), list):
+        try:
+            ids = voice_setups.save(con, {"connections": payload["voice_connections"],
+                                          "setups": payload["voice_setups"]})
+        except ValueError as e:
+            raise UserError(f'Models & providers: a JSON field is not valid JSON ({e}).')
+        if "default_voice_setup" in payload:
+            updates["default_voice_setup"] = voice_setups.default_choice(con, ids, payload["default_voice_setup"])
+    elif "default_voice_setup" in updates:
+        updates["default_voice_setup"] = voice_setups.default_choice(con, {}, updates["default_voice_setup"])
     if 'live_memory_cooldown_seconds' in updates:
         seconds = updates['live_memory_cooldown_seconds']
         if type(seconds) is not int or not 0 <= seconds <= 3600:
@@ -166,7 +195,9 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
     if updates:
         cols = ", ".join(f"{k} = ?" for k in updates)
         con.execute(f"UPDATE config SET {cols} WHERE id = 1", tuple(updates.values()))
-        con.commit()
+    # One commit, after every check: a rejected value leaves the voice
+    # setups unsaved too, so a save is all or nothing.
+    con.commit()
     return {"ok": True, "updated": sorted(updates.keys())}
 
 
@@ -410,10 +441,12 @@ def xai_models(payload: dict = Body(default={}), con=Depends(db_con)):
 @router.post("/agents/list")
 def agents_list(payload: dict = Body(default={}), con=Depends(db_con)):
     rows = con.execute("SELECT * FROM agents ORDER BY sequence, name").fetchall()
+    config = con.execute("SELECT * FROM config WHERE id = 1").fetchone()
     return [
         # is_stock: one of the five bundled companions (by name) — unlocks
-        # the editor's "Reset to stock".
-        {**{k: r[k] for k in ("id",) + _AGENT_FIELDS}, "is_stock": r["name"] in seeds.SEED_NAMES}
+        # the editor's "Reset to stock". voice_label: the voice its calls use.
+        {**{k: r[k] for k in ("id",) + _AGENT_FIELDS}, "is_stock": r["name"] in seeds.SEED_NAMES,
+         "voice_label": voice_setups.call_voice_label(con, r, config)}
         for r in rows
     ]
 
@@ -428,6 +461,31 @@ def agents_save(payload: dict = Body(default={}), con=Depends(db_con)):
         updates["transcription_keyterms"] = xai_client.validate_keyterms(updates["transcription_keyterms"])
     if "idle_events" in updates:
         updates["idle_events"] = idle_events.events_json(updates["idle_events"])
+    if "text_brain" in updates and updates["text_brain"] not in ("app", "voice_setup"):
+        updates["text_brain"] = "app"
+    if "voice_setup" in updates:
+        updates["voice_setup"] = str(updates["voice_setup"] or "")
+    if "pipeline_voice" in updates:
+        # {voice connection id: voice} (setups.pipeline_voice); blanks dropped.
+        try:
+            voices = json.loads(updates["pipeline_voice"] or "{}")
+        except (TypeError, ValueError):
+            voices = None
+        if not isinstance(voices, dict):
+            raise UserError("Invalid companion voices.")
+        updates["pipeline_voice"] = json.dumps({str(k): str(v).strip() for k, v in voices.items()
+                                                if str(v or "").strip()})
+    if "speech_tag_guides" in updates:
+        # {voice connection id: text} (setups.companion_tag_guide); blanks
+        # dropped, so an emptied field is back on the engine's default.
+        try:
+            guides = json.loads(updates["speech_tag_guides"] or "{}")
+        except (TypeError, ValueError):
+            guides = None
+        if not isinstance(guides, dict):
+            raise UserError("Invalid companion speech tags.")
+        guides = {str(k): str(v).strip() for k, v in guides.items() if str(v or "").strip()}
+        updates["speech_tag_guides"] = json.dumps(guides) if guides else ""
     if agent_id:
         if updates:
             cols = ", ".join(f"{k} = ?" for k in updates)

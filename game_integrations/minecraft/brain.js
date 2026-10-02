@@ -424,6 +424,12 @@ class Brain {
         Object.assign(this.config, patch || {});
     }
 
+    /** Able to think: a model, and an API key unless the server marked the
+     *  endpoint keyless (a local OpenAI-compatible server). */
+    get configured() {
+        return !!this.config.model && (!!this.config.apiKey || !!this.config.keyless);
+    }
+
     _wireGameEvents() {
         this.host.on("spawn", () => {
             // Back in the world with an unfinished goal — whether from a
@@ -566,7 +572,7 @@ class Brain {
     }
 
     async _decide(event) {
-        if (!this.config.apiKey || !this.config.model) {
+        if (!this.configured) {
             this.io.log("brain not configured (no api key/model yet) — dropping event", event.type);
             return;
         }
@@ -1008,7 +1014,7 @@ class Brain {
                     signal: llmCtl.signal,
                     headers: {
                         "Content-Type": "application/json",
-                        Authorization: `Bearer ${this.config.apiKey}`,
+                        ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
                     },
                     body: JSON.stringify({
                         ...(useEffort ? { reasoning_effort: HARD_MODEL_EFFORT } : {}),
@@ -1017,7 +1023,10 @@ class Brain {
                             { role: "system", content: system },
                             { role: "user", content: user },
                         ],
-                        temperature: 0.4,
+                        // Claude's newest models (through Anthropic's
+                        // OpenAI-compatible endpoint) refuse sampling
+                        // settings: learned once, then left out.
+                        ...(this._noTemperature?.has(model) ? {} : { temperature: 0.4 }),
                         // Generous on purpose: on a reasoning model this
                         // budget covers thinking AND the emitted code, so a
                         // tight cap truncates the JavaScript mid-statement
@@ -1028,7 +1037,7 @@ class Brain {
                 });
                 if (!res.ok) {
                     const body = (await res.text()).slice(0, 200);
-                    const err = new Error(`xAI ${res.status}: ${body}`);
+                    const err = new Error(`brain ${res.status}: ${body}`);
                     err.status = res.status;
                     throw err;
                 }
@@ -1056,6 +1065,13 @@ class Brain {
                     (this._noEffort || (this._noEffort = new Set())).add(model);
                     this.io.log(`${model} rejects reasoning_effort — retrying without it`);
                     attempt -= 1;   // this attempt didn't really happen
+                    continue;
+                }
+                if (e.status === 400 && /temperature/i.test(e.message || "")
+                        && !this._noTemperature?.has(model)) {
+                    (this._noTemperature || (this._noTemperature = new Set())).add(model);
+                    this.io.log(`${model} rejects temperature — retrying without it`);
+                    attempt -= 1;
                     continue;
                 }
                 if (llmCtl.signal.aborted) {

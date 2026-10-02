@@ -49,6 +49,7 @@ from pathlib import Path
 from . import avatar_packs, lore_tools, memory_tools, portraits
 from .db import ASSETS_DIR, utcnow
 from .errors import UserError
+from .pipeline import setups as voice_setups
 
 _logger = logging.getLogger(__name__)
 
@@ -609,11 +610,83 @@ def import_heartbeats(con, rows, agent_id):
 
 def _agent_portable_fields():
     """The agent save/duplicate whitelist minus avatar_id — the avatar link
-    travels by pack_key/name instead — and singing_profile_id, a Voice Lab
-    model that only exists on this install. Imported lazily: routes.misc
-    imports this module at load time."""
+    travels by pack_key/name instead — and singing_profile_id, voice_setup,
+    pipeline_voice and speech_tag_guides: a Voice Lab model, and a voice
+    setup, voices and speech tags keyed by ids that only exist on this
+    install. The setup, voices and tags travel by name instead
+    (voice_setup_ref). Imported lazily: routes.misc imports this module at
+    load time."""
     from .routes.misc import _AGENT_FIELDS
-    return tuple(k for k in _AGENT_FIELDS if k not in ("avatar_id", "singing_profile_id"))
+    return tuple(k for k in _AGENT_FIELDS
+                 if k not in ("avatar_id", "singing_profile_id", "voice_setup", "pipeline_voice",
+                              "speech_tag_guides"))
+
+
+def _json_map(text):
+    try:
+        value = json.loads(text or "{}")
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def voice_setup_ref(con, agent):
+    """A companion's voice setup, and its voice and speech tags on each
+    voice connection, by name: {'kind': 'default' | 'realtime' | 'setup',
+    'name': the setup's, 'voices': [{'connection': its name, 'engine': its
+    kind, 'voice', 'tags'}]}. Only names, voice ids and the companion's own
+    text — never a connection's API key or server URL."""
+    choice = (agent["voice_setup"] or "").strip()
+    ref = {"kind": "default", "name": None}
+    if choice == voice_setups.REALTIME:
+        ref["kind"] = "realtime"
+    elif choice:
+        row = con.execute("SELECT name FROM voice_setups WHERE id = ?", (choice,)).fetchone()
+        if row:
+            ref = {"kind": "setup", "name": row["name"]}
+    voices, tags = _json_map(agent["pipeline_voice"]), _json_map(agent["speech_tag_guides"])
+    connections = voice_setups._connections(con)
+    ref["voices"] = []
+    for conn_id in dict.fromkeys([*voices, *tags]):
+        conn = connections.get(voice_setups._conn_id(conn_id))
+        voice, text = str(voices.get(conn_id) or "").strip(), str(tags.get(conn_id) or "").strip()
+        if conn and (voice or text):
+            ref["voices"].append({"connection": conn["name"], "engine": conn["kind"],
+                                  "voice": voice, "tags": text})
+    return ref
+
+
+def link_voice_setup(con, ref):
+    """(voice_setup, pipeline_voice, speech_tag_guides) for an imported
+    companion from its voice_setup_ref: the setup here with the same name,
+    and each voice and tag text on the connection here of the same engine
+    and name (or the only one of that engine). Whatever has no match is
+    left out — the companion then uses the app's default setup and that
+    setup's default voice."""
+    if not isinstance(ref, dict):
+        return "", "", ""
+    setup = ""
+    if ref.get("kind") == "realtime":
+        setup = voice_setups.REALTIME
+    elif ref.get("kind") == "setup" and ref.get("name"):
+        row = con.execute("SELECT id FROM voice_setups WHERE name = ? ORDER BY sequence, id",
+                          (str(ref["name"]),)).fetchone()
+        setup = str(row["id"]) if row else ""
+    connections = [c for c in voice_setups._connections(con).values() if not c.get("builtin")]
+    voices, tags = {}, {}
+    for v in ref.get("voices") or []:
+        if not isinstance(v, dict):
+            continue
+        same_engine = [c for c in connections if c["kind"] == v.get("engine")]
+        match = next((c for c in same_engine if c["name"] == v.get("connection")),
+                     same_engine[0] if len(same_engine) == 1 else None)
+        if not match:
+            continue
+        for found, key in ((voices, "voice"), (tags, "tags")):
+            text = str(v.get(key) or "").strip()
+            if text:
+                found.setdefault(str(match["id"]), text)
+    return setup, json.dumps(voices) if voices else "", json.dumps(tags) if tags else ""
 
 
 def _idle_event_fields():
@@ -659,6 +732,7 @@ def export_companion_zip(con, agent_id, out_path, *,
         _writestr_json(zf, "companion.json", {
             "agent": {k: agent[k] for k in _agent_portable_fields() if k not in skip},
             "avatar": {"pack_key": avatar["pack_key"], "name": avatar["name"]} if avatar else None,
+            "voice_setup": voice_setup_ref(con, agent),
         })
         if include_memories:
             _writestr_json(zf, "memories.json",
@@ -805,6 +879,8 @@ def import_companion_zip(con, zip_path):
                                       (avatar_ref["name"],)).fetchone()
                 avatar_id = row["id"] if row else None
             vals["avatar_id"] = avatar_id
+            vals["voice_setup"], vals["pipeline_voice"], vals["speech_tag_guides"] = link_voice_setup(
+                con, companion.get("voice_setup"))
 
             cols = ", ".join(vals)
             marks = ", ".join("?" * len(vals))

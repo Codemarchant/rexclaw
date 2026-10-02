@@ -152,7 +152,7 @@ const GROK_WRAPPING_TAGS =
     "<higher-pitch> <lower-pitch> <slow> <fast> <sing-song> <singing> " +
     "<emphasis>";
 
-// Tools that work regardless of which LLM backend drives the companion.
+// The app's own tools: they work whichever brain drives the companion.
 const GENERAL_FLAGS = [
     ["enable_gesture_emotion_tools", "Avatar control tools",
      "Lets the companion animate its avatar during voice calls: set its facial emotion, play gestures (the built-in set plus the avatar's custom ones) and switch between the avatar's outfits (set_emotion, play_gesture, change_outfit). Blinking, lip sync and idle motion work regardless. Unlocks the expression-style notes below."],
@@ -166,10 +166,20 @@ const GENERAL_FLAGS = [
      "When ANOTHER companion texts this one (affects text_companion), let this one use its own tools (memory, pictures, delegated tasks, Minecraft, MCP servers) while writing the reply — so a companion can ask this one to do something it isn't equipped for itself. Two things to know: the sender waits for the whole reply, so a slow tool here is silence in their live call, and anything generated lands in this companion's own chat and the library rather than coming back to the sender. Turn it off for a companion whose tools are slow or expensive."],
     ["enable_delegate_tool", "Task delegation (delegate_task)",
      "Lets the companion hand complex work (reading documents or images, research, long coding tasks) to a hidden background text session with the full tool stack, and report the result back (delegate_task). Works from voice calls too, where the realtime model can't see files itself. Quick looks at images and clips can run on the fast text model set in Settings. Each task is billed as extra text-model usage."],
+    ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)",
+     "Allows delegated tasks (affects delegate_task) to run on xAI's multi-agent model (several coordinated agents on one task) when the companion asks for it. Noticeably more expensive per task than a plain delegation; requires Task delegation."],
     ["enable_memory_tools", "Memory",
      "Gives the companion long-term memory tools (remember, recall, forget): it can save facts about you and your conversations, search them later, and delete ones you ask it to drop. Memories persist across sessions and appear in the Memories tab."],
     ["enable_capture_tools", "Capture tools (selfie & screen share)",
      "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, analyze_screen, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider."],
+    ["enable_grok_imagine_tools", "Image & video tools",
+     "Unlocks the media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Each tool renders on Grok Imagine (billed by xAI: images cost cents, videos are priced per second) or on your own ComfyUI server. Pick the engine per tool in Settings → Local generation."],
+    ["enable_cross_companion_imagine", "Cross-companion Imagine reference",
+     "Lets create_image/create_video feature ANOTHER companion by name (and outfit) — their own portrait as a reference image, and (create_video) their own voice id so a clip can have them speak in their actual voice too. Separate from Companion texting on purpose: a companion can be messageable without being depicted this way, or vice versa. Requires Image & video tools."],
+    ["enable_voicemail", "Voice messages (create_voicemail)",
+     "Lets the companion record audio messages in its own voice during text chat (create_voicemail): teasing voice notes, good-morning messages, bedtime stories, guided meditations and breathing exercises, with timed silences, ambient sound and effects. The recording plays inline in the chat and is also listed under History → Recordings. Text sessions only. Billed by xAI as text-to-speech, about a cent per minute of speech."],
+    ["enable_songs", "Songs (perform_song)",
+     "Lets the companion perform a song on the karaoke stage during a voice call (perform_song): the backing plays, they sing and dance, and the lyrics roll on screen. It offers only the songs they have already learned in their current singing voice (Teach on the Stage panel), so nothing is rendered during the call. The call stays connected while the song plays."],
     ["enable_end_call_tool", "End-call tool (hang up on request)",
      "Lets the companion end the voice call itself (end_call) when you say goodbye or ask it to hang up, instead of waiting for you to press the button. Voice mode only."],
     ["enable_move_tool", "Locomotion tools",
@@ -183,32 +193,44 @@ const THIRD_PARTY_FLAGS = [
      "Lets the companion drive the Minecraft bot set up in the Games tab from voice and text sessions: give it goals and commands, check what it's doing (minecraft_command, minecraft_status). The tools are only offered while the bot sidecar is connected."],
     ["enable_gesture_gen", "Gesture generation (Text-To-VRMA)",
      "Lets the companion invent brand-new avatar motions from a description during voice calls (generate_gesture), for anything its gesture list doesn't cover. Made by the free Text-To-VRMA app running on your computer: connect it and switch it on in Settings → Gesture generation. The tool is only offered while that app's local API is answering. Motions are saved to data/assets/generated/text_to_vrma/ and can be added to an avatar's custom gestures from the Library picker."],
+    ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)",
+     "Lets the companion hand tasks to the xAI Grok Build CLI on THIS computer (local_task): it creates and edits real files and runs shell commands, auto-approved, in the folder it's given. Powerful, so only enable it for companions you trust with that. Requires the `grok` CLI on your PATH; never offered in Docker."],
 ];
 
-// Provider-specific settings/tools, keyed by agents.provider. Only Grok
-// exists today — the split is groundwork for a future OpenAI provider.
-const PROVIDERS = [["grok", "Grok (xAI)"]];
-const PROVIDER_FLAGS = {
-    grok: [
-        ["enable_web_search", "Web search",
-         "Lets the companion search the web (web_search) for current information (news, facts, prices) in both voice and text sessions. Searches are billed by xAI per call."],
-        ["enable_x_search", "X search",
-         "Lets the companion search posts on X (Twitter) in both voice and text sessions (x_search). Searches are billed by xAI per call."],
-        ["enable_grok_imagine_tools", "Image & video tools",
-         "Unlocks the media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Each tool renders on Grok Imagine (billed by xAI: images cost cents, videos are priced per second) or on your own ComfyUI server. Pick the engine per tool in Settings → Local generation."],
-        ["enable_cross_companion_imagine", "Cross-companion Imagine reference",
-         "Lets create_image/create_video feature ANOTHER companion by name (and outfit) — their own portrait as a reference image, and (create_video) their own voice id so a clip can have them speak in their actual voice too. Separate from Companion texting on purpose: a companion can be messageable without being depicted this way, or vice versa. Requires Image & video tools."],
-        ["enable_voicemail", "Voice messages (create_voicemail)",
-         "Lets the companion record audio messages in its own voice during text chat (create_voicemail): teasing voice notes, good-morning messages, bedtime stories, guided meditations and breathing exercises, with timed silences, ambient sound and effects. The recording plays inline in the chat and is also listed under History → Recordings. Text sessions only. Billed by xAI as text-to-speech, about a cent per minute of speech."],
-        ["enable_songs", "Songs (perform_song)",
-         "Lets the companion perform a song on the karaoke stage during a voice call (perform_song): the backing plays, they sing and dance, and the lyrics roll on screen. It offers only the songs they have already learned in their current singing voice (Teach on the Stage panel), so nothing is rendered during the call. The call stays connected while the song plays."],
-        ["enable_code_execution", "Code execution (text)",
-         "Lets the companion run Python in xAI's sandboxed code interpreter (code_interpreter) to calculate, analyse data or test snippets. Text sessions only; the voice model has no code tool."],
-        ["enable_multi_agent_delegation", "Multi-agent delegation (pricier)",
-         "Allows delegated tasks (affects delegate_task) to run on xAI's multi-agent model (several coordinated agents on one task) when the companion asks for it. Noticeably more expensive per task than a plain delegation; requires Task delegation."],
-        ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)",
-         "Lets the companion hand tasks to the xAI Grok Build CLI on THIS computer (local_task): it creates and edits real files and runs shell commands, auto-approved, in the folder it's given. Powerful, so only enable it for companions you trust with that. Requires the `grok` CLI on your PATH; never offered in Docker."],
-    ],
+// Tools the brain's provider runs itself (like remote MCP servers): xAI,
+// OpenAI's own API or Anthropic - which ones depends on the brain (the
+// setup's hosted_tools, LlmEngine.hosted_for). Every other tool is the
+// app's own and works with any brain.
+const GROK_BRAIN_FLAGS = [
+    ["enable_web_search", "Web search",
+     "Lets the companion search the web (web_search) for current information (news, facts, prices) in both voice and text sessions. Searches are billed per search by the provider that runs them (xAI, OpenAI or Anthropic)."],
+    ["enable_x_search", "X search",
+     "Lets the companion search posts on X (Twitter) in both voice and text sessions (x_search). Searches are billed by xAI per call."],
+    ["enable_code_execution", "Code execution (text)",
+     "Lets the companion run Python in its brain provider's sandboxed code interpreter (xAI, OpenAI or Anthropic) to calculate, analyse data or test snippets. On Grok, text sessions only (Grok Realtime calls have no code tool); a voice setup with a Claude or OpenAI brain runs it on calls too. On Claude and OpenAI, attached files the model can't read directly (archives, older Office files, very long text...) are opened there, and files it makes come back into the chat."],
+];
+// Each flag's tool type in a setup's hosted_tools, and every type a Grok
+// text chat has.
+const HOSTED_TOOL_OF = { enable_web_search: "web_search", enable_x_search: "x_search", enable_code_execution: "code_interpreter" };
+const GROK_HOSTED = ["web_search", "x_search", "code_interpreter", "mcp"];
+const PROVIDER_TIP = "Runs at the brain's provider: xAI, OpenAI's own API or Anthropic. A local brain doesn't have it.";
+
+// What a tool needs beyond this app, as a badge beside its switch: the
+// xAI key (left out of the session without one), a choice of engine, or a
+// Grok brain. Unbadged tools run entirely in the app.
+const XAI_TIP = "Uses your xAI API key when the companion uses it (billed by xAI). Not offered while no key is set.";
+const TOOL_NEEDS = {
+    enable_delegate_tool: ["mixed", "xAI · OpenAI · Claude", "Runs on the companion's own brain when its voice setup's brain is OpenAI or Claude (their search, code and file reading, on the brain's quick model for quick checks); otherwise on Grok with your xAI API key (billed by xAI)."],
+    enable_multi_agent_delegation: ["xai", "xAI", XAI_TIP],
+    enable_voicemail: ["mixed", "Grok or setup voice", "Recorded in the voice the companion has on calls: Grok's (your xAI API key, billed by xAI), or its voice setup's voice (OpenAI, Fish, Kokoro...). Left out when neither can speak."],
+    enable_minecraft: ["mixed", "xAI · OpenAI · Claude · local", "The bot plans its moves on the connection picked in Game integrations → Minecraft: Grok on your xAI API key, OpenAI, Claude, or a server on your computer."],
+    enable_capture_tools: ["mixed", "Grok or brain vision", "Selfies, screenshots and clips run in the app. analyze_screen looks with the companion's own brain when it can see images (OpenAI, Claude or a local vision model, on the brain's quick model), otherwise with Grok vision on your xAI API key; left out when neither is available."],
+    enable_grok_imagine_tools: ["mixed", "xAI or ComfyUI", "Each tool renders on Grok Imagine with your xAI API key, or on your own ComfyUI server - pick per tool in Settings → Local generation. A tool whose engine can't run is left out."],
+    enable_cross_companion_imagine: ["mixed", "xAI or ComfyUI", "Follows Image & video tools' engines (Settings → Local generation)."],
+    enable_local_tasks: ["xai", "xAI account", "The Grok Build CLI signs in to your xAI account."],
+    enable_web_search: ["grok", "xAI · OpenAI · Claude", PROVIDER_TIP],
+    enable_x_search: ["grok", "Grok brain", "Runs inside xAI's Grok models: only a companion whose brain is Grok has it."],
+    enable_code_execution: ["grok", "xAI · OpenAI · Claude", PROVIDER_TIP],
 };
 
 export default function CompanionsView({ active }) {
@@ -228,17 +250,21 @@ export default function CompanionsView({ active }) {
     const [pastDueHb, setPastDueHb] = useState(0);          // past-due heartbeats across all companions
     const [resolvingHb, setResolvingHb] = useState(false);  // bulk resolve in flight (each execute is a model turn)
     const [query, setQuery] = useState("");
+    // Settings → Models & providers, for the voice setup picker: {default, options}.
+    const [voiceSetups, setVoiceSetups] = useState(null);
     const importInputRef = useRef(null);
 
     const load = async () => {
         try {
-            const [ags, avs, hbs] = await Promise.all([
+            const [ags, avs, hbs, setups] = await Promise.all([
                 rpc("/api/agents/list", {}),
                 rpc("/api/avatars/list", {}),
                 rpc("/api/heartbeats/list", {}),
+                rpc("/api/voice/setups/options", {}),
             ]);
             setAgents(ags);
             setAvatars(avs);
+            setVoiceSetups(setups);
             setPastDueHb((hbs || []).filter((h) => h.past_due).length);
         } catch (e) {
             notification.add(e?.message || _t("Could not load companions"), { type: "danger" });
@@ -321,6 +347,9 @@ export default function CompanionsView({ active }) {
             speaks_first: 0,
             voice_speed: 1,
             transcription_keyterms: "",
+            voice_setup: "",
+            pipeline_voice: "",
+            text_brain: "app",
             idle_events_enabled: 0,
             idle_events_min_seconds: 10,
             idle_events_max_seconds: 10,
@@ -544,7 +573,8 @@ export default function CompanionsView({ active }) {
             <div className="rx_settings">
                 <div className="rx_settings_inner rx_settings_inner--wide">
                     <AgentEditorFields editingAgent={editingAgent} setEditingAgent={setEditingAgent}
-                                       avatars={avatars} saving={saving} saveAgent={saveAgent}
+                                       avatars={avatars} voiceSetups={voiceSetups}
+                                       saving={saving} saveAgent={saveAgent}
                                        dirty={anyDirty}
                                        registerChildEditor={registerChildEditor}
                                        cancel={() => setEditingAgent(null)} />
@@ -625,7 +655,7 @@ export default function CompanionsView({ active }) {
                             <strong>{a.name}</strong>
                             <span className="text-muted small">
                                 {deletingId === a.id ? _t("Deleting…") : [
-                                    `${_t("voice:")} ${a.voice}`,
+                                    `${_t("voice:")} ${a.voice_label || a.voice}`,
                                     (() => {
                                         const av = avatars.find((x) => x.id === a.avatar_id);
                                         return av ? `${_t("avatar:")} ${av.name}` : null;
@@ -657,7 +687,7 @@ export default function CompanionsView({ active }) {
 
 /** Shared form body for both "edit companion" and "new companion". Controlled
  *  entirely by the parent's editingAgent state. */
-function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, saveAgent, dirty,
+function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups, saving, saveAgent, dirty,
                              registerChildEditor, cancel }) {
     const idScope = editingAgent.id ?? "new";
     // Running extensions that add a tool switch here (server/plugins.py).
@@ -680,6 +710,61 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
     const regLore = useCallback((e) => registerChildEditor("lore", e), [registerChildEditor]);
     const regIdle = useCallback((e) => registerChildEditor("idle_events", e), [registerChildEditor]);
     const [promptPreview, setPromptPreview] = useState(null);
+    // The voice setup this companion's calls run on: its own pick, else the
+    // app default (Settings → Models & providers).
+    const setupByValue = (v) => voiceSetups?.options.find((o) => o.value === v);
+    const voiceSetup = voiceSetups && (setupByValue(editingAgent.voice_setup || voiceSetups.default)
+        || voiceSetups.options[0]);
+    // What the setup means for the rest of the section: whose voice calls
+    // use, and where calls and text chat think (Grok-hosted tools need Grok).
+    const callsGrokVoice = !voiceSetup?.tts_connection;
+    const textOnAppGrok = (editingAgent.text_brain || "app") === "app" || !voiceSetup || voiceSetup.value === "realtime";
+    // Provider-run tools each surface's brain takes (GROK_BRAIN_FLAGS): a
+    // Grok text chat keeps the whole set, code execution included.
+    // A speech-to-speech setup's call model has its own (call_hosted_tools).
+    const callsHosted = voiceSetup ? voiceSetup.call_hosted_tools || voiceSetup.hosted_tools || [] : GROK_HOSTED;
+    const textHosted = textOnAppGrok || voiceSetup.brain_is_xai ? GROK_HOSTED : voiceSetup.hosted_tools || [];
+    const flagLabels = (hosted, flags) => GROK_BRAIN_FLAGS
+        .filter(([key]) => flags.includes(key) && !hosted.includes(HOSTED_TOOL_OF[key]))
+        .map(([, label]) => _t(label)).join(", ");
+    const callsMissing = flagLabels(callsHosted, ["enable_web_search", "enable_x_search"]);
+    const textMissing = flagLabels(textHosted, Object.keys(HOSTED_TOOL_OF));
+    // agents.pipeline_voice: {voice connection id: voice} (setups.pipeline_voice).
+    const setupVoices = (() => {
+        try {
+            const v = JSON.parse(editingAgent.pipeline_voice || "{}");
+            return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+        } catch { return {}; }
+    })();
+    // agents.speech_tag_guides: {voice connection id: text}, what this
+    // companion is taught about a voice's own tags (setups.companion_tag_guide).
+    // A connection without an entry shows (and uses) its engine's built-in
+    // text, which is empty for an engine that has none.
+    const tagGuides = (() => {
+        try {
+            const v = JSON.parse(editingAgent.speech_tag_guides || "{}");
+            return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+        } catch { return {}; }
+    })();
+    const setTagGuide = (connection, text, fallback) => {
+        const { [connection]: _old, ...rest } = tagGuides;
+        // Back on the built-in text (or reset: text undefined) = no entry.
+        const next = text === undefined || text === fallback ? rest : { ...rest, [connection]: text };
+        setEditingAgent({ ...editingAgent, speech_tag_guides: Object.keys(next).length ? JSON.stringify(next) : "" });
+    };
+    // One tool switch, with a badge when it needs xAI (TOOL_NEEDS).
+    const flagBox = ([key, label, tooltip]) => {
+        const need = TOOL_NEEDS[key];
+        return (
+            <span key={key} className="rx_check">
+                <input id={`flag-${idScope}-${key}`} type="checkbox"
+                       checked={!!editingAgent[key]}
+                       onChange={(ev) => setEditingAgent({ ...editingAgent, [key]: ev.target.checked ? 1 : 0 })} />
+                <label htmlFor={`flag-${idScope}-${key}`} title={tooltip ? _t(tooltip) : undefined}>{_t(label)}</label>
+                {need && <span className={`rx_tool_badge rx_tool_badge_${need[0]}`} title={_t(need[2])}>{_t(need[1])}</span>}
+            </span>
+        );
+    };
     /** Bundled companions only: load the shipped prompt/voice/avatar/tool
      *  settings into the draft. Nothing is saved here — the unsaved bar
      *  appears and Save applies it (Discard backs out). */
@@ -812,29 +897,18 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 </span>
             </div>
             <label>{_t("Tools")}</label>
+            <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
+                {_t("Unmarked tools run in the app and work with any brain, local ones included. Tools marked xAI use your xAI API key, and are left out while none is set.")}
+            </p>
             <div className="rx_flags">
-                {GENERAL_FLAGS.map(([key, label, tooltip]) => (
-                    <span key={key} className="rx_check">
-                        <input id={`flag-${idScope}-${key}`} type="checkbox"
-                               checked={!!editingAgent[key]}
-                               onChange={(ev) => setEditingAgent({ ...editingAgent, [key]: ev.target.checked ? 1 : 0 })} />
-                        <label htmlFor={`flag-${idScope}-${key}`} title={tooltip ? _t(tooltip) : undefined}>{_t(label)}</label>
-                    </span>
-                ))}
+                {GENERAL_FLAGS.map(flagBox)}
             </div>
             <label>{_t("Third Party Integration Tools")}</label>
             <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
                 {_t("Tools that need a separate app running on your computer. Each is only offered to the companion while that app is connected.")}
             </p>
             <div className="rx_flags">
-                {THIRD_PARTY_FLAGS.map(([key, label, tooltip]) => (
-                    <span key={key} className="rx_check">
-                        <input id={`flag-${idScope}-${key}`} type="checkbox"
-                               checked={!!editingAgent[key]}
-                               onChange={(ev) => setEditingAgent({ ...editingAgent, [key]: ev.target.checked ? 1 : 0 })} />
-                        <label htmlFor={`flag-${idScope}-${key}`} title={tooltip ? _t(tooltip) : undefined}>{_t(label)}</label>
-                    </span>
-                ))}
+                {THIRD_PARTY_FLAGS.map(flagBox)}
                 {extensionToggles.map((ext) => (
                     <span key={`ext-${ext.id}`} className="rx_check">
                         <input id={`flag-${idScope}-ext-${ext.id}`} type="checkbox"
@@ -877,24 +951,66 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
             )}
             </section>
             <section>
-                <h3><i className="fa fa-plug" /> {_t("Provider")}</h3>
+                <h3><i className="fa fa-sliders" /> {_t("Voice & brain")}</h3>
+                {voiceSetups && (
+                    <div className="rx_row">
+                        <div>
+                            <label title={_t("How this companion's voice calls run: Grok Realtime, or one of the voice setups from Settings → Models & providers (a speech-to-speech model, or speech to text, brain and voice as separate engines).")}>
+                                {_t("Voice setup")}
+                            </label>
+                            <select value={editingAgent.voice_setup || ""}
+                                    onChange={(ev) => setEditingAgent({ ...editingAgent, voice_setup: ev.target.value })}>
+                                <option value="">{_t("App default (%s)", _t(setupByValue(voiceSetups.default)?.label || "Grok Realtime"))}</option>
+                                {voiceSetups.options.map((o) => <option key={o.value} value={o.value}>{_t(o.label)}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label title={_t("Text chat runs on the app's Grok text model (Settings → Text model), or on the brain of this companion's voice setup - a local model, OpenAI or Claude, say. Web search and MCP servers need a brain whose provider runs them; X search is Grok's own.")}>
+                                {_t("Text chat brain")}
+                            </label>
+                            <select value={editingAgent.text_brain || "app"}
+                                    onChange={(ev) => setEditingAgent({ ...editingAgent, text_brain: ev.target.value })}>
+                                <option value="app">{_t("Grok (Settings → Text model)")}</option>
+                                <option value="voice_setup" disabled={voiceSetup?.value === "realtime"}>
+                                    {voiceSetup?.value === "realtime"
+                                        ? _t("The voice setup's brain (needs a voice setup)")
+                                        : _t("The voice setup's brain: %s", voiceSetup?.brain || "")}
+                                </option>
+                            </select>
+                        </div>
+                    </div>
+                )}
                 <div className="rx_row">
-                    <div>
-                        <label title={_t("The LLM backend this companion runs on. Only Grok (xAI) is available today.")}>
-                            {_t("Provider")}
-                        </label>
-                        <select value={editingAgent.provider || "grok"}
-                                onChange={(ev) => setEditingAgent({ ...editingAgent, provider: ev.target.value })}>
-                            {PROVIDERS.map(([id, label]) => (
-                                <option key={id} value={id}>{_t(label)}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label title={_t("Built-in xAI voice names such as ara work as-is. For a custom voice, create or clone one in the xAI console (console.x.ai) and paste its voice id here.")}>{_t("Voice (built-in name or custom xAI voice id)")}</label>
-                        <input type="text" value={editingAgent.voice || ""}
-                               onChange={(ev) => setEditingAgent({ ...editingAgent, voice: ev.target.value })} />
-                    </div>
+                    {voiceSetup?.tts_connection && (
+                        <div>
+                            <label title={_t("This companion's voice on this setup's voice server. Kept per server, so switching setups never sends it to a different engine. Leave empty for the setup's default voice.")}>
+                                {_t(voiceSetup.voice_hint)}
+                            </label>
+                            <input type="text" value={setupVoices[voiceSetup.tts_connection] || ""}
+                                   placeholder={voiceSetup.default_voice
+                                       ? _t("%s (the setup's default)", voiceSetup.default_voice)
+                                       : voiceSetup.needs_voice ? _t("required - this setup has no default voice") : ""}
+                                   onChange={(ev) => setEditingAgent({
+                                       ...editingAgent,
+                                       pipeline_voice: JSON.stringify({ ...setupVoices, [voiceSetup.tts_connection]: ev.target.value }),
+                                   })} />
+                        </div>
+                    )}
+                    {/* On another engine's voice, calls and voice messages use that
+                        voice; the Grok one is left for generated videos and songs,
+                        which need the xAI key. */}
+                    {(callsGrokVoice || (voiceSetups?.has_xai_key
+                        && (!!editingAgent.enable_grok_imagine_tools || !!editingAgent.enable_songs))) && (
+                        <div>
+                            <label title={_t("Built-in xAI voice names such as ara work as-is. For a custom voice, create or clone one in the xAI console (console.x.ai) and paste its voice id here.")}>
+                                {callsGrokVoice
+                                    ? _t("Voice (built-in name or custom xAI voice id)")
+                                    : _t("Grok voice for videos and songs (built-in name or custom xAI voice id)")}
+                            </label>
+                            <input type="text" value={editingAgent.voice || ""}
+                                   onChange={(ev) => setEditingAgent({ ...editingAgent, voice: ev.target.value })} />
+                        </div>
+                    )}
                     <div>
                         <label title={_t("How fast this companion talks on voice calls: 1.0 is the voice's normal pace, lower is slower (down to 0.7), higher is faster (up to 1.5). Takes effect from the next call.")}>{_t("Speech speed")}</label>
                         <input type="number" min={0.7} max={1.5} step={0.05} style={{ width: "5rem" }}
@@ -911,16 +1027,20 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                                    setEditingAgent({ ...editingAgent, voice_speed: Math.round(speed * 100) / 100 });
                                }} />
                     </div>
-                    <div>
-                        <label>{_t("Reasoning effort (text mode)")}</label>
-                        <select value={editingAgent.reasoning_effort || "low"}
-                                onChange={(ev) => setEditingAgent({ ...editingAgent, reasoning_effort: ev.target.value })}>
-                            <option value="none">{_t("None")}</option>
-                            <option value="low">{_t("Low")}</option>
-                            <option value="medium">{_t("Medium")}</option>
-                            <option value="high">{_t("High")}</option>
-                        </select>
-                    </div>
+                    {(textOnAppGrok || !!editingAgent.enable_delegate_tool) && (
+                        <div>
+                            <label title={_t("Used by Grok text chat (Settings → Text model) and by this companion's delegated tasks. A voice setup's brain has its own reasoning setting.")}>
+                                {_t("Reasoning effort (text mode)")}
+                            </label>
+                            <select value={editingAgent.reasoning_effort || "low"}
+                                    onChange={(ev) => setEditingAgent({ ...editingAgent, reasoning_effort: ev.target.value })}>
+                                <option value="none">{_t("None")}</option>
+                                <option value="low">{_t("Low")}</option>
+                                <option value="medium">{_t("Medium")}</option>
+                                <option value="high">{_t("High")}</option>
+                            </select>
+                        </div>
+                    )}
                 </div>
                 <label title={_t("Names and words this companion's conversations use, so your speech is transcribed with the right spelling on voice calls — people, places, in-jokes, game words. Comma-separated, up to 100 terms of 50 characters each. Leave empty for none.")}>
                     {_t("Transcription key terms (comma-separated)")}
@@ -928,18 +1048,8 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                 <input type="text" value={editingAgent.transcription_keyterms || ""}
                        placeholder={_t("e.g. Minecraft, Mochi, Aldermoor")}
                        onChange={(ev) => setEditingAgent({ ...editingAgent, transcription_keyterms: ev.target.value })} />
-                <label>{_t("Tools")}</label>
-                <div className="rx_flags">
-                    {(PROVIDER_FLAGS[editingAgent.provider] || PROVIDER_FLAGS.grok).map(([key, label, tooltip]) => (
-                        <span key={key} className="rx_check">
-                            <input id={`flag-${idScope}-${key}`} type="checkbox"
-                                   checked={!!editingAgent[key]}
-                                   onChange={(ev) => setEditingAgent({ ...editingAgent, [key]: ev.target.checked ? 1 : 0 })} />
-                            <label htmlFor={`flag-${idScope}-${key}`} title={tooltip ? _t(tooltip) : undefined}>{_t(label)}</label>
-                        </span>
-                    ))}
-                </div>
-                {(editingAgent.provider || "grok") === "grok" && (
+                {/* Only voices that render the tags (Grok's) are taught them. */}
+                {voiceSetup?.speech_tags !== false && (
                     <>
                         <label title={_t("Appended to the built-in speech-tag instructions every Grok voice session gets, under a 'Your signature tags' heading. Name the tags that are characteristically THIS companion's and the moments that call for them; two or three example lines in their voice work well. The general mechanics are already covered - leave empty and the generic guidance stands alone.")}>
                             {_t("Signature speech tags (optional)")}
@@ -952,6 +1062,41 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, saving, sav
                                   onChange={(ev) => setEditingAgent({ ...editingAgent, speech_tag_style: ev.target.value })} />
                     </>
                 )}
+                {/* Any other voice: one box holding everything the companion is
+                    taught about that voice's tags. It shows the engine's built-in
+                    text (Fish Audio's) until edited, or nothing for an engine
+                    that has none, and what it shows is what is taught. */}
+                {!!voiceSetup?.tts_connection && voiceSetup.speech_tags === false && (
+                    <>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: "0.75rem" }}>
+                            <label title={_t("Everything this companion is told about expression tags on this voice, on calls and for voice messages: how the tags work and which exist. A voice engine with tags of its own (Fish Audio) starts with its default text; trim the lists, reword it, or add this companion's signature tags at the end. For any other voice it starts empty and nothing is taught: if the model behind it understands tags, describe them here. Saved empty, it goes back to the default.")}>
+                                {_t("Speech tags (%s)", _t(voiceSetup.tts_label))}
+                            </label>
+                            {voiceSetup.tts_connection in tagGuides && (
+                                <button className="btn btn-sm btn-link p-0"
+                                        onClick={() => setTagGuide(voiceSetup.tts_connection)}>
+                                    {_t("Reset to default")}
+                                </button>
+                            )}
+                        </div>
+                        <textarea rows={voiceSetup.tag_guide || voiceSetup.tts_connection in tagGuides ? 10 : 3}
+                                  placeholder={_t("Nothing is taught about tags on this voice. If its model understands any, describe them here: how they are written, which exist, and when this companion uses them.")}
+                                  value={voiceSetup.tts_connection in tagGuides ? tagGuides[voiceSetup.tts_connection] : voiceSetup.tag_guide}
+                                  onChange={(ev) => setTagGuide(voiceSetup.tts_connection, ev.target.value, voiceSetup.tag_guide)} />
+                    </>
+                )}
+                <label title={_t("Tools the brain's provider runs itself, like remote MCP servers: xAI, OpenAI's own API or Anthropic. A brain on your own computer doesn't have them.")}>
+                    {_t("Provider tools")}
+                </label>
+                {(callsMissing || textMissing) && (
+                    <p className="text-muted small" style={{ margin: "0 0 0.25rem" }}>
+                        {callsMissing && <>{_t("Not on calls with this brain: %s.", callsMissing)} </>}
+                        {textMissing && _t("Not in text chat with its brain: %s.", textMissing)}
+                    </p>
+                )}
+                <div className="rx_flags">
+                    {GROK_BRAIN_FLAGS.map(flagBox)}
+                </div>
             </section>
             <section>
                 <h3><i className="fa fa-heart" /> {_t("Affection")}</h3>
@@ -1491,7 +1636,7 @@ function McpConnections({ agentId, registerEditor = null }) {
             {editing && editing.id == null && editorForm}
             {!conns.length && !editing && (
                 <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
-                    {_t("None configured. An MCP server gives this companion extra tools; xAI connects to it directly, so the URL must be public HTTPS.")}
+                    {_t("None configured. An MCP server gives this companion extra tools; the brain's provider (xAI, OpenAI or Anthropic) connects to it directly, so the URL must be public HTTPS.")}
                 </p>
             )}
             {conns.map((c) => (editing && editing.id === c.id) ? (

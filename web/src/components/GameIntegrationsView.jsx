@@ -36,6 +36,7 @@ export default function GameIntegrationsView({ active }) {
         setSaving(true);
         try {
             await rpc("/api/config/set", {
+                minecraft_brain_connection: config.minecraft_brain_connection || "xai",
                 minecraft_brain_model: config.minecraft_brain_model || "",
                 minecraft_brain_model_hard: config.minecraft_brain_model_hard || "",
                 minecraft_master: config.minecraft_master || "",
@@ -57,6 +58,17 @@ export default function GameIntegrationsView({ active }) {
     if (!config) {
         return <div className="rx_settings"><div className="rx_settings_inner">{_t("Loading…")}</div></div>;
     }
+    // Where the bot's planner runs, and that connection kind's default
+    // models (minecraft_tools._BRAIN_DEFAULTS).
+    const brainChoice = config.minecraft_brain_connection || "xai";
+    const brainKind = brainChoice === "xai" ? "xai"
+        : (config.minecraft_brain_connections || []).find((c) => c.id === brainChoice)?.kind || "openai";
+    const [defaultModel, defaultHard] = {
+        xai: ["grok-4.20-non-reasoning", "grok-4.5"],
+        anthropic: ["claude-haiku-4-5", "claude-sonnet-5-5"],
+        openai_cloud: ["gpt-6-luna", "gpt-6-astra"],
+        openai: ["", ""],
+    }[brainKind];
 
     return (
         <div className="rx_settings">
@@ -94,16 +106,34 @@ export default function GameIntegrationsView({ active }) {
                     </p>
                     <div className="rx_row">
                         <div>
-                            <label>{_t("Bot brain model (empty = grok-4.20-non-reasoning)")}</label>
+                            <label title={_t("The xAI key from Settings, or an OpenAI-compatible or Claude connection from Settings → Models & providers (its URL and key).")}>
+                                {_t("Bot brain connection")}
+                            </label>
+                            <select value={brainChoice}
+                                    onChange={(ev) => {
+                                        // Model names belong to a connection: a new one
+                                        // starts on its own defaults, not Grok's names.
+                                        markDirty(true);
+                                        setConfig((c) => ({ ...c, minecraft_brain_connection: ev.target.value,
+                                                            minecraft_brain_model: "", minecraft_brain_model_hard: "" }));
+                                    }}>
+                                <option value="xai">{_t("xAI (Grok)")}</option>
+                                {(config.minecraft_brain_connections || []).map((c) => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label>{defaultModel ? _t("Bot brain model (empty = %s)", defaultModel) : _t("Bot brain model")}</label>
                             <input type="text"
-                                   placeholder="grok-4.20-non-reasoning"
+                                   placeholder={defaultModel || _t("the model's name on that server")}
                                    value={config.minecraft_brain_model || ""}
                                    onChange={(ev) => setField("minecraft_brain_model", ev.target.value)} />
                         </div>
                         <div>
-                            <label>{_t("Hard-task model for big jobs (empty = disabled)")}</label>
+                            <label>{defaultHard ? _t("Hard-task model for big jobs (empty = %s)", defaultHard) : _t("Hard-task model for big jobs (empty = disabled)")}</label>
                             <input type="text"
-                                   placeholder="grok-4.5"
+                                   placeholder={defaultHard}
                                    value={config.minecraft_brain_model_hard || ""}
                                    onChange={(ev) => setField("minecraft_brain_model_hard", ev.target.value)} />
                         </div>

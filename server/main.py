@@ -16,8 +16,8 @@ from . import heartbeat, parent_watch, plugins
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, init_db
 from .errors import UserError
-from .routes import (audio, avatars, extensions, heartbeats, live_chat, manga, minecraft, misc, songs, text,
-                     voice, voicelab)
+from .routes import (audio, avatars, extensions, heartbeats, live_chat, manga, minecraft, misc, pipeline,
+                     songs, text, voice, voicelab)
 from .lore_seeds import seed_lore_if_empty
 from .seeds import migrate_default_outfit_sections, seed_if_empty
 
@@ -71,6 +71,7 @@ def shutdown():
 
 
 app.include_router(voice.router)
+app.include_router(pipeline.router)
 app.include_router(text.router)
 app.include_router(misc.router)
 app.include_router(heartbeats.router)

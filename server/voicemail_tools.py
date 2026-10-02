@@ -15,6 +15,7 @@ import logging
 from textwrap import dedent
 
 from . import audio_sounds, audio_studio
+from .pipeline import setups as voice_setups
 from .db import get_config, utcnow
 from .errors import UserError
 
@@ -71,13 +72,27 @@ def build_tool(con, agent=None):
     description carries the user's writing rules (config.recording_rules)
     and uploaded sounds, both edited in History → Recordings, and the
     extension directives this companion has switched on."""
-    guide = audio_studio.guide_text(audio_studio.rules_text(get_config(con)),
-                                    audio_sounds.catalog(con), agent)
+    config = get_config(con)
+    speech_tags = renders_tags(con, agent, config) if agent else True
+    # A voice without Grok's tags gets the default rules minus the lines
+    # about tags (guide_text); the user's own rules are written for Grok's
+    # voice, and a companion's prompt can carry rules for the others. A
+    # voice with tags of its own gets the section its calls teach.
+    rules = audio_studio.rules_text(config) if speech_tags else None
+    own_tags = tag_guide(con, agent, config) if agent else ''
+    guide = audio_studio.guide_text(rules, audio_sounds.catalog(con), agent, speech_tags=speech_tags,
+                                    tag_guide=own_tags)
+    parameters = _PARAMETERS
+    if not (speech_tags or own_tags):
+        # No tags on this voice: the script is described without them.
+        script = {**_PARAMETERS['properties']['script'],
+                  'description': 'The full script: spoken lines, plus directive lines in braces.'}
+        parameters = {**_PARAMETERS, 'properties': {**_PARAMETERS['properties'], 'script': script}}
     return {
         'type': 'function',
         'name': CREATE_VOICEMAIL_TOOL_NAME,
         'description': _INTRO + '\n\n' + guide,
-        'parameters': _PARAMETERS,
+        'parameters': parameters,
     }
 
 
@@ -103,6 +118,54 @@ def _clamp_pace(value):
         return 1.0
 
 
+def call_voice(con, agent, config):
+    """(voice, speaker) recordings use: the voice the companion has on
+    calls. On a voice setup whose voice isn't Grok's, that setup's engine
+    speaks (audio_studio.engine_speaker), no xAI needed; otherwise xAI TTS
+    with its Grok voice (speaker None)."""
+    setup = voice_setups.for_agent(con, agent, config)
+    if setup is None or setup.tts_connection == voice_setups.XAI:
+        return agent['voice'], None
+    # The voice stage's own voice, not setup.voice_for: on a speech-to-speech
+    # setup that is the call model's voice, which this engine may not have.
+    cls, settings = setup.stages['tts']
+    voice = cls.voice_for(settings, agent['voice'], voice_setups.pipeline_voice(agent, setup.tts_connection))
+    if cls.needs_voice and not voice:
+        raise UserError(f'{agent["name"]} has no {cls.label} voice yet: set their voice on the Companions '
+                        f'tab, or the voice setup\'s default voice in Settings → Models & providers.')
+    return voice, audio_studio.engine_speaker(setup.stages['tts'], config, voice)
+
+
+def renders_tags(con, agent, config):
+    """Whether the voice recordings use (call_voice) renders Grok's speech
+    tags — only then are they taught (audio_studio.guide_text)."""
+    setup = voice_setups.for_agent(con, agent, config)
+    if setup is None or setup.tts_connection == voice_setups.XAI:
+        return True
+    return bool(setup.stages['tts'][0].speech_tags)
+
+
+def tag_guide(con, agent, config):
+    """The speech-tag section of the voice recordings use, when that voice
+    has tags of its own rather than Grok's (setups.Setup.tag_guide): the
+    same text the companion's calls teach. '' = none."""
+    setup = voice_setups.for_agent(con, agent, config)
+    if setup is None or setup.tts_connection == voice_setups.XAI:
+        return ''
+    return setup.tag_guide(agent)
+
+
+def available(con, agent, config):
+    """Whether create_voicemail can render for this companion: a local
+    call voice, or an xAI key for Grok's. Not while its engine voice is
+    missing (call_voice) - every recording would fail."""
+    try:
+        speaker = call_voice(con, agent, config)[1]
+    except UserError:
+        return False
+    return bool(config['xai_api_key']) or speaker is not None
+
+
 def execute_create_voicemail(con, session, agent, arguments):
     """Render and store the recording. Errors come back as {'error': str}."""
     if not agent['enable_voicemail']:
@@ -124,8 +187,9 @@ def execute_create_voicemail(con, session, agent, arguments):
     # _execute_local_tool).
     con.commit()
     try:
-        result = audio_studio.render(con, config, script, voice=agent['voice'], language=language,
-                                     pace=_clamp_pace(agent['voice_speed']))
+        voice, speaker = call_voice(con, agent, config)
+        result = audio_studio.render(con, config, script, voice=voice, language=language,
+                                     pace=_clamp_pace(agent['voice_speed']), speaker=speaker)
     except UserError as e:
         return {'error': str(e)}
     except Exception as e:
@@ -134,7 +198,7 @@ def execute_create_voicemail(con, session, agent, arguments):
         _logger.exception('create_voicemail render failed')
         return {'error': f'The recording could not be rendered: {e}'}
     rec_id = store_recording(con, name=title, source='voicemail', script=script,
-                             voice=agent['voice'], result=result,
+                             voice=voice, result=result,
                              agent_id=agent['id'], session_id=session['id'])
     payload = {
         'recording_id': rec_id,

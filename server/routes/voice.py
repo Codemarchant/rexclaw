@@ -12,6 +12,7 @@ from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
 from .. import live_memory
+from ..pipeline import setups as voice_setups
 
 _logger = logging.getLogger(__name__)
 
@@ -96,6 +97,8 @@ def session_append(session_id: int, payload: dict = Body(default={}), con=Depend
         con, session, payload.get("messages") or [],
         total_input_tokens=payload.get("total_input_tokens"),
         total_output_tokens=payload.get("total_output_tokens"),
+        # A speech-to-speech reply's size (OpenAI Realtime), for its own budget.
+        context_tokens=payload.get("context_tokens"),
     )
 
 
@@ -318,25 +321,38 @@ def session_analyze_screen(session_id: int, payload: dict = Body(default={}), co
             "bullets or markdown. Quote short on-screen text exactly "
             "where it matters. A few sentences is ideal."
         )
+    input_items = [{
+        "type": "message",
+        "role": "user",
+        "content": [
+            {"type": "input_image", "image_url": payload.get("image_data_url")},
+            {"type": "input_text", "text": question},
+        ],
+    }]
+    session = store.get_session(con, session_id)
+    agent = store.get_agent(con, session["agent_id"]) if session else None
+    # A brain that sees reads it on its quick model (Claude Haiku 4.5 by
+    # default), as Grok reads it on the fast text model above.
+    brain = agent and session_service.quick_brain(session_service.vision_brain(con, agent, config, session["mode"]))
     try:
-        body = xai_client.create_response(
-            xai_api_key=config["xai_api_key"],
-            responses_url=config["xai_responses_url"],
-            model=model,
-            input_items=[{
-                "type": "message",
-                "role": "user",
-                "content": [
-                    {"type": "input_image", "image_url": payload.get("image_data_url")},
-                    {"type": "input_text", "text": question},
-                ],
-            }],
-            instructions=instructions,
-            reasoning_effort=None,
-            max_output_tokens=400,
-            store=False,
-        )
-    except UserError as e:
+        if brain:
+            # A local brain that sees reads it here: nothing leaves this computer.
+            text, _calls, _usage = session_service._run_brain(
+                brain, config, instructions=instructions, items=input_items,
+                conversation_key=f"rexclaw-vision:{agent['id']}")
+            body = {"output": [{"type": "message", "content": [{"type": "output_text", "text": text}]}]}
+        else:
+            body = xai_client.create_response(
+                xai_api_key=config["xai_api_key"],
+                responses_url=config["xai_responses_url"],
+                model=model,
+                input_items=input_items,
+                instructions=instructions,
+                reasoning_effort=None,
+                max_output_tokens=400,
+                store=False,
+            )
+    except Exception as e:
         return {**stored, "ok": False, "error": f"{'Camera' if camera else 'Screen'} analysis failed: {e}"}
     # Billed LLM usage — accrue like the director and every background call.
     try:
@@ -614,6 +630,7 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
             "id": a["id"],
             "name": a["name"],
             "voice": a["voice"],
+            "voice_label": voice_setups.call_voice_label(con, a, config),
             # Voice activation: the browser's standby listener builds its
             # grammar from these (lib/wake_word.js).
             "wake_phrase": a["wake_phrase"] or "",

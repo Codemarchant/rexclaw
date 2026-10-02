@@ -460,6 +460,14 @@ def attachments_for_message(con, message_id):
     ).fetchall()
 
 
+def library_url(con, imagine_image_id):
+    """The /files URL of an attachment's library copy, or None."""
+    if not imagine_image_id:
+        return None
+    row = con.execute("SELECT image_path FROM imagine_images WHERE id = ?", (imagine_image_id,)).fetchone()
+    return row['image_path'] if row else None
+
+
 def insert_attachment(con, message_id, a):
     # imagine_image_id is browser-supplied (round-tripped from the upload
     # response) — only link a library row that actually exists, keeping the

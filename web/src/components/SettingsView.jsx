@@ -12,6 +12,7 @@ import HotkeysSettings from "./HotkeysSettings.jsx";
 import ModelsDialog from "./ModelsDialog.jsx";
 import CreditsDialog from "./CreditsDialog.jsx";
 import VoiceLabSettings from "./VoiceLabSettings.jsx";
+import VoiceSetupsSettings from "./VoiceSetupsSettings.jsx";
 import ExtensionsSettings from "./ExtensionsSettings.jsx";
 
 // Languages the server can fetch a Vosk wake-word model for (keep in sync
@@ -277,6 +278,7 @@ export default function SettingsView({ active }) {
             const payload = { ...config };
             delete payload.has_api_key;
             delete payload.api_key_hint;
+            delete payload.voice_catalog;
             delete payload.spend_today_usd;
             delete payload.spend_lifetime_usd;
             payload.hotkeys_json = JSON.stringify(hotkeys);
@@ -476,7 +478,8 @@ export default function SettingsView({ active }) {
                     <p className="text-muted small">
                         {_t("Used by: Expressive face and head, Automated background gestures, "
                             + "Live memory recall, and picking who speaks next in a group call. "
-                            + "Background gestures and group-call turn selection fall back to the turn director model without a key.")}
+                            + "Background gestures and group-call turn selection fall back to the turn director model without a key, "
+                            + "and without an xAI key either to the quick model of your companion's voice setup brain.")}
                     </p>
                     <div className="rx_check">
                         <input id="rx_live_memory" type="checkbox"
@@ -526,7 +529,8 @@ export default function SettingsView({ active }) {
                                 + "the line is spoken. Sent for each line: the sentence itself and "
                                 + "your companion's \"## Identity\" and \"## Personality\" sections.")
                             : _t("The turn director model set below reads each sentence against the "
-                                + "clip library. Set a TypeSafe API key above and Jev does it "
+                                + "clip library (without an xAI key: the quick model of your companion's "
+                                + "voice setup brain). Set a TypeSafe API key above and Jev does it "
                                 + "instead — faster, cheaper and a better match.")}
                     </p>
                     )}
@@ -685,7 +689,7 @@ export default function SettingsView({ active }) {
                             + "Imagine (images and videos) are charged separately. Resuming a "
                             + "voice conversation sends its history back one message at a "
                             + "time (incurring the $0.004 charge per message), so if you "
-                            + "resume often, review the \"Cost optimization\" section in "
+                            + "resume often, review the \"Grok Realtime calls\" section in "
                             + "Settings. Text chat is "
                             + "billed differently, by the number of tokens, at the rates of "
                             + "the model used.")}
@@ -804,6 +808,22 @@ export default function SettingsView({ active }) {
                 </section>
 
                 <section>
+                    <h3><i className="fa fa-plug" /> {_t("Models & providers")}</h3>
+                    <VoiceSetupsSettings
+                        connections={config.voice_connections}
+                        setups={config.voice_setups}
+                        defaultSetup={config.default_voice_setup}
+                        catalog={config.voice_catalog}
+                        smartTurnAvailable={!!config.smart_turn_available}
+                        dirty={dirty}
+                        onChange={({ connections, setups, defaultSetup }) => {
+                            markDirty(true);
+                            setConfig((c) => ({ ...c, voice_connections: connections, voice_setups: setups,
+                                                default_voice_setup: defaultSetup }));
+                        }} />
+                </section>
+
+                <section>
                     <h3><i className="fa fa-keyboard-o" /> {_t("Hotkeys")}</h3>
                     <HotkeysSettings
                         value={hotkeys}
@@ -813,7 +833,7 @@ export default function SettingsView({ active }) {
                 </section>
 
                 <section>
-                    <h3><i className="fa fa-compress" /> {_t("Context management")}</h3>
+                    <h3><i className="fa fa-compress" /> {_t("Conversation length")}</h3>
                     <p className="text-muted">
                         {_t("A companion can only hold so much of a conversation in mind at "
                             + "once, so long ones are condensed as they go. Once a conversation "
@@ -827,14 +847,19 @@ export default function SettingsView({ active }) {
                             + "way — condensed conversations are stored as episodes your "
                             + "companion can look up again with its recall tool.")}
                     </p>
+                    <p className="text-muted">
+                        {_t("The thresholds and word limits here are for Grok Realtime calls and Grok "
+                            + "text chat. A voice setup sets its own on its brain (Models & providers above), "
+                            + "for the calls and text chat that run on it.")}
+                    </p>
                     <div className="rx_row">
                         <div>
-                            <label>{_t("Voice summarization threshold (tokens)")}</label>
+                            <label>{_t("Grok Realtime calls: summarise after (tokens)")}</label>
                             <input type="number" value={config.summary_threshold_tokens ?? 0}
                                    onChange={(ev) => setField("summary_threshold_tokens", parseInt(ev.target.value, 10) || 0)} />
                         </div>
                         <div>
-                            <label>{_t("Text summarization threshold (tokens)")}</label>
+                            <label>{_t("Grok text chat: summarise after (tokens)")}</label>
                             <input type="number" value={config.summary_threshold_tokens_text ?? 0}
                                    onChange={(ev) => setField("summary_threshold_tokens_text", parseInt(ev.target.value, 10) || 0)} />
                         </div>
@@ -874,7 +899,12 @@ export default function SettingsView({ active }) {
                 </section>
 
                 <section>
-                    <h3><i className="fa fa-tags" /> {_t("Cost optimization")}</h3>
+                    <h3><i className="fa fa-phone" /> {_t("Grok Realtime calls")}</h3>
+                    <p className="text-muted">
+                        {_t("xAI bills a Realtime call for every connected minute and for each message "
+                            + "replayed when a conversation is resumed. These keep that down; calls on a "
+                            + "voice setup don't need them.")}
+                    </p>
                     <p className="text-muted">
                         {_t("Resuming a voice conversation sends its history back to xAI one "
                             + "message at a time, at about $0.004 per message, so a "
@@ -925,7 +955,8 @@ export default function SettingsView({ active }) {
                         </div>
                         <p className="text-muted">
                             {_t("xAI drops an idle call at 15 minutes regardless. 0 turns "
-                                + "this off.")}
+                                + "this off. Calls on a voice setup stay connected - they cost "
+                                + "little or nothing while quiet.")}
                         </p>
                     </div>
                 </section>

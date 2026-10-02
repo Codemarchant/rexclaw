@@ -168,13 +168,35 @@ _LOCAL_TASK_CONTRAST = (
 )
 
 
-def delegate_tool(*, with_local_task_note=False):
+# Said of Grok, whose chat can't see attachments; a companion whose own
+# brain reads them (a voice setup's Claude or OpenAI brain in text chat)
+# hears _SEES_FILES instead - told it couldn't, Claude handed an image it
+# had in front of it to this tool (2026-10-02).
+_CANNOT_SEE = ("You cannot see or read files directly in this conversation — whenever the user "
+               "asks about the CONTENT of a file or image, use this tool.")
+_SEES_FILES = ("Images and documents the user attaches in this chat reach you directly: read them "
+               "yourself, and use this tool for what you can't see here.")
+# A brain with a code sandbox of its own (code execution on Claude or OpenAI).
+_OWN_SANDBOX = (" For a quick calculation or a look at data, use your own code execution instead; "
+                "this tool is for longer work.")
+
+
+def delegate_tool(*, with_local_task_note=False, sees_files=False, own_sandbox=False):
     """The delegate tool entry, with the cloud-vs-local contrast appended
-    when local_task is in the same toolset."""
-    if not with_local_task_note:
+    when local_task is in the same toolset, and - for a companion whose own
+    brain reads attachments (`sees_files`) or runs code (`own_sandbox`) -
+    without the claim that it can't."""
+    if not (with_local_task_note or sees_files or own_sandbox):
         return DELEGATE_TOOL
     tool = dict(DELEGATE_TOOL)
-    tool['description'] = DELEGATE_TOOL['description'] + _LOCAL_TASK_CONTRAST
+    description = DELEGATE_TOOL['description']
+    if sees_files:
+        description = description.replace(_CANNOT_SEE, _SEES_FILES)
+    if own_sandbox:
+        description += _OWN_SANDBOX
+    if with_local_task_note:
+        description += _LOCAL_TASK_CONTRAST
+    tool['description'] = description
     return tool
 
 
@@ -224,6 +246,30 @@ def _resolve_file_blocks(con, refs):
                           f'imagine_image_id / image_url a prior tool returned, '
                           f'not a description.')
     return blocks, errors
+
+
+def _resolve_file_attachments(con, refs):
+    """Model-supplied file refs → attachments of the task message, for a
+    delegation on the companion's own brain (it reads library files like a
+    chat upload). Raw xAI file ids mean nothing to that brain. Returns
+    (attachments, errors)."""
+    out, errors = [], []
+    if not isinstance(refs, list):
+        refs = [refs]
+    if len(refs) > _MAX_FILES:
+        errors.append(f'Only the first {_MAX_FILES} files were used.')
+    for ref in refs[:_MAX_FILES]:
+        ref = str(ref or '').strip()
+        if not ref:
+            continue
+        row = imagine_tools._imagine_row_for_ref(con, ref)
+        if row:
+            out.append({'xai_file_id': f'local:{row["id"]}', 'filename': row['name'] or f'file-{row["id"]}',
+                        'mimetype': row['mimetype'] or '', 'imagine_image_id': row['id']})
+        else:
+            errors.append(f'"{ref}" is not a library file reference — pass the imagine_image_id / '
+                          f'image_url a prior tool or upload returned.')
+    return out, errors
 
 
 def _seed_task_session(con, svc, parent, task_session, agent):
@@ -364,8 +410,10 @@ def execute_delegate_tool(con, session, arguments):
 
     config = get_config(con)
     xai_key = config['xai_api_key']
-    if not xai_key:
-        return {'error': 'xAI API key is not configured.'}
+    # The companion's own brain when it can do the work (Claude, OpenAI's
+    # own API: search, code, files - session_service.delegate_brain); the
+    # task session runs there too (text_send_turn). Else the app's Grok.
+    brain = svc.delegate_brain(con, agent, config)
 
     # _truthy, not bool(): a model answering the string "false" would otherwise
     # read as True and route to the priciest path (see imagine_tools._truthy).
@@ -375,12 +423,19 @@ def execute_delegate_tool(con, session, arguments):
         multi_agent = False
         notes.append('multi_agent is not enabled on this agent — ran as a '
                      'standard delegation instead.')
+    if multi_agent and brain is not None and not xai_key:
+        multi_agent = False   # Grok's multi-agent model only
+        notes.append('multi_agent runs on Grok, and no xAI API key is set — ran as a '
+                     'standard delegation instead.')
+    if not xai_key and (brain is None or multi_agent):
+        return {'error': 'xAI API key is not configured.'}
 
     # Fast path: the quick text model for vision / short reads. The chain
     # was built on the standard model, so break it on either side of the
-    # swap (same precaution as multi-agent).
+    # swap (same precaution as multi-agent). Grok's: a delegation on the
+    # companion's own brain runs on that brain's model.
     fast_model = None
-    if not multi_agent and args.get('model') == 'fast':
+    if not multi_agent and brain is None and args.get('model') == 'fast':
         fast_model = (config['delegate_fast_model'] or '').strip() or None
         if not fast_model:
             notes.append('No fast text model is configured (Settings) — ran '
@@ -388,7 +443,16 @@ def execute_delegate_tool(con, session, arguments):
         elif fast_model == (config['text_model'] or '').strip():
             fast_model = None   # same model: nothing to swap
 
-    file_blocks, file_errors = _resolve_file_blocks(con, args.get('files') or [])
+    # On Grok, files ride the first leg as content blocks (uploaded to
+    # xAI); on the companion's own brain they become attachments of the
+    # task message, which that brain reads like a chat upload
+    # (session_service.attachment_part).
+    file_attachments = []
+    if brain is not None and not multi_agent:
+        file_attachments, file_errors = _resolve_file_attachments(con, args.get('files') or [])
+        file_blocks = file_attachments
+    else:
+        file_blocks, file_errors = _resolve_file_blocks(con, args.get('files') or [])
     notes.extend(file_errors)
     # A task that names files but resolves none would otherwise run text-only
     # against a brief like "describe the attached screenshot" — and the model
@@ -470,13 +534,16 @@ def execute_delegate_tool(con, session, arguments):
                 task_session = store.get_session(con, task_session['id'])
             turn = svc.text_send_turn(
                 con, session=task_session, user_text=task,
-                extra_content_blocks=file_blocks or None,
+                extra_content_blocks=None if file_attachments else (file_blocks or None),
+                attachment_file_ids=file_attachments or None,
                 # No browser is attached to a task session — a browser_tools
                 # round-trip could never be answered.
                 headless=True,
                 model=fast_model,
                 # Non-reasoning fast models reject reasoning.effort.
                 **({'reasoning_effort': None} if fast_model else {}),
+                # On the companion's own brain: its quick model.
+                quick=brain is not None and args.get('model') == 'fast',
             )
             if fast_model:
                 _break_chain(con, task_session)
@@ -485,6 +552,11 @@ def execute_delegate_tool(con, session, arguments):
                 return {'error': turn.get('message') or 'Delegated task failed.',
                         'task_session_id': task_session['id']}
             result_text = (turn.get('assistant_text') or '').strip()
+            if turn.get('files'):
+                # Files the brain's code sandbox made, saved to the library:
+                # the companion can show or reuse them by id.
+                notes.append('Files made: ' + '; '.join(
+                    f'"{f["filename"]}" = imagine_image_id {f["imagine_image_id"]}' for f in turn['files']) + '.')
     except Exception as e:
         _logger.exception('delegate_task failed for session %s (task %s)',
                           session['id'], task_session['id'])

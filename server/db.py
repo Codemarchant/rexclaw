@@ -54,6 +54,10 @@ CREATE TABLE IF NOT EXISTS config (
     -- (History → Recordings → Full guide); NULL/empty = the defaults.
     recording_rules TEXT,
     xai_model TEXT NOT NULL DEFAULT 'grok-voice-latest',
+    -- The voice setup companions use unless they pick their own:
+    -- 'realtime' (xAI's speech-to-speech API, xai_model above) or a
+    -- voice_setups id (server/pipeline/setups.py).
+    default_voice_setup TEXT NOT NULL DEFAULT 'realtime',
     text_model TEXT NOT NULL DEFAULT 'grok-latest',
     summary_model TEXT NOT NULL DEFAULT 'grok-latest',
     -- Model for the group-call turn director (a one-token "who speaks next"
@@ -245,9 +249,12 @@ CREATE TABLE IF NOT EXISTS config (
     -- (empty = grok-4.20-non-reasoning), the stronger model used for hard
     -- directives like building (empty = grok-latest), and the in-game
     -- username of the user, so the bot knows whose orders outrank
-    -- everyone else's.
+    -- everyone else's. minecraft_brain_connection: where those models run
+    -- - 'xai' (the app's key) or a voice_connections id of an
+    -- OpenAI-compatible or Claude connection (minecraft_tools.brain_endpoint).
     minecraft_brain_model TEXT NOT NULL DEFAULT '',
     minecraft_brain_model_hard TEXT NOT NULL DEFAULT '',
+    minecraft_brain_connection TEXT NOT NULL DEFAULT 'xai',
     minecraft_master TEXT NOT NULL DEFAULT '',
     -- Live-stream chat for companions' idle events (see live_chat.py): the
     -- Twitch channel is read anonymously over IRC; a YouTube live stream
@@ -409,6 +416,17 @@ CREATE TABLE IF NOT EXISTS agents (
     -- 100 terms of 50 characters). Empty = nothing sent. The stock crew
     -- ship with seeds.CREW_KEYTERMS.
     transcription_keyterms TEXT NOT NULL DEFAULT '',
+    -- Which voice setup this companion's calls run on: '' = the app
+    -- default (config.default_voice_setup), 'realtime', or a voice_setups
+    -- id. pipeline_voice is its voice on each non-xAI voice connection, a
+    -- JSON map {connection id: voice} (a Kokoro voice name, a Fish Audio
+    -- reference id); none for a connection = the setup's default voice. On
+    -- xAI's voice the Grok voice above is used. text_brain 'voice_setup' runs its text chat on the setup's
+    -- brain too; 'app' keeps the app's Grok text chat (Settings → Text
+    -- model).
+    voice_setup TEXT NOT NULL DEFAULT '',
+    pipeline_voice TEXT NOT NULL DEFAULT '',
+    text_brain TEXT NOT NULL DEFAULT 'app',
     system_prompt TEXT NOT NULL,
     avatar_id INTEGER REFERENCES avatars(id) ON DELETE SET NULL,
     chat_thumbnail_path TEXT,
@@ -430,6 +448,12 @@ CREATE TABLE IF NOT EXISTS agents (
     -- grok-provider companions — the tags are a Grok voice-API feature).
     expression_style TEXT,
     speech_tag_style TEXT,
+    -- For voices that aren't Grok's: what this companion is taught about
+    -- that voice's own expression tags (Fish Audio's bracket cues), the
+    -- whole section, as a JSON map {voice connection id: text}. No entry =
+    -- the engine's built-in text, if any (pipeline TtsEngine.tag_guide,
+    -- setups.Setup.tag_guide).
+    speech_tag_guides TEXT NOT NULL DEFAULT '',
     enable_web_search INTEGER NOT NULL DEFAULT 1,
     enable_x_search INTEGER NOT NULL DEFAULT 1,
     enable_grok_imagine_tools INTEGER NOT NULL DEFAULT 1,
@@ -627,6 +651,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- Token total when the session last changed surface (voice <-> text);
     -- lets a voice resume scale the text stint's spend into voice units.
     tokens_at_mode_switch INTEGER NOT NULL DEFAULT 0,
+    -- Size of the last request to a voice setup's brain (prompt +
+    -- conversation + reply), for the budget meter against its 'Summarise
+    -- at' size; 0 = not measured since the last summary.
+    context_tokens INTEGER NOT NULL DEFAULT 0,
+    -- The first such request after the last summary: what a summary can't
+    -- shrink (prompt, tools, the summary itself) — see setups.context_full.
+    -- 0 = no summary yet on a setup brain; -1 = summarised, not measured.
+    context_floor INTEGER NOT NULL DEFAULT 0,
     needs_summary INTEGER NOT NULL DEFAULT 0,
     -- Multi-agent voice calls: set on the sessions of agents added to an
     -- existing call, pointing at the primary session the call was started
@@ -854,7 +886,9 @@ CREATE TABLE IF NOT EXISTS imagine_images (
     -- image, video or document — ingested at upload time from either
     -- mode's paperclip or drag-and-drop; 'screenshot'/'screen_clip' come
     -- from the take_screenshot / record_screen_clip tools over the user's
-    -- armed share — screen or camera, same kinds, only the name differs)
+    -- armed share — screen or camera, same kinds, only the name differs;
+    -- 'code_output' = a file a setup brain's code sandbox made, attached
+    -- to its reply — session_service._save_brain_files)
     kind TEXT NOT NULL,
     prompt TEXT NOT NULL,
     image_path TEXT NOT NULL,                -- web path under /files
@@ -868,6 +902,40 @@ CREATE TABLE IF NOT EXISTS imagine_images (
     xai_file_expires_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_imagine_agent ON imagine_images (agent_id, kind, created_at DESC);
+
+-- Voice connections and setups (server/pipeline/setups.py). A connection
+-- is where engines live — a kind (an engine id: 'openai', 'fish', or an
+-- extension's) plus its URL / API key as JSON. A setup names an engine
+-- connection per stage (speech to text, brain, voice) with that engine's
+-- settings, plus turn taking, as JSON: {"stt": {"connection": 3, "model":
+-- ...}, "llm": {...}, "tts": {...}, "turn": {...}}. The built-in xAI
+-- connection and the Grok Realtime setup have no rows.
+CREATE TABLE IF NOT EXISTS voice_connections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    settings TEXT NOT NULL DEFAULT '{}',
+    sequence INTEGER NOT NULL DEFAULT 10
+);
+CREATE TABLE IF NOT EXISTS voice_setups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    stages TEXT NOT NULL DEFAULT '{}',
+    sequence INTEGER NOT NULL DEFAULT 10
+);
+-- Library files (imagine_images) uploaded to a setup brain's Files API
+-- (OpenAI, Claude), so a chat attachment is uploaded once, not resent
+-- inline each request. `account` tells the provider accounts apart (a hash
+-- of the engine, server URL and key - session_service.brain_file_id). The
+-- provider deletes a file at expires_at; the row is reused until then.
+-- No foreign key: a row outliving its library entry just goes unused.
+CREATE TABLE IF NOT EXISTS brain_files (
+    imagine_image_id INTEGER NOT NULL,
+    account TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    expires_at TEXT,
+    PRIMARY KEY (imagine_image_id, account)
+);
 
 -- Heartbeats: per-companion scheduled prompts, run by the in-process
 -- scheduler thread (server/heartbeat.py) — the standalone stand-in for the
@@ -1097,6 +1165,7 @@ MIGRATIONS = (
     # Minecraft bot: stronger planning model for hard directives (building,
     # long crafting chains) — the brain also escalates to it on retries.
     "ALTER TABLE config ADD COLUMN minecraft_brain_model_hard TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN minecraft_brain_connection TEXT NOT NULL DEFAULT 'xai'",
     # Affection meter (opt-in per companion): persistent score + per-level
     # behaviour rules injected into the session prompt, with a per-companion
     # scale (max score / level count / max delta per tool call).
@@ -1318,6 +1387,15 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN user_avatar_outfit TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE manga_pages ADD COLUMN chapter_id INTEGER",
     "ALTER TABLE manga_pages ADD COLUMN page_no INTEGER NOT NULL DEFAULT 1",
+    # Voice setups (see the voice_setups table and the agents / config
+    # schema comments).
+    "ALTER TABLE config ADD COLUMN default_voice_setup TEXT NOT NULL DEFAULT 'realtime'",
+    "ALTER TABLE agents ADD COLUMN voice_setup TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE agents ADD COLUMN pipeline_voice TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE agents ADD COLUMN text_brain TEXT NOT NULL DEFAULT 'app'",
+    "ALTER TABLE sessions ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE sessions ADD COLUMN context_floor INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agents ADD COLUMN speech_tag_guides TEXT NOT NULL DEFAULT ''",
 )
 
 
@@ -1334,6 +1412,9 @@ def init_db():
         # on pre-existing databases.
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_avatars_pack ON avatars (pack_key)")
         con.execute("INSERT OR IGNORE INTO config (id) VALUES (1)")
+        # The single pipeline of the first voice-engine build → a setup.
+        from .pipeline.setups import migrate_single_pipeline
+        migrate_single_pipeline(con)
         from .memory_index import initialize
         initialize(con)
         con.commit()

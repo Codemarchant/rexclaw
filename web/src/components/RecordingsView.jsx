@@ -401,7 +401,31 @@ export default function RecordingsView({ active }) {
     const voices = data?.voices || [];
     const builtIn = voices.filter((v) => !v.custom);
     const custom = voices.filter((v) => v.custom);
-    const knownVoice = !draft.voice || voices.some((v) => v.voice_id === draft.voice)
+    // Voices on other engines: voice setups whose voice isn't xAI's, and
+    // companions whose calls use one. Picked by value ('setup:…' / 'agent:…').
+    // A setup's value may carry a voice of that engine after it
+    // ('setup:3:<voice>') in place of the setup's default voice.
+    const engineVoices = data?.engine_voices || [];
+    const splitVoice = (value) => {
+        const m = /^(setup:\d+):(.*)$/.exec(value || "");
+        return m ? [m[1], m[2]] : [value, ""];
+    };
+    const [pickedVoice, ownVoice] = splitVoice(draft.voice);
+    const engineVoice = engineVoices.find((v) => v.value === pickedVoice);
+    const engineLabel = (v) => `${v.label} (${_t(v.engine)})`;
+    const voiceName = (value) => {
+        const [picked, own] = splitVoice(value);
+        const v = engineVoices.find((e) => e.value === picked);
+        return v ? engineLabel(v) + (own ? ` · ${own}` : "") : value;
+    };
+    // A voice message keeps the engine's own voice id; opened as a script
+    // it goes back to its companion's voice on that engine.
+    const recVoice = (rec) => {
+        const own = engineVoices.find((v) => v.agent_id && v.agent_id === rec.agent_id);
+        const xai = voices.some((v) => v.voice_id === rec.voice) || companions.some((c) => c.voice === rec.voice);
+        return own && !xai && !rec.voice?.includes(":") ? own.value : rec.voice || "eve";
+    };
+    const knownVoice = !draft.voice || !!engineVoice || voices.some((v) => v.voice_id === draft.voice)
         || companions.some((c) => c.voice === draft.voice);
     const chars = speechChars(draft.script);
     const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
@@ -504,12 +528,23 @@ export default function RecordingsView({ active }) {
                                     <label title={_t("The speaker for the script. {voice …} lines inside the script can switch voices part-way, and {dual …} picks the second voice.")}>
                                         {_t("Voice")}
                                     </label>
-                                    <select value={draft.voice} onChange={(ev) => set("voice", ev.target.value)}>
+                                    <select value={pickedVoice} onChange={(ev) => set("voice", ev.target.value)}>
                                         {!knownVoice && <option value={draft.voice}>{draft.voice}</option>}
                                         {companions.length > 0 && (
                                             <optgroup label={_t("Companions")}>
-                                                {companions.map((c) => (
-                                                    <option key={`c${c.id}`} value={c.voice}>{c.name} ({c.voice})</option>
+                                                {companions.map((c) => {
+                                                    // On another engine's voice: the voice its calls use.
+                                                    const own = engineVoices.find((v) => v.agent_id === c.id);
+                                                    return own
+                                                        ? <option key={`c${c.id}`} value={own.value}>{engineLabel(own)}</option>
+                                                        : <option key={`c${c.id}`} value={c.voice}>{c.name} ({c.voice})</option>;
+                                                })}
+                                            </optgroup>
+                                        )}
+                                        {engineVoices.some((v) => !v.agent_id) && (
+                                            <optgroup label={_t("Voice setups")}>
+                                                {engineVoices.filter((v) => !v.agent_id).map((v) => (
+                                                    <option key={v.value} value={v.value}>{engineLabel(v)}</option>
                                                 ))}
                                             </optgroup>
                                         )}
@@ -529,6 +564,21 @@ export default function RecordingsView({ active }) {
                                         )}
                                     </select>
                                 </div>
+                                {engineVoice && !engineVoice.agent_id && (
+                                    <div style={{ flex: 2 }}>
+                                        <label title={_t("Which of this engine's voices speaks the script. Leave empty for the voice setup's default voice.")}>
+                                            {_t(engineVoice.voice_hint)}
+                                        </label>
+                                        <input type="text" value={ownVoice}
+                                               placeholder={engineVoice.default_voice
+                                                   ? _t("%s (the setup's default)", engineVoice.default_voice)
+                                                   : engineVoice.needs_voice
+                                                       ? _t("required - this setup has no default voice")
+                                                       : _t("the setup's default voice")}
+                                               onChange={(ev) => set("voice", ev.target.value.trim()
+                                                   ? `${pickedVoice}:${ev.target.value.trim()}` : pickedVoice)} />
+                                    </div>
+                                )}
                                 <div>
                                     <label title={_t("Pick a fully supported language from the list, or type any other language code (e.g. nl for Dutch): other languages work too, with varying accuracy.")}>
                                         {_t("Language")}
@@ -554,6 +604,17 @@ export default function RecordingsView({ active }) {
                                            }} />
                                 </div>
                             </div>
+                            {engineVoice && (
+                                <div className="text-muted small" style={{ margin: "0.25rem 0" }}>
+                                    {_t("This voice runs on %s, not xAI: the script is sent to it as written, so Grok's speech tags aren't rendered, {voice …} lines don't switch voices, and nothing is billed by xAI.", _t(engineVoice.engine))}
+                                    {!!engineVoice.tag_guide && (
+                                        <details>
+                                            <summary>{_t("Speech tags for this voice")}</summary>
+                                            <pre style={{ whiteSpace: "pre-wrap" }}>{engineVoice.tag_guide}</pre>
+                                        </details>
+                                    )}
+                                </div>
+                            )}
                             <label>{_t("Script")}</label>
                             <textarea className="rx_studio_script" rows={22} spellCheck={false}
                                       value={draft.script} onChange={(ev) => set("script", ev.target.value)} />
@@ -583,10 +644,14 @@ export default function RecordingsView({ active }) {
                                         <i className="fa fa-trash-o" /> {_t("Delete")}
                                     </button>
                                 )}
-                                <span className="text-muted small" style={{ marginLeft: "auto" }}
-                                      title={_t("xAI bills text-to-speech at $15 per million characters. Layered and dual lines are spoken more than once, so they cost a little more.")}>
-                                    {_t("%s speech characters · about $%s", chars.toLocaleString(), (chars * TTS_USD_PER_CHAR).toFixed(3))}
-                                </span>
+                                {engineVoice
+                                    ? <span className="text-muted small" style={{ marginLeft: "auto" }}>
+                                        {_t("%s speech characters", chars.toLocaleString())}
+                                    </span>
+                                    : <span className="text-muted small" style={{ marginLeft: "auto" }}
+                                            title={_t("xAI bills text-to-speech at $15 per million characters. Layered and dual lines are spoken more than once, so they cost a little more.")}>
+                                        {_t("%s speech characters · about $%s", chars.toLocaleString(), (chars * TTS_USD_PER_CHAR).toFixed(3))}
+                                    </span>}
                             </div>
                             {busy && (
                                 <p className="text-muted small" style={{ margin: "0.4rem 0 0" }}>
@@ -671,12 +736,12 @@ export default function RecordingsView({ active }) {
                                             : _t(rec.category)}
                                     </span>
                                     <span className="text-muted small">
-                                        {rec.voice} · {formatClock(rec.duration_seconds)} · {fmtLocal(rec.created_at)}
+                                        {voiceName(rec.voice)} · {formatClock(rec.duration_seconds)} · {fmtLocal(rec.created_at)}
                                     </span>
                                     <span style={{ marginLeft: "auto", display: "flex", gap: "0.6rem" }}>
                                         <button className="btn btn-sm btn-link p-0" title={_t("Open the script in the editor")}
                                                 onClick={() => guardedOpen(() => openScript({
-                                                    ...EMPTY, name: rec.name, voice: rec.voice || "eve", script: rec.script,
+                                                    ...EMPTY, name: rec.name, voice: recVoice(rec), script: rec.script,
                                                 }))}>
                                             <i className="fa fa-pencil" /> {_t("Script")}
                                         </button>

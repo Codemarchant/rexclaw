@@ -13,7 +13,8 @@ export const JA = {
   // First-run "no API key" banner
   "Companions talk through your own xAI (Grok) account, which bills you directly for usage.":
     "コンパニオンとの会話にはご自身の xAI（Grok）アカウントを使用し、利用料金は xAI から直接請求されます。",
-  "Add your API key in Settings to get started.": "設定で API キーを追加すると使い始められます。",
+  "Add your API key in Settings to get started - or run them on another provider or models on this computer (Settings → Models & providers).":
+    "設定で API キーを追加すると使い始められます。ほかのプロバイダーやこのコンピューター上のモデルで動かすこともできます（設定 → モデルとプロバイダー）。",
   "Get a key": "キーを取得",
   "Open Settings": "設定を開く",
   "Immersive": "没入モード",
@@ -478,6 +479,309 @@ export const JA = {
   "saved": "保存済み",
   "•••••••• (leave blank to keep current key)": "••••••••（空欄のままなら現在のキーを維持）",
   "Voice model": "音声モデル",
+
+  // ── Settings → Models & providers ─────────────────────────────────────
+  "Models & providers": "モデルとプロバイダー",
+  "Voice setups": "音声セットアップ",
+  "Where your companions' AI runs. Built in is Grok Realtime: one xAI model that hears and speaks, on your xAI key. Add connections to other providers (OpenAI, Claude, ElevenLabs, Fish Audio) or to models on this computer, then build voice setups from them. A setup runs its calls on a speech-to-speech model (OpenAI Realtime), or as three engines you choose separately - speech to text, a text model as the brain, and a voice. Its brain can also run the companion's text chat, summaries and tasks. Each companion picks its setup (and its own voice) in the Companions tab; every call feature works on all of them.":
+    "コンパニオンの AI をどこで動かすか。組み込みは Grok Realtime で、1 つの xAI モデルが聞き取りと発話を担います（xAI キーを使用）。ほかのプロバイダー（OpenAI、Claude、ElevenLabs、Fish Audio）やこのコンピューター上のモデルへの接続を追加し、それらから音声セットアップを作ります。セットアップは通話を音声対音声モデル（OpenAI Realtime）で動かすか、個別に選ぶ 3 つのエンジン（音声認識、頭脳となるテキストモデル、音声合成）で動かします。その頭脳は、コンパニオンのテキストチャット、要約、タスクも担えます。各コンパニオンはコンパニオンタブでセットアップ（と自分の声）を選びます。通話の機能はどれでもすべて使えます。",
+  "Default for companions": "コンパニオンの既定",
+  "Grok Realtime": "Grok リアルタイム",
+  "Connections": "接続",
+  "Where engines live: a server on this computer or a service, entered once and shared by every setup.":
+    "エンジンの置き場所：このコンピューター上のサーバーやサービス。一度入力すれば、すべてのセットアップで共有されます。",
+  "Built in - uses the xAI API key above.": "組み込み — 上の xAI API キーを使います。",
+  "Other: %s": "その他：%s",
+  "OpenAI-compatible server": "OpenAI 互換サーバー",
+  "Built in - xAI's speech-to-speech voice model (Voice model above). The most natural timing; billed per connected minute (about $0.08).":
+    "組み込み — xAI の音声対音声モデル（上の「音声モデル」）。最も自然な間合い。接続時間 1 分ごとの課金（約 $0.08）。",
+  "Add voice setup": "音声セットアップを追加",
+  "New voice setup": "新しい音声セットアップ",
+  "xAI": "xAI",
+  "Speech to text": "音声認識",
+  "Brain": "頭脳",
+  "%s decides where your turn ends itself.": "%s が発話の終わりを自分で判定します。",
+  "Start replying early": "早めに返答を始める",
+  "When your turn sounds finished, the brain starts on your live words while the final transcript is made, and the reply is dropped if the final words differ. Saves the transcriber's finishing time on each reply, for an occasional extra brain request. Needs live words (a streaming engine, or live words on). LiveKit Agents default: on.":
+    "話し終えたと判断した時点で、最終的な文字起こしを待たずにライブの文字起こしで頭脳が返答を始めます。最終的な言葉が違えば、その返答は破棄されます。返答のたびに文字起こしの確定時間を節約できる代わりに、ときどき頭脳へのリクエストが一回増えます。ライブの文字起こし（ストリーミング対応エンジン、またはライブ表示をオン）が必要です。LiveKit Agents の既定値: オン。",
+  "Smart Turn ends your turn as soon as you sound finished; %s's own end-of-turn detection is the backstop.":
+    "言い終えたと Smart Turn が判断した時点でターンを終えます。%s 自身の発話終了判定は予備です。",
+  "Turns end when the voice detector hears a pause and Smart Turn judges the thought finished.":
+    "音声検出が間を聞き取り、Smart Turn が話し終えたと判断した時点で発話を区切ります。",
+  "Turns end after a set silence (see Turn taking below).": "一定の無音で発話を区切ります（下の「ターンの取り方」を参照）。",
+  "Web search, X search and MCP servers run at the brain's provider (xAI, OpenAI's own API or Anthropic), so companions don't have them with this brain.":
+    "ウェブ検索・X 検索・MCP サーバーは頭脳のプロバイダー（xAI、OpenAI 本家の API、Anthropic）側で動くため、この頭脳ではコンパニオンは使えません。",
+  "X search is Grok's own, so companions don't have it with this brain. Web search and MCP servers run at its provider.":
+    "X 検索は Grok 専用のため、この頭脳ではコンパニオンは使えません。ウェブ検索と MCP サーバーはそのプロバイダー側で動きます。",
+  "This voice doesn't render Grok speech tags ([laugh], <whisper>), so companions aren't taught them on calls or for voice messages. Whatever a companion writes is sent to the voice as written. If the model behind it has tags of its own, describe them in each companion's editor (Speech tags).":
+    "この音声は Grok のスピーチタグ（[laugh]、<whisper>）を表現しないため、通話でもボイスメッセージでもコンパニオンにタグを教えません。コンパニオンが書いた内容は、そのまま音声に送られます。この音声のモデルに独自のタグがある場合は、各コンパニオンの編集画面（スピーチタグ）に書いてください。",
+  "Offers speech to text": "音声認識に対応",
+  "Offers a brain": "頭脳（チャットモデル）に対応",
+  "Offers a voice": "音声合成に対応",
+  "The server answers /v1/audio/transcriptions. Unticked, setups don't list it under Speech to text.":
+    "このサーバーは /v1/audio/transcriptions に応答します。チェックを外すと、セットアップの「音声認識」の選択肢に出ません。",
+  "The server answers /v1/chat/completions. Unticked, setups don't list it under Brain.":
+    "このサーバーは /v1/chat/completions に応答します。チェックを外すと、セットアップの「頭脳」の選択肢に出ません。",
+  "The server answers /v1/audio/speech. Unticked, setups don't list it under Voice.":
+    "このサーバーは /v1/audio/speech に応答します。チェックを外すと、セットアップの「音声」の選択肢に出ません。",
+  "xAI rates (check xAI pricing): streaming speech to text $0.20 an hour, voice $15 per million characters, grok-4.3 $1.25 / $2.50 per million tokens in / out ($0.20 cached in).":
+    "xAI の料金（最新は xAI の料金表で確認）：ストリーミング音声認識 1 時間 $0.20、音声合成 100 万文字あたり $15、grok-4.3 は 100 万トークンあたり入力 $1.25 / 出力 $2.50（キャッシュ入力 $0.20）。",
+  "Turn taking": "ターンの取り方",
+  "Save your changes first - the test uses the saved settings.": "先に変更を保存してください。テストは保存済みの設定を使います。",
+  "Runs each engine once: the brain answers, the voice speaks a line, and the transcriber hears it back.":
+    "各エンジンを 1 回ずつ動かします。頭脳が返答し、音声がひと言話し、音声認識がそれを聞き取ります。",
+  "The test failed.": "テストに失敗しました。",
+  "first %s ms": "最初 %s ms",
+  "done %s ms": "完了 %s ms",
+  "voice: %s": "音声: %s",
+  // Engine descriptions and fields (server/pipeline/*.py)
+  "xAI (streaming)": "xAI（ストリーミング）",
+  "Grok speech recognition over a live connection, with interim words and built-in end-of-turn detection. Uses your xAI key.":
+    "常時接続の Grok 音声認識。話している途中の文字起こしと、発話終了の判定を内蔵。xAI キーを使用します。",
+  "Model": "モデル",
+  "Optional code (en, ja, ...) - turns on number and currency formatting for that language. Speech in any supported language is transcribed either way.":
+    "任意のコード（en、ja など）。その言語の数字や通貨の表記整形が有効になります。対応言語ならどれでも、指定がなくても文字起こしされます。",
+  "End-of-turn confidence": "発話終了の確信度",
+  "xAI Smart Turn threshold (0-1): 0.5 balanced, 0.7 conservative, 0.9 very conservative (xAI docs). 0 turns it off and ends turns on silence alone.":
+    "xAI Smart Turn のしきい値（0〜1）：0.5 標準、0.7 慎重、0.9 とても慎重（xAI ドキュメント）。0 で無効になり、無音だけで区切ります。",
+  "Longest pause inside a turn (ms)": "発話中の最長の間（ms）",
+  "The turn ends after this much silence even if Smart Turn thinks you are not done (1-5000). Pipecat uses 3000 ms.":
+    "Smart Turn がまだ話し終えていないと判断しても、この長さの無音で区切ります（1〜5000）。Pipecat は 3000 ms。",
+  "Silence before a turn can end (ms)": "区切るまでの無音（ms）",
+  "xAI default: 400 ms.": "xAI の既定値：400 ms。",
+  "OpenAI-compatible": "OpenAI 互換",
+  "Local Whisper servers (speaches, faster-whisper-server), Groq or OpenAI: anything that serves /v1/audio/transcriptions.":
+    "ローカルの Whisper サーバー（speaches、faster-whisper-server）、Groq、OpenAI など、/v1/audio/transcriptions に対応するもの。",
+  "Server URL": "サーバー URL",
+  "The URL that ends in /v1 - Ollama http://127.0.0.1:11434/v1, LM Studio http://127.0.0.1:1234/v1, speaches http://127.0.0.1:8000/v1, Kokoro-FastAPI http://127.0.0.1:8880/v1, OpenAI https://api.openai.com/v1.":
+    "/v1 で終わる URL — Ollama http://127.0.0.1:11434/v1、LM Studio http://127.0.0.1:1234/v1、speaches http://127.0.0.1:8000/v1、Kokoro-FastAPI http://127.0.0.1:8880/v1、OpenAI https://api.openai.com/v1。",
+  "Leave empty for a local server.": "ローカルサーバーなら空欄のままで構いません。",
+  "As the server names it, e.g. whisper-large-v3-turbo on Groq, gpt-4o-mini-transcribe on OpenAI.":
+    "サーバーでの名前のとおりに（例：Groq なら whisper-large-v3-turbo、OpenAI なら gpt-4o-mini-transcribe）。",
+  "Optional ISO code (en, ja, ...). Leave empty to detect it.": "任意の ISO コード（en、ja など）。空欄なら自動判定します。",
+  "Live words while you talk (ms, 0 = off)": "話している途中の文字起こし（ms、0 = オフ）",
+  "Re-transcribes what you have said so far at this interval, for the features that follow your words as you speak. Fine on a local server; on a paid one every pass is another billed request.":
+    "話している言葉を追う機能のために、ここまでの発話をこの間隔で文字起こしし直します。ローカルサーバーなら問題ありませんが、有料サービスでは 1 回ごとに課金されます。",
+  "xAI Grok": "xAI Grok",
+  "Grok text models through the Responses API. Uses your xAI key.": "Responses API 経由の Grok テキストモデル。xAI キーを使用します。",
+  "Reasoning": "推論",
+  "Thinking before speaking, for models that offer it. grok-4.3 needs None: it answers in about 0.8 s without it and about 4.5 s on its default, low (Artificial Analysis, time to first answer token).":
+    "話す前に考えるかどうか（対応モデルのみ）。grok-4.3 では「なし」が必要です。推論なしで約 0.8 秒、既定の low では約 4.5 秒かかって答え始めます（Artificial Analysis、最初の回答トークンまで）。",
+  "Model's default": "モデルの既定値",
+  "None - fastest reply": "なし — 最速の返答",
+  "Local models (Ollama, LM Studio, llama.cpp, vLLM), OpenAI, or any hosted API that speaks /v1/chat/completions.":
+    "ローカルモデル（Ollama、LM Studio、llama.cpp、vLLM）、OpenAI、または /v1/chat/completions に対応するクラウド API。",
+  "API": "API",
+  "Automatic - Responses on OpenAI, Chat Completions elsewhere": "自動 — OpenAI では Responses、それ以外は Chat Completions",
+  "Chat Completions (/chat/completions)": "Chat Completions（/chat/completions）",
+  "Responses (/responses)": "Responses（/responses）",
+  "OpenAI's Responses API runs web search, code interpreter and remote MCP servers for the companion, and reads attached PDFs and Office documents. Those work only on OpenAI's own API (api.openai.com); another server on Responses gets the app's own tools only.":
+    "OpenAI の Responses API は、コンパニオンのためにウェブ検索・コードインタープリタ・リモート MCP サーバーを実行し、添付した PDF や Office 文書も読み取ります。これらは OpenAI 本家の API（api.openai.com）でのみ動き、Responses に対応する他のサーバーではアプリ自身のツールだけが使えます。",
+  "Minimal": "最小",
+  "Thinking before answering, for reasoning models (OpenAI's gpt-5 family and others). Not sent when left on the default; which values a model takes varies.":
+    "推論モデル（OpenAI の gpt-5 系など）が答える前に考える量。既定値のままなら送信しません。使える値はモデルによって異なります。",
+  "Anthropic (Claude)": "Anthropic（Claude）",
+  "Claude models through Anthropic's Messages API, with prompt caching.":
+    "Anthropic の Messages API 経由の Claude モデル（プロンプトキャッシュ付き）。",
+  "Anthropic's API. Change it only for a proxy that speaks the Messages API.":
+    "Anthropic の API。Messages API に対応するプロキシを使う場合だけ変更してください。",
+  "A Claude API key, from platform.claude.com → API keys.": "Claude の API キー（platform.claude.com → API keys で発行）。",
+  "e.g. claude-opus-5-5, claude-sonnet-5-5, or claude-haiku-4-5 for the quickest replies.":
+    "例：claude-opus-5-5、claude-sonnet-5-5、最速の返答なら claude-haiku-4-5。",
+  "OpenAI's API. Change it only for a proxy in front of it.":
+    "OpenAI の API。前段にプロキシを置く場合だけ変更してください。",
+  "An OpenAI API key, from platform.openai.com → API keys.": "OpenAI の API キー（platform.openai.com → API keys で発行）。",
+  "OpenAI's models through the Responses API, with web search, code interpreter, remote MCP servers and prompt caching.":
+    "Responses API 経由の OpenAI モデル（ウェブ検索、コードインタープリタ、リモート MCP サーバー、プロンプトキャッシュ付き）。",
+  "gpt-6.1-sol (balanced), gpt-6-astra (most capable, 5x the price) or gpt-6-luna (fastest and cheapest).":
+    "gpt-6.1-sol（バランス型）、gpt-6-astra（最も高性能、価格は 5 倍）、gpt-6-luna（最速・最安）。",
+  "None - fastest (gpt-6-luna)": "なし — 最速（gpt-6-luna）",
+  "Thinking before answering. Low suits conversation; gpt-6.1-sol and gpt-6-astra start at Low (a level a model doesn't take falls back to its default).":
+    "答える前に考える量。会話には低が適しています。gpt-6.1-sol と gpt-6-astra は低から（モデルが受け付けないレベルはその既定値に戻ります）。",
+  "OpenAI's current models all see images: ones you attach in chat reach it, and analyze_screen runs on it instead of Grok vision.":
+    "OpenAI の現行モデルはすべて画像を認識できます。チャットで添付した画像が届き、analyze_screen も Grok の画像認識の代わりにこのモデルで動きます。",
+  "Merged into every request, for Responses API options the app doesn't set.":
+    "すべてのリクエストに追加される、アプリが設定しない Responses API のオプション。",
+  "OpenAI's speech to text (gpt-transcribe, $0.0045 a minute). Uses your OpenAI API key.":
+    "OpenAI の音声認識（gpt-transcribe、1 分 $0.0045）。OpenAI API キーを使用します。",
+  "gpt-transcribe (OpenAI's recommended model), or whisper-1.": "gpt-transcribe（OpenAI の推奨モデル）または whisper-1。",
+  "Re-transcribes what you have said so far at this interval, for the features that follow your words as you speak. Every pass is another billed request.":
+    "話している言葉を追う機能のために、ここまでの発話をこの間隔で文字起こしし直します。1 回ごとに課金されます。",
+  "OpenAI's voices (gpt-4o-mini-tts). Uses your OpenAI API key.": "OpenAI の声（gpt-4o-mini-tts）。OpenAI API キーを使用します。",
+  "OpenAI voice (marin, cedar, coral, alloy...)": "OpenAI の声（marin、cedar、coral、alloy など）",
+  "gpt-4o-mini-tts (newest), or tts-1 / tts-1-hd (fewer voices, no delivery prompt).":
+    "gpt-4o-mini-tts（最新）、または tts-1 / tts-1-hd（声の数が少なく、話し方の指示は使えません）。",
+  "Used for companions without a voice of their own for this setup. OpenAI recommends marin or cedar; the others are alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer and verse. Hear them at openai.fm.":
+    "このセットアップで自分の声を持たないコンパニオンに使います。OpenAI のおすすめは marin か cedar。ほかに alloy、ash、ballad、coral、echo、fable、nova、onyx、sage、shimmer、verse があります。openai.fm で試聴できます。",
+  "Delivery": "話し方",
+  "How the voice speaks - accent, emotional range, tone, pace, whispering - for gpt-4o-mini-tts. Empty = the voice as it is.":
+    "声の話し方（アクセント、感情の幅、トーン、速さ、ささやき）。gpt-4o-mini-tts 用。空欄なら声そのままです。",
+  "Raw PCM (starts soonest)": "Raw PCM（最も早く始まる）",
+  "WAV": "WAV",
+  "OpenAI's raw PCM is 24 kHz 16-bit mono, and starts playing a little sooner.":
+    "OpenAI の Raw PCM は 24 kHz・16 ビット・モノラルで、少し早く再生が始まります。",
+  "24000 for OpenAI.": "OpenAI は 24000。",
+  "OpenAI voice (marin, cedar, coral, alloy...)": "OpenAI の声（marin、cedar、coral、alloy など）",
+  // Speech-to-speech setups (server/pipeline/realtime.py)
+  "OpenAI Realtime": "OpenAI Realtime",
+  "OpenAI's speech-to-speech models: one model hears you and answers in its own voice, billed per token. Web search and code run through delegate_task on this setup's brain.":
+    "OpenAI の音声対音声モデル。1 つのモデルがあなたの声を聞き、自分の声で答えます（トークン課金）。Web 検索とコード実行は、このセットアップのブレインで delegate_task を通して行います。",
+  "gpt-realtime-2.1 (best), gpt-realtime-2.1-mini (about a third of the price), or an older gpt-realtime-1.5 / gpt-realtime.":
+    "gpt-realtime-2.1（最高品質）、gpt-realtime-2.1-mini（価格は約 3 分の 1）、または旧モデルの gpt-realtime-1.5 / gpt-realtime。",
+  "marin and cedar are OpenAI's best voices; also alloy, ash, ballad, coral, echo, sage, shimmer, verse. Each companion can pick its own on the Companions tab.":
+    "marin と cedar が OpenAI の最高品質の声です。ほかに alloy、ash、ballad、coral、echo、sage、shimmer、verse。コンパニオンごとに「コンパニオン」タブで選べます。",
+  "Thinking before answering, on gpt-realtime-2 and later. Low suits conversation; more makes replies slower.":
+    "答える前の思考（gpt-realtime-2 以降）。会話には「低」が合います。上げるほど返答が遅くなります。",
+  "Transcription model": "文字起こしモデル",
+  "Writes down what you say for the transcript and memories (billed separately, $0.0045/min). gpt-live-transcribe is the streaming one; the companion's key terms are passed to either.":
+    "あなたの発言を書き起こし、トランスクリプトと記憶に使います（別料金、$0.0045/分）。gpt-live-transcribe はストリーミング版です。コンパニオンのキーワードはどちらにも渡されます。",
+  "Turn detection": "ターン検出",
+  "Silence - answers after a short pause": "無音 — 短い間のあとに答える",
+  "Semantic - waits until you sound finished": "意味ベース — 話し終えたと判断するまで待つ",
+  "Silence answers as soon as you pause, like Grok. Semantic turn detection reads whether you have finished your thought, so a pause mid-sentence doesn't cut you off, but it waits longer before each reply (see Semantic eagerness).":
+    "無音検出は Grok と同じく、間が空くとすぐに答えます。意味ベースのターン検出は考えを言い終えたかを読み取るので文の途中の間で遮られませんが、毎回の返答までの待ち時間が長くなります（「意味ベースの積極さ」を参照）。",
+  "OpenAI limits realtime tokens per minute by your account's usage tier: 40,000 on tier 1, about two replies a minute here (each resends the whole conversation, ~15-20k tokens); 200,000 on tier 2. Over it, a reply waits until the limit allows it.":
+    "OpenAI はアカウントの利用ティアに応じて、リアルタイムモデルの 1 分あたりのトークン数を制限します。ティア 1 は 40,000（ここでは 1 分に約 2 回の返答。返答ごとに会話全体、約 1.5〜2 万トークンを再送します）、ティア 2 は 200,000。超えると、制限が許すまで返答を待ちます。",
+  "OpenAI's per-minute token limit for your account was reached, so this reply waits %s s. Each reply resends the whole conversation; OpenAI raises the limit as your account's usage tier goes up.":
+    "アカウントの OpenAI の 1 分あたりトークン上限に達したため、この返答は %s 秒待ちます。返答のたびに会話全体を再送します。上限はアカウントの利用ティアが上がると引き上げられます。",
+  "Voice detection threshold": "音声検出のしきい値",
+  "How loud speech must be to count as you talking (0-1), with Silence turn detection. Higher ignores more background noise and the companion's own echo; lower catches quieter speech. Grok uses 0.85, OpenAI's own default is 0.5.":
+    "「無音」ターン検出で、あなたが話していると判断する音量（0〜1）。高いほど周囲の雑音やコンパニオン自身の声の反響を無視し、低いほど小さな声も拾います。Grok は 0.85、OpenAI の既定値は 0.5 です。",
+  "Semantic eagerness": "意味ベースの積極さ",
+  "High - waits up to 2 s": "高 — 最大 2 秒待つ",
+  "Medium - up to 4 s": "中 — 最大 4 秒",
+  "Low - up to 8 s, lets you take your time": "低 — 最大 8 秒、ゆっくり話せる",
+  "Auto (= medium)": "自動（＝中）",
+  "With semantic turn detection: the longest it waits after you stop before answering.":
+    "意味ベースのターン検出で、話し終えてから答えるまでに待つ最長時間。",
+  "Summarise at (tokens per reply)": "要約するサイズ（1 返答あたりのトークン数）",
+  "When one reply's request reaches this size, the older part of the call is summarised and the call reconnects with the summary. Every reply resends the whole conversation, so this caps what each reply costs; the 2.x models take up to 128k.":
+    "1 回の返答のリクエストがこのサイズに達すると、通話の古い部分を要約し、要約付きで通話を再接続します。返答のたびに会話全体が再送されるため、1 返答あたりの費用の上限になります。2.x モデルは最大 128k まで扱えます。",
+  "Noise reduction": "ノイズ除去",
+  "Off (the browser already filters)": "オフ（ブラウザーが既にフィルター済み）",
+  "Headset / close mic": "ヘッドセット / 近接マイク",
+  "Laptop / room mic": "ノート PC / 室内マイク",
+  "Calls run on": "通話の実行方式",
+  "A speech-to-speech model hears you and answers in its own voice, with the most natural timing. Separate stages let you mix providers and local models.":
+    "音声対音声モデルはあなたの声を聞いて自分の声で答え、最も自然なタイミングで話します。個別ステージなら、プロバイダーやローカルモデルを組み合わせられます。",
+  "Separate stages: speech to text → brain → voice": "個別ステージ：音声認識 → ブレイン → 声",
+  "Speech-to-speech: %s Realtime": "音声対音声：%s Realtime",
+  "Speech-to-speech": "音声対音声",
+  "Brain for text chat, summaries and tasks": "テキストチャット・要約・タスク用のブレイン",
+  "%s Realtime (%s) · text and tasks: %s": "%s Realtime（%s）· テキストとタスク：%s",
+  "On calls, web search and code run through delegate_task on the brain above (when it is Claude or OpenAI's own API); MCP servers run at OpenAI during the call.":
+    "通話中の Web 検索とコード実行は、上のブレイン（Claude または OpenAI 公式 API の場合）で delegate_task を通して行います。MCP サーバーは通話中に OpenAI 側で実行されます。",
+  "OpenAI's voices don't render Grok speech tags ([laugh], <whisper>), so companions aren't taught them on calls. Voice messages use the voice above.":
+    "OpenAI の声は Grok の音声タグ（[laugh]、<whisper>）を表現しないため、通話ではコンパニオンに教えません。ボイスメッセージは上の声を使います。",
+  "Voice for voice messages": "ボイスメッセージ用の声",
+  "OpenAI rates (check OpenAI pricing): gpt-realtime-2.1 audio $32 / $64 per million tokens in / out (about 10 tokens a second of your speech, 20 of theirs), gpt-realtime-2.1-mini $10 / $20. A call lasts up to 60 minutes, then reconnects.":
+    "OpenAI の料金（OpenAI の価格表で確認してください）：gpt-realtime-2.1 の音声は入力 / 出力 100 万トークンあたり $32 / $64（あなたの発話は 1 秒約 10 トークン、相手は約 20 トークン）、gpt-realtime-2.1-mini は $10 / $20。1 回の通話は最長 60 分で、その後再接続します。",
+  "The brain answers once, and OpenAI issues a call key for the speech-to-speech model (checks the key and model name).":
+    "ブレインが 1 回答え、OpenAI が音声対音声モデル用の通話キーを発行します（キーとモデル名の確認）。",
+  "Quick model": "クイックモデル",
+  "For quick looks: analyze_screen reading your screen or camera, and delegate_task's quick checks. Empty = the main model.":
+    "すばやい確認用：analyze_screen による画面やカメラの読み取りと、delegate_task のクイックチェック。空欄ならメインのモデルを使います。",
+  "For quick looks: analyze_screen reading your screen or camera, and delegate_task's quick checks - a smaller, faster model on the same server. Empty = the main model.":
+    "すばやい確認用：analyze_screen による画面やカメラの読み取りと、delegate_task のクイックチェック。同じサーバー上の小さく速いモデルを指定します。空欄ならメインのモデルを使います。",
+  "Effort": "エフォート",
+  "Low - quickest replies": "低 — 最速の返答",
+  "Extra high": "最高",
+  "Max": "最大",
+  "How much Claude thinks before answering, and how many tokens it spends. Low suits conversation (Claude API guidance); current models think adaptively within it. Skipped for a model without the setting (Haiku 4.5).":
+    "Claude が答える前にどれだけ考え、どれだけトークンを使うか。会話には低が適しています（Claude API のガイダンス）。現行モデルはその範囲で適応的に考えます。この設定のないモデル（Haiku 4.5）では送信しません。",
+  "Can see images and PDFs": "画像と PDF を認識できる",
+  "Images and PDFs you attach in chat reach Claude, and analyze_screen runs on it instead of Grok vision.":
+    "チャットで添付した画像と PDF が Claude に届き、analyze_screen も Grok の画像認識の代わりに Claude で動きます。",
+  "Merged into every request, for Messages API options the app doesn't set.":
+    "すべてのリクエストに追加される、アプリが設定しない Messages API のオプション。",
+  "Every tool description is read on every turn. Small local models answer faster, and stay in character better, without them.":
+    "ツールの説明は毎ターンすべて読み込まれます。小さなローカルモデルは、ツールなしの方が速く答え、キャラクターも崩れにくくなります。",
+  "All of the companion's tools": "コンパニオンのツールすべて",
+  "No tools - talk only": "ツールなし — 会話のみ",
+  "Extra request fields (JSON)": "追加のリクエスト項目（JSON）",
+  "Merged into every request, for server-specific options, e.g. {\"options\": {\"num_ctx\": 16384}} for Ollama.":
+    "すべてのリクエストに追加される、サーバー固有のオプション。例：Ollama なら {\"options\": {\"num_ctx\": 16384}}。",
+  "The same Grok voices as realtime calls, speech tags included. Uses your xAI key.":
+    "リアルタイム通話と同じ Grok の声（スピーチタグ対応）。xAI キーを使用します。",
+  "Default voice": "既定の声",
+  "Leave empty to use each companion's own Grok voice.": "空欄なら各コンパニオン自身の Grok の声を使います。",
+  "Grok voice (leave empty for the companion's own)": "Grok の声（空欄ならコンパニオン自身の声）",
+  "Voice name on the server (e.g. af_heart on Kokoro)": "サーバー上の声の名前（例：Kokoro なら af_heart）",
+  "Fish Audio voice id (reference id)": "Fish Audio の voice id（reference id）",
+  "Latency": "レイテンシ",
+  "xAI optimize_streaming_latency: smaller first chunks start sooner, with a small quality cost at chunk boundaries.":
+    "xAI の optimize_streaming_latency：最初の区切りを小さくして早く話し始めます。区切り目の音質がわずかに下がります。",
+  "Best quality": "最高品質",
+  "Faster first words": "話し始めを速く",
+  "Fastest first words": "話し始めを最速に",
+  "Local voices (Kokoro-FastAPI, Irodori-TTS-Server, speaches) or any API that serves /v1/audio/speech.":
+    "ローカルの音声（Kokoro-FastAPI、Irodori-TTS-Server、speaches）や、/v1/audio/speech に対応する API。",
+  "Used for companions without a voice of their own for this setup. af_heart is Kokoro's default voice.":
+    "このセットアップ用の声を設定していないコンパニオンに使います。af_heart は Kokoro の既定の声です。",
+  "Audio format": "音声フォーマット",
+  "WAV describes its own sample rate. Raw PCM starts a little sooner, but needs the rate below.":
+    "WAV はサンプルレートを自ら示します。Raw PCM は少し早く始まりますが、下のレートの指定が必要です。",
+  "WAV (any sample rate)": "WAV（任意のサンプルレート）",
+  "Raw PCM": "Raw PCM",
+  "PCM sample rate": "PCM サンプルレート",
+  "Only for raw PCM: 24000 for OpenAI and Kokoro.": "Raw PCM のみ：OpenAI と Kokoro は 24000。",
+  "Merged into every request - e.g. {\"instructions\": \"...\"} for gpt-4o-mini-tts, or an \"irodori\" options object.":
+    "すべてのリクエストに追加されます。例：gpt-4o-mini-tts なら {\"instructions\": \"...\"}、または \"irodori\" のオプション。",
+  "Fish Audio": "Fish Audio",
+  "Fish Audio voices and voice clones (fish.audio API key).": "Fish Audio の声とボイスクローン（fish.audio の API キー）。",
+  "ElevenLabs voices and voice clones (elevenlabs.io API key).": "ElevenLabs の声とボイスクローン（elevenlabs.io の API キー）。",
+  "ElevenLabs voice id": "ElevenLabs の音声 ID",
+  "From elevenlabs.io → Developers → API keys.": "elevenlabs.io → Developers → API keys から取得します。",
+  "eleven_v4 (best quality, audio tags; $0.08 per 1,000 characters), eleven_flash_v2_5 (fastest, ~75 ms, no tags, $0.04), eleven_v3, or eleven_multilingual_v2.":
+    "eleven_v4（最高品質、オーディオタグ対応、1,000 文字あたり $0.08）、eleven_flash_v2_5（最速、約 75 ms、タグなし、$0.04）、eleven_v3、または eleven_multilingual_v2。",
+  "Default voice (voice id)": "既定の声（音声 ID）",
+  "Used for companions without a voice of their own for this setup: the voice id from your ElevenLabs Voices page (a voice's name doesn't work). ElevenLabs' old premade voices are being retired, so pick one of yours or from their library.":
+    "このセットアップで自分の声を持たないコンパニオンに使います。ElevenLabs の Voices ページにある音声 ID（声の名前では動きません）。ElevenLabs の旧プリセット音声は廃止予定のため、自分の声かライブラリの声を選んでください。",
+  "Stability": "安定性",
+  "0-1. Lower is more expressive and varied, higher more even. ElevenLabs default: 0.5.":
+    "0〜1。低いほど表情豊かで変化があり、高いほど均一です。ElevenLabs の既定値は 0.5。",
+  "Similarity": "類似度",
+  "0-1. How closely it holds to the original voice. ElevenLabs default: 0.75.":
+    "0〜1。元の声にどれだけ近づけるか。ElevenLabs の既定値は 0.75。",
+  "s2.1-pro (Fish's default), s2-pro, s1, or s2.1-pro-free.": "s2.1-pro（Fish の既定）、s2-pro、s1、または s2.1-pro-free。",
+  "Default voice (reference id)": "既定の声（reference id）",
+  "Used for companions without a voice of their own for this setup.": "このセットアップ用の声を設定していないコンパニオンに使います。",
+  "Used for companions without a voice of their own for this setup. The id from the voice's page on fish.audio (32 letters and digits); a voice's name doesn't work.":
+    "このセットアップ用の声を設定していないコンパニオンに使います。fish.audio の声のページにある id（英数字 32 文字）を入れてください。声の名前では動きません。",
+  "Lowest latency": "最低レイテンシ",
+  "Smart Turn (local)": "Smart Turn（ローカル）",
+  "Listens to how you speak, not just for silence, to tell a finished thought from a pause mid-sentence (Pipecat Smart Turn v3.2, runs on this computer). With a live transcription engine it ends your turn early, as soon as you sound finished; the engine's own detection stays as the backstop.":
+    "無音だけでなく話し方を聞いて、言い終えたのか文の途中の間なのかを見分けます（Pipecat Smart Turn v3.2、このコンピューター上で動作）。ライブ音声認識エンジンでは、言い終えたと判断した時点で早めにターンを終えます。エンジン自身の判定は予備として残ります。",
+  "Speech threshold": "発話のしきい値",
+  "How sure the voice detector must be that a sound is speech (0-1). Raise it if background noise or the companion's own voice through your speakers keeps interrupting. Pipecat default: 0.7.":
+    "音を発話とみなすのに音声検出が必要とする確信度（0〜1）。周囲の雑音やスピーカーから出るコンパニオン自身の声で割り込まれる場合は上げてください。Pipecat の既定値：0.7。",
+  "Silence that ends a turn without Smart Turn (ms)": "Smart Turn なしで区切る無音（ms）",
+  "Pipecat's voice-detector stop time before it had a turn model: 800 ms.": "ターン判定モデル導入前の Pipecat の音声検出の停止時間：800 ms。",
+  "With Smart Turn on, a turn it judges unfinished still ends after this much silence. Pipecat default: 3000 ms.":
+    "Smart Turn がオンのとき、話し終えていないと判断した発話もこの無音で区切ります。Pipecat の既定値：3000 ms。",
+  "Speech needed to interrupt (ms)": "割り込みに必要な発話（ms）",
+  "While the companion is talking, you must speak this long to cut in, so a cough or a \"mm\" doesn't stop them. LiveKit Agents default: 500 ms.":
+    "コンパニオンが話している間は、この長さ話すと割り込めます。咳や「うん」で止まらないためです。LiveKit Agents の既定値：500 ms。",
+  // Credits
+  "Voice pipeline": "音声パイプライン",
+  "MIT, Silero Team. The bundled voice detector that hears when you start and stop speaking.":
+    "MIT、Silero Team。話し始めと話し終わりを聞き取る、同梱の音声検出。",
+  "BSD 2-Clause, Daily. The bundled model that tells a finished thought from a pause; its audio features are ported from Pipecat (portions Apache-2.0, Hugging Face Transformers).":
+    "BSD 2-Clause、Daily。言い終えたのか間なのかを見分ける同梱のモデル。音声特徴量のコードは Pipecat から移植（一部 Apache-2.0、Hugging Face Transformers）。",
+  // Companion editor
+  "How this companion's voice calls run: Grok Realtime, or one of the voice setups from Settings → Models & providers (a speech-to-speech model, or speech to text, brain and voice as separate engines).":
+    "このコンパニオンの音声通話の方式：Grok リアルタイム、または 設定 → モデルとプロバイダー の音声セットアップのいずれか（音声対音声モデル、または音声認識・頭脳・音声合成を別々のエンジンで）。",
+  "Voice setup": "音声セットアップ",
+  "App default (%s)": "アプリの既定（%s）",
+  "This companion's voice on this setup's voice server. Kept per server, so switching setups never sends it to a different engine. Leave empty for the setup's default voice.":
+    "このセットアップの音声サーバーでのこのコンパニオンの声。サーバーごとに保存されるため、セットアップを切り替えても別のエンジンに送られることはありません。空欄ならセットアップの既定の声。",
+  "Text chat runs on the app's Grok text model (Settings → Text model), or on the brain of this companion's voice setup - a local model, OpenAI or Claude, say. Web search and MCP servers need a brain whose provider runs them; X search is Grok's own.":
+    "テキストチャットは、アプリの Grok テキストモデル（設定 → テキストモデル）か、このコンパニオンの音声セットアップの頭脳（ローカルモデル、OpenAI、Claude など）で動きます。ウェブ検索と MCP サーバーはそれらを実行するプロバイダーの頭脳が必要で、X 検索は Grok 専用です。",
+  "Text chat brain": "テキストチャットの頭脳",
+  "Grok (Settings → Text model)": "Grok（設定 → テキストモデル）",
+  "The voice setup's brain (needs a voice setup)": "音声セットアップの頭脳（音声セットアップが必要）",
+  "The voice setup's brain: %s": "音声セットアップの頭脳：%s",
+
   "Text model": "テキストモデル",
   "Summary model": "要約モデル",
   "Imagine model": "Imagine モデル",
@@ -543,9 +847,11 @@ export const JA = {
   "Could not remove photo": "写真を削除できませんでした",
 
   // ── Settings: context management ──────────────────────────────────────
-  "Context management": "コンテキスト管理",
-  "Voice summarization threshold (tokens)": "音声の要約しきい値（トークン）",
-  "Text summarization threshold (tokens)": "テキストの要約しきい値（トークン）",
+  "Conversation length": "会話の長さ",
+  "The thresholds and word limits here are for Grok Realtime calls and Grok text chat. A voice setup sets its own on its brain (Models & providers above), for the calls and text chat that run on it.":
+    "ここでのしきい値と語数の上限は、Grok Realtime の通話と Grok のテキストチャット用です。音声セットアップは、その頭脳の設定（上の モデルとプロバイダー）で独自に決め、それで動く通話とテキストチャットに使われます。",
+  "Grok Realtime calls: summarise after (tokens)": "Grok Realtime の通話：要約するまで（トークン）",
+  "Grok text chat: summarise after (tokens)": "Grok のテキストチャット：要約するまで（トークン）",
   "Recent turns kept verbatim": "そのまま残す直近ターン数",
   "Summary word limit (low)": "要約の語数（下限）",
   "When a summary passes the high limit, it is rewritten down to about this many words, relationship milestones first. 0 = off (summaries keep growing).":
@@ -562,7 +868,9 @@ export const JA = {
     "会話を再開したときにトランスクリプトへ読み込む直近メッセージの件数です。0 ですべて表示します。古いメッセージも保存されたままで、画面に描画される範囲だけが変わり、コンパニオンの記憶には影響しません。",
 
   // ── Settings: cost optimization ───────────────────────────────────────
-  "Cost optimization": "コスト最適化",
+  "Grok Realtime calls": "Grok Realtime の通話",
+  "xAI bills a Realtime call for every connected minute and for each message replayed when a conversation is resumed. These keep that down; calls on a voice setup don't need them.":
+    "xAI は Realtime の通話を、接続している 1 分ごとと、会話を再開したときに送り直すメッセージ 1 件ごとに課金します。これらはその費用を抑える設定で、音声セットアップでの通話には不要です。",
   "Resuming a voice conversation sends its history back to xAI one message at a time, at about $0.004 per message, so a 250-message backlog costs about $1 on every resume. With the roll-up on, the older messages are bundled into a single message, which cuts that to a few cents. Every word is still sent, but the bundled part arrives as one transcript, so your companion may recall it a little less sharply than the recent turns kept whole. Most useful if you resume often for short exchanges. Note: every summarization trims the message backlog, so a resume costs the most just before one is due.":
     "音声での会話を再開すると、履歴がメッセージ 1 件ずつ xAI に送り直され、1 件あたり約 $0.004 かかります。そのため、250 メッセージ分がたまっていると、再開のたびに約 $1 かかります。履歴のまとめをオンにすると、古いメッセージが 1 件にまとめられ、これが数セントになります。すべての語句はそのまま送信されますが、まとめられた部分は 1 つの記録として届くため、そのまま残す直近のターンに比べて、コンパニオンの記憶がやや曖昧になる可能性があります。短いやり取りのために頻繁に再開する場合に特に役立ちます。注：要約が行われるたびにたまったメッセージは減るため、再開のコストが最も高くなるのは次の要約の直前です。",
   "Roll up older history when resuming a conversation":
@@ -570,8 +878,8 @@ export const JA = {
   "Recent turns kept whole": "そのまま残す直近ターン数",
   "How many of the most recent messages stay as separate turns, exactly as they are sent today. Everything older is bundled. Higher keeps more of the conversation's natural shape and costs a little more; 0 bundles everything.":
     "直近の何件のメッセージを、現在と同じように個別のやり取りとして送信するかを指定します。それより古いものはまとめられます。大きくすると会話の自然な形がより多く保たれますが、コストはわずかに増えます。0 にするとすべてまとめられます。",
-  "xAI drops an idle call at 15 minutes regardless. 0 turns this off.":
-    "xAI は、無操作の通話を 15 分で必ず切断します。0 で無効になります。",
+  "xAI drops an idle call at 15 minutes regardless. 0 turns this off. Calls on a voice setup stay connected - they cost little or nothing while quiet.":
+    "xAI は、無操作の通話を 15 分で必ず切断します。0 で無効になります。音声セットアップでの通話は接続したままです。静かな間の費用はほとんど、またはまったくかかりません。",
   "End the call after this many idle minutes": "この分数だけ何も起きなければ通話を終了",
 
   // ── Settings: hotkeys ─────────────────────────────────────────────────
@@ -903,11 +1211,58 @@ export const JA = {
   "Tools": "ツール",
   "General": "一般",
   "wake:": "ウェイク：",
-  "Provider": "プロバイダー",
-  "Provider tools": "プロバイダーツール",
-  "Grok (xAI)": "Grok（xAI）",
-  "The LLM backend this companion runs on. Only Grok (xAI) is available today.":
-    "このコンパニオンを動かす LLM バックエンド。現在は Grok（xAI）のみ利用できます。",
+  "Voice & brain": "声と頭脳",
+  "Summarise at (tokens)": "要約するサイズ（トークン）",
+  "Once a request to this brain reaches this size - the companion's prompt (about 18,000 tokens) plus the conversation - the older part is summarised. Lower keeps replies quick; a local model needs it under its loaded context length, with room for the reply. 0 = never.":
+    "この頭脳へのリクエストがこのサイズ（コンパニオンのプロンプト約 18,000 トークンと会話の合計）に達すると、古い部分を要約します。小さくすると返答が速く保たれます。ローカルモデルでは、読み込んだコンテキスト長より小さく、返答の余裕を残した値にしてください。0 = 要約しない。",
+  "When a summary passes the high limit, it is rewritten down to about this many words. 0 = off (summaries keep growing).":
+    "要約が上限を超えたら、この語数程度まで書き直します。0 = オフ（要約は増え続けます）。",
+  "Below this, new conversation is added to the summary as it is; above it, the summary is rewritten down to the low limit.":
+    "この語数までは新しい会話を要約にそのまま追記し、超えたら下限まで書き直します。",
+  "Can see images": "画像を認識できる",
+  "Turn on for a vision model (e.g. Qwen3.5, Gemma 4, a \"VL\" build with its projector loaded). Images you attach in chat reach it, and analyze_screen runs on it instead of Grok vision.":
+    "画像認識モデル（Qwen3.5、Gemma 4、プロジェクター付きの「VL」版など）ならオンにします。チャットで添付した画像がモデルに届き、analyze_screen も Grok の画像認識の代わりにこのモデルで動きます。",
+  "Unmarked tools run in the app and work with any brain, local ones included. Tools marked xAI use your xAI API key, and are left out while none is set.":
+    "印のないツールはアプリ内で動き、ローカルを含むどの頭脳でも使えます。xAI の印があるツールは xAI API キーを使い、キーが未設定の間は提供されません。",
+  "Uses your xAI API key when the companion uses it (billed by xAI). Not offered while no key is set.":
+    "コンパニオンが使うときに xAI API キーを使います（xAI の課金）。キーが未設定の間は提供されません。",
+  "The bot plans its moves on the connection picked in Game integrations → Minecraft: Grok on your xAI API key, OpenAI, Claude, or a server on your computer.":
+    "ボットは ゲーム連携 → Minecraft で選んだ接続で行動を計画します：xAI API キーの Grok、OpenAI、Claude、または自分のコンピューター上のサーバー。",
+  "xAI · OpenAI · Claude · local": "xAI・OpenAI・Claude・ローカル",
+  "Grok or brain vision": "Grok または頭脳の画像認識",
+  "Selfies, screenshots and clips run in the app. analyze_screen looks with the companion's own brain when it can see images (OpenAI, Claude or a local vision model, on the brain's quick model), otherwise with Grok vision on your xAI API key; left out when neither is available.":
+    "自撮り・スクリーンショット・クリップはアプリ内で動きます。analyze_screen は、コンパニオンの頭脳が画像を認識できる（OpenAI、Claude、ローカルの画像認識モデル。頭脳のクイックモデルを使用）ならその頭脳で、そうでなければ xAI API キーで Grok の画像認識を使って見ます。どちらも使えないときは提供されません。",
+  "Grok or setup voice": "Grok またはセットアップの声",
+  "Recorded in the voice the companion has on calls: Grok's (your xAI API key, billed by xAI), or its voice setup's voice (OpenAI, Fish, Kokoro...). Left out when neither can speak.":
+    "通話と同じ声で録音します。Grok の声（xAI API キー、xAI の課金）か、音声セットアップの声（OpenAI、Fish、Kokoro など）です。どちらも話せないときは提供されません。",
+  "Runs on the companion's own brain when its voice setup's brain is OpenAI or Claude (their search, code and file reading, on the brain's quick model for quick checks); otherwise on Grok with your xAI API key (billed by xAI).":
+    "コンパニオンの音声セットアップの頭脳が OpenAI か Claude なら、その頭脳で動きます（検索・コード・ファイル読み取り。クイックチェックは頭脳のクイックモデル）。それ以外は xAI API キーで Grok を使います（xAI の課金）。",
+  "xAI or ComfyUI": "xAI または ComfyUI",
+  "Each tool renders on Grok Imagine with your xAI API key, or on your own ComfyUI server - pick per tool in Settings → Local generation. A tool whose engine can't run is left out.":
+    "各ツールは xAI API キーで Grok Imagine、または自分の ComfyUI サーバーで生成します。ツールごとに 設定 → ローカル生成 で選べます。エンジンが動かせないツールは提供されません。",
+  "Follows Image & video tools' engines (Settings → Local generation).":
+    "画像・動画ツールのエンジン（設定 → ローカル生成）に従います。",
+  "xAI account": "xAI アカウント",
+  "The Grok Build CLI signs in to your xAI account.": "Grok Build CLI は xAI アカウントにサインインして動きます。",
+  "Grok brain": "Grok 頭脳",
+  "Runs inside xAI's Grok models: only a companion whose brain is Grok has it.":
+    "xAI の Grok モデル内で動きます。頭脳が Grok のコンパニオンだけが使えます。",
+  "Grok voice for videos and songs (built-in name or custom xAI voice id)":
+    "動画と歌用の Grok の声（内蔵の名前またはカスタム xAI 音声 ID）",
+  "%s (the setup's default)": "%s（セットアップの既定）",
+  "required - this setup has no default voice": "必須 — このセットアップに既定の声がありません",
+  "Which of this engine's voices speaks the script. Leave empty for the voice setup's default voice.":
+    "このエンジンのどの声でスクリプトを読み上げるか。空欄なら音声セットアップのデフォルトの声を使います。",
+  "the setup's default voice": "セットアップのデフォルトの声",
+  "Used by Grok text chat (Settings → Text model) and by this companion's delegated tasks. A voice setup's brain has its own reasoning setting.":
+    "Grok のテキストチャット（設定 → テキストモデル）と、このコンパニオンの委任タスクで使われます。音声セットアップの頭脳には独自の推論設定があります。",
+  "Provider tools": "プロバイダーのツール",
+  "Tools the brain's provider runs itself, like remote MCP servers: xAI, OpenAI's own API or Anthropic. A brain on your own computer doesn't have them.":
+    "リモート MCP サーバーと同じく、頭脳のプロバイダー（xAI、OpenAI 本家の API、Anthropic）自身が実行するツールです。自分のコンピューター上の頭脳では使えません。",
+  "Not on calls with this brain: %s.": "この頭脳では通話で使えません：%s。",
+  "Not in text chat with its brain: %s.": "その頭脳ではテキストチャットで使えません：%s。",
+  "Runs at the brain's provider: xAI, OpenAI's own API or Anthropic. A local brain doesn't have it.":
+    "頭脳のプロバイダー（xAI、OpenAI 本家の API、Anthropic）側で動きます。ローカルの頭脳では使えません。",
   "avatar:": "アバター：",
   "Avatar control tools": "アバター操作ツール",
 
@@ -924,6 +1279,17 @@ export const JA = {
     "毎 Grok ボイスセッションに注入される組み込みのスピーチタグ指示に、「Your signature tags」見出しの下で追記されます。このコンパニオンならではのタグと、それを使う場面を記述してください。その口調での例文を2〜3行入れると効果的です。一般的な仕組みは既に説明済みです。空欄の場合は汎用の指示のみになります。",
   "Grok voice renders expression tags in speech. Inline: %s. Wrapping: %s. All of them are always available.":
     "Grok ボイスは音声に表現タグを反映します。インライン：%s。ラッピング：%s。すべて常に利用できます。",
+  "Speech tags (%s)": "スピーチタグ（%s）",
+  "Everything this companion is told about expression tags on this voice, on calls and for voice messages: how the tags work and which exist. A voice engine with tags of its own (Fish Audio) starts with its default text; trim the lists, reword it, or add this companion's signature tags at the end. For any other voice it starts empty and nothing is taught: if the model behind it understands tags, describe them here. Saved empty, it goes back to the default.":
+    "この音声の表現タグについて、通話とボイスメッセージでこのコンパニオンに伝える内容のすべてです（タグの仕組みと種類）。独自のタグを持つ音声エンジン（Fish Audio）では、最初にそのデフォルトの文章が入っています。一覧を絞る、書き換える、末尾にこのコンパニオンならではのタグを加える、といった編集ができます。それ以外の音声では最初は空で、何も教えません。その音声のモデルがタグを理解するなら、ここに書いてください。空で保存するとデフォルトに戻ります。",
+  "Nothing is taught about tags on this voice. If its model understands any, describe them here: how they are written, which exist, and when this companion uses them.":
+    "この音声では、タグについて何も教えません。モデルがタグを理解する場合は、書き方・種類・このコンパニオンが使う場面をここに書いてください。",
+  "This voice has expression tags of its own, so companions are taught those instead of Grok's, on calls and for voice messages. Each companion's version is in its editor (Speech tags).":
+    "この音声には独自の表現タグがあるため、通話でもボイスメッセージでも、コンパニオンには Grok のタグの代わりにそちらを教えます。コンパニオンごとの内容は、その編集画面（スピーチタグ）にあります。",
+  "This voice runs on %s, not xAI: the script is sent to it as written, so Grok's speech tags aren't rendered, {voice …} lines don't switch voices, and nothing is billed by xAI.":
+    "この音声は xAI ではなく %s で動きます。スクリプトは書かれたとおりに送られるため、Grok のスピーチタグは表現されず、{voice …} 行で声は切り替わりません。xAI の課金もありません。",
+  "Speech tags for this voice": "この音声のスピーチタグ",
+  "%s speech characters": "読み上げ %s 文字",
   "e.g. 'Favour [pause] and <slow> for weight; [chuckle] for dry humor.'":
     "例：「重みを出すときは [pause] と <slow> を、乾いたユーモアには [chuckle] を好んで使う。」",
   "Call-companion tool (group calls)": "コンパニオン呼び出しツール（グループ通話）",
@@ -1000,8 +1366,8 @@ export const JA = {
     "xAI コンソール",
   "Model rates:":
     "モデル料金：",
-  "How voice calls are billed (approximate, check xAI pricing for current rates): a voice call is charged per minute for as long as it stays connected, whether or not anyone is speaking. That is about $0.08 a minute ($4.80 an hour) on grok-voice-think-fast-2.0, for each companion in the call. On top of that there is a flat fee of about $0.004 per message exchanged, whatever its length. Tools like web search and Grok Imagine (images and videos) are charged separately. Resuming a voice conversation sends its history back one message at a time (incurring the $0.004 charge per message), so if you resume often, review the \"Cost optimization\" section in Settings. Text chat is billed differently, by the number of tokens, at the rates of the model used.":
-    "音声通話の課金の仕組み（概算です。最新の料金は xAI 料金で確認してください）：音声通話は、誰かが話しているかどうかに関係なく、接続している間ずっと分単位で課金されます。grok-voice-think-fast-2.0 では 1 分あたり約 $0.08（1 時間あたり $4.80）で、通話に参加しているコンパニオンごとにかかります。これに加えて、やり取りされるメッセージ 1 件ごとに、長さに関係なく一律で約 $0.004 の料金がかかります。ウェブ検索や Grok Imagine（画像・動画）などのツールは別途課金されます。音声での会話を再開すると、履歴がメッセージ 1 件ずつ送り直される（1 件ごとに $0.004 の料金がかかります）ため、頻繁に再開する場合は、設定の「コスト最適化」セクションを見直してください。テキストチャットは課金方法が異なり、使用するモデルの料金でトークン数に応じて課金されます。",
+  "How voice calls are billed (approximate, check xAI pricing for current rates): a voice call is charged per minute for as long as it stays connected, whether or not anyone is speaking. That is about $0.08 a minute ($4.80 an hour) on grok-voice-think-fast-2.0, for each companion in the call. On top of that there is a flat fee of about $0.004 per message exchanged, whatever its length. Tools like web search and Grok Imagine (images and videos) are charged separately. Resuming a voice conversation sends its history back one message at a time (incurring the $0.004 charge per message), so if you resume often, review the \"Grok Realtime calls\" section in Settings. Text chat is billed differently, by the number of tokens, at the rates of the model used.":
+    "音声通話の課金の仕組み（概算です。最新の料金は xAI 料金で確認してください）：音声通話は、誰かが話しているかどうかに関係なく、接続している間ずっと分単位で課金されます。grok-voice-think-fast-2.0 では 1 分あたり約 $0.08（1 時間あたり $4.80）で、通話に参加しているコンパニオンごとにかかります。これに加えて、やり取りされるメッセージ 1 件ごとに、長さに関係なく一律で約 $0.004 の料金がかかります。ウェブ検索や Grok Imagine（画像・動画）などのツールは別途課金されます。音声での会話を再開すると、履歴がメッセージ 1 件ずつ送り直される（1 件ごとに $0.004 の料金がかかります）ため、頻繁に再開する場合は、設定の「Grok Realtime の通話」セクションを見直してください。テキストチャットは課金方法が異なり、使用するモデルの料金でトークン数に応じて課金されます。",
   "Capture tools (selfie & screen share)":
     "キャプチャツール（自撮り＆画面共有）",
   "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, analyze_screen, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider.":
@@ -1026,12 +1392,12 @@ export const JA = {
     "ゲームタブで設定した Minecraft ボットをコンパニオンが操作できるようにします — 目標や指示を出したり状況を確認したり（minecraft_command、minecraft_status） — ボイス／テキストの両セッションから。ツールはボットのサイドカーが接続されている間のみ提供されます。",
   "Lets the companion end the voice call itself (end_call) when you say goodbye or ask it to hang up, instead of waiting for you to press the button. Voice mode only.":
     "あなたが別れを告げたり切るよう頼んだりしたとき、ボタンを押すのを待たずにコンパニオン自身が通話を終了できるようにします（end_call）。ボイスモードのみ。",
-  "Lets the companion search the web (web_search) for current information (news, facts, prices) in both voice and text sessions. Searches are billed by xAI per call.":
-    "コンパニオンがボイス／テキストの両セッションで最新情報（ニュース、事実、価格など）をウェブ検索できるようにします（web_search）。検索は xAI により 1 回ごとに課金されます。",
+  "Lets the companion search the web (web_search) for current information (news, facts, prices) in both voice and text sessions. Searches are billed per search by the provider that runs them (xAI, OpenAI or Anthropic).":
+    "コンパニオンがボイス／テキストの両セッションで最新情報（ニュース、事実、価格など）をウェブ検索できるようにします（web_search）。検索は実行するプロバイダー（xAI、OpenAI、Anthropic）により 1 回ごとに課金されます。",
   "Lets the companion search posts on X (Twitter) in both voice and text sessions (x_search). Searches are billed by xAI per call.":
     "コンパニオンがボイス／テキストの両セッションで X（Twitter）の投稿を検索できるようにします（x_search）。検索は xAI により 1 回ごとに課金されます。",
-  "Lets the companion run Python in xAI's sandboxed code interpreter (code_interpreter) to calculate, analyse data or test snippets. Text sessions only; the voice model has no code tool.":
-    "コンパニオンが xAI のサンドボックス化されたコードインタープリタ（code_interpreter）で Python を実行し、計算やデータ分析、スニペットのテストを行えるようにします。テキストセッションのみ — ボイスモデルにはコードツールがありません。",
+  "Lets the companion run Python in its brain provider's sandboxed code interpreter (xAI, OpenAI or Anthropic) to calculate, analyse data or test snippets. On Grok, text sessions only (Grok Realtime calls have no code tool); a voice setup with a Claude or OpenAI brain runs it on calls too. On Claude and OpenAI, attached files the model can't read directly (archives, older Office files, very long text...) are opened there, and files it makes come back into the chat.":
+    "コンパニオンが頭脳のプロバイダー（xAI、OpenAI、Anthropic）のサンドボックス化されたコードインタープリタで Python を実行し、計算やデータ分析、スニペットのテストを行えるようにします。Grok ではテキストセッションのみ（Grok Realtime の通話にはコードツールがありません）。Claude または OpenAI の頭脳を使う音声セットアップでは通話でも使えます。Claude と OpenAI では、モデルが直接読めない添付ファイル（アーカイブ、古い Office ファイル、非常に長いテキストなど）がそこで開かれ、作成したファイルはチャットに戻ってきます。",
   "Lets the companion hand complex work (reading documents or images, research, long coding tasks) to a hidden background text session with the full tool stack, and report the result back (delegate_task). Works from voice calls too, where the realtime model can't see files itself. Quick looks at images and clips can run on the fast text model set in Settings. Each task is billed as extra text-model usage.":
     "文書や画像の読み取り、リサーチ、長いコーディング作業などの複雑な仕事を、フルツール構成の非表示のバックグラウンドテキストセッションに任せ、結果を報告させられるようにします（delegate_task）。リアルタイムモデル自身がファイルを見られない音声通話からも使えます。タスクごとにテキストモデルの追加使用量として課金されます。",
   "Allows delegated tasks (affects delegate_task) to run on xAI's multi-agent model (several coordinated agents on one task) when the companion asks for it. Noticeably more expensive per task than a plain delegation; requires Task delegation.":
@@ -1062,8 +1428,8 @@ export const JA = {
   "Remote MCP connections can be added after the companion is saved.":
     "リモート MCP 接続は、コンパニオンの保存後に追加できます。",
   "Add connection": "接続を追加",
-  "None configured. An MCP server gives this companion extra tools; xAI connects to it directly, so the URL must be public HTTPS.":
-    "未設定です。MCP サーバーはこのコンパニオンにツールを追加します。xAI が直接接続するため、URL は公開 HTTPS である必要があります。",
+  "None configured. An MCP server gives this companion extra tools; the brain's provider (xAI, OpenAI or Anthropic) connects to it directly, so the URL must be public HTTPS.":
+    "未設定です。MCP サーバーはこのコンパニオンにツールを追加します。頭脳のプロバイダー（xAI、OpenAI、Anthropic）が直接接続するため、URL は公開 HTTPS である必要があります。",
   "Could not load MCP connections": "MCP 接続を読み込めませんでした",
   "Remove MCP connection %s?": "MCP 接続 %s を削除しますか？",
   "Server label (a-z, 0-9, _ — shown to the model)": "サーバーラベル（a-z・0-9・_ — モデルに表示）",
@@ -1433,10 +1799,16 @@ export const JA = {
     "セットアップ：ワールドを起動して LAN に公開し（Minecraft は毎回新しいポートを表示します）、ゲームと同じマシンでサイドカーを実行します（初回は npm install）。--username にはコンパニオンの名前を設定してください — ワールド内のキャラクターが見知らぬ誰かではなく、そのコンパニオン本人になります：",
   "Requirements: Node 18+, and a Minecraft Java Edition world on a version mineflayer supports (currently up to 1.21.11).":
     "必要環境：Node 18 以上、および mineflayer が対応するバージョンの Minecraft Java Edition ワールド（現在 1.21.11 まで）。",
-  "Bot brain model (empty = grok-4.20-non-reasoning)":
-    "ボットの頭脳モデル（空欄 = grok-4.20-non-reasoning）",
+  "Bot brain model (empty = %s)": "ボットの頭脳モデル（空欄 = %s）",
+  "Bot brain model": "ボットの頭脳モデル",
+  "the model's name on that server": "そのサーバーでのモデル名",
+  "Hard-task model for big jobs (empty = %s)": "大きな仕事用のハードタスクモデル（空欄 = %s）",
   "Hard-task model for big jobs (empty = disabled)":
     "大きな仕事用のハードタスクモデル（空欄 = 無効）",
+  "Bot brain connection": "ボットの頭脳の接続",
+  "xAI (Grok)": "xAI（Grok）",
+  "The xAI key from Settings, or an OpenAI-compatible or Claude connection from Settings → Models & providers (its URL and key).":
+    "設定の xAI キー、または 設定 → モデルとプロバイダー の OpenAI 互換・Claude 接続（その URL とキー）。",
   "Your in-game username (the bot prioritizes you)":
     "あなたのゲーム内ユーザー名（ボットが優先します）",
   "e.g. Jonny": "例: Jonny",
@@ -1648,8 +2020,8 @@ export const JA = {
   "Test": "テスト",
   "first call": "初回",
   "then": "以降",
-  "Used by: Expressive face and head, Automated background gestures, Live memory recall, and picking who speaks next in a group call. Background gestures and group-call turn selection fall back to the turn director model without a key.":
-    "使用する機能：豊かな表情と頭の動き、自動背景ジェスチャー、会話中の記憶想起、グループ通話での次の話者の選択。キーがない場合、自動背景ジェスチャーと話者の選択にはターンディレクターモデルを使用します。",
+  "Used by: Expressive face and head, Automated background gestures, Live memory recall, and picking who speaks next in a group call. Background gestures and group-call turn selection fall back to the turn director model without a key, and without an xAI key either to the quick model of your companion's voice setup brain.":
+    "使用する機能：豊かな表情と頭の動き、自動背景ジェスチャー、会話中の記憶想起、グループ通話での次の話者の選択。キーがない場合、自動背景ジェスチャーと話者の選択にはターンディレクターモデルを使用し、xAI キーもない場合はコンパニオンの音声セットアップのブレインのクイックモデルを使用します。",
 
   // ── Settings / mascot: background avatar motion ───────────────────────
   "Background Avatar Motion": "アバターの自動モーション",
@@ -1665,8 +2037,8 @@ export const JA = {
   // model. No setting — the key decides.
   "Jev reads each sentence against the clip library and answers in about a quarter of a second, so the gesture is ready well before the line is spoken. Sent for each line: the sentence itself and your companion's \"## Identity\" and \"## Personality\" sections.":
     "Jev は各文をクリップライブラリと照らし合わせ、約 0.25 秒で答えます。そのため、その文が読み上げられるよりも十分前にジェスチャーが用意されます。文ごとに送られるのは、その文自体と、コンパニオンの「## Identity」「## Personality」セクションだけです。",
-  "The turn director model set below reads each sentence against the clip library. Set a TypeSafe API key above and Jev does it instead — faster, cheaper and a better match.":
-    "下で設定するターンディレクターモデルが、各文をクリップライブラリと照らし合わせます。上で TypeSafe API キーを設定すると、代わりに Jev が担当します。より速く、より安く、より適切に選びます。",
+  "The turn director model set below reads each sentence against the clip library (without an xAI key: the quick model of your companion's voice setup brain). Set a TypeSafe API key above and Jev does it instead — faster, cheaper and a better match.":
+    "下で設定するターンディレクターモデルが、各文をクリップライブラリと照らし合わせます（xAI キーがない場合は、コンパニオンの音声セットアップのブレインのクイックモデル）。上で TypeSafe API キーを設定すると、代わりに Jev が担当します。より速く、より安く、より適切に選びます。",
   "Expressive face and head while speaking (experimental - requires Jev)":
     "発話中の表情と頭の動き（実験的・Jev が必要）",
   "Your companion's face and head follow what each sentence means, and what you say to them as you say it: a smile, a frown, a nod on a yes, a shake on a no, a look away while they think. Built from the avatar's own expressions, so any VRM works. Their own big emotions still play on top. Needs a TypeSafe API key for Jev, set above. Applies from the next call.":

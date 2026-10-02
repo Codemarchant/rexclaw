@@ -637,24 +637,41 @@ def guide(config, sounds=None):
     }
 
 
-def guide_text(rules=None, sounds=None, agent=None):
+def guide_text(rules=None, sounds=None, agent=None, speech_tags=True, tag_guide=''):
     """The same guide as plain text, for the create_voicemail description.
     `rules` replaces the default writing rules (the user's override);
     `sounds` lists the user's uploads. {music} / {sound} are left out while
     there is nothing of that kind to call, so they cost no context. `agent`
-    limits extension directives to the ones that companion has switched on."""
+    limits extension directives to the ones that companion has switched on.
+    `speech_tags=False` (a companion recorded in a voice that doesn't render
+    Grok's tags, voicemail_tools.call_voice): the guide doesn't teach them —
+    no tag list, no lines about them, examples without them — so the
+    companion has no reason to write any. `tag_guide`: that voice's own
+    speech-tag section, when it has one (voicemail_tools.tag_guide)."""
+    from .pipeline.text import _INLINE_RE, _WRAP_RE, strip_speech_tags
+
+    def taught(line):
+        return speech_tags or not (_INLINE_RE.search(line) or _WRAP_RE.search(line))
+    example = (lambda t: t) if speech_tags else (
+        lambda t: '\n'.join(strip_speech_tags(line) for line in t.split('\n')))
+    # Prose: a sentence about a tag goes whole rather than reading oddly.
+    describe = (lambda t: t) if speech_tags else (
+        lambda t: ' '.join(x for x in re.split(r'(?<=\.)\s+', t) if taught(x)))
     listed = _sound_list(sounds)
     kinds = {s['kind'] for s in listed}
     out = ['HOW A SCRIPT WORKS']
-    out += [f'- {p}' for p in HOW_IT_WORKS]
-    out += ['', 'SPEECH TAGS (inside spoken lines; this is the complete list)',
-            'Inline, placed where the sound happens:']
-    for group, tags in SPEECH_TAGS['inline']:
-        out.append(f'  {group}: ' + '; '.join(f'{t} {d}' for t, d in tags))
-    out.append('Wrapping, around whole phrases with a closing tag:')
-    for group, tags in SPEECH_TAGS['wrapping']:
-        out.append(f'  {group}: ' + '; '.join(f'{t} {d}' for t, d in tags))
-    out += [f'- {t}' for t in SPEECH_TAGS['tips']]
+    out += [f'- {p}' for p in HOW_IT_WORKS if taught(p)]
+    if speech_tags:
+        out += ['', 'SPEECH TAGS (inside spoken lines; this is the complete list)',
+                'Inline, placed where the sound happens:']
+        for group, tags in SPEECH_TAGS['inline']:
+            out.append(f'  {group}: ' + '; '.join(f'{t} {d}' for t, d in tags))
+        out.append('Wrapping, around whole phrases with a closing tag:')
+        for group, tags in SPEECH_TAGS['wrapping']:
+            out.append(f'  {group}: ' + '; '.join(f'{t} {d}' for t, d in tags))
+        out += [f'- {t}' for t in SPEECH_TAGS['tips']]
+    elif tag_guide:
+        out += ['', 'SPEECH TAGS (inside spoken lines)', tag_guide]
     out += ['', 'DIRECTIVES']
     out += [f'- {r}' for r in DIRECTIVE_RULES]
     out.append('Values used below (UPPERCASE words are values you fill in):')
@@ -665,23 +682,27 @@ def guide_text(rules=None, sounds=None, agent=None):
             if d.get('needs') and d['needs'] not in kinds:
                 continue
             out.append(d['syntax'])
-            out.append(f'  {d["what"]}')
+            out.append(f'  {describe(d["what"])}')
             for name, need, spec in d['params']:
                 out.append(f'  {name} ({need}): {spec}')
-            out.append('  Example: ' + d['example'].replace('\n', ' / '))
+            out.append('  Example: ' + example(d['example']).replace('\n', ' / '))
     if listed:
         out += ['', 'YOUR SOUNDS (uploaded by the user; call them exactly like this)']
         for s in listed:
             length = f' ({s["length"]})' if s['length'] else ''
             out.append(f'  {s["use"]}{length}: {s["description"] or "(no description)"}')
-    out += ['', 'WRITING RULES', (rules or default_rules_text()).strip()]
-    out += ['', 'EXAMPLE 1: a voice note (short pieces need no directives)', EXAMPLE_NOTE.rstrip()]
+    # A voice with no tags at all (not Grok's, none of its own) isn't told
+    # to write "lines with tags" either.
+    tip = (lambda t: t) if speech_tags or tag_guide else (lambda t: t.replace('the lines with tags', 'the lines'))
+    out += ['', 'WRITING RULES', (rules or '\n'.join(
+        f'- {tip(t)}' for t in WRITING_TIPS if taught(t))).strip()]
+    out += ['', 'EXAMPLE 1: a voice note (short pieces need no directives)', example(EXAMPLE_NOTE.rstrip())]
     out += ['', 'EXAMPLE 2: a six-minute hypnosis-style session (arrival with music over a '
                 'bed, breathing, a chime-marked crossfade into the trance bed, countdown with '
                 'reverb and layered '
                 'voices, a dual-induction deepener, suggestions with underlay, a close sweeping '
                 'whisper and one echoed key phrase, crossfade to wake-up music, count-up). Every gap follows '
-                'the hypnosis pacing rules.', EXAMPLE_SCRIPT.rstrip()]
+                'the hypnosis pacing rules.', example(EXAMPLE_SCRIPT.rstrip())]
     return '\n'.join(out)
 
 
@@ -1040,6 +1061,50 @@ def _tts(config, text, voice, speed, language, pronounce=None):
     return _trim(pcm.astype(np.float32) / 32768.0)
 
 
+def engine_speaker(tts, config, voice):
+    """A `_tts` stand-in that speaks with a voice setup's engine (Kokoro,
+    Fish, an extension's) — for a companion whose call voice isn't Grok's,
+    so its recordings sound like its calls. Always in `voice`, the
+    companion's voice there: a voice a script switches to names a Grok
+    voice, which the engine wouldn't know. The script is spoken as written
+    (the guide doesn't teach Grok's tags to such a voice); xAI's
+    pronunciation list is not sent."""
+    import asyncio
+    from .pipeline.audio import Resampler
+    cls, settings = tts
+
+    def speak(_config, text, _voice, speed, _language, _pronounce=None):
+        async def run():
+            engine = cls(settings, config)
+            parts = []
+            # One resampler for the whole line: the engine's audio arrives
+            # in network chunks, and resampling each on its own clicks.
+            resample = None
+            try:
+                async for samples, rate in engine.synthesize(text, voice=voice, speed=speed, rate=SR):
+                    resample = resample or Resampler(rate, SR)
+                    parts.append(resample(samples))
+                if resample is not None:
+                    parts.append(resample(np.zeros(0, np.float32), last=True))
+            finally:
+                await engine.close()
+            return parts
+        try:
+            parts = asyncio.run(run())
+        except UserError:
+            raise
+        except Exception as e:
+            # Engines fail with their own errors (a server that is down, a
+            # refused key or voice): say which engine and why.
+            raise UserError(f'{cls.label} could not speak "{text[:40]}": {e}')
+        if not parts or not sum(len(p) for p in parts):
+            raise UserError(f'The voice engine returned no audio for "{text[:40]}".')
+        return _trim(np.concatenate(parts).astype(np.float32))
+    # Whether the renderer may wrap lines in Grok tags itself (_clip_requests).
+    speak.speech_tags = bool(cls.speech_tags)
+    return speak
+
+
 def _trim(x, thresh_db=-50.0):
     """Drop leading/trailing near-silence so the timeline owns every gap."""
     idx = np.flatnonzero(np.abs(x) > 10 ** (thresh_db / 20))
@@ -1049,15 +1114,23 @@ def _trim(x, thresh_db=-50.0):
     return x[max(0, idx[0] - pad): idx[-1] + pad]
 
 
-def _clip_requests(events):
-    """Every distinct (text, voice, speed) the script needs spoken."""
-    reqs = set()
+def _clip_requests(events, tags=True):
+    """{(text, voice, speed): the text to speak} for every distinct clip
+    the script needs. The renderer wraps some lines in a Grok tag itself (a
+    breathing cue's <soft>, {fx layered}'s takes); a voice that doesn't
+    render Grok's tags (`tags` False) is sent those lines plain, since it
+    would read the tag aloud."""
+    reqs = {}
+
+    def wrapped(tag, text, voice, speed):
+        key = f'<{tag}>{text}</{tag}>'
+        reqs[(key, voice, speed)] = key if tags else text
 
     def add(ev):
-        reqs.add((ev['text'], ev['voice'], ev['speed']))
+        reqs[(ev['text'], ev['voice'], ev['speed'])] = ev['text']
         if 'layered' in ev['fx']:
             for tag, _db, _pan in LAYERED_TAKES:
-                reqs.add((f'<{tag}>{ev["text"]}</{tag}>', ev['voice'], ev['speed']))
+                wrapped(tag, ev['text'], ev['voice'], ev['speed'])
 
     for ev in events:
         if ev['t'] == 'say':
@@ -1071,7 +1144,7 @@ def _clip_requests(events):
         elif ev['t'] == 'breathe' and ev['cues']:
             for cue in ev['cues']:
                 if cue:
-                    reqs.add((f'<soft>{cue}</soft>', ev['voice'], ev['speed']))
+                    wrapped('soft', cue, ev['voice'], ev['speed'])
     return reqs
 
 
@@ -1695,14 +1768,15 @@ def _encode(mixer, gain):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def render(con, config, script, *, voice, language='auto', pace=1.0):
+def render(con, config, script, *, voice, language='auto', pace=1.0, speaker=None):
     """Render `script` to an mp3 under FILES_DIR.
 
     Returns {'audio_url', 'duration_seconds', 'tts_chars', 'usd', 'warnings',
     'notes'} — notes are what extensions' render hooks tell the companion.
     Raises UserError for anything the caller should show (no key, empty
-    script, a TTS failure)."""
-    if not config['xai_api_key']:
+    script, a TTS failure). `speaker` replaces xAI TTS (engine_speaker):
+    nothing is billed then."""
+    if speaker is None and not config['xai_api_key']:
         raise UserError(xai_client.NO_KEY_MSG)
     script = (script or '').strip()
     if not script:
@@ -1719,14 +1793,15 @@ def render(con, config, script, *, voice, language='auto', pace=1.0):
              and ev['value'] and ev['value'] not in PROCEDURAL_BEDS}
     library = {name: (audio_sounds.load_bundled(name) if name in audio_sounds.BUNDLED
                       else audio_sounds.load(sounds[name])) for name in used}
-    requests_ = sorted(_clip_requests(events))
+    say = _clip_requests(events, tags=getattr(speaker, 'speech_tags', True))
+    requests_ = sorted(say)
     if not requests_:
         raise UserError('The script has no spoken lines.')
 
     started = time.monotonic()
     clips = {}
     pool = concurrent.futures.ThreadPoolExecutor(TTS_WORKERS)
-    futures = {pool.submit(_tts, config, text, v, s, language, pronounce): (text, v, s)
+    futures = {pool.submit(speaker or _tts, config, say[(text, v, s)], v, s, language, pronounce): (text, v, s)
                for text, v, s in requests_}
     try:
         for fut, key in futures.items():
@@ -1739,9 +1814,10 @@ def render(con, config, script, *, voice, language='auto', pace=1.0):
         pool.shutdown(wait=False, cancel_futures=True)
         spoken = sum(len(key[0]) for fut, key in futures.items()
                      if fut.done() and not fut.cancelled() and fut.exception() is None)
-        store.accrue_usd_ticks(con, int(spoken * TTS_USD_PER_CHAR * store.USD_TICKS_PER_USD))
+        if speaker is None:
+            store.accrue_usd_ticks(con, int(spoken * TTS_USD_PER_CHAR * store.USD_TICKS_PER_USD))
     chars = sum(len(text) for text, _v, _s in requests_)
-    usd = chars * TTS_USD_PER_CHAR
+    usd = chars * TTS_USD_PER_CHAR if speaker is None else 0.0
 
     placements, segments, swell, total, marks = _layout(events, clips, target, warnings, library)
     mixer = _Mixer(placements, segments, swell, total, library)

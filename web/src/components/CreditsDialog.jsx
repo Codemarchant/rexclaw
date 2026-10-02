@@ -87,6 +87,20 @@ const CREDITS = [
         ],
     },
     {
+        title: "Voice pipeline",
+        items: [
+            ["Silero VAD",
+             "https://github.com/snakers4/silero-vad",
+             "MIT, Silero Team. The bundled voice detector that hears when you start "
+             + "and stop speaking."],
+            ["Smart Turn (Pipecat)",
+             "https://github.com/pipecat-ai/smart-turn",
+             "BSD 2-Clause, Daily. The bundled model that tells a finished thought from "
+             + "a pause; its audio features are ported from Pipecat (portions Apache-2.0, "
+             + "Hugging Face Transformers)."],
+        ],
+    },
+    {
         title: "Voice activation",
         items: [
             ["Vosk",
