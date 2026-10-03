@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blackjack · Rexclaw</title>
+<link rel="stylesheet" href="../lib/games.css">
+<!-- Blackjack at the quartermaster's table: you and the companion each play a
+     hand against the dealer, over the Neuro API. Three tables (bet sizes);
+     chips carry over per companion. The companion gets its total (soft or
+     hard), the dealer's up card and the basic-strategy play, like the
+     strategy card any casino sells at the door; whether it follows it is up
+     to them. -->
+<style>
+  .seat { margin-bottom: 12px; padding: 6px 8px; border-radius: 12px; transition: background .2s; }
+  .seat:last-child { margin-bottom: 0; }
+  .seat.active { background: rgba(250,204,21,.08); box-shadow: inset 0 0 0 1px rgba(250,204,21,.35); }
+  .seat-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; color: #dcfce7; font-weight: 600; }
+  .seat-head .total { font-variant-numeric: tabular-nums; color: #fff; font-size: 1.1rem; }
+  .seat.active .seat-head { color: var(--gold); }
+  .chips { font-variant-numeric: tabular-nums; color: #fde68a; font-weight: 700; font-size: 0.85rem; }
+  .outcome { font-size: 0.78rem; padding: 1px 8px; border-radius: 999px; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
+  .outcome.win { background: #166534; color: #bbf7d0; } .outcome.lose { background: #7f1d1d; color: #fecaca; } .outcome.push { background: #334155; color: #e2e8f0; }
+  .dealer-tag { font: italic 700 0.75rem Georgia, serif; color: #bbf7d0; opacity: .8; }
+  .rx-table { position: relative; }
+  .rx-table::before { content: "BLACKJACK PAYS 3 TO 2 · DEALER STANDS ON 17"; position: absolute; left: 0; right: 0; top: 46%;
+    text-align: center; font: 700 0.62rem system-ui; letter-spacing: .25em; color: rgba(220,252,231,.22); pointer-events: none; }
+  #banner { min-height: 2.2rem; }
+</style>
+</head>
+<body>
+<main>
+  <header class="rx-top">
+    <a class="rx-back" href="../index.html">← Deck</a>
+    <h1>Blackjack<small>The quartermaster's table. Claws off the deck.</small></h1>
+    <span id="rx-link" class="rx-pill off">Connecting…</span>
+  </header>
+  <div class="rx-table">
+    <div class="seat" id="seat-dealer"><div class="seat-head"><span>Dealer <span class="dealer-tag">the house always counts</span></span><span class="total" id="t-dealer"></span></div><div class="rx-hand" id="h-dealer"></div></div>
+    <div class="seat" id="seat-them"><div class="seat-head"><span><b data-companion>Your companion</b> <span class="chips" id="c-them"></span><span id="o-them"></span></span><span class="total" id="t-them"></span></div><div class="rx-hand" id="h-them"></div></div>
+    <div class="seat" id="seat-you"><div class="seat-head"><span>You <span class="chips" id="c-you"></span><span id="o-you"></span></span><span class="total" id="t-you"></span></div><div class="rx-hand" id="h-you"></div></div>
+  </div>
+  <div class="rx-banner" id="banner"></div>
+  <div id="status" class="rx-status"></div>
+  <div class="rx-bar">
+    <button class="rx-btn" id="hit">Hit</button>
+    <button class="rx-btn" id="stand">Stand</button>
+    <button class="rx-btn" id="double">Double</button>
+    <button class="rx-btn primary" id="deal">Deal</button>
+  </div>
+  <p class="rx-hint">You act first, then your companion. Blackjack pays 3:2, no splitting. Out of chips? The quartermaster spots you 500, no questions asked.</p>
+</main>
+<script src="../lib/neuro.js"></script>
+<script src="../lib/juice.js"></script>
+<script src="../lib/music.js"></script>
+<script src="../lib/scenes.js"></script>
+<script src="../lib/crew.js"></script>
+<script src="../lib/lines.js"></script>
+<script>
+"use strict";
+const { sfx, fx } = RexGame;
+const START_CHIPS = 500;
+const BETS = { copper: 10, silver: 50, gold: 100 };
+let BET = BETS.copper, shoe = [], dealer = [], hands = {}, phase = "idle", chips = { you: START_CHIPS, them: START_CHIPS };
+let handsWon = 0;
+const $ = (id) => document.getElementById(id);
+
+const game = RexGame.create({
+  name: "Blackjack",
+  modes: [
+    { id: "copper", label: "Copper", hint: "10 a hand" },
+    { id: "silver", label: "Silver", hint: "50 a hand" },
+    { id: "gold", label: "Gold", hint: "100 a hand" },
+  ],
+  onMode: (id) => { BET = BETS[id]; render(); },
+  music: ["quartermaster-lounge", "high-stakes", "lazy-doubloons"],
+  scenes: ["tavern", "night", "storm"],
+  rules: "You are at a Blackjack table with the user, each playing your own hand against the dealer. "
+    + "Get closer to 21 than the dealer without going over. Number cards count their number, J/Q/K count 10, an Ace counts 11 "
+    + "or 1. The dealer draws to 17. You can hit (take a card), stand (stop), or double down on your first two cards "
+    + "(double the bet, take exactly one more card). The user plays their hand first, then you.",
+  actions: [
+    { name: "hit", description: "Take another card." },
+    { name: "stand", description: "Keep your hand and end your turn." },
+    { name: "double_down", description: "Only on your first two cards: double your bet and take exactly one more card." },
+  ],
+  onAction(name) {
+    if (phase !== "them") throw new RexGame.Refuse(phase === "you" ? "Wait: the user is still playing their hand." : "There's no hand in play right now.");
+    const h = hands.them;
+    if (name === "double_down" && h.cards.length !== 2) throw new RexGame.Refuse("You can only double down on your first two cards. Hit or stand.");
+    return act("them", name);
+  },
+  onCompanion: () => render(),
+  // Chips carry over from one session to the next, per companion.
+  onLoad: (saved) => {
+    if (saved.chips && phase === "idle") { chips = { ...chips, ...saved.chips }; render(); }
+  },
+});
+
+const value = (card) => card.rank === "A" ? 11 : ["J", "Q", "K"].includes(card.rank) ? 10 : Number(card.rank);
+function total(cards) {
+  let sum = cards.reduce((s, c) => s + value(c), 0), aces = cards.filter((c) => c.rank === "A").length;
+  while (sum > 21 && aces) { sum -= 10; aces--; }
+  return { sum, soft: aces > 0 };
+}
+const isBlackjack = (cards) => cards.length === 2 && total(cards).sum === 21;
+const describe = (cards) => { const t = total(cards); return `${t.soft && t.sum < 21 ? "soft " : ""}${t.sum}`; };
+
+function draw() {
+  if (shoe.length < 15) { shoe = RexGame.shuffle([...RexGame.deck(), ...RexGame.deck(), ...RexGame.deck()]); sfx.shuffle(); }
+  return shoe.pop();
+}
+
+/** Basic strategy for a dealer standing on soft 17, without splits. */
+function basicPlay(cards, up) {
+  const { sum, soft } = total(cards), d = value(up), two = cards.length === 2;
+  const dbl = (cond, otherwise) => (cond && two ? "double_down" : otherwise);
+  if (soft) {
+    if (sum >= 19) return "stand";
+    if (sum === 18) return d >= 3 && d <= 6 ? dbl(true, "stand") : d <= 8 ? "stand" : "hit";
+    if (sum === 17) return dbl(d >= 3 && d <= 6, "hit");
+    if (sum >= 15) return dbl(d >= 4 && d <= 6, "hit");
+    return dbl(d >= 5 && d <= 6, "hit");
+  }
+  if (sum >= 17) return "stand";
+  if (sum >= 13) return d <= 6 ? "stand" : "hit";
+  if (sum === 12) return d >= 4 && d <= 6 ? "stand" : "hit";
+  if (sum === 11) return dbl(d !== 11, "hit");
+  if (sum === 10) return dbl(d <= 9, "hit");
+  if (sum === 9) return dbl(d >= 3 && d <= 6, "hit");
+  return "hit";
+}
+
+function askMove(lastLine = "") {
+  const h = hands.them, up = dealer[0], you = hands.you;
+  const youLine = you.done === "bust" ? `busted with ${total(you.cards).sum}` : you.done === "blackjack" ? "has blackjack"
+    : `stood on ${describe(you.cards)}`;
+  const options = h.cards.length === 2 ? ["hit", "stand", "double_down"] : ["hit", "stand"];
+  const tip = basicPlay(h.cards, up);
+  game.force({
+    state: `## Your hand: ${h.cards.map(RexGame.cardText).join(" ")} = ${describe(h.cards)}\n`
+      + `Dealer shows: ${RexGame.cardText(up)} (one card face down)\nThe user ${youLine}.\n`
+      + `Your bet: ${h.bet} chips. Your chips: ${chips.them}.\nBasic strategy says: ${tip.replace("_", " ")}.`,
+    query: `${lastLine}Your move: ${options.join(", ")}.`,
+    actions: options,
+  });
+}
+
+function banner(text, color = null) {
+  const el = $("banner");
+  el.textContent = text;
+  el.style.color = color || "";
+  el.style.animation = "none"; void el.offsetWidth; el.style.animation = "";
+}
+
+function deal() {
+  if (phase === "you" || phase === "them") return;
+  for (const k of ["you", "them"]) if (chips[k] < BET) { chips[k] = START_CHIPS; fx.float(`${k === "you" ? "You" : game.companion}: +500 from the quartermaster`, { at: $(`seat-${k}`), color: "#fde68a" }); }
+  banner("");
+  dealer = [draw(), draw()];
+  hands = { you: { cards: [draw(), draw()], bet: BET, done: null, outcome: null },
+            them: { cards: [draw(), draw()], bet: BET, done: null, outcome: null } };
+  chips.you -= BET; chips.them -= BET;
+  for (let i = 0; i < 6; i++) setTimeout(() => sfx.card(), i * 90);
+  sfx.coins(3);
+  if (isBlackjack(dealer) || (isBlackjack(hands.you.cards) && isBlackjack(hands.them.cards))) return finish();
+  phase = "you";
+  game.heckle("deal", { chance: 0.2 });
+  if (isBlackjack(hands.you.cards)) {
+    hands.you.done = "blackjack";
+    banner("BLACKJACK!"); sfx.jackpot(); fx.confetti({ coins: true, count: 90 });
+    game.heckle("blackjack", { chance: 0.9, minGap: 0 });
+    return companionTurn();
+  }
+  render();
+  game.tell(`New hand dealt at the ${game.mode} table (${BET} chips a hand). The dealer shows ${RexGame.cardName(dealer[0])}. `
+    + `You hold ${hands.them.cards.map(RexGame.cardText).join(" ")}; the user is playing first.`);
+}
+
+/** One move for `who`; returns the line for the companion's result. */
+function act(who, move) {
+  const h = hands[who];
+  if (move === "double_down") { chips[who] -= h.bet; h.bet *= 2; sfx.coins(4); }
+  if (move === "hit" || move === "double_down") {
+    const card = draw();
+    h.cards.push(card);
+    sfx.card();
+    const t = total(h.cards);
+    const drew = `drew ${RexGame.cardName(card)}: ${who === "them" ? "you have" : "total"} ${describe(h.cards)}`;
+    if (t.sum > 21) {
+      h.done = "bust";
+      sfx.error(); fx.shake($(`seat-${who}`));
+      if (who === "them") game.react("bust"); else { game.react("user_bust"); game.heckle("bust", { chance: 0.6 }); }
+    } else if (t.sum === 21 || move === "double_down") h.done = "stand";
+    if (!h.done) {
+      render();
+      if (who === "them") askMove(`You ${drew}. `);
+      return `You ${drew}.`;
+    }
+    return endTurn(who, `You ${drew}${h.done === "bust" ? " - bust" : ""}.`);
+  }
+  h.done = "stand";
+  return endTurn(who, `You stand on ${describe(h.cards)}.`);
+}
+
+function endTurn(who, line) {
+  if (who === "you") { companionTurn(); return line; }
+  return `${line} ${finish(true)}`;
+}
+
+function companionTurn() {
+  phase = "them";
+  render();
+  if (isBlackjack(hands.them.cards)) {
+    hands.them.done = "blackjack";
+    banner(`${game.companion}: BLACKJACK!`); sfx.jackpot(); game.react("blackjack");
+    finish(); return;
+  }
+  askMove();
+}
+
+/** Dealer plays, everyone is paid. Returns the summary; a hand that ends
+ *  without the companion's move (a dealt blackjack) tells them instead. */
+function finish(byMove = false) {
+  phase = "dealer";
+  const anyLive = ["you", "them"].some((k) => hands[k].done !== "bust");
+  while (anyLive && !isBlackjack(dealer) && total(dealer).sum < 17) dealer.push(draw());
+  const d = total(dealer).sum, dealerBj = isBlackjack(dealer);
+  const before = { ...chips };
+  for (const k of ["you", "them"]) {
+    const h = hands[k], t = total(h.cards).sum, bj = isBlackjack(h.cards);
+    if (t > 21) h.outcome = "lose";
+    else if (bj && !dealerBj) { h.outcome = "win"; chips[k] += h.bet + h.bet * 1.5; }
+    else if (dealerBj && !bj) h.outcome = "lose";
+    else if (d > 21 || t > d) { h.outcome = "win"; chips[k] += h.bet * 2; }
+    else if (t === d) { h.outcome = "push"; chips[k] += h.bet; }
+    else h.outcome = "lose";
+  }
+  phase = "idle";
+  // The dealer's reveal, a card at a time.
+  dealer.slice(1).forEach((_, i) => setTimeout(() => sfx.card(), 200 + i * 220));
+  render();
+  setTimeout(() => {
+    if (d > 21) { banner("Dealer busts!"); sfx.fanfare(); game.react("dealer_bust"); }
+    else if (dealerBj) { banner("Dealer blackjack…", "#f87171"); sfx.lose(); }
+    const you = hands.you.outcome;
+    if (you === "win") {
+      handsWon++;
+      const profit = chips.you - before.you - hands.you.bet;   // what the hand paid on top of the stake
+      sfx.cash();
+      game.award(Math.max(5, Math.round(profit)), "won", $("seat-you"));
+      if (handsWon % 5 === 0) { fx.confetti({ coins: true, count: 70 }); sfx.combo(handsWon / 5); }
+    } else if (you === "lose" && hands.you.done !== "bust") { sfx.error(); }
+    const isNewBest = game.best(chips.you, "chips");
+    if (isNewBest && chips.you > START_CHIPS) fx.float("New best stack!", { at: $("seat-you"), color: "#fde68a", big: true });
+    game.save({ chips, summary: `${chips.you} chips · best ${game.saved.best?.chips || chips.you}` });
+  }, 250 + dealer.length * 220);
+  const word = { win: "won", lose: "lost", push: "pushed (bet returned)" };
+  const summary = `Dealer ${dealerBj ? "has blackjack" : d > 21 ? `busts with ${d}` : `has ${d}`}. `
+    + `You ${word[hands.them.outcome]}${isBlackjack(hands.them.cards) ? " with a blackjack" : ""} (${chips.them} chips), `
+    + `the user ${word[hands.you.outcome]} (${chips.you} chips).`;
+  if (!byMove) game.tell(`Hand over. ${summary}`, false);
+  return summary;
+}
+
+function userMove(move) {
+  if (phase !== "you") return;
+  if (move === "double_down" && hands.you.cards.length !== 2) return;
+  act("you", move);
+  render();
+}
+
+function render() {
+  const showAll = phase === "idle" || phase === "dealer";
+  const hand = (id, cards, hideSecond = false) => {
+    const el = $(id); el.innerHTML = "";
+    cards.forEach((c, i) => el.appendChild(RexGame.cardElement(c, { hidden: hideSecond && i === 1 })));
+  };
+  hand("h-dealer", dealer, !showAll);
+  $("t-dealer").textContent = dealer.length ? (showAll ? describe(dealer) : value(dealer[0])) : "";
+  for (const k of ["you", "them"]) {
+    const h = hands[k];
+    hand(`h-${k}`, h ? h.cards : []);
+    $(`t-${k}`).textContent = h ? describe(h.cards) : "";
+    $(`c-${k}`).textContent = `🪙 ${chips[k]}`;
+    $(`o-${k}`).innerHTML = h?.outcome ? `<span class="outcome ${h.outcome}">${h.outcome}</span>` : "";
+    $(`seat-${k}`).classList.toggle("active", phase === k);
+  }
+  const mine = phase === "you";
+  $("hit").disabled = $("stand").disabled = !mine;
+  $("double").disabled = !mine || hands.you.cards.length !== 2 || chips.you < hands.you.bet;
+  $("deal").disabled = phase === "you" || phase === "them";
+  $("deal").textContent = `Deal (${BET})`;
+  const name = RexGame.escape(game.companion);
+  $("status").innerHTML = phase === "you" ? "<b>Your move.</b>" : phase === "them" ? `<b>${name}</b> is deciding…`
+    : dealer.length ? "Hand over. <b>Deal</b> again?" : "Press <b>Deal</b> to start.";
+}
+
+$("hit").onclick = () => userMove("hit");
+$("stand").onclick = () => userMove("stand");
+$("double").onclick = () => userMove("double_down");
+$("deal").onclick = () => { sfx.click(); deal(); };
+render();
+</script>
+</body>
+</html>

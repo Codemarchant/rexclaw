@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80">
+  <g font-family="system-ui,sans-serif" font-weight="700">
+    <g transform="translate(36 46) rotate(-20)"><rect x="-15" y="-21" width="30" height="42" rx="4" fill="#fff" stroke="rgba(0,0,0,.25)"/>
+      <text x="-11" y="-9" font-size="10" fill="#dc2626">3</text><text x="0" y="10" font-size="17" text-anchor="middle" fill="#dc2626">♦</text></g>
+    <g transform="translate(53 41) rotate(-6)"><rect x="-15" y="-21" width="30" height="42" rx="4" fill="#fff" stroke="rgba(0,0,0,.25)"/>
+      <text x="-11" y="-9" font-size="10" fill="#0f172a">J</text><text x="0" y="10" font-size="17" text-anchor="middle" fill="#0f172a">♣</text></g>
+    <g transform="translate(71 41) rotate(8)"><rect x="-15" y="-21" width="30" height="42" rx="4" fill="#ede9fe" stroke="rgba(0,0,0,.25)"/>
+      <text x="-11" y="-9" font-size="10" fill="#dc2626">8</text><text x="0" y="10" font-size="17" text-anchor="middle" fill="#dc2626">♥</text></g>
+    <g transform="translate(88 47) rotate(22)"><rect x="-15" y="-21" width="30" height="42" rx="4" fill="#ede9fe" stroke="rgba(0,0,0,.25)"/>
+      <text x="-11" y="-9" font-size="10" fill="#0f172a">8</text><text x="0" y="10" font-size="17" text-anchor="middle" fill="#0f172a">♠</text></g>
+  </g>
+  <g fill="#a78bfa" opacity=".9">
+    <path d="M104 74 q4 -10 -2 -16 q8 4 6 16z"/><path d="M14 74 q-4 -12 4 -18 q-2 8 2 18z"/>
+  </g>
+</svg>

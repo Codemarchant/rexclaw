@@ -22,6 +22,7 @@ from ..db import ASSETS_DIR, FILES_DIR, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
 from ..errors import UserError
+from . import games as games_routes
 from .common import db_con
 
 _logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ _CONFIG_FIELDS = (
     "wake_word_enabled", "wake_word_language",
     "local_task_workdir",
     "minecraft_brain_model", "minecraft_brain_model_hard", "minecraft_master", "minecraft_brain_connection",
+    "games_neuro_port", "games_default_agent_id", "games_offcall_mode",
     "live_chat_twitch_channel", "live_chat_youtube_video",
     "live_chat_ignored_users", "live_chat_blocked_words",
     "transcript_display_limit", "heartbeat_notifications",
@@ -80,7 +82,7 @@ _AGENT_FIELDS = (
     "enable_call_agents_tool", "when_to_call_description",
     "enable_companion_texting", "texting_tools_enabled",
     "enable_delegate_tool", "enable_multi_agent_delegation",
-    "enable_local_tasks", "enable_minecraft", "enable_gesture_gen", "enable_move_tool",
+    "enable_local_tasks", "enable_minecraft", "enable_games", "enable_gesture_gen", "enable_move_tool",
     "enable_voicemail", "enable_songs", "singing_profile_id", "extension_tools",
     "enable_end_call_tool", "wake_phrase", "wake_action",
     "time_aware_resume", "speaks_first",
@@ -160,6 +162,13 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
     for key in ('summary_max_words', 'summary_consolidate_words'):
         if key in updates and (type(updates[key]) is not int or not 0 <= updates[key] <= 100000):
             raise UserError('Summary word counts must be whole numbers from 0 to 100000.')
+    if 'games_neuro_port' in updates and (type(updates['games_neuro_port']) is not int
+                                          or not 0 <= updates['games_neuro_port'] <= 65535):
+        raise UserError('The games port must be a whole number from 1 to 65535 (0 = off).')
+    if 'games_default_agent_id' in updates and type(updates['games_default_agent_id']) is not int:
+        raise UserError('Invalid games companion.')
+    if 'games_offcall_mode' in updates and updates['games_offcall_mode'] not in ('wait', 'separate', 'latest'):
+        raise UserError('Invalid off-call mode for games.')
     # API key arrives separately; empty string is ignored (no accidental
     # clearing from a masked field), the literal null clears it.
     if "xai_api_key" in payload:
@@ -198,6 +207,8 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
     # One commit, after every check: a rejected value leaves the voice
     # setups unsaved too, so a save is all or nothing.
     con.commit()
+    if "games_neuro_port" in updates:
+        games_routes.apply_listener(updates["games_neuro_port"])
     return {"ok": True, "updated": sorted(updates.keys())}
 
 

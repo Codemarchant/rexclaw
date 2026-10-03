@@ -1,0 +1,8 @@
+{
+  "title": "Walk the Plank",
+  "description": "Hangman, the Rexmaw way. They pick a word and drop hints, or they guess yours. Every miss is a step closer to the sharks.",
+  "tags": ["words", "both ways", "3 modes"],
+  "cover": "cover.svg",
+  "background": "linear-gradient(135deg,#0e7490,#0c1f3d)",
+  "order": 50
+}

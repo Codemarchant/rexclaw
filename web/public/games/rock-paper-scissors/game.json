@@ -1,0 +1,8 @@
+{
+  "title": "Rock Paper Scissors",
+  "description": "Settled the old way, on the quarterdeck. Classic, the Lizard-Spock edition, or one-throw sudden death.",
+  "tags": ["quick", "mind games", "3 modes"],
+  "cover": "cover.svg",
+  "background": "linear-gradient(135deg,#ca8a04,#713f12)",
+  "order": 60
+}

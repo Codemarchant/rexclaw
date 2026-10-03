@@ -1,0 +1,8 @@
+{
+  "title": "Blackjack",
+  "description": "The two of you against the house at the quartermaster's table. Copper, silver or gold stakes; your chips carry over.",
+  "tags": ["cards", "luck", "co-op", "3 tables"],
+  "cover": "cover.svg",
+  "background": "linear-gradient(135deg,#15803d,#052e16)",
+  "order": 30
+}

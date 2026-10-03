@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Broadside! · Rexclaw</title>
+<!--
+  Broadside!: a cannon duel at sea in three.js, against a companion over the
+  Neuro API. A look of its own (no games.css); the kit brings its chat dock,
+  result screen, settings and music. three.js is the app's own copy, served
+  from /games/lib/vendor/three/ (copied in at build time).
+-->
+<script type="importmap">
+{ "imports": {
+    "three": "/games/lib/vendor/three/three.module.min.js",
+    "three/addons/": "/games/lib/vendor/three/addons/" } }
+</script>
+<style>
+  :root { --wood: #5b3a1e; --wood-d: #2b1a0e; --brass: #d4a72c; --cream: #f6e7c1; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1222; color: var(--cream); font: 15px/1.4 system-ui, sans-serif; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  #stage canvas:active { cursor: grabbing; }
+  .plank {
+    background: linear-gradient(180deg, #6b4423, #4a2d15 60%, #3a230f); border: 2px solid var(--brass); border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.15), inset 0 0 0 3px rgba(0,0,0,.25);
+  }
+  .serif { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 800; }
+
+  /* HUD */
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  #hud > * { pointer-events: auto; }
+  .plaque { position: absolute; top: 54px; width: min(300px, 40vw); padding: 8px 12px 10px; }
+  #you-plaque { left: 14px; } #them-plaque { right: 14px; text-align: right; }
+  .plaque .ship { font-size: 1.05rem; color: #fde68a; text-shadow: 0 1px 2px #000; }
+  .plaque .who { font-size: 0.75rem; opacity: .8; }
+  .hull { margin-top: 6px; height: 14px; border-radius: 7px; background: #1c1209; border: 1px solid #000; overflow: hidden; position: relative; }
+  .hull .fill { height: 100%; width: 100%; background: linear-gradient(180deg, #4ade80, #15803d); transition: width .6s cubic-bezier(.3,1.4,.5,1); }
+  .hull .fill.low { background: linear-gradient(180deg, #f87171, #b91c1c); animation: pulse .8s infinite alternate; }
+  #them-plaque .hull .fill { margin-left: auto; }
+  .hull b { position: absolute; inset: 0; display: grid; place-items: center; font-size: 0.7rem; text-shadow: 0 1px 2px #000; }
+  @keyframes pulse { to { filter: brightness(1.5); } }
+  #chartbox { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 8px 10px 6px; text-align: center; }
+  #chart { display: block; width: 168px; height: 168px; margin: 0 auto; border-radius: 50%; box-shadow: inset 0 0 0 2px #78350f; }
+  #chartbox .row { display: flex; gap: 14px; justify-content: center; align-items: baseline; font-size: 0.75rem; opacity: .9; }
+  #wind { font-size: 0.85rem; color: #bae6fd; margin-top: 2px; }
+  #turn { position: absolute; top: 250px; left: 50%; transform: translateX(-50%); font-size: 1.15rem; text-shadow: 0 2px 6px #000; white-space: nowrap; }
+  .extra { margin-top: 5px; font-size: 0.72rem; min-height: 1em; color: #fde68a; }
+  .panel { position: absolute; left: 50%; bottom: 128px; transform: translateX(-50%); width: min(640px, calc(100vw - 24px)); padding: 12px 16px; transition: opacity .3s, transform .3s; }
+  .panel.off { opacity: .35; pointer-events: none; transform: translateX(-50%) translateY(10px); }
+  .panel button { cursor: pointer; color: var(--cream); background: #2b1a0e; border: 1px solid #78350f; border-radius: 10px; font: 600 0.82rem system-ui; padding: 6px 8px; }
+  .panel button:hover:not(:disabled) { filter: brightness(1.25); }
+  .panel button.on { border-color: #fde68a; background: #78350f; box-shadow: 0 0 12px rgba(250,204,21,.35); }
+  .panel button:disabled { opacity: .35; cursor: default; }
+  .helm { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .helm button { font-size: 1.2rem; padding: 6px 2px; }
+  .helm small { display: block; font-size: 0.68rem; font-weight: 600; }
+  .sails { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+  .sails span { font-size: 0.75rem; text-transform: uppercase; letter-spacing: .06em; opacity: .8; margin-right: 4px; }
+  .sails button { flex: 1; }
+  .go { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
+  #helm-info { flex: 1; font-size: 0.82rem; line-height: 1.35; }
+  .ok { color: #86efac; } .bad { color: #fca5a5; } .loot { color: #fde68a; }
+  #make-way { padding: 10px 18px !important; font: italic 900 1.15rem Georgia, serif !important; border: 2px solid #fde68a !important;
+    background: radial-gradient(circle at 50% 30%, #d97706, #92400e) !important; color: #fff !important; box-shadow: 0 5px 0 #451a03; white-space: nowrap; }
+  .bear { font-size: 0.88rem; margin-bottom: 8px; }
+  .aimrow { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px 16px; align-items: center; }
+  .alt { display: flex; gap: 6px; margin-top: 8px; } .alt button { flex: 1; }
+  #banner { position: absolute; top: 34%; left: 0; right: 0; text-align: center; font: italic 900 clamp(2rem, 7vw, 4.4rem) Georgia, serif;
+    color: #fde68a; text-shadow: 0 4px 0 #78350f, 0 0 30px rgba(250,204,21,.6); opacity: 0; pointer-events: none; }
+  #banner.show { animation: bang 1.8s cubic-bezier(.2,1.4,.4,1) forwards; }
+  @keyframes bang { 0% { opacity: 0; transform: scale(2.2) rotate(-4deg); } 15% { opacity: 1; transform: scale(1) rotate(-2deg); } 75% { opacity: 1; } 100% { opacity: 0; transform: scale(.9) translateY(-30px); } }
+  .ctl label { display: flex; justify-content: space-between; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .06em; opacity: .85; }
+  .ctl label b { font-size: 1.05rem; color: #fde68a; letter-spacing: 0; }
+  input[type=range] { width: 100%; accent-color: var(--brass); }
+  #fire { height: 100%; min-height: 52px; padding: 0 22px; border-radius: 14px; cursor: pointer; border: 2px solid #fde68a;
+    background: radial-gradient(circle at 50% 30%, #ef4444, #991b1b); color: #fff; font: italic 900 1.5rem Georgia, serif; text-shadow: 0 2px 0 #450a0a;
+    box-shadow: 0 6px 0 #450a0a, 0 10px 24px rgba(0,0,0,.5); transition: transform .08s, box-shadow .08s; }
+  #fire:hover { filter: brightness(1.12); } #fire:active { transform: translateY(5px); box-shadow: 0 1px 0 #450a0a; }
+  .ammo { display: flex; gap: 8px; margin-top: 8px; }
+  .ammo button { flex: 1; }
+  .ammo button i { font-style: normal; opacity: .75; margin-left: 4px; }
+  #sky-btn { position: absolute; left: 14px; top: 12px; padding: 5px 10px; border-radius: 10px; cursor: pointer; color: var(--cream); font: 600 0.8rem system-ui; }
+  #sky-btn:disabled { opacity: .6; cursor: default; }
+  .keys { position: absolute; left: 14px; bottom: 132px; font-size: 0.72rem; opacity: .6; line-height: 1.6; text-shadow: 0 1px 2px #000; }
+  @media (max-width: 760px) { .keys { display: none; } .aimrow { grid-template-columns: 1fr 1fr; } #fire { grid-column: span 2; min-height: 44px; }
+    #chart { width: 120px; height: 120px; } .plaque { top: 206px; width: 44vw; } #turn { top: 290px; } .helm small { font-size: 0.6rem; } }
+
+  /* The title screen */
+  #title { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: radial-gradient(ellipse at center, rgba(2,6,23,.15), rgba(2,6,23,.65)); }
+  #title .card { width: min(560px, 100%); padding: 22px 24px 20px; text-align: center; }
+  #title h1 { margin: 0; font: italic 900 clamp(2.6rem, 9vw, 4.4rem)/1 Georgia, serif; color: #fde68a; text-shadow: 0 5px 0 #78350f, 0 0 40px rgba(250,204,21,.45); letter-spacing: .02em; }
+  #title p { margin: 8px 0 14px; opacity: .9; }
+  #title .rx-record { margin: 0 0 10px; }
+  #title .rx-modes button { background: #2b1a0e; border-color: #78350f; color: var(--cream); }
+  #set-sail { margin-top: 6px; padding: 12px 34px; border-radius: 14px; cursor: pointer; border: 2px solid #fde68a; background: radial-gradient(circle at 50% 30%, #d97706, #92400e);
+    color: #fff; font: italic 900 1.4rem Georgia, serif; box-shadow: 0 6px 0 #451a03; }
+  #set-sail:active { transform: translateY(4px); box-shadow: 0 2px 0 #451a03; }
+  #title .how { margin-top: 14px; font-size: 0.8rem; opacity: .75; }
+  a.back { position: fixed; left: 14px; bottom: 12px; color: var(--cream); opacity: .7; font-size: 0.8rem; text-decoration: none; z-index: 61; }
+  a.back:hover { opacity: 1; }
+  .rx-dock { background: linear-gradient(to top, rgba(11,18,34,.85) 55%, rgba(11,18,34,0)); }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="title">
+  <div class="card plank">
+    <h1>Broadside!</h1>
+    <p>The Rexmaw against <b id="them-name">your companion</b>'s ship. Each turn: steer, then act.
+      Your guns only fire from the side, so out-sail them: bring your broadside to bear, cross their bow or stern
+      to <b>rake</b> them, hide behind islands, grab the loot, ram when it's close.</p>
+    <div id="title-record"></div>
+    <div id="title-modes"></div>
+    <button id="set-sail">Set sail!</button>
+    <div class="how">The chart shows both ships, their gun arcs, the wind, islands and loot. Sailing into the wind is slow;
+      across it is fastest. Drag to look around · scroll to zoom.</div>
+  </div>
+</div>
+
+<div id="hud" hidden>
+  <button id="sky-btn" class="plank"></button>
+  <div id="chartbox" class="plank">
+    <canvas id="chart" width="210" height="210"></canvas>
+    <div id="wind" class="serif"></div>
+    <div class="row"><span>Range <b id="dist"></b></span><span id="round"></span></div>
+  </div>
+  <div id="you-plaque" class="plaque plank">
+    <div class="ship serif">The Rexmaw</div><div class="who">You, Captain</div>
+    <div class="hull"><div class="fill" id="you-hp"></div><b id="you-hpv"></b></div>
+    <div class="extra" id="you-extra"></div>
+  </div>
+  <div id="them-plaque" class="plaque plank">
+    <div class="ship serif" id="them-ship"></div><div class="who" data-companion>Your companion</div>
+    <div class="hull"><div class="fill" id="them-hp"></div><b id="them-hpv"></b></div>
+    <div class="extra" id="them-extra"></div>
+  </div>
+  <div id="turn" class="serif"></div>
+  <div id="banner"></div>
+  <div class="keys">Helm: 1–5 · space: make way<br>Aim: ← → angle · ↑ ↓ power (shift ×5) · space: FIRE</div>
+
+  <div id="helm-panel" class="panel plank off">
+    <div class="helm">
+      <button data-helm="hard port">⟲⟲<small>Hard port</small></button>
+      <button data-helm="port">⟲<small>Port</small></button>
+      <button data-helm="steady">⬆<small>Steady</small></button>
+      <button data-helm="starboard">⟳<small>Starboard</small></button>
+      <button data-helm="hard starboard">⟳⟳<small>Hard starb'd</small></button>
+    </div>
+    <div class="sails">
+      <span>Sail</span>
+      <button data-sail="full">Full</button><button data-sail="half">Half</button><button data-sail="furl">Furled</button>
+    </div>
+    <div class="go"><span id="helm-info"></span><button id="make-way">Make way!</button></div>
+  </div>
+
+  <div id="act-panel" class="panel plank off" hidden>
+    <div id="bear" class="bear"></div>
+    <div class="aimrow">
+      <div class="ctl"><label>Angle <b id="angle-v">35°</b></label><input id="angle" type="range" min="5" max="70" value="35"></div>
+      <div class="ctl"><label>Power <b id="power-v">65</b></label><input id="power" type="range" min="10" max="100" value="65"></div>
+      <button id="fire">FIRE!</button>
+    </div>
+    <div class="ammo">
+      <button data-ammo="cannonball">Cannonball<i>∞</i></button>
+      <button data-ammo="chain shot">Chain shot<i>2</i></button>
+      <button data-ammo="anchor">The anchor<i>1</i></button>
+    </div>
+    <div class="alt"><button id="repair">🔧 Repair</button><button id="ram">💥 Ram!</button><button id="hold">Hold fire</button></div>
+  </div>
+</div>
+<a class="back" href="../index.html">← Games deck</a>
+
+<script src="../lib/neuro.js"></script>
+<script src="../lib/juice.js"></script>
+<script src="../lib/music.js"></script>
+<script src="../lib/crew.js"></script>
+<script src="../lib/lines.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

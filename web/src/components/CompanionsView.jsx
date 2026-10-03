@@ -191,6 +191,8 @@ const GENERAL_FLAGS = [
 const THIRD_PARTY_FLAGS = [
     ["enable_minecraft", "Minecraft bot (directs the game sidecar — see the Games tab)",
      "Lets the companion drive the Minecraft bot set up in the Games tab from voice and text sessions: give it goals and commands, check what it's doing (minecraft_command, minecraft_status). The tools are only offered while the bot sidecar is connected."],
+    ["enable_games", "Games (Neuro API — see the Games tab)",
+     "Lets the companion play games that connect to Rexclaw over the Neuro API — mods and games made for Neuro-sama, or the mini-games in the Games tab. The game tells the companion what is happening and what it can do, and the companion makes its moves (game_action, game_status). On calls the tools are there from the start, so a game can connect mid-call; in text chats only while a game is connected."],
     ["enable_gesture_gen", "Gesture generation (Text-To-VRMA)",
      "Lets the companion invent brand-new avatar motions from a description during voice calls (generate_gesture), for anything its gesture list doesn't cover. Made by the free Text-To-VRMA app running on your computer: connect it and switch it on in Settings → Gesture generation. The tool is only offered while that app's local API is answering. Motions are saved to data/assets/generated/text_to_vrma/ and can be added to an avatar's custom gestures from the Library picker."],
     ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)",

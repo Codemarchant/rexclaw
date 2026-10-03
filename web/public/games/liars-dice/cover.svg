@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80">
+  <ellipse cx="60" cy="70" rx="44" ry="6" fill="#000" opacity=".25"/>
+  <path d="M40 12 h40 l-6 50 h-28z" fill="#78350f" stroke="#451a03" stroke-width="2"/>
+  <path d="M42 22 h36" stroke="#a16207" stroke-width="2"/>
+  <text x="60" y="48" font-size="20" font-weight="800" text-anchor="middle" fill="#fde68a" font-family="Georgia,serif">?</text>
+  <g transform="translate(30 58) rotate(-14)"><rect x="-12" y="-12" width="24" height="24" rx="6" fill="#f8fafc"/>
+    <circle cx="-6" cy="-6" r="2.5" fill="#0f172a"/><circle cx="0" cy="0" r="2.5" fill="#0f172a"/><circle cx="6" cy="6" r="2.5" fill="#0f172a"/></g>
+  <g transform="translate(90 56) rotate(12)"><rect x="-12" y="-12" width="24" height="24" rx="6" fill="#f8fafc"/>
+    <circle cx="-6" cy="-6" r="2.5" fill="#0f172a"/><circle cx="6" cy="-6" r="2.5" fill="#0f172a"/><circle cx="0" cy="0" r="2.5" fill="#0f172a"/>
+    <circle cx="-6" cy="6" r="2.5" fill="#0f172a"/><circle cx="6" cy="6" r="2.5" fill="#0f172a"/></g>
+  <circle cx="98" cy="20" r="4" fill="#fbbf24" opacity=".8"/><circle cx="98" cy="20" r="9" fill="#fbbf24" opacity=".15"/>
+</svg>

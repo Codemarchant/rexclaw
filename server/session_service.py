@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, plugins, song_tools, store, text_to_vrma, turn_director, voicemail_tools
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, plugins, song_tools, store, text_to_vrma, turn_director, voicemail_tools
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 from .pipeline import session as pipeline_session, setups as voice_setups
@@ -439,6 +439,10 @@ def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=F
     # bot's plan. Same "only when actually usable" gate as the tools.
     if agent_row['enable_minecraft'] and minecraft_tools.connected():
         sections.append(_minecraft_section())
+    # Gated like the tools: a call has them from the start (a game may
+    # connect mid-call), a text turn only while a game is connected.
+    if agent_row['enable_games'] and (mode == 'voice' or games.connected(agent_row['id'])):
+        sections.append(_games_section())
     # App-level tool habits, gated on the tools actually being available.
     # Formerly duplicated in every seeded companion's "## Tools" prompt
     # section — centralized so tuning happens once and user-created
@@ -868,6 +872,30 @@ def _minecraft_section():
     )
 
 
+def _games_section():
+    """How to play a game connected over the Neuro API (games.py)."""
+    return (
+        "## Playing games\n"
+        "- **Games the user connects reach you as `[Game: <name>]` notes**, "
+        "written by the game itself: what is happening and what you can do. "
+        "Until one arrives, no game is connected and there is nothing to "
+        "play - never pretend otherwise.\n"
+        "- **A `[Game: <name> - your move]` note means the game is waiting "
+        "on you.** Make the move with `game_action`, using one of the "
+        "actions it lists with data that fits its schema. Say a line about "
+        "it if you like, but don't leave the game waiting.\n"
+        "- **Other notes are information.** React when something worth "
+        "reacting to happens; you don't need to answer every one. When the "
+        "user types to you in a game, answer them: your words show in the "
+        "game too.\n"
+        "- **You are the player.** Play to win, as yourself, in first "
+        "person, and share the game with the user as it goes.\n"
+        "- **Only the notes and `game_status` are real.** Never invent cards, "
+        "moves, rolls or results. If a move is refused, read why and pick a "
+        "valid one.\n"
+    )
+
+
 def _memory_section(con, agent_row):
     """Render the per-user memory block for the postamble. Instructions-first,
     data-last on purpose - core memories sit immediately before the
@@ -1033,7 +1061,7 @@ def _cross_mode_token_vals(config, session, into_mode):
 # forget): speak first and end on the call, or leave it off and go on.
 _END_TURN_TOOLS = frozenset({'set_emotion', 'play_gesture', 'generate_gesture',
                              'move_around', 'perform_song', 'remember', 'forget', 'minecraft_command',
-                             'adjust_affection'})
+                             'game_action', 'adjust_affection'})
 # The nudge for the silent tools belongs HERE and not in the prompt's Affection
 # section: that section is assembled once for both surfaces, and a text session
 # never gets this flag, so naming it there would point a text companion at a
@@ -1160,6 +1188,12 @@ def _voice_tools(con, agent, config, *, group_peers=None):
     # only while the bot sidecar is connected to /ws/minecraft.
     if bool(agent['enable_minecraft']) and minecraft_tools.connected() and minecraft_tools.brain_ready(con):
         native_function_tools.extend(minecraft_tools.build_tools())
+    # Unlike the Minecraft pair, offered whether or not a game is connected:
+    # a call's tool list is fixed when it starts, and "let's play" usually
+    # comes first, the game connecting mid-call. The tools themselves say
+    # there is nothing to play until a [Game] note says otherwise.
+    if agent['enable_games']:
+        native_function_tools.extend(games.build_tools())
     if agent['enable_companion_texting']:
         # Voice sessions are never origin='delegated' or mid-incoming-text,
         # so no recursion carve-out is needed here (the text-mode builder
@@ -2637,6 +2671,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                       enable_delegate_tool=False,
                       enable_local_tasks=False,
                       enable_minecraft=False,
+                      enable_games=False,
                       enable_companion_texting=False,
                       enable_voicemail=False,
                       enable_browser_tools=False,
@@ -2702,6 +2737,10 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
         tools.append(local_tools.LOCAL_TASK_TOOL)
     if enable_minecraft and minecraft_tools.connected() and minecraft_tools.brain_ready(con):
         tools.extend(minecraft_tools.build_tools())
+    # A text turn's tools are built per turn, so unlike a call they can wait
+    # for a game to be connected.
+    if enable_games and games.connected(agent['id']):
+        tools.extend(games.build_tools())
     if enable_companion_texting:
         text_tool = companion_texting.build_text_companion_tool(
             agent, [a for a in store.list_agents(con) if a['id'] != agent['id']])
@@ -3387,6 +3426,8 @@ def start_text_session(con, *, agent, resume_session=None):
             enable_local_tasks=bool(agent['enable_local_tasks']),
             enable_minecraft=(bool(agent['enable_minecraft'])
                               and session['origin'] != 'delegated'),
+            enable_games=(bool(agent['enable_games'])
+                          and session['origin'] != 'delegated'),
             enable_companion_texting=(bool(agent['enable_companion_texting'])
                                       and session['origin'] != 'delegated'),
             enable_voicemail=(bool(agent['enable_voicemail'])
@@ -3707,6 +3748,10 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         enable_minecraft=(bool(agent['enable_minecraft'])
                           and session['origin'] != 'delegated'
                           and not minimal_tools),
+        # Same guard: the companion plays, not its hidden analyst.
+        enable_games=(bool(agent['enable_games'])
+                      and session['origin'] != 'delegated'
+                      and not minimal_tools),
         # A recording is for the user to hear; the hidden analyst's session
         # is one they never see.
         enable_voicemail=(bool(agent['enable_voicemail'])
@@ -4210,6 +4255,8 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 else:
                     result = minecraft_tools.execute_minecraft_status(
                         con, session, agent, args)
+            elif name in games.GAME_TOOL_NAMES:
+                result = games.execute_tool(con, session, agent, name, args, 'text')
             elif name == companion_texting.TEXT_COMPANION_TOOL_NAME:
                 # Flag + recursion checks live in the executor; it returns
                 # {'error': ...} so the model gets a structured failure.

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80">
+  <defs><radialGradient id="sun"><stop offset="0" stop-color="#fff1c2"/><stop offset="1" stop-color="#fbbf24" stop-opacity="0"/></radialGradient></defs>
+  <circle cx="60" cy="50" r="26" fill="url(#sun)"/>
+  <path d="M8 50 Q30 22 60 18 Q88 22 110 46" stroke="#fde68a" stroke-width="1.2" stroke-dasharray="3 2.5" fill="none" opacity=".9"/>
+  <circle cx="60" cy="18" r="2.2" fill="#1c1917"/>
+  <g fill="#1a0f08">
+    <path d="M2 56 L30 56 L27 62 L5 62Z"/><rect x="15" y="34" width="1.2" height="22"/><path d="M16.2 36 Q25 42 16.2 50Z" fill="#f3e9cf"/>
+    <path d="M88 52 L116 52 L113 58 L91 58Z"/><rect x="102" y="30" width="1.2" height="22"/><path d="M103.2 32 Q94 38 103.2 46Z" fill="#f3e9cf"/>
+  </g>
+  <path d="M28 53 q4 -3 8 -1" stroke="#fb923c" stroke-width="2" fill="none"/>
+  <circle cx="34" cy="51" r="3" fill="#e5e7eb" opacity=".7"/>
+  <g fill="#fff" opacity=".85"><circle cx="100" cy="49" r="2"/><circle cx="97" cy="47" r="1.4"/><circle cx="104" cy="46" r="1.2"/></g>
+  <path d="M0 62 Q10 59 20 62 T40 62 T60 62 T80 62 T100 62 T120 62 V80 H0z" fill="#0b3a55"/>
+  <path d="M0 68 Q10 65 20 68 T40 68 T60 68 T80 68 T100 68 T120 68 V80 H0z" fill="#082b40"/>
+  <g fill="#7c3aed"><path d="M66 80 q-2 -10 3 -13 q-2 6 1 13z"/><path d="M74 80 q3 -9 -1 -12 q4 5 3 12z"/></g>
+</svg>

@@ -67,6 +67,7 @@ FEELINGS = {
     'embarrassed': 'Embarrassed, flustered, shy or sheepish',
     'huffy': 'Huffy or pouting - acting cross without meaning it, "hmph"',
     'worried': 'Worried, anxious or nervous',
+    'scared': 'Scared, frightened or afraid - more than nervous',
     'sad': 'Sad, hurt, sorry or disappointed',
     'annoyed': 'Annoyed, irritated, frustrated or angry',
 }
@@ -74,7 +75,7 @@ FEELINGS = {
 # face, not a mixed one. Warm stays possible beside sad or worried — a sorry,
 # sympathetic smile is real — but not beside annoyed.
 _BRIGHT = {'happy', 'teasing', 'excited', 'proud'}
-_DARK = {'worried', 'sad', 'annoyed'}
+_DARK = {'worried', 'scared', 'sad', 'annoyed'}
 _CLASHES = [(_BRIGHT, _DARK), ({'warm'}, {'annoyed'})]
 
 # The word each act's head move lands on, asked as a Choice over the line's

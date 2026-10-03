@@ -2549,4 +2549,53 @@ export const JA = {
   "End the call first: your companion can't pose for the manga mid-call.":
     "先に通話を終了してください。通話中は漫画のポーズを取れません。",
   "This companion has no avatar to pose.": "このコンパニオンにはポーズを取るアバターがありません。",
+  // Games over the Neuro API (GameIntegrationsView / CompanionsView)
+  "Games (Neuro API)": "ゲーム（Neuro API）",
+  "Rexclaw speaks the Neuro API, the open protocol behind Neuro-sama's game integrations. Games and mods built on it (Slay the Spire 2, Inscryption, Buckshot Roulette, Hollow Knight and many made by the community) connect here, and companions with \"Games\" switched on (Companions tab) play them: the game tells them what is happening and what they can do, and they make their moves while talking it through with you.":
+    "Rexclaw は Neuro-sama のゲーム連携を支えるオープンなプロトコル、Neuro API に対応しています。これに対応したゲームや MOD（Slay the Spire 2、Inscryption、Buckshot Roulette、Hollow Knight、コミュニティ製の多数の MOD）がここに接続し、「ゲーム」をオンにしたコンパニオン（コンパニオンタブ）がプレイします。ゲームが状況とできることを伝え、コンパニオンはあなたと話しながら手を打ちます。",
+  "Setup: point the game at this address. Most read it from the NEURO_SDK_WS_URL environment variable, some have a setting of their own. Mods that expect Neuro's default address work untouched once the port below is on.":
+    "設定：ゲームにこのアドレスを指定します。多くは環境変数 NEURO_SDK_WS_URL から読み取り、独自の設定項目を持つものもあります。Neuro の既定アドレスを前提とする MOD は、下のポートをオンにすればそのまま動きます。",
+  "Best for games played one decision at a time: card games, deck-builders, board games, turn-based roguelikes and visual novels. Fast action games don't work, since every move is a full turn of the model. Each integration is a mod you install into the game; find them at ":
+    "一手ずつ進むゲームに向いています：カードゲーム、デッキ構築、ボードゲーム、ターン制ローグライク、ノベルゲーム。1 手ごとにモデルの 1 ターンかかるため、速いアクションゲームには向きません。各連携はゲームに入れる MOD で、入手先は ",
+  "the Neuro SDK page": "Neuro SDK のページ",
+  "Copy": "コピー",
+  "Neuro's default address": "Neuro の既定アドレス",
+  "Also listen on ws://localhost:%s (this computer only)": "ws://localhost:%s でも待ち受ける（このパソコンのみ）",
+  "Not listening: %s": "待ち受けていません：%s",
+  "Who plays a game that doesn't choose for itself, like a Neuro mod. The mini-games ask in their library.":
+    "Neuro MOD のように相手を選ばないゲームを誰がプレイするか。ミニゲームは一覧で選びます。",
+  "Mods play with": "MOD の相手",
+  "%s (first with Games on)": "%s（ゲームがオンの最初のコンパニオン）",
+  "Nobody has Games on": "ゲームがオンのコンパニオンなし",
+  "What a mod does while you aren't on a call with its companion. Off a call, every move and every reply is one text turn on the companion's brain, billed like a chat message.":
+    "相手のコンパニオンと通話していないときの MOD の動作。通話外では、1 手・1 返信ごとにコンパニオンの頭脳で 1 ターン使い、チャットのメッセージと同様に課金されます。",
+  "Mods, off a call": "MOD（通話外）",
+  "Wait for a call": "通話を待つ",
+  "Play in a game chat of its own": "ゲーム専用のチャットでプレイ",
+  "Play in our latest conversation (remembered)": "最新の会話でプレイ（記憶される）",
+  "waiting for a call": "通話待ち",
+  "in a game chat": "ゲーム専用チャット",
+  "in your latest conversation": "最新の会話",
+  "on a call": "通話中",
+  "No companion has \"Games\" switched on yet: turn it on in the Companions tab, under Tools.":
+    "「ゲーム」をオンにしたコンパニオンがまだいません。コンパニオンタブのツールでオンにしてください。",
+  "Connected games": "接続中のゲーム",
+  "Mini-games": "ミニゲーム",
+  "The Rexmaw games deck: Broadside! (a 3D cannon duel), Connect Four, Liar's Dice, Blackjack, Crazy Eights, Walk the Plank, Rock Paper Scissors and Tic-Tac-Toe, each with its own modes, music, sound effects, backdrops, doubloons and streaks, and the crew chiming in. In the library you pick who you play with and what happens off a call, see the crew's standings, and record each companion's reaction lines in their own voice. Every game has a chat box and a speech bubble for talking while you play.":
+    "レックスモー号のゲームデッキ：ブロードサイド！（3D の海戦）、四目並べ、ライアーズダイス、ブラックジャック、クレイジーエイト、板歩き（ハングマン）、じゃんけん、三目並べ。どれもモード、音楽、効果音、背景、ダブロン金貨、連勝記録付きで、クルーも茶々を入れます。一覧で対戦相手と通話外の動作を選び、クルーの順位を見て、コンパニオンのリアクションを本人の声で録音できます。各ゲームにはプレイ中に話せるチャット欄と吹き出しがあります。",
+  "Open the mini-games library": "ミニゲーム一覧を開く",
+  "Add your own games": "自作ゲームを追加する",
+  "Every game is a folder with a game.json (title, description, tags, cover) beside its pages and assets, so a game can be as big as you like: scripts, sounds, three.js scenes. To add your own outside the app (in a private folder), make it an extension: a folder with plugin.json and __init__.py, placed in data/plugins/ or listed under Settings → Extensions, whose static folder holds the game folders.":
+    "各ゲームは、ページや素材と並んで game.json（タイトル・説明・タグ・カバー）を置いたフォルダです。スクリプト、サウンド、three.js のシーンなど、いくらでも大きなゲームにできます。自作のゲームをアプリの外（非公開フォルダ）に追加するには拡張機能にします。plugin.json と __init__.py を含むフォルダを data/plugins/ に置くか 設定 → 拡張機能 に登録し、その静的フォルダにゲームのフォルダを入れます。",
+  "A page loads /games/lib/neuro.js, juice.js and lines.js (and games.css for the same look), then calls RexGame.create() with the game's name, rules and actions. Copy any built-in game as a starting point; web/public/games/README.md has the details, three.js included. The games then appear in the library under the extension's name. Keep games for grown-ups in a private extension like this, out of the app's own folder.":
+    "ページは /games/lib/neuro.js、juice.js、lines.js（同じ見た目にするなら games.css も）を読み込み、ゲーム名・ルール・アクションを渡して RexGame.create() を呼びます。内蔵ゲームをひな形にコピーしてください。詳細（three.js を含む）は web/public/games/README.md にあります。ゲームは拡張機能の名前の下に一覧表示されます。大人向けのゲームは、このように非公開の拡張機能に入れ、アプリのフォルダには置かないでください。",
+  "No game connected. Open a mini-game, or start a game with a Neuro API mod.":
+    "接続中のゲームはありません。ミニゲームを開くか、Neuro API 対応 MOD 入りのゲームを起動してください。",
+  "Neuro API · %s": "Neuro API · %s",
+  "player: %s": "プレイヤー：%s",
+  "Waiting on a move": "手番待ち",
+  "No actions registered": "登録されたアクションはありません",
+  "Games (Neuro API — see the Games tab)": "ゲーム（Neuro API — ゲームタブを参照）",
+  "Lets the companion play games that connect to Rexclaw over the Neuro API — mods and games made for Neuro-sama, or the mini-games in the Games tab. The game tells the companion what is happening and what it can do, and the companion makes its moves (game_action, game_status). On calls the tools are there from the start, so a game can connect mid-call; in text chats only while a game is connected.":
+    "Neuro API で Rexclaw に接続するゲーム（Neuro-sama 向けの MOD やゲーム、ゲームタブのミニゲーム）をコンパニオンがプレイできるようにします。ゲームが状況とできることを伝え、コンパニオンが手を打ちます（game_action、game_status）。通話では最初からツールがあるので通話中にゲームを接続でき、テキストチャットではゲームの接続中のみ使えます。",
 };

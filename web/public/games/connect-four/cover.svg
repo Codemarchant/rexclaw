@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80">
+  <rect x="18" y="8" width="84" height="64" rx="8" fill="#1e40af" stroke="#93c5fd" stroke-opacity=".3"/>
+  <g fill="#0b1222">
+    <circle cx="30" cy="21" r="5"/><circle cx="42" cy="21" r="5"/><circle cx="54" cy="21" r="5"/><circle cx="66" cy="21" r="5"/><circle cx="78" cy="21" r="5"/><circle cx="90" cy="21" r="5"/>
+    <circle cx="30" cy="35" r="5"/><circle cx="42" cy="35" r="5"/><circle cx="54" cy="35" r="5"/><circle cx="78" cy="35" r="5"/><circle cx="90" cy="35" r="5"/>
+    <circle cx="30" cy="49" r="5"/><circle cx="42" cy="49" r="5"/><circle cx="90" cy="49" r="5"/>
+    <circle cx="30" cy="63" r="5"/><circle cx="90" cy="63" r="5"/>
+  </g>
+  <g fill="#e11d48"><circle cx="66" cy="35" r="5"/><circle cx="54" cy="49" r="5"/><circle cx="42" cy="63" r="5"/><circle cx="78" cy="63" r="5"/></g>
+  <g fill="#f59e0b" stroke="#92400e" stroke-width="1"><circle cx="66" cy="49" r="5"/><circle cx="78" cy="49" r="5"/><circle cx="54" cy="63" r="5"/><circle cx="66" cy="63" r="5"/></g>
+  <circle cx="66" cy="4" r="5" fill="#e11d48" opacity=".8"/>
+</svg>

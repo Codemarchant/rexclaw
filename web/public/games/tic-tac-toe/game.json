@@ -1,0 +1,8 @@
+{
+  "title": "Tic-Tac-Toe",
+  "description": "Crossed cutlasses against lifebuoys. Classic, best of five, or Mutiny, where three in a row sinks you.",
+  "tags": ["quick", "board", "3 modes"],
+  "cover": "cover.svg",
+  "background": "linear-gradient(135deg,#7c3aed,#312e81)",
+  "order": 70
+}

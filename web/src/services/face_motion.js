@@ -67,7 +67,9 @@ import { expressionSize, splitEmotionExpressions } from "./face_regions";
 // 1+2+5+26, Ekman & Friesen 1978), the mouth parting as a clear one
 // arrives and dropping at the peak; worry = the sad brow (AU 1+4), and
 // clear anxiety stretches the lips sideways (AU 20, Harrigan & O'Connell
-// 1996); puzzlement = the brow knit (AU 4, Rozin & Cohen 2003);
+// 1996); fear = the brows raised and drawn together, the eyes wide and the
+// lips stretched, the jaw dropping at the peak (AU 1+2+4+5+20+26, Ekman &
+// Friesen 1978); puzzlement = the brow knit (AU 4, Rozin & Cohen 2003);
 // embarrassment = a smile with the gaze and head down and away (Keltner
 // 1995); pride = a small smile with the head up, at every level — a broad
 // grin reads as joy instead (Tracy & Robins 2004), one-sided where the
@@ -77,9 +79,10 @@ import { expressionSize, splitEmotionExpressions } from "./face_regions";
 // Interest has no face of its own here.
 // The anime displays are design calls, built from those same parts:
 // teasing = the smug smile, and a clear one cocks the head as it arrives
-// (`tilt`) — the playful display's head tilt, which marks an edged remark
-// as friendly (34% of amusement displays, Shiota, Campos & Keltner 2003,
-// who name teasing as the case); flustered embarrassment adds the worried brow;
+// (`tilt`) about a third of the time (FACE_TEASE_TILT_P) — the playful
+// display's head tilt, which marks an edged remark as friendly (34% of
+// amusement displays, Shiota, Campos & Keltner 2003, who name teasing as
+// the case); flustered embarrassment adds the worried brow;
 // a huffy "hmph" = a knit brow, a pout (puffed cheeks where the model has
 // them) and the head turned away, chin up. The wink is not one of these:
 // it is a line's act, asked for on its own (see the acts below).
@@ -91,7 +94,8 @@ import { expressionSize, splitEmotionExpressions } from "./face_regions";
 // five set_emotion uses, plus the ones that say something the face does
 // not — the puzzled "?", the worried sweat drop (worry reads as sadness
 // without it), the huffy breath (the pout needs a cheek-puff morph the
-// model may not have) and, only on a model that cannot blush, the
+// model may not have), the scared ghost (fear's face can pass for surprise
+// or worry on a VRoid model) and, only on a model that cannot blush, the
 // flustered steam. Excited is the one that went for good: it is among the
 // commonest feelings read, and its face — a full smile and a raised brow —
 // was already saying it. Measured over 65 lines of three demo scripts, the
@@ -119,10 +123,13 @@ const FACE_FEELINGS = {
         mark: "flustered", markUnless: "blush", turn: "down" },
     huffy:       { parts: [["brow_knit", 1], ["pout", 1]], mark: "huffy", turn: "away" },
     worried:     { parts: [["sad:upper", 1], ["lip_stretch", 2]], mark: "worried" },
+    scared:      { parts: [["brow_raise", 1], ["brow_sad", 1], ["eye_widen", 2], ["lip_stretch", 2],
+        ["surprised:mouth", 3]], mark: "scared" },
     sad:         { parts: [["sad:upper", 1], ["sad:mouth", 2]], mark: "sad" },
     annoyed:     { parts: [["angry:upper", 1], ["angry:mouth", 2]], mark: "angry" },
 };
 const FACE_BRIGHT = new Set(["warm", "happy", "teasing", "excited", "proud"]);
+const FACE_TEASE_TILT_P = 0.34;
 // Channels — the first option the rig has: VRoid's region morphs, then the
 // ARKit shapes, then the nearest expression half. A sided channel picks one
 // side per use.
@@ -740,7 +747,8 @@ export class FaceMotion {
         // over ~0.56 s, out over ~1.1 s, ~4 s in all) and holds through a
         // longer line; a glance's quarter-second rise is an eye's speed,
         // not a head's.
-        if (top?.tilt && arrived && rest >= 2 && !acts.has("recalls")) {
+        if (top?.tilt && arrived && rest >= 2 && !acts.has("recalls")
+                && Math.random() < FACE_TEASE_TILT_P) {
             this.items.push({
                 shapes: {}, presets: {}, bearing: { pitch: 0, yaw: 0, roll: FACE_HEAD_TILT * side() },
                 ...timed({ ...FACE_PEAK, dur: Math.max(span, FACE_PEAK.dur) }),

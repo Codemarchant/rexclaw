@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liar's Dice · Rexclaw</title>
+<link rel="stylesheet" href="../lib/games.css">
+<!-- Liar's Dice at the Brine & Barnacle, against a companion over the Neuro
+     API: hidden dice, rising bids, and calling the bluff. Modes: classic
+     (five dice, ones wild), quick (three dice) and honest (no wild ones). A
+     model can't do the odds in its head while talking, so it's told what it
+     holds of each face and how many the user would hold on average; reading
+     the user is its own job. -->
+<style>
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .cup { margin-bottom: 14px; }
+  .rx-table { background: radial-gradient(circle at 50% 40%, #7c2d12, #431407); box-shadow: 0 18px 40px rgba(0,0,0,.4), inset 0 0 0 6px rgba(0,0,0,.25), inset 0 0 60px rgba(0,0,0,.5); }
+  .rx-table .rx-label { color: #fed7aa; }
+  .bid-now { text-align: center; margin: 4px 0 12px; font-size: 1.1rem; min-height: 1.6em; }
+  .bid-now b { color: var(--gold); font-size: 1.3rem; }
+  .rx-dice.shaking .rx-die { animation: rattle .12s linear infinite alternate; }
+  @keyframes rattle { from { transform: rotate(-12deg) translateY(-3px); } to { transform: rotate(12deg) translateY(2px); } }
+  .rx-die.dim { opacity: .35; }
+  .controls { display: grid; gap: 10px; }
+  .qty { display: flex; align-items: center; gap: 8px; justify-content: center; }
+  .qty b { min-width: 2.5ch; text-align: center; font-size: 1.4rem; font-variant-numeric: tabular-nums; }
+  .faces { display: flex; justify-content: center; gap: 8px; }
+  .faces button { padding: 4px; border-radius: 12px; background: transparent; border: 2px solid transparent; cursor: pointer; }
+  .faces button.sel { border-color: var(--gold); box-shadow: 0 0 12px rgba(250,204,21,.4); }
+  .faces .rx-die { width: 40px; height: 40px; animation: none; }
+  .count { text-align: center; font: 900 1.6rem system-ui; color: var(--gold); min-height: 2rem; }
+</style>
+</head>
+<body>
+<main>
+  <header class="rx-top">
+    <a class="rx-back" href="../index.html">← Deck</a>
+    <h1>Liar's Dice<small>The Brine &amp; Barnacle. Nobody here is honest.</small></h1>
+    <span id="rx-link" class="rx-pill off">Connecting…</span>
+  </header>
+  <div class="rx-table">
+    <div class="cup">
+      <div class="row"><span class="rx-label"><span data-companion>Your companion</span>'s cup</span><span class="rx-label" id="n-them"></span></div>
+      <div class="rx-dice" id="d-them"></div>
+    </div>
+    <div class="bid-now" id="bid"></div>
+    <div class="count" id="count"></div>
+    <div class="cup">
+      <div class="row"><span class="rx-label">Your cup</span><span class="rx-label" id="n-you"></span></div>
+      <div class="rx-dice" id="d-you"></div>
+    </div>
+  </div>
+  <div id="status" class="rx-status"></div>
+  <div class="rx-panel controls" id="controls">
+    <div class="qty"><button class="rx-btn" id="minus">−</button><b id="qty">1</b><button class="rx-btn" id="plus">+</button><span class="rx-label" style="margin:0">dice showing</span></div>
+    <div class="faces" id="faces"></div>
+    <div class="rx-bar" style="margin:0"><button class="rx-btn primary" id="place">Bid</button><button class="rx-btn danger" id="liar">Liar!</button></div>
+  </div>
+  <div class="rx-bar"><button class="rx-btn" id="next" hidden>Next round</button><button class="rx-btn primary" id="new">New game</button></div>
+  <div class="rx-log rx-panel" id="log"></div>
+  <p class="rx-hint" id="hint"></p>
+</main>
+<script src="../lib/neuro.js"></script>
+<script src="../lib/juice.js"></script>
+<script src="../lib/music.js"></script>
+<script src="../lib/scenes.js"></script>
+<script src="../lib/crew.js"></script>
+<script src="../lib/lines.js"></script>
+<script>
+"use strict";
+const { sfx, fx } = RexGame;
+const MODES = {
+  classic: { dice: 5, wild: true, points: 150 },
+  quick: { dice: 3, wild: true, points: 100 },
+  honest: { dice: 5, wild: false, points: 170 },
+};
+let M = MODES.classic, dice = { you: [], them: [] }, count = { you: 5, them: 5 };
+let bid = null, turn = "you", phase = "idle", starter = "you", pickQty = 1, pickFace = 2, reveal = null;
+const $ = (id) => document.getElementById(id);
+const faceName = (f, n) => (n === 1 ? ["", "one", "two", "three", "four", "five", "six"][f] : ["", "ones", "twos", "threes", "fours", "fives", "sixes"][f]);
+const bidText = (b) => `${b.quantity} ${faceName(b.face, b.quantity)}`;
+
+const game = RexGame.create({
+  name: "Liar's Dice",
+  modes: [
+    { id: "classic", label: "Classic", hint: "5 dice · ones wild" },
+    { id: "quick", label: "Quick", hint: "3 dice · ones wild" },
+    { id: "honest", label: "Honest", hint: "5 dice · no wilds" },
+  ],
+  onMode: () => { M = MODES[game.mode]; phase = "idle"; game.cancelForce(); paintHint(); render(); },
+  music: ["brine-barnacle", "candlelight-bluff", "below-deck"],
+  scenes: ["tavern", "night", "storm"],
+  rules: "You are playing Liar's Dice against the user at the Brine & Barnacle. Each of you has a cup of dice that only you can "
+    + "see. Players take turns bidding on how many dice of a face are on the WHOLE table, both cups together "
+    + "(e.g. 'four threes'). Each bid must be higher: more dice, or the same number of a higher face (2 to 6). Instead of "
+    + "bidding you can call the last bid a lie. Then every die is shown: if there are fewer than bid, the bidder loses a "
+    + "die, otherwise the caller does. Lose all your dice and you lose the game. Whether ones are wild (count as every face) "
+    + "depends on the mode; each turn tells you. Your dice are SECRET: never say them out loud. Bluffing is half the game.",
+  actions: [
+    { name: "bid", description: "Raise the bid: how many dice of one face (2-6) you claim are on the whole table.",
+      schema: { type: "object", properties: { quantity: { type: "integer" }, face: { type: "integer", enum: [2, 3, 4, 5, 6] } }, required: ["quantity", "face"] } },
+    { name: "call_liar", description: "Call the user's last bid a lie and reveal all the dice." },
+  ],
+  onAction(name, args) {
+    if (phase !== "bidding") throw new RexGame.Refuse("No round is being played right now.");
+    if (turn !== "them") throw new RexGame.Refuse("It's the user's turn to bid.");
+    if (name === "call_liar") {
+      if (!bid) throw new RexGame.Refuse("There's no bid to call yet: you open, so make a bid.");
+      return challenge("them");
+    }
+    const q = RexGame.toInt(args.quantity), f = RexGame.toInt(args.face);
+    const problem = checkBid(q, f);
+    if (problem) throw new RexGame.Refuse(problem);
+    placeBid("them", q, f);
+    return `Your bid stands: ${bidText(bid)}. Now the user decides.`;
+  },
+  onCompanion: () => render(),
+  onAgain: () => newGame(),
+});
+
+const total = () => count.you + count.them;
+const counts = (d, face) => d === face || (M.wild && d === 1);
+const holds = (cup, face) => cup.filter((d) => counts(d, face)).length;
+
+function checkBid(q, f) {
+  if (!Number.isInteger(f) || f < 2 || f > 6) return `The face must be 2, 3, 4, 5 or 6${M.wild ? " (ones are wild and can't be bid)" : ""}.`;
+  if (!Number.isInteger(q) || q < 1) return "The quantity must be a whole number of dice.";
+  if (q > total()) return `There are only ${total()} dice on the table.`;
+  if (bid && !(q > bid.quantity || (q === bid.quantity && f > bid.face))) {
+    return `Too low: the bid is ${bidText(bid)}. Bid more than ${bid.quantity} dice, or ${bid.quantity} of a face higher than ${bid.face}, or call_liar.`;
+  }
+  return null;
+}
+
+function roll() {
+  for (const k of ["you", "them"]) dice[k] = Array.from({ length: count[k] }, () => 1 + Math.floor(Math.random() * 6)).sort();
+}
+
+function askBid() {
+  const mine = dice.them;
+  const per = [2, 3, 4, 5, 6].map((f) => `${holds(mine, f)} ${faceName(f, 2)}`).join(", ");
+  const chance = M.wild ? 3 : 6;
+  const avg = (count.you / chance).toFixed(1);
+  let judge = "";
+  if (bid) {
+    const need = Math.max(0, bid.quantity - holds(mine, bid.face));
+    judge = `\nFor "${bidText(bid)}" to be true the user must hold at least ${need} ${faceName(bid.face, 2)} among their ${count.you} dice `
+      + `(on average they'd hold ${avg}).`;
+  }
+  const raise = bid ? `To raise: more than ${bid.quantity} dice, or ${bid.quantity} of a face above ${bid.face}.` : "You open: bid anything.";
+  game.force({
+    state: `## Your dice (secret): ${mine.join(" ")}\n${M.wild ? "Ones are WILD. Counting your wild ones, you hold" : "No wild dice this game. You hold"}: ${per}.\n`
+      + `The user has ${count.you} hidden dice; ${total()} dice in all. Any one die shows a given face `
+      + `${M.wild ? "or a wild one 1 time in 3" : "1 time in 6"}, so the user's cup holds about ${avg} of any face.${judge}\n${raise}`,
+    query: bid ? `The user bids ${bidText(bid)}. Raise with bid, or call_liar.` : "You open the bidding: bid.",
+    actions: bid ? ["bid", "call_liar"] : ["bid"],
+  });
+}
+
+function placeBid(who, q, f) {
+  bid = { quantity: q, face: f, by: who };
+  sfx.clink();
+  log(`${who === "you" ? "<b>You</b>" : `<b>${RexGame.escape(game.companion)}</b>`} bid ${bidText(bid)}`);
+  turn = who === "you" ? "them" : "you";
+  pickQty = q; pickFace = f;
+  bumpPick();
+  render();
+  if (turn === "them") askBid();
+}
+
+/** Someone called the last bid a lie. Returns the outcome line. */
+function challenge(caller) {
+  const actual = holds(dice.you, bid.face) + holds(dice.them, bid.face);
+  const bidder = bid.by;
+  const loser = actual >= bid.quantity ? caller : bidder;
+  count[loser]--;
+  phase = "reveal";
+  reveal = { face: bid.face, actual, loser };
+  sfx.whoosh();
+  const callerName = caller === "them" ? "You call" : "The user calls";
+  const line = `${callerName} the bid of ${bidText(bid)} a lie. There ${actual === 1 ? "is" : "are"} ${actual}: `
+    + `${loser === "them" ? "you lose" : "the user loses"} a die (you ${count.them}, the user ${count.you}). `
+    + `The user's dice were ${dice.you.join(" ")}.`;
+  const name = RexGame.escape(game.companion);
+  log(`<b>${caller === "you" ? "You" : name}</b> called liar on ${bidText(bid)}: ${actual} on the table. `
+    + `<b>${loser === "you" ? "You" : name}</b> lose${loser === "you" ? "" : "s"} a die.`);
+  // Who reacts to what.
+  if (caller === "them") game.react(loser === "you" ? "caught_you" : "bad_call");
+  else if (loser === "them") game.react("caught_me");
+  render();
+  game.heckle("reveal", { chance: 0.35 });
+  countUp(actual, () => {
+    if (loser === "them") { game.award(40, caller === "you" ? "Caught 'em!" : "Called wrong!", $("d-them")); }
+    else { sfx.error(); fx.shake($("d-you")); }
+    if (!count.you || !count.them) {
+      phase = "over";
+      render();
+      const userWon = count.you > 0;
+      setTimeout(() => game.end({ outcome: userWon ? "win" : "loss", points: userWon ? M.points : 0,
+        detail: userWon ? `${game.companion} is out of dice.` : "You're out of dice." }), 500);
+    }
+    render();
+  });
+  const end = !count.you || !count.them ? (count.them ? " You won the game!" : " The user won the game.") : "";
+  if (!end) starter = loser;
+  if (caller === "you") game.tell(`${line}${end}`, false);
+  return `${line}${end || " Next round when the user is ready."}`;
+}
+
+/** The reveal: tick off the matching dice one by one. */
+function countUp(actual, done) {
+  let n = 0;
+  $("count").textContent = "0";
+  const step = () => {
+    if (n >= actual) { setTimeout(done, 350); return; }
+    n++;
+    $("count").textContent = String(n);
+    sfx.combo(n);
+    setTimeout(step, 320);
+  };
+  setTimeout(step, 500);
+}
+
+function newRound() {
+  game.cancelForce();
+  bid = null; reveal = null; phase = "bidding"; turn = starter;
+  $("count").textContent = "";
+  roll();
+  pickQty = 1; pickFace = 2;
+  $("d-you").classList.add("shaking"); $("d-them").classList.add("shaking");
+  sfx.dice();
+  setTimeout(() => { $("d-you").classList.remove("shaking"); $("d-them").classList.remove("shaking"); }, 600);
+  render();
+  game.tell(`New round. You have ${count.them} dice, the user has ${count.you}. ${M.wild ? "Ones are wild." : "No wild dice."} `
+    + `${turn === "you" ? "The user opens." : ""}`.trim());
+  if (turn === "them") askBid();
+}
+
+function newGame() {
+  count = { you: M.dice, them: M.dice }; starter = Math.random() < 0.5 ? "you" : "them";
+  $("log").innerHTML = "";
+  newRound();
+}
+
+function bumpPick() {
+  // The controls start on the lowest legal bid.
+  if (bid && !(pickQty > bid.quantity || (pickQty === bid.quantity && pickFace > bid.face))) {
+    if (bid.face < 6) { pickQty = bid.quantity; pickFace = bid.face + 1; } else { pickQty = bid.quantity + 1; pickFace = 2; }
+  }
+}
+
+function render() {
+  const showThem = phase === "reveal" || phase === "over";
+  const draw = (id, cup, hidden) => {
+    const el = $(id), shaking = el.classList.contains("shaking"); el.innerHTML = "";
+    cup.forEach((d) => {
+      const die = RexGame.dieElement(d, { hidden, highlight: reveal && !hidden && counts(d, reveal.face) });
+      if (reveal && !hidden && !counts(d, reveal.face)) die.classList.add("dim");
+      el.appendChild(die);
+    });
+    el.classList.toggle("shaking", shaking);
+  };
+  draw("d-you", dice.you, false);
+  draw("d-them", dice.them, !showThem);
+  $("n-you").textContent = `${count.you} dice`;
+  $("n-them").textContent = `${count.them} dice`;
+  const name = RexGame.escape(game.companion);
+  $("bid").innerHTML = reveal ? `Bid was <b>${bidText(bid)}</b>`
+    : bid ? `${bid.by === "you" ? "You bid" : name + " bids"} <b>${bidText(bid)}</b>` : phase === "bidding" ? "No bid yet" : "";
+  const mine = phase === "bidding" && turn === "you";
+  $("controls").style.display = mine ? "" : "none";
+  $("qty").textContent = pickQty;
+  $("liar").disabled = !bid;
+  $("place").disabled = !!checkBid(pickQty, pickFace);
+  const faces = $("faces"); faces.innerHTML = "";
+  for (let f = 2; f <= 6; f++) {
+    const b = document.createElement("button");
+    b.className = f === pickFace ? "sel" : "";
+    b.appendChild(RexGame.dieElement(f));
+    b.onclick = () => { pickFace = f; sfx.click(); render(); };
+    faces.appendChild(b);
+  }
+  $("next").hidden = phase !== "reveal";
+  $("status").innerHTML = phase === "over" ? (count.you ? "<b>You win the game!</b>" : `<b>${name} wins the game!</b>`)
+    : phase === "reveal" ? `<b>${reveal.loser === "you" ? "You lose" : name + " loses"}</b> a die.`
+    : phase === "bidding" ? (mine ? "<b>Your bid</b> - or call liar." : `<b>${name}</b> is thinking…`)
+    : "Press <b>New game</b> to start.";
+}
+
+function paintHint() {
+  $("hint").textContent = (M.wild ? "Ones are wild: they count as every face. " : "No wild dice: what you see is what you count. ")
+    + "A bid is about all the dice on the table, both cups. Raise the count, or keep it and raise the face. Lose a challenge, lose a die.";
+}
+
+function log(html) { $("log").insertAdjacentHTML("afterbegin", `<div>${html}</div>`); }
+
+$("minus").onclick = () => { pickQty = Math.max(1, pickQty - 1); sfx.click(); render(); };
+$("plus").onclick = () => { pickQty = Math.min(total(), pickQty + 1); sfx.click(); render(); };
+$("place").onclick = () => { if (!checkBid(pickQty, pickFace)) placeBid("you", pickQty, pickFace); };
+$("liar").onclick = () => { if (phase === "bidding" && turn === "you" && bid) challenge("you"); };
+$("next").onclick = () => { sfx.click(); newRound(); };
+$("new").onclick = () => { sfx.click(); newGame(); };
+paintHint();
+render();
+</script>
+</body>
+</html>

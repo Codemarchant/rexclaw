@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Walk the Plank · Rexclaw</title>
+<link rel="stylesheet" href="../lib/games.css">
+<!-- Walk the Plank: hangman, the Rexmaw way, with a companion over the Neuro
+     API, both ways round. The companion thinks of a word for you (and gives
+     hints when asked), or guesses yours. Every miss walks the guesser one
+     step further out along the plank. A model reads a word letter by letter
+     badly, so it gets the pattern spaced out, the length, and the letters
+     still untried. -->
+<style>
+  .modes2 { display: flex; gap: 8px; justify-content: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .modes2 .rx-btn.sel { background: #4f46e5; border-color: #6366f1; }
+  .modes2 select { font: inherit; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+  .scene { width: 100%; border-radius: 16px; display: block; background: linear-gradient(180deg, #0c1f3d 0%, #13345f 58%, #0a2a4a 58%, #061a30 100%); }
+  .scene .wave { animation: wave 3s ease-in-out infinite alternate; }
+  .scene .wave2 { animation: wave 4s ease-in-out infinite alternate-reverse; }
+  .scene .fin { animation: fin 7s linear infinite; }
+  .scene .pirate { transition: transform .6s cubic-bezier(.3,1.4,.5,1); }
+  .scene .pirate.fall { transition: transform 1s cubic-bezier(.5,0,.9,.5); }
+  .scene .wobble { animation: wobble .5s ease-in-out infinite alternate; transform-origin: 0 40px; }
+  @keyframes wave { to { transform: translateX(-24px); } }
+  @keyframes fin { from { transform: translateX(-60px); } to { transform: translateX(460px); } }
+  @keyframes wobble { from { transform: rotate(-6deg); } to { transform: rotate(6deg); } }
+  .word { margin-top: 12px; font: 800 clamp(1.4rem, 6vw, 2.2rem)/1.2 ui-monospace, monospace; letter-spacing: .35em; text-align: center; overflow-wrap: anywhere; }
+  .word .miss { color: var(--bad); }
+  .word .new { color: var(--gold); animation: rx-boing .4s; display: inline-block; }
+  .tried { text-align: center; margin-top: 6px; color: var(--muted); font-size: 0.9rem; min-height: 1.2em; }
+  .lives { text-align: center; font-size: 1.1rem; letter-spacing: .15em; min-height: 1.4em; }
+  .keys { display: grid; grid-template-columns: repeat(9, 1fr); gap: 5px; margin-top: 12px; }
+  .keys button { padding: 8px 0; font-weight: 800; }
+  .keys button.hit { background: #166534; } .keys button.no { background: #7f1d1d; }
+  .setup { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+  .setup input { font: inherit; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); width: 14rem; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<main>
+  <header class="rx-top">
+    <a class="rx-back" href="../index.html">← Deck</a>
+    <h1>Walk the Plank<small>Guess the word or take the long walk</small></h1>
+    <span id="rx-link" class="rx-pill off">Connecting…</span>
+  </header>
+  <div class="modes2">
+    <button class="rx-btn" id="m-guess">You guess <span data-companion>your companion</span>'s word</button>
+    <button class="rx-btn" id="m-set"><span data-companion>Your companion</span> guesses yours</button>
+    <select id="category" title="Word category">
+      <option value="sea">Sea &amp; ships</option>
+      <option value="creatures">Creatures</option>
+      <option value="galley">Galley food</option>
+      <option value="anything">Anything</option>
+    </select>
+  </div>
+  <svg class="scene" viewBox="0 0 400 210" aria-label="the plank">
+    <!-- the ship's side -->
+    <path d="M0 40 H92 L100 150 H0z" fill="#5b3a1e"/>
+    <g stroke="#3f2713" stroke-width="2"><path d="M0 62 H95"/><path d="M0 86 H97"/><path d="M0 110 H98"/><path d="M0 134 H99"/></g>
+    <rect x="0" y="34" width="96" height="8" fill="#7c4a22"/>
+    <circle cx="40" cy="98" r="9" fill="#1e293b" stroke="#a16207" stroke-width="3"/>
+    <!-- the plank -->
+    <rect x="88" y="40" width="210" height="9" rx="2" fill="#a16207"/>
+    <g stroke="#78350f" stroke-width="1.5"><path d="M140 40v9"/><path d="M192 40v9"/><path d="M244 40v9"/></g>
+    <!-- moon -->
+    <circle cx="350" cy="30" r="14" fill="#fef3c7" opacity=".9"/>
+    <!-- the pirate -->
+    <g class="pirate" id="pirate" transform="translate(100 0)">
+      <g id="wob">
+        <circle cx="0" cy="8" r="7" fill="#fde68a"/>
+        <path d="M-10 3 Q0 -9 10 3 Z" fill="#1f2937"/><path d="M-12 3 H12" stroke="#1f2937" stroke-width="2.5"/>
+        <path d="M0 15 V30 M0 19 L-8 26 M0 19 L8 26 M0 30 L-6 40 M0 30 L6 40" stroke="#e2e8f0" stroke-width="3" stroke-linecap="round" fill="none"/>
+      </g>
+    </g>
+    <!-- sea -->
+    <path class="wave" d="M-20 128 Q0 120 20 128 T60 128 T100 128 T140 128 T180 128 T220 128 T260 128 T300 128 T340 128 T380 128 T420 128 V210 H-20z" fill="#0b3a66" opacity=".85"/>
+    <g class="fin"><path d="M0 140 L14 118 L22 140z" fill="#64748b"/></g>
+    <path class="wave2" d="M-20 146 Q0 138 20 146 T60 146 T100 146 T140 146 T180 146 T220 146 T260 146 T300 146 T340 146 T380 146 T420 146 V210 H-20z" fill="#082b4f"/>
+    <g id="splash"></g>
+  </svg>
+  <div class="lives" id="lives"></div>
+  <div class="word" id="word"></div>
+  <div class="tried" id="tried"></div>
+  <div id="status" class="rx-status"></div>
+  <div class="setup" id="setup" hidden>
+    <input id="secret" maxlength="14" placeholder="Your secret word" autocomplete="off" type="password">
+    <button class="rx-btn" id="random">Random word</button>
+    <button class="rx-btn primary" id="start">Start</button>
+  </div>
+  <div class="keys" id="keys"></div>
+  <div class="rx-bar" id="hintbar" hidden><button class="rx-btn" id="hint">Ask for a hint</button><button class="rx-btn" id="giveup">Jump</button></div>
+</main>
+<script src="../lib/neuro.js"></script>
+<script src="../lib/juice.js"></script>
+<script src="../lib/music.js"></script>
+<script src="../lib/scenes.js"></script>
+<script src="../lib/crew.js"></script>
+<script src="../lib/lines.js"></script>
+<script>
+"use strict";
+const { sfx, fx } = RexGame;
+const LIVES = { deckhand: 8, sailor: 6, captain: 4 };
+const WORDS = {
+  sea: "anchor lantern compass harbor glacier lighthouse barnacle rigging cutlass treasure galleon mainsail starboard captain island "
+    + "voyage quarterdeck telescope doubloon cannon lagoon seashell hammock bottle current reef tide pirate parrot sextant",
+  creatures: "dolphin penguin walrus octopus seagull lobster kraken jellyfish starfish turtle pelican albatross narwhal otter "
+    + "crab mermaid tortoise koala giraffe kitten rabbit spider tiger unicorn dragon squid shark whale",
+  galley: "biscuit pancake teapot pepper lemon honey cookie yogurt donut porridge pickle cheese pudding sandwich noodle "
+    + "dumpling muffin cinnamon walnut pretzel waffle omelette apricot coconut",
+};
+WORDS.anything = Object.values(WORDS).join(" ");
+const CATEGORY_NAME = { sea: "the sea and ships", creatures: "creatures", galley: "food", anything: "anything at all" };
+let mode = null, word = "", guessed = new Set(), misses = 0, over = true, lives = LIVES.sailor, fresh = null;
+const $ = (id) => document.getElementById(id);
+const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+const category = () => $("category").value;
+
+const game = RexGame.create({
+  name: "Walk the Plank",
+  modes: [
+    { id: "deckhand", label: "Deckhand", hint: "8 misses" },
+    { id: "sailor", label: "Sailor", hint: "6 misses" },
+    { id: "captain", label: "Captain", hint: "4 misses" },
+  ],
+  onMode: () => { lives = LIVES[game.mode]; if (over) render(); },
+  music: ["long-walk", "shark-tango"],
+  scenes: ["sunset", "storm", "night", "dawn"],
+  rules: "You are playing Walk the Plank (hangman, pirate style) with the user. Either you think of a secret word and the "
+    + "user guesses its letters, or the user thinks of one and you guess. Each wrong guess walks the guesser one step "
+    + "further along the plank; run out and it's a splash into shark water. When you hold the secret word, NEVER say or "
+    + "spell it until the round is over; hints are fine.",
+  actions: [
+    { name: "choose_word", description: "Pick the secret word for the user to guess: one common English word, letters only, 4 to 12 long.",
+      schema: { type: "object", properties: { word: { type: "string" } }, required: ["word"] } },
+    { name: "guess_letter", description: "Guess one letter of the user's secret word.",
+      schema: { type: "object", properties: { letter: { type: "string" } }, required: ["letter"] } },
+    { name: "guess_word", description: "Guess the user's whole word. A wrong guess costs a step.",
+      schema: { type: "object", properties: { word: { type: "string" } }, required: ["word"] } },
+  ],
+  onAction(name, args) {
+    if (name === "choose_word") {
+      if (mode !== "guess" || word) throw new RexGame.Refuse("You're not picking a word right now.");
+      const w = String(args.word || "").trim().toUpperCase();
+      if (!/^[A-Z]{4,12}$/.test(w)) throw new RexGame.Refuse("Pick one word, letters only, 4 to 12 letters.");
+      word = w; over = false;
+      sfx.fanfare();
+      render();
+      return `Your secret word is ${w} (${w.length} letters). Keep it secret! The user is guessing now, with ${lives} misses to spare.`;
+    }
+    if (mode !== "set" || over) throw new RexGame.Refuse("You aren't guessing a word right now.");
+    if (name === "guess_word") {
+      const w = String(args.word || "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+      if (!w) throw new RexGame.Refuse("Say the whole word you're guessing.");
+      if (w === word) { word.split("").forEach((l) => guessed.add(l)); return finish(true); }
+      misses++;
+      sfx.error();
+      if (misses >= lives) return finish(false);
+      render(); askGuess(`"${w}" isn't it.`);
+      return `"${w}" is wrong. ${livesText()}`;
+    }
+    const raw = String(args.letter || "").trim().toUpperCase();
+    const l = raw.length === 1 ? raw : (raw.match(/^(?:THE )?LETTER ([A-Z])$/) || [])[1];
+    if (!l || !/^[A-Z]$/.test(l)) throw new RexGame.Refuse("Guess a single letter, A to Z.");
+    if (guessed.has(l)) throw new RexGame.Refuse(`You already tried ${l}. Untried: ${untried().join(" ")}.`);
+    return guessLetter(l, "them");
+  },
+  onCompanion: () => render(),
+  onAgain: () => (mode === "set" ? openSet() : startGuess()),
+});
+
+const pattern = () => word.split("").map((c) => (guessed.has(c) ? c : "_")).join(" ");
+const untried = () => letters.filter((l) => !guessed.has(l));
+const wrong = () => [...guessed].filter((l) => !word.includes(l));
+const livesText = () => `${lives - misses} wrong guess${lives - misses === 1 ? "" : "es"} left.`;
+
+function askGuess(lastLine = "") {
+  game.force({
+    state: `## The user's word: ${pattern()}  (${word.length} letters, about ${CATEGORY_NAME[category()]})\n`
+      + `Wrong letters so far: ${wrong().join(" ") || "none"}. ${livesText()}\n`
+      + `Letters not tried yet: ${untried().join(" ")}`,
+    query: `${lastLine} Guess with guess_letter, or guess_word if you know it.`.trim(),
+    actions: ["guess_letter", "guess_word"],
+  });
+}
+
+function guessLetter(l, who) {
+  guessed.add(l);
+  const n = word.split("").filter((c) => c === l).length;
+  if (n) {
+    fresh = l;
+    sfx.combo(word.split("").filter((c) => guessed.has(c)).length);
+    if (who === "you") game.award(10 * n, n > 1 ? `×${n}` : "", $("word"));
+  } else {
+    misses++;
+    sfx.creak();
+    if (lives - misses <= 2) setTimeout(() => sfx.chomp(), 250);   // the sharks are interested
+    if (lives - misses === 1) { game.react("plank_close"); game.heckle("close_call", { chance: 0.4 }); }
+  }
+  const solved = word.split("").every((c) => guessed.has(c));
+  if (solved) return finish(true);
+  if (misses >= lives) return finish(false);
+  render();
+  const line = n ? `${l}: yes, ${n} of them. ${pattern()}.` : `No ${l}. ${livesText()}`;
+  if (who === "them") { askGuess(`${line}`); return line; }
+  // The user guessing the companion's word: they know it, they just watch.
+  game.tell(`The user guessed ${l}: ${n ? `yes, ${n}` : "no"}. They see ${pattern()}. ${livesText()}`, lives - misses !== 1);
+  return line;
+}
+
+function splash() {
+  const pirate = $("pirate");
+  pirate.classList.add("fall");
+  pirate.setAttribute("transform", "translate(318 170) rotate(160)");
+  setTimeout(() => {
+    sfx.splash();
+    setTimeout(() => sfx.chomp(), 600);
+    game.heckle("splash", { chance: 0.8, minGap: 0 });
+    const g = $("splash");
+    g.innerHTML = [...Array(12)].map((_, i) => {
+      const a = (i / 12) * Math.PI, r = 10 + Math.random() * 18;
+      return `<circle cx="${318 + Math.cos(a) * r}" cy="${135 - Math.sin(a) * r}" r="${2 + Math.random() * 3}" fill="#bae6fd"><animate attributeName="opacity" from="1" to="0" dur="1s" fill="freeze"/></circle>`;
+    }).join("");
+    setTimeout(() => { g.innerHTML = ""; }, 1100);
+  }, 650);
+}
+
+function finish(solved) {
+  over = true;
+  render();
+  const userGuessing = mode === "guess";
+  const userWon = solved === userGuessing;
+  if (!solved) splash();
+  const guesser = userGuessing ? "The user" : "You";
+  const msg = solved ? `${guesser} got it: the word was ${word}!` : `${guesser} walked the plank. The word was ${word}.`;
+  if (userGuessing) game.tell(`Round over: ${msg}`, false);
+  if (solved && userGuessing) game.react("solved");
+  const points = !userWon ? 0 : userGuessing ? 40 + 15 * (lives - misses) : 80;
+  setTimeout(() => game.end({
+    outcome: userWon ? "win" : "loss", points,
+    title: userWon ? (userGuessing ? "RESCUED!" : "STUMPED 'EM!") : "SPLASH!",
+    detail: `The word was ${word}.`,
+  }), solved ? 600 : 1600);
+  return msg;
+}
+
+function resetScene() {
+  const p = $("pirate");
+  p.classList.remove("fall");
+  $("splash").innerHTML = "";
+  p.setAttribute("transform", "translate(100 0)");
+}
+
+function startGuess() {
+  game.cancelForce();
+  mode = "guess"; word = ""; guessed = new Set(); misses = 0; over = true; lives = LIVES[game.mode] || 6; fresh = null;
+  resetScene();
+  render();
+  sfx.whoosh();
+  game.force({
+    state: `The user wants to guess a word you think of, about ${CATEGORY_NAME[category()]}. They get ${lives} misses.`,
+    query: "Pick a secret word with choose_word. Don't say it out loud!",
+    actions: ["choose_word"],
+  });
+}
+
+function openSet() {
+  game.cancelForce();
+  mode = "set"; word = ""; over = true; guessed = new Set(); misses = 0; fresh = null;
+  resetScene();
+  render();
+  $("secret").focus();
+}
+
+function startSet(w) {
+  game.cancelForce();
+  mode = "set"; word = w; guessed = new Set(); misses = 0; over = false; lives = LIVES[game.mode] || 6; fresh = null;
+  resetScene();
+  render();
+  sfx.fanfare();
+  askGuess(`The user picked a secret word of ${w.length} letters. You have ${lives} misses before the plank.`);
+}
+
+function render() {
+  // The walk: one step along the plank per miss.
+  if (!$("pirate").classList.contains("fall")) {
+    const x = 100 + Math.min(1, misses / lives) * 190;
+    $("pirate").setAttribute("transform", `translate(${x} 0)`);
+  }
+  $("wob").classList.toggle("wobble", !over && lives - misses === 1);
+  $("m-guess").classList.toggle("sel", mode === "guess");
+  $("m-set").classList.toggle("sel", mode === "set");
+  const reveal = over && word && (misses >= lives || word.split("").every((c) => guessed.has(c)));
+  $("word").innerHTML = !word ? "" : word.split("").map((c) => guessed.has(c) ? (c === fresh ? `<span class="new">${c}</span>` : c)
+    : reveal ? `<span class="miss">${c}</span>` : "_").join("");
+  fresh = null;
+  $("lives").textContent = word ? "❤️".repeat(Math.max(0, lives - misses)) + "🖤".repeat(Math.min(misses, lives)) : "";
+  $("tried").textContent = word && wrong().length ? `Missed: ${wrong().join(" ")}` : "";
+  $("setup").hidden = mode !== "set" || !over;
+  $("hintbar").hidden = !(mode === "guess" && word && !over);
+  const keys = $("keys"); keys.innerHTML = "";
+  if (mode === "guess" && word && !over) {
+    letters.forEach((l) => {
+      const b = document.createElement("button");
+      b.className = `rx-btn${guessed.has(l) ? (word.includes(l) ? " hit" : " no") : ""}`;
+      b.textContent = l; b.disabled = guessed.has(l);
+      b.onclick = () => guessLetter(l, "you");
+      keys.appendChild(b);
+    });
+  }
+  const name = RexGame.escape(game.companion);
+  const won = word && word.split("").every((c) => guessed.has(c));
+  $("status").innerHTML = !mode ? "Pick a way to play."
+    : mode === "guess" && !word ? `<b>${name}</b> is thinking of a word…`
+    : over && mode === "set" && !reveal ? "Type a secret word, or take a random one."
+    : over ? (won ? (mode === "guess" ? "<b>You got it!</b>" : `<b>${name} got it!</b>`)
+                  : (mode === "guess" ? "<b>Splash!</b>" : `<b>${name}</b> walked the plank.`))
+    : mode === "guess" ? "<b>Your guess.</b> Type or tap a letter." : `<b>${name}</b> is guessing…`;
+}
+
+// Type letters on the keyboard too.
+addEventListener("keydown", (ev) => {
+  if (ev.target.tagName === "INPUT" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const l = ev.key.toUpperCase();
+  if (/^[A-Z]$/.test(l) && mode === "guess" && word && !over && !guessed.has(l)) guessLetter(l, "you");
+});
+
+$("m-guess").onclick = () => { sfx.click(); startGuess(); };
+$("m-set").onclick = () => { sfx.click(); openSet(); };
+$("random").onclick = () => {
+  const list = WORDS[category()].split(" ");
+  $("secret").value = list[(Math.random() * list.length) | 0].toUpperCase();
+  sfx.pop();
+};
+$("start").onclick = () => {
+  const w = $("secret").value.trim().toUpperCase();
+  if (!/^[A-Z]{3,14}$/.test(w)) { $("status").innerHTML = "Letters only, 3 to 14 of them."; sfx.error(); return; }
+  $("secret").value = "";
+  startSet(w);
+};
+$("hint").onclick = () => { sfx.bubble(); game.tell("The user asks for a hint about your secret word. Give a helpful clue without saying or spelling the word.", false); };
+$("giveup").onclick = () => { if (!over) { misses = lives; finish(false); } };
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Games Deck · Rexclaw</title>
+<link rel="stylesheet" href="lib/games.css">
+<!-- The mini-games library: every game folder with a game.json, built in or
+     from an extension (listed by /api/games/library), who you play with,
+     the crew's standings, and the companions' voice lines. -->
+<style>
+  main { max-width: 900px; }
+  .hero { position: relative; border-radius: 22px; overflow: hidden; margin-bottom: 16px; border: 1px solid var(--line); }
+  .hero svg { display: block; width: 100%; height: auto; }
+  .hero .words { position: absolute; left: 22px; top: 18px; right: 22px; }
+  .hero h1 { margin: 0; font: italic 900 clamp(1.6rem, 5vw, 2.6rem)/1 Georgia, serif;
+    background: linear-gradient(180deg, #fef3c7, #f59e0b); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
+  .hero p { margin: 6px 0 0; color: #cbd5e1; max-width: 32rem; text-shadow: 0 1px 4px rgba(0,0,0,.8); font-size: 0.92rem; }
+  .hero .tools { position: absolute; right: 14px; top: 14px; display: flex; gap: 6px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .tile {
+    display: flex; flex-direction: column; text-decoration: none; color: var(--text); border-radius: 18px; overflow: hidden;
+    background: var(--panel); border: 1px solid var(--line); transition: transform .15s, box-shadow .15s, border-color .15s;
+  }
+  .tile:hover { transform: translateY(-4px) rotate(-.4deg); box-shadow: 0 16px 34px rgba(0,0,0,.45), 0 0 0 1px #f59e0b55; border-color: #f59e0b88; }
+  .art { height: 122px; display: grid; place-items: center; font-size: 3.1rem; position: relative; overflow: hidden; }
+  .art::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.22), transparent 55%); }
+  .art img, .art span { position: relative; z-index: 1; width: 170px; height: 113px; object-fit: contain; filter: drop-shadow(0 6px 10px rgba(0,0,0,.35)); transition: transform .25s; }
+  .art span { width: auto; height: auto; }
+  .tile:hover .art img, .tile:hover .art span { transform: scale(1.08) rotate(-3deg); }
+  .body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .body h2 { font: italic 800 1.12rem Georgia, serif; margin: 0; }
+  .body p { margin: 0; color: var(--muted); font-size: 0.86rem; flex: 1; }
+  .tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .tags span { font-size: 0.7rem; padding: 2px 8px; border-radius: 999px; background: var(--panel-2); color: #cbd5e1; }
+  .rec { font-size: 0.78rem; color: #fde68a; font-weight: 700; }
+  .ext { font-size: 0.72rem; color: var(--muted); }
+  .player { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
+  .player .who { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 220px; }
+  .pic { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; flex: none; background: #4f46e5;
+    display: grid; place-items: center; font-weight: 800; box-shadow: 0 0 0 2px #f59e0b; }
+  .player label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+  select, .search { font: inherit; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+  .player select { max-width: 100%; }
+  .voice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; border-top: 1px solid var(--line); padding-top: 10px; font-size: 0.85rem; color: var(--muted); }
+  .voice .rx-btn { padding: 6px 12px; }
+  .tools-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .search { flex: 1; min-width: 200px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .chip { font-size: 0.8rem; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+  .chip.on { background: linear-gradient(180deg, #b45309, #78350f); border-color: #f59e0b; color: #fff; }
+  .pages { display: flex; justify-content: center; align-items: center; gap: 6px; margin-top: 16px; }
+  .pages button { min-width: 36px; padding: 6px 10px; }
+  .pages button.on { background: #b45309; border-color: #f59e0b; }
+  .empty { padding: 30px; text-align: center; color: var(--muted); }
+  .warn { padding: 10px 14px; border-radius: 12px; background: #422006; color: #fde68a; margin-bottom: 14px; font-size: 0.9rem; }
+  h3 { margin: 26px 0 10px; font: italic 800 1.2rem Georgia, serif; color: #fde68a; }
+  .board { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .board td, .board th { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+  .board th { font-size: 0.7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+  .board td.n { font-variant-numeric: tabular-nums; text-align: right; } .board th.n { text-align: right; }
+  .board .crew { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+  .board .crew .pic { width: 30px; height: 30px; box-shadow: 0 0 0 1.5px var(--line); font-size: 0.8rem; }
+  .board tr:first-child .crew .pic { box-shadow: 0 0 0 2px #facc15; }
+  .medal { width: 1.6em; display: inline-block; text-align: center; }
+  .how { margin-top: 26px; font-size: 0.86rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <svg viewBox="0 0 900 220" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1730"/><stop offset="1" stop-color="#1e3a5f"/></linearGradient>
+        <radialGradient id="moon"><stop offset="0" stop-color="#fef3c7"/><stop offset=".6" stop-color="#fde68a" stop-opacity=".25"/><stop offset="1" stop-color="#fde68a" stop-opacity="0"/></radialGradient>
+      </defs>
+      <rect width="900" height="220" fill="url(#sky)"/>
+      <circle cx="760" cy="58" r="70" fill="url(#moon)"/><circle cx="760" cy="58" r="22" fill="#fef3c7"/>
+      <g fill="#fff" opacity=".5"><circle cx="120" cy="40" r="1"/><circle cx="300" cy="22" r="1.2"/><circle cx="520" cy="50" r="1"/><circle cx="640" cy="18" r="1"/><circle cx="860" cy="120" r="1"/><circle cx="420" cy="90" r=".8"/></g>
+      <!-- the Rexmaw -->
+      <g transform="translate(560 86)" fill="#06101f">
+        <path d="M0 96 L200 96 L184 124 L22 124 Z"/>
+        <rect x="96" y="0" width="5" height="98"/><rect x="40" y="22" width="4" height="76"/><rect x="152" y="26" width="4" height="72"/>
+        <path d="M101 6 Q140 30 101 62 Z" opacity=".85"/><path d="M44 28 Q76 46 44 74 Z" opacity=".85"/><path d="M156 30 Q186 48 156 76 Z" opacity=".85"/>
+        <path d="M96 0 L120 -6 L96 -10 Z" fill="#b91c1c"/>
+        <circle cx="70" cy="110" r="3" fill="#fbbf24"/><circle cx="100" cy="110" r="3" fill="#fbbf24"/><circle cx="130" cy="110" r="3" fill="#fbbf24"/>
+      </g>
+      <path d="M0 196 Q30 188 60 196 T120 196 T180 196 T240 196 T300 196 T360 196 T420 196 T480 196 T540 196 T600 196 T660 196 T720 196 T780 196 T840 196 T900 196 V220 H0z" fill="#0b2545"/>
+      <path d="M0 206 Q40 198 80 206 T160 206 T240 206 T320 206 T400 206 T480 206 T560 206 T640 206 T720 206 T800 206 T880 206 V220 H0z" fill="#07172e"/>
+      <path d="M660 196 l6 -6 l6 6 z" fill="#fde68a" opacity=".5"/>
+    </svg>
+    <div class="words">
+      <h1>The Rexmaw Games Deck</h1>
+      <p>Pull up a barrel. Pick who you're playing, then a game. On a call they talk it through out loud; off one, they answer in the game.</p>
+    </div>
+    <div class="tools"><button class="rxk-icon" id="music" title="Music: Below Deck"></button><button class="rxk-icon" id="mute" title="Sound effects"></button></div>
+  </div>
+  <div class="warn" id="nobody" hidden>No companion has <b>Games</b> switched on yet: turn it on for one in Rexclaw
+    (Companions → Edit → Tools), then reload this page.</div>
+  <div class="rx-panel player" id="player">
+    <div class="who"><span id="pic"></span><div style="flex:1"><label for="companion">Playing with</label>
+      <select id="companion"></select></div></div>
+    <div><label for="offcall">When you're not on a call with them</label>
+      <select id="offcall">
+        <option value="separate">They play in a game chat of its own (quick)</option>
+        <option value="latest">They play in your latest conversation (remembered)</option>
+        <option value="wait">The game waits for a call</option>
+      </select></div>
+    <div class="voice">
+      <label style="display:inline-flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:.85rem;color:var(--text)">
+        <input type="checkbox" id="voiceon"> Voice lines</label>
+      <span id="voicehint">Off a call, they react in their own voice.</span>
+      <button class="rx-btn" id="record">Record their lines</button>
+      <span id="recstate"></span>
+    </div>
+  </div>
+  <div class="tools-row"><input class="search" id="search" type="search" placeholder="Search games…" autocomplete="off"></div>
+  <div class="chips" id="tags"></div>
+  <div class="grid" id="grid"></div>
+  <div class="pages" id="pages"></div>
+  <h3>⚓ Crew standings</h3>
+  <div class="rx-panel"><table class="board" id="board"></table></div>
+  <p class="how">Want your own game here? Each game is a folder with a <code>game.json</code>; extensions can add theirs.
+    See <code>web/public/games/README.md</code> in Rexclaw.</p>
+</main>
+<script src="lib/neuro.js"></script>
+<script src="lib/juice.js"></script>
+<script src="lib/music.js"></script>
+<script src="lib/lines.js"></script>
+<script>
+"use strict";
+const PAGE_SIZE = 9;
+const $ = (id) => document.getElementById(id);
+const esc = RexGame.escape, sfx = RexGame.sfx;
+let games = [], players = [], saves = {}, page = 0, tag = null, recording = false;
+
+// Per-viewer conveniences only: the last pick of companion and mode.
+const remember = (key, value) => { try { localStorage.setItem(`rx-games-${key}`, value); } catch { /* private mode */ } };
+const recall = (key) => { try { return localStorage.getItem(`rx-games-${key}`); } catch { return null; } };
+const post = (path, body = {}) => fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body) }).then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
+
+function playerId() { return Number($("companion").value) || 0; }
+function playerName() { return players.find((p) => p.id === playerId())?.name || "your companion"; }
+const picture = (p, cls = "pic") => p?.picture ? `<img class="${cls}" src="${esc(p.picture)}" alt="">`
+  : `<span class="${cls}">${esc((p?.name || "?").slice(0, 1))}</span>`;
+
+/** A tile's line about how it's going with this companion, from its save. */
+function recordLine(save) {
+  if (!save) return "";
+  if (save.summary) return esc(save.summary);
+  const r = save.record;
+  if (!r) return "";
+  return `You ${r.wins} – ${r.losses} ${esc(playerName())}${r.draws ? ` · ${r.draws} drawn` : ""}`
+    + (save.points ? ` · ⚓ ${save.points}` : "");
+}
+
+function tile(game) {
+  const a = document.createElement("a");
+  a.className = "tile";
+  const query = new URLSearchParams({ companion: playerId(), offcall: $("offcall").value });
+  // Same window: every game links back to the deck, so the library and its
+  // games share one window instead of leaving one behind per game.
+  a.href = `${game.url}?${query}`;
+  const art = game.cover ? `<img src="${esc(game.cover)}" alt="">` : `<span>${esc(game.icon || "🎮")}</span>`;
+  const rec = recordLine(saves[game.save_key]);
+  a.innerHTML = `<div class="art" style="background:${esc(game.background || "linear-gradient(135deg,#334155,#0f172a)")}">${art}</div>`
+    + `<div class="body"><h2>${esc(game.title)}</h2><p>${esc(game.description || "")}</p>`
+    + (rec ? `<div class="rec">${rec}</div>` : "")
+    + (game.extension ? `<div class="ext">from ${esc(game.extension)}</div>` : "")
+    + `<div class="tags">${(game.tags || []).map((t) => `<span>${esc(t)}</span>`).join("")}</div></div>`;
+  a.onmouseenter = () => sfx.hover();
+  a.onclick = () => sfx.pop();
+  return a;
+}
+
+function render() {
+  const q = $("search").value.trim().toLowerCase();
+  const shown = games.filter((g) => (!tag || (g.tags || []).includes(tag) || g.extension === tag)
+    && (!q || [g.title, g.description, ...(g.tags || []), g.extension || ""].join(" ").toLowerCase().includes(q)));
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+  page = Math.min(page, pages - 1);
+  const grid = $("grid");
+  grid.innerHTML = "";
+  shown.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).forEach((g) => grid.appendChild(tile(g)));
+  if (!shown.length) grid.innerHTML = '<div class="empty">No games match.</div>';
+  // Tag filters: every tag any game has (and each extension), the picked one lit.
+  const tags = [...new Set(games.flatMap((g) => [...(g.tags || []), ...(g.extension ? [g.extension] : [])]))].sort();
+  $("tags").innerHTML = "";
+  for (const t of [null, ...tags]) {
+    const b = document.createElement("button");
+    b.className = `chip${t === tag ? " on" : ""}`;
+    b.textContent = t || "all";
+    b.onclick = () => { tag = t; page = 0; sfx.click(); render(); };
+    $("tags").appendChild(b);
+  }
+  $("pages").innerHTML = "";
+  if (pages > 1) {
+    const button = (label, to, on = false, disabled = false) => {
+      const b = document.createElement("button");
+      b.className = `rx-btn${on ? " on" : ""}`; b.textContent = label; b.disabled = disabled;
+      b.onclick = () => { page = to; sfx.click(); render(); window.scrollTo({ top: 0, behavior: "smooth" }); };
+      $("pages").appendChild(b);
+    };
+    button("‹", page - 1, false, page === 0);
+    for (let i = 0; i < pages; i++) button(String(i + 1), i, i === page);
+    button("›", page + 1, false, page === pages - 1);
+  }
+}
+
+/** Crew standings: who beats you most, from every companion's saves. */
+function renderBoard(rows) {
+  const table = $("board");
+  if (!rows.length) { table.innerHTML = '<tr><td class="empty">No games played yet. The crew is waiting.</td></tr>'; return; }
+  const ranked = rows.map((r) => ({ ...r, played: r.wins + r.losses + r.draws }))
+    .sort((a, b) => b.losses - a.losses || b.played - a.played);
+  const medal = ["👑", "🥈", "🥉"];
+  table.innerHTML = '<tr><th>Crew</th><th class="n">Beat you</th><th class="n">You beat them</th><th class="n">Doubloons won</th><th class="n">Best streak</th></tr>'
+    + ranked.map((r, i) => `<tr><td><span class="crew"><span class="medal">${medal[i] || ""}</span>${picture(r)}${esc(r.name)}</span></td>`
+      + `<td class="n">${r.losses}</td><td class="n">${r.wins}</td><td class="n">⚓ ${r.points.toLocaleString()}</td>`
+      + `<td class="n">${r.best_streak ? `🔥 ${r.best_streak}` : "-"}</td></tr>`).join("");
+}
+
+function showPlayer() {
+  const p = players.find((x) => x.id === playerId());
+  $("pic").innerHTML = picture(p);
+  $("record").textContent = `Record ${p ? p.name : "their"}'s lines`;
+  $("record").disabled = !p;
+  post("/api/games/saves", { agent_id: playerId() }).then((s) => { saves = s || {}; render(); }).catch(() => render());
+}
+
+/** Record every reaction line in this companion's voice, one by one. */
+async function recordLines() {
+  if (recording || !playerId()) return;
+  recording = true;
+  const lines = RexGame.allLines();
+  $("record").disabled = true;
+  let done = 0;
+  for (const text of lines) {
+    $("recstate").textContent = `Recording ${done + 1} of ${lines.length}…`;
+    try {
+      const res = await post("/api/games/voiceline", { agent_id: playerId(), text, record: true });
+      if (res.on_call) { $("recstate").textContent = "They're on a call right now: try again after it."; break; }
+      if (res.error) { $("recstate").textContent = `Stopped: ${res.error}`; break; }
+    } catch { $("recstate").textContent = "Stopped: the server didn't answer."; break; }
+    done++;
+  }
+  if (done === lines.length) {
+    $("recstate").textContent = `All ${lines.length} lines recorded.`;
+    $("voiceon").checked = true; remember("voice", "1");
+    sfx.win();
+  }
+  recording = false;
+  $("record").disabled = false;
+}
+
+function paintMute() {
+  $("mute").textContent = sfx.muted() ? "🔇" : "🔊";
+  $("music").textContent = recall("library-music") === "off" ? "🎵̸" : "🎵";
+  $("music").style.opacity = recall("library-music") === "off" ? 0.5 : 1;
+}
+// The deck's own shanty, from the first click (browsers wait for one).
+addEventListener("pointerdown", () => { if (recall("library-music") !== "off" && !RexGame.music.playing()) RexGame.music.play("below-deck"); }, { once: true, capture: true });
+$("music").onclick = () => {
+  const off = recall("library-music") !== "off";
+  remember("library-music", off ? "off" : "on");
+  if (off) RexGame.music.stop(); else RexGame.music.play("below-deck");
+  paintMute();
+};
+
+$("search").oninput = () => { page = 0; render(); };
+$("companion").onchange = () => { remember("companion", $("companion").value); sfx.click(); showPlayer(); };
+$("offcall").onchange = () => { remember("offcall", $("offcall").value); sfx.click(); render(); };
+$("voiceon").checked = recall("voice") === "1";
+$("voiceon").onchange = () => { remember("voice", $("voiceon").checked ? "1" : "0"); sfx.click(); };
+$("record").onclick = recordLines;
+$("mute").onclick = () => { sfx.setMuted(!sfx.muted()); paintMute(); sfx.click(); };
+$("voicehint").textContent = `Off a call, they react in their own voice. ${RexGame.allLines().length} short lines, recorded once and kept.`;
+paintMute();
+
+post("/api/games/players").then((res) => {
+  players = res.players || [];
+  $("nobody").hidden = players.length > 0;
+  $("companion").innerHTML = players.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
+  const pick = Number(recall("companion")) || res.default_agent_id;
+  if (players.some((p) => p.id === pick)) $("companion").value = String(pick);
+  // The mini-games default to playing on even off a call: you're right there.
+  $("offcall").value = recall("offcall") || "separate";
+  showPlayer();
+}).catch(() => render());
+
+post("/api/games/library").then((list) => { games = list || []; render(); }).catch(() => render());
+post("/api/games/leaderboard").then(renderBoard).catch(() => renderBoard([]));
+render();
+</script>
+</body>
+</html>

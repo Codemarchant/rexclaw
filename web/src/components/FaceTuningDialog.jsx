@@ -8,7 +8,7 @@ import AvatarCanvas from "./AvatarCanvas";
 // server reads a line into) and a few of the acts a line can carry, with
 // the head move an act adds (not tunable here — only the face is).
 const FEELINGS = ["warm", "happy", "teasing", "excited", "proud", "puzzled", "surprised",
-    "embarrassed", "huffy", "worried", "sad", "annoyed"];
+    "embarrassed", "huffy", "worried", "scared", "sad", "annoyed"];
 const ACTS = [
     ["affirms", "Nod", "a yes: a nod with the brows raised", "head nod"],
     ["negates", "Shake", "a no: a head shake with the brows knitted", "head shake"],

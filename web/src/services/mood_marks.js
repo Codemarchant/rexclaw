@@ -39,6 +39,9 @@ const MOOD_MARKS = {
     worried:   { glyph: "sweat",    x: 0.16, y: 0.12,  size: 0.045, life: 1.6 },
     puzzled:   { glyph: "question", x: 0.16, y: 0.15,  size: 0.05,  life: 1.8 },
     huffy:     { glyph: "huff",     x: 0.17, y: 0.05,  size: 0.05,  life: 1.4 },
+    // Fear joined later on the same terms: rare, and on a VRoid model its
+    // face (no lip stretch to draw on) can pass for surprise or worry.
+    scared:    { glyph: "ghost",    x: 0.17, y: 0.12,  size: 0.05,  life: 1.8 },
     // Stands in for a blush on a model that has no blush shape rigged, and
     // only then — see `markUnless` in face_motion.js. A model that can
     // colour its own cheeks never shows this.
@@ -218,6 +221,27 @@ export const GLYPHS = {
             }
         }
     },
+    ghost(ctx, s) {
+        // A little scared ghost (おばけ): a dome over a wavy hem, dot eyes
+        // and a small "o" of a mouth.
+        outlined(ctx, s, "#ffffff", (p) => {
+            p.moveTo(s * 0.24, s * 0.82);
+            p.lineTo(s * 0.24, s * 0.44);
+            p.arc(s * 0.5, s * 0.44, s * 0.26, Math.PI, TAU);
+            p.lineTo(s * 0.76, s * 0.82);
+            p.quadraticCurveTo(s * 0.7, s * 0.72, s * 0.63, s * 0.82);
+            p.quadraticCurveTo(s * 0.565, s * 0.72, s * 0.5, s * 0.82);
+            p.quadraticCurveTo(s * 0.435, s * 0.72, s * 0.37, s * 0.82);
+            p.quadraticCurveTo(s * 0.3, s * 0.72, s * 0.24, s * 0.82);
+            p.closePath();
+        });
+        ctx.fillStyle = "#3b2a33";
+        const face = new Path2D();
+        circle(face, s * 0.41, s * 0.44, s * 0.04);
+        circle(face, s * 0.59, s * 0.44, s * 0.04);
+        face.ellipse(s * 0.5, s * 0.58, s * 0.035, s * 0.05, 0, 0, TAU);
+        ctx.fill(face);
+    },
     question(ctx, s) {
         // A question mark, hook and dot (❓).
         ctx.lineCap = "round";
@@ -360,6 +384,10 @@ export class MoodMarks {
                     break;
                 case "gloom":
                     y += Math.sin(t * 2.2) * 0.008;
+                    break;
+                case "ghost":
+                    y += t * 0.025;
+                    x += Math.sin(t * 4 + p.phase) * 0.008;
                     break;
                 case "puff":
                     x += t * 0.05 * p.side;

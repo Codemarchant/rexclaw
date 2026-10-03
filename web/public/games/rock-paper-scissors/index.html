@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rock Paper Scissors · Rexclaw</title>
+<link rel="stylesheet" href="../lib/games.css">
+<!-- Rock Paper Scissors against a companion over the Neuro API. Both throw at
+     once: the companion is asked the moment a round opens and its throw stays
+     hidden until you've thrown too, then a countdown and the reveal. Modes:
+     first to three, the Lizard-Spock edition, and one-round sudden death.
+     The companion sees every earlier round, to read your habits. -->
+<style>
+  .arena { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin: 8px 0 4px; }
+  .slot {
+    aspect-ratio: 1; border-radius: 22px; background: linear-gradient(180deg, #1c2a44, #142036); border: 2px solid var(--line);
+    display: grid; place-items: center; font-size: clamp(3rem, 16vw, 5.5rem); position: relative; transition: border-color .2s, box-shadow .2s;
+  }
+  .slot .who { position: absolute; top: 8px; left: 0; right: 0; text-align: center; font-size: 0.8rem; color: var(--muted); }
+  .slot.win { border-color: var(--gold); box-shadow: 0 0 30px rgba(250,204,21,.45); }
+  .slot.lose { opacity: .55; }
+  .slot .wait { font-size: 1rem; color: var(--muted); }
+  .slot .reveal { animation: reveal .4s cubic-bezier(.2,1.6,.4,1); }
+  .slot .bob { animation: bob .35s ease-in-out infinite alternate; }
+  @keyframes reveal { from { transform: scale(.2) rotate(-40deg); } }
+  @keyframes bob { from { transform: translateY(-10px) rotate(-8deg); } to { transform: translateY(8px) rotate(6deg); } }
+  .vs { color: var(--muted); font-weight: 900; font-style: italic; }
+  .hands { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .hands button { font-size: 2.1rem; width: 80px; height: 84px; border-radius: 18px; }
+  .hands button small { display: block; font-size: 0.7rem; color: var(--muted); }
+  .verb { min-height: 2.2rem; margin-top: 4px; }
+  .pips { display: flex; justify-content: center; gap: 6px; margin: 2px 0 8px; }
+  .pips i { width: 12px; height: 12px; border-radius: 50%; background: var(--panel-2); border: 1px solid var(--line); }
+  .pips i.y { background: var(--gold); } .pips i.t { background: #38bdf8; }
+</style>
+</head>
+<body>
+<main>
+  <header class="rx-top">
+    <a class="rx-back" href="../index.html">← Deck</a>
+    <h1>Rock Paper Scissors<small>Settled the old way, on the quarterdeck</small></h1>
+    <span id="rx-link" class="rx-pill off">Connecting…</span>
+  </header>
+  <div class="rx-players">
+    <span>You <span class="rx-score" id="s-you">0</span></span>
+    <span><span class="rx-score" id="s-them">0</span> <b data-companion>Your companion</b></span>
+  </div>
+  <div class="pips" id="pips"></div>
+  <div class="arena">
+    <div class="slot" id="slot-you"><span class="who">You</span><span id="you-hand"></span></div>
+    <div class="vs">VS</div>
+    <div class="slot" id="slot-them"><span class="who" data-companion>Your companion</span><span id="them-hand"></span></div>
+  </div>
+  <div class="rx-banner verb" id="verb"></div>
+  <div id="status" class="rx-status"></div>
+  <div class="hands" id="hands"></div>
+  <div class="rx-bar"><button class="rx-btn" id="new">New match</button></div>
+  <div class="rx-log rx-panel" id="log"></div>
+</main>
+<script src="../lib/neuro.js"></script>
+<script src="../lib/juice.js"></script>
+<script src="../lib/music.js"></script>
+<script src="../lib/scenes.js"></script>
+<script src="../lib/crew.js"></script>
+<script src="../lib/lines.js"></script>
+<script>
+"use strict";
+const { sfx, fx } = RexGame;
+const ICON = { rock: "✊", paper: "✋", scissors: "✌️", lizard: "🦎", spock: "🖖" };
+const VERB = { "scissors>paper": "cuts", "paper>rock": "covers", "rock>lizard": "crushes", "lizard>spock": "poisons",
+  "spock>scissors": "smashes", "scissors>lizard": "snips", "lizard>paper": "eats", "paper>spock": "disproves",
+  "spock>rock": "vaporises", "rock>scissors": "crushes" };
+const MODES = {
+  classic: { hands: ["rock", "paper", "scissors"], target: 3, points: 100 },
+  spock: { hands: ["rock", "paper", "scissors", "lizard", "spock"], target: 3, points: 120 },
+  sudden: { hands: ["rock", "paper", "scissors"], target: 1, points: 80 },
+};
+let M = MODES.classic, round, mine, theirs, wins, pastRounds, matchOver, lastResult = "", opened = false, roll = 0, revealing = false;
+const $ = (id) => document.getElementById(id);
+const beats = (a, b) => !!VERB[`${a}>${b}`];
+
+const game = RexGame.create({
+  name: "Rock Paper Scissors",
+  modes: [
+    { id: "classic", label: "Classic", hint: "first to three" },
+    { id: "spock", label: "Lizard-Spock", hint: "five hands" },
+    { id: "sudden", label: "Sudden death", hint: "one throw" },
+  ],
+  onMode: () => { M = MODES[game.mode]; paintHands(); if (opened) newMatch(); },
+  music: ["quarterdeck-showdown", "high-stakes"],
+  scenes: ["sunset", "storm", "night"],
+  rules: "You are playing Rock Paper Scissors against the user. Rock beats scissors, scissors beats paper, paper beats rock. "
+    + "In the Lizard-Spock edition there are two more hands: scissors cuts paper, paper covers rock, rock crushes lizard, "
+    + "lizard poisons Spock, Spock smashes scissors, scissors snips lizard, lizard eats paper, paper disproves Spock, "
+    + "Spock vaporises rock, rock crushes scissors. You both throw at the same time: you never see the user's throw "
+    + "before yours. Try to read the user's habits from the earlier rounds.",
+  actions: [{
+    name: "throw_hand",
+    description: "Throw a hand for this round.",
+    schema: { type: "object", properties: { hand: { type: "string", enum: ["rock", "paper", "scissors", "lizard", "spock"] } }, required: ["hand"] },
+  }],
+  onAction(name, { hand }) {
+    if (matchOver) throw new RexGame.Refuse("The match is over. Wait for the user to start a new one.");
+    if (theirs) throw new RexGame.Refuse("You already threw this round.");
+    const h = String(hand || "").trim().toLowerCase().replace(/s$/, "");
+    const pick = { rock: "rock", stone: "rock", paper: "paper", scissor: "scissors", lizard: "lizard", spock: "spock" }[h];
+    if (!pick || !M.hands.includes(pick)) throw new RexGame.Refuse(`Throw one of: ${M.hands.join(", ")}.`);
+    theirs = pick;
+    sfx.pop();
+    render();
+    if (mine) { showdown(); return "Both hands are in. Here comes the reveal!"; }
+    return `Locked in: ${pick}. Waiting for the user to throw.`;
+  },
+  onCompanion: () => render(),
+  // The first match opens once the companion is there to throw; after a
+  // reconnect the kit re-sends the open force itself.
+  onConnect: () => { if (!opened) { opened = true; newMatch(); } },
+  onAgain: () => newMatch(),
+});
+
+function askThrow() {
+  const past = pastRounds.length
+    ? pastRounds.map((h, i) => `Round ${i + 1}: you ${h.them}, the user ${h.you} (${h.winner})`).join("\n")
+    : "No rounds yet.";
+  game.force({
+    state: `## ${game.mode === "spock" ? "Lizard-Spock edition. " : ""}Hands: ${M.hands.join(", ")}\n`
+      + `Score: you ${wins.them}, the user ${wins.you} (first to ${M.target})\n${past}`,
+    query: `${lastResult}Round ${round}: throw_hand now.`.trim(),
+    actions: ["throw_hand"],
+  });
+}
+
+/** Both are in: count down, then reveal and settle. */
+function showdown() {
+  if (revealing) return;
+  revealing = true;
+  const words = ["Rock…", "Paper…", "Scissors…", "SHOOT!"];
+  words.forEach((w, i) => setTimeout(() => {
+    $("verb").textContent = w;
+    if (i < 3) sfx.tick(); else { sfx.whoosh(); sfx.clang(); }
+  }, i * 380));
+  if (round === 1) game.heckle("shoot", { chance: 0.5 });
+  $("you-hand").innerHTML = `<span class="bob">✊</span>`;
+  $("them-hand").innerHTML = `<span class="bob">✊</span>`;
+  setTimeout(settle, words.length * 380);
+}
+
+function settle() {
+  revealing = false;
+  const winner = mine === theirs ? "draw" : beats(theirs, mine) ? "them" : "you";
+  if (winner !== "draw") wins[winner]++;
+  pastRounds.push({ you: mine, them: theirs, winner: winner === "draw" ? "draw" : winner === "them" ? "you won" : "the user won" });
+  const [a, b] = winner === "you" ? [mine, theirs] : [theirs, mine];
+  const verbLine = winner === "draw" ? "Same hands!" : `${cap(a)} ${VERB[`${a}>${b}`]} ${b}!`;
+  $("verb").textContent = verbLine;
+  const line = `you threw ${theirs}, the user threw ${mine}: `
+    + (winner === "draw" ? "a draw." : winner === "them" ? `you win the round (${verbLine})` : `the user wins the round (${verbLine})`);
+  const name = RexGame.escape(game.companion);
+  log(`<b>Round ${round}</b>: you ${ICON[mine]} vs ${ICON[theirs]} ${name} - `
+    + (winner === "draw" ? "draw" : winner === "you" ? "<b>you win</b>" : `${name} wins`));
+  render(true, winner);
+  if (winner === "you") {
+    roll++;
+    sfx.combo(roll);
+    game.award(20 + (roll > 1 ? 10 * (roll - 1) : 0), roll > 1 ? `Combo ×${roll}!` : "", $("slot-you"));
+  } else {
+    roll = 0;
+    if (winner === "them") { sfx.error(); game.react("round_win"); } else { sfx.draw(); game.react("tie"); }
+  }
+  if (winner === "you" && wins.you < M.target) game.react("round_lose");
+  if (wins.you >= M.target || wins.them >= M.target) {
+    matchOver = true;
+    render(true, winner);
+    const userWon = wins.you >= M.target;
+    const msg = `Match over: ${userWon ? "the user won" : "you won"} ${Math.max(wins.you, wins.them)} to ${Math.min(wins.you, wins.them)}.`;
+    game.tell(`Round ${round}: ${line} ${msg}`, false);
+    setTimeout(() => game.end({ outcome: userWon ? "win" : "loss", points: userWon ? M.points : 0,
+      detail: `${verbLine} ${wins.you} – ${wins.them}.` }), 900);
+    return;
+  }
+  lastResult = `Last round: ${line} `;
+  setTimeout(nextRound, 1700);
+}
+
+function nextRound() {
+  round++; mine = theirs = null;
+  $("verb").textContent = "";
+  render();
+  askThrow();
+}
+
+function userThrow(hand) {
+  if (matchOver || mine || revealing) return;
+  mine = hand;
+  sfx.pop();
+  render();
+  if (theirs) showdown();
+}
+
+function newMatch() {
+  game.cancelForce();
+  round = 1; mine = theirs = null; wins = { you: 0, them: 0 }; pastRounds = []; matchOver = false; lastResult = ""; roll = 0; revealing = false;
+  $("log").innerHTML = ""; $("verb").textContent = "";
+  render();
+  sfx.whoosh();
+  game.tell(`New Rock Paper Scissors match${game.mode === "spock" ? " (Lizard-Spock edition)" : ""}, `
+    + `${M.target === 1 ? "sudden death: one round decides it" : `first to ${M.target}`}.`);
+  askThrow();
+}
+
+function paintHands() {
+  const box = $("hands");
+  box.innerHTML = "";
+  for (const h of M.hands) {
+    const b = document.createElement("button");
+    b.className = "rx-btn"; b.dataset.hand = h;
+    b.innerHTML = `${ICON[h]}<small>${cap(h)}</small>`;
+    b.onclick = () => userThrow(h);
+    b.onmouseenter = () => sfx.hover();
+    box.appendChild(b);
+  }
+}
+
+function render(reveal = false, winner = null) {
+  const done = mine && theirs && !revealing;
+  if (!revealing) {
+    $("you-hand").innerHTML = mine ? `<span class="${reveal ? "reveal" : ""}">${ICON[mine]}</span>` : '<span class="wait">pick below</span>';
+    $("them-hand").innerHTML = done ? `<span class="${reveal ? "reveal" : ""}">${ICON[theirs]}</span>`
+      : theirs ? '<span class="wait">ready ✔</span>' : '<span class="wait">thinking…</span>';
+  }
+  $("slot-you").classList.toggle("win", !!done && winner === "you");
+  $("slot-them").classList.toggle("win", !!done && winner === "them");
+  $("slot-you").classList.toggle("lose", !!done && winner === "them");
+  $("slot-them").classList.toggle("lose", !!done && winner === "you");
+  $("s-you").textContent = wins.you; $("s-them").textContent = wins.them;
+  $("pips").innerHTML = [...Array(M.target)].map((_, i) => `<i class="${i < wins.you ? "y" : ""}"></i>`).join("")
+    + "<span style='width:14px'></span>" + [...Array(M.target)].map((_, i) => `<i class="${i < wins.them ? "t" : ""}"></i>`).join("");
+  document.querySelectorAll("#hands button").forEach((b) => { b.disabled = !!mine || matchOver; });
+  const name = RexGame.escape(game.companion);
+  $("status").innerHTML = matchOver ? (wins.you >= M.target ? "<b>You win the match!</b>" : `<b>${name} wins the match!</b>`)
+    : `<b>Round ${round}</b>` + (mine && !theirs ? ` - waiting for ${name}…` : "");
+}
+
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+function log(html) { $("log").insertAdjacentHTML("afterbegin", `<div>${html}</div>`); }
+
+$("new").onclick = () => { sfx.click(); newMatch(); };
+round = 1; mine = theirs = null; wins = { you: 0, them: 0 }; pastRounds = []; matchOver = false;
+paintHands();
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,173 @@
+/* Rexclaw mini-games kit: the look of what the kit itself puts on a page
+   (speech bubble, chat box, result screen, settings menu, crew toasts, modes,
+   record line, cards, dice, score pops). neuro.js loads it on its own, so a
+   game with a look of its own needs nothing else. Colours come from the
+   page's variables when it has them (games.css), with defaults otherwise. */
+[hidden] { display: none !important; }
+
+.rxk-btn {
+  font: 500 0.95rem system-ui, sans-serif; padding: 8px 16px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--line, #334155); background: var(--panel-2, #1e293b); color: var(--text, #e2e8f0);
+  transition: background .15s, transform .05s;
+}
+.rxk-btn:hover { background: #273449; }
+.rxk-btn:active { transform: translateY(1px); }
+.rxk-btn.primary { background: #b45309; border-color: #f59e0b; color: #fff; }
+.rxk-btn.primary:hover { background: #92400e; }
+
+/* The toolbar: the settings cog (and, on a page without a header, the link). */
+.rxk-tools { display: flex; gap: 4px; align-items: center; position: relative; }
+.rxk-floatbar { position: fixed; top: 12px; right: 12px; z-index: 50; }
+.rxk-icon {
+  background: rgba(30,41,59,.85); border: 1px solid var(--line, #334155); border-radius: 9px; width: 34px; height: 30px;
+  cursor: pointer; font-size: 0.95rem; padding: 0; color: var(--text, #e2e8f0); backdrop-filter: blur(6px);
+}
+.rxk-icon:hover { background: #273449; }
+.rxk-pill { font: 0.75rem system-ui, sans-serif; padding: 3px 10px; border-radius: 999px; background: rgba(30,41,59,.85); color: #94a3b8; white-space: nowrap; }
+.rxk-pill.on { color: #22c55e; } .rxk-pill.off { color: #f87171; }
+.rxk-menu {
+  position: absolute; top: 36px; right: 0; z-index: 60; width: 250px; padding: 12px; border-radius: 14px;
+  background: #0f172a; border: 1px solid #334155; box-shadow: 0 20px 50px rgba(0,0,0,.55);
+  font: 0.85rem system-ui, sans-serif; color: #e2e8f0; animation: rxk-pop .18s ease-out;
+}
+.rxk-menu h4 { margin: 0 0 8px; font: italic 800 0.95rem Georgia, serif; color: #fde68a; }
+.rxk-menu label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 7px 0; }
+.rxk-menu select, .rxk-menu input[type=range] { width: 130px; }
+.rxk-menu select { font: inherit; padding: 4px 6px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; }
+.rxk-menu .rxk-sub { font-size: 0.72rem; color: #94a3b8; margin: -3px 0 6px; }
+
+/* Doubloons and the record under the header. */
+.rx-record { margin: 0 0 10px; font: 0.8rem system-ui, sans-serif; color: var(--muted, #94a3b8); }
+.rx-record:empty { display: none; }
+.rx-record .dbl { color: var(--gold, #facc15); font-weight: 700; }
+.rx-record b { color: var(--text, #e2e8f0); }
+.rx-record .hot { color: #fb923c; font-weight: 700; } .rx-record .cold { color: #7dd3fc; }
+
+/* Modes: tabs under the record line. */
+.rx-modes { display: flex; gap: 6px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 2px; }
+.rx-modes button {
+  flex: 1; min-width: 96px; font: 600 0.85rem system-ui, sans-serif; color: var(--muted, #94a3b8); cursor: pointer;
+  background: var(--panel, #16213b); border: 1px solid var(--line, #334155); border-radius: 12px; padding: 7px 10px; transition: all .15s;
+}
+.rx-modes button small { display: block; font-weight: 400; font-size: 0.7rem; opacity: .8; }
+.rx-modes button.on { color: #fff; background: linear-gradient(180deg, #b45309, #78350f); border-color: #f59e0b; box-shadow: 0 0 14px rgba(245,158,11,.25); }
+
+/* The result screen. */
+.rx-end { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: rgba(2,6,23,.55); animation: rxk-fade .25s; padding: 16px; font-family: system-ui, sans-serif; }
+.rx-end .card {
+  width: min(390px, 100%); text-align: center; padding: 24px 20px 18px; border-radius: 22px; color: #e2e8f0;
+  background: linear-gradient(180deg, #1e293b, #0f172a); border: 2px solid #334155; box-shadow: 0 30px 80px rgba(0,0,0,.6);
+  animation: rxk-boing .5s cubic-bezier(.2,1.6,.4,1);
+}
+.rx-end.win .card { border-color: #f59e0b; box-shadow: 0 0 60px rgba(245,158,11,.35), 0 30px 80px rgba(0,0,0,.6); }
+.rx-end.loss .card { border-color: #7f1d1d; }
+.rx-end .title { font: italic 900 2.4rem/1 Georgia, serif; background: linear-gradient(180deg, #fef3c7, #f59e0b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.rx-end.loss .title { background-image: linear-gradient(180deg, #fecaca, #ef4444); }
+.rx-end.draw .title { background-image: linear-gradient(180deg, #e2e8f0, #94a3b8); }
+.rx-end .detail { margin-top: 8px; }
+.rx-end .quip { margin-top: 10px; font-style: italic; color: #fde68a; font-size: 0.9rem; }
+.rx-end .pts { margin-top: 10px; font-size: 1.3rem; font-weight: 800; color: #facc15; text-shadow: 0 0 12px rgba(250,204,21,.5); }
+.rx-end .sub { margin-top: 6px; font-size: 0.82rem; color: #94a3b8; }
+.rx-end .rxk-bar { display: flex; justify-content: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+@keyframes rxk-fade { from { opacity: 0; } }
+@keyframes rxk-boing { from { transform: scale(.6) translateY(30px); opacity: 0; } }
+@keyframes rxk-pop { from { transform: translateY(-6px); opacity: 0; } }
+
+/* Juice: confetti, score pops, shake, flash, banners, the odd seagull. */
+.rx-confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 80; }
+.rx-float {
+  position: fixed; z-index: 75; transform: translate(-50%, -50%); pointer-events: none; white-space: nowrap;
+  font: 900 1.25rem system-ui, sans-serif; text-shadow: 0 2px 0 rgba(0,0,0,.5), 0 0 12px currentColor; animation: rxk-rise 1.4s ease-out forwards;
+}
+.rx-float.big { font-size: 2rem; }
+@keyframes rxk-rise { 0% { opacity: 0; transform: translate(-50%, -30%) scale(.6); } 15% { opacity: 1; transform: translate(-50%, -60%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -260%) scale(1); } }
+.rx-shake { animation: rxk-shake .45s; }
+@keyframes rxk-shake { 20% { transform: translateX(-8px) rotate(-.6deg); } 40% { transform: translateX(7px) rotate(.5deg); } 60% { transform: translateX(-5px); } 80% { transform: translateX(3px); } }
+.rx-flash { position: fixed; inset: 0; z-index: 65; pointer-events: none; animation: rxk-fade .6s reverse forwards; }
+.rx-banner {
+  text-align: center; font: italic 900 1.5rem Georgia, serif; color: var(--gold, #facc15); text-shadow: 0 0 18px rgba(250,204,21,.6);
+  animation: rxk-boing .45s cubic-bezier(.2,1.6,.4,1);
+}
+.rxk-gull { position: fixed; z-index: 55; width: 64px; height: 40px; cursor: crosshair; animation: rxk-fly 9s linear forwards; }
+.rxk-gull svg { width: 100%; height: 100%; }
+.rxk-gull .wing { transform-origin: 32px 20px; animation: rxk-flap .35s ease-in-out infinite alternate; }
+@keyframes rxk-fly { from { transform: translateX(-80px); } to { transform: translateX(calc(100vw + 80px)); } }
+@keyframes rxk-flap { from { transform: scaleY(1); } to { transform: scaleY(-.6); } }
+.rxk-gull.hit { animation: rxk-bonk .8s ease-in forwards; }
+@keyframes rxk-bonk { to { transform: translateY(110vh) rotate(540deg); opacity: .4; } }
+
+/* The animated scene behind a page (scenes.js). */
+.rxk-scene { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none; }
+
+/* A crew member's cameo: a toast in the corner, with their portrait. */
+.rxk-crew {
+  position: fixed; left: 14px; top: 14px; z-index: 66; display: flex; align-items: center; gap: 10px; max-width: min(360px, calc(100vw - 28px));
+  padding: 8px 14px 8px 8px; border-radius: 16px; background: rgba(15,23,42,.94); border: 1px solid #f59e0b88;
+  box-shadow: 0 14px 40px rgba(0,0,0,.5); color: #e2e8f0; font: 0.88rem/1.3 system-ui, sans-serif;
+  animation: rxk-slide .35s cubic-bezier(.2,1.5,.4,1); pointer-events: none;
+}
+.rxk-crew img, .rxk-crew .ini { width: 46px; height: 46px; border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 2px #f59e0b; background: #78350f; display: grid; place-items: center; font-weight: 800; }
+.rxk-crew b { display: block; color: #fde68a; font-size: 0.78rem; }
+.rxk-crew b small { color: #94a3b8; font-weight: 500; }
+.rxk-crew.out { animation: rxk-slideout .4s ease-in forwards; }
+@keyframes rxk-slide { from { transform: translateX(-120%); } }
+@keyframes rxk-slideout { to { transform: translateX(-130%); opacity: 0; } }
+
+/* The companion's speech bubble and the chat box, at the foot of every game. */
+body.rx-has-dock { padding-bottom: 150px; }
+.rx-dock {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; padding: 10px 16px 14px;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none;
+  background: linear-gradient(to top, rgba(15,23,42,.92) 55%, rgba(15,23,42,0)); font-family: system-ui, sans-serif;
+}
+.rx-dock > * { width: 100%; max-width: 600px; pointer-events: auto; }
+.rx-bubble {
+  position: relative; background: #f8fafc; color: #0f172a; border-radius: 16px; padding: 9px 14px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 0.95rem; max-height: 6.5em; overflow-y: auto;
+}
+.rx-bubble b { color: #4f46e5; margin-right: 6px; }
+.rx-bubble.quip { background: #fef3c7; }
+.rx-bubble.quip b { color: #b45309; }
+.rx-bubble.pop { animation: rxk-bubble .3s ease-out; }
+.rx-bubble.typing .text { display: inline-block; animation: rxk-blink 1s infinite; font-weight: 800; letter-spacing: .2em; }
+@keyframes rxk-bubble { from { transform: translateY(8px) scale(.97); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes rxk-blink { 50% { opacity: .3; } }
+.rx-chat { display: flex; gap: 8px; }
+.rx-chat input {
+  flex: 1; font: inherit; padding: 9px 14px; border-radius: 12px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0;
+}
+.rx-chat input:focus { outline: 2px solid #f59e0b; outline-offset: 0; }
+
+/* Playing cards (RexGame.cardElement) */
+.rx-hand { display: flex; flex-wrap: wrap; gap: 6px; min-height: 92px; align-items: flex-end; }
+.rx-card {
+  width: 62px; height: 88px; border-radius: 8px; background: #fff; position: relative; flex: none; font-family: system-ui, sans-serif;
+  box-shadow: 0 3px 8px rgba(0,0,0,.35); font-weight: 700; user-select: none; animation: rxk-deal .25s ease-out; transition: transform .12s;
+}
+.rx-card.red { color: #dc2626; } .rx-card.black { color: #0f172a; }
+.rx-card .corner { position: absolute; top: 4px; left: 6px; font-size: 0.85rem; line-height: 1.05; text-align: center; }
+.rx-card .pip { position: absolute; inset: 0; display: grid; place-items: center; font-size: 1.9rem; }
+.rx-card.back { background: radial-gradient(circle at 50% 50%, #b45309 0 18%, transparent 19%), repeating-linear-gradient(45deg, #7c2d12 0 6px, #9a3412 6px 12px); border: 3px solid #fde68a; }
+.rx-card.small { width: 46px; height: 66px; }
+.rx-card.small .pip { font-size: 1.35rem; } .rx-card.small .corner { font-size: 0.72rem; }
+.rx-card.playable { cursor: pointer; outline: 2px solid var(--gold, #facc15); outline-offset: 1px; }
+.rx-card.playable:hover { transform: translateY(-6px) rotate(-2deg); }
+.rx-card.dim { filter: brightness(.6); }
+@keyframes rxk-deal { from { transform: translateY(-14px) rotate(-6deg); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Dice (RexGame.dieElement) */
+.rx-dice { display: flex; flex-wrap: wrap; gap: 8px; }
+.rx-die {
+  width: 46px; height: 46px; border-radius: 10px; background: #f8fafc; display: grid; place-items: center;
+  box-shadow: 0 3px 8px rgba(0,0,0,.35), inset 0 -3px 0 rgba(0,0,0,.08); animation: rxk-roll .35s ease-out;
+}
+.rx-die svg { width: 100%; height: 100%; fill: #0f172a; }
+.rx-die.hidden { background: #334155; color: #94a3b8; font: 800 1.2rem system-ui, sans-serif; }
+.rx-die.hl { box-shadow: 0 0 0 3px var(--gold, #facc15), 0 3px 8px rgba(0,0,0,.35); }
+@keyframes rxk-roll { from { transform: rotate(-25deg) scale(.7); opacity: 0; } to { transform: none; opacity: 1; } }
+
+@media (max-width: 480px) {
+  .rx-card { width: 50px; height: 72px; } .rx-card .pip { font-size: 1.5rem; }
+  .rx-die { width: 38px; height: 38px; }
+  .rxk-crew { top: auto; bottom: 150px; }
+}

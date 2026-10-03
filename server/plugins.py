@@ -65,6 +65,41 @@ stable across versions.
                                   settings `fields`. It is offered in
                                   Settings → Models & providers beside
                                   the built-in ones.
+    api.add_minigame(page, title, description='', icon='🎮')
+                                  a game page of this extension's (a path
+                                  inside the add_static folder) listed in
+                                  the mini-games library beside the
+                                  built-in ones. Simpler still: any
+                                  sub-folder of the add_static folder with
+                                  a game.json is listed by itself. Either
+                                  way the page plays like the built-in
+                                  games; see web/public/games/README.md.
+    api.connect_game(name, on_action, companion=None, offcall=None,
+                     on_say=None)
+                                  a game companions can play, for a game
+                                  reached some other way than the Neuro API
+                                  socket (its own API, a mod's HTTP port, a
+                                  board on a web page...). Returns a client
+                                  with the Neuro API's game-side messages as
+                                  methods: context(message, silent=False),
+                                  register([{'name', 'description',
+                                  'schema'}]), unregister(names),
+                                  force(query, action_names, state=None,
+                                  ephemeral_context=False, priority='low'),
+                                  chat(text) (the user typed to the
+                                  companion) and close(). companion (an
+                                  agent id) and offcall ('wait', 'separate'
+                                  or 'latest') default to the Games tab's;
+                                  on_say(text) gets what the companion
+                                  says. on_action(name, data) runs a
+                                  companion's move (data: the parsed dict,
+                                  or None) and returns (success, message), a
+                                  message string (success), or raises
+                                  (failure). It runs on its own thread and
+                                  should answer within 20 seconds. Connect
+                                  once the app is up (an api.on('startup')
+                                  handler, a route of yours), not inside
+                                  setup(). See server/games.py.
     api.on_recording_rendered(fn) fn(mp3_path, timeline) after each render.
                                   timeline = {'duration', 'marks': [{'at',
                                   'directive', 'data'}], 'speech': [[start,
@@ -126,6 +161,7 @@ class _Plugin:
         self.routers = []
         self.static = None      # folder served at /plugins/<id>/
         self.companion_toggle = None   # {'label', 'help'}: a switch in the companion form
+        self.minigames = []     # {'page', 'title', 'description', 'icon'}: the mini-games library
 
 
 class PluginAPI:
@@ -170,6 +206,15 @@ class PluginAPI:
 
     def on_recording_rendered(self, fn):
         self._plugin.render_hooks.append(fn)
+
+    def add_minigame(self, page, title, description='', icon='🎮'):
+        self._plugin.minigames.append({'page': page.lstrip('/'), 'title': title,
+                                       'description': description, 'icon': icon})
+
+    def connect_game(self, name, on_action, companion=None, offcall=None, on_say=None):
+        from . import games
+        return games.GameClient(name, on_action, self.id, companion=companion, offcall=offcall,
+                                on_say=on_say)
 
     def add_voice_engine(self, stage, engine_class):
         if stage not in ('stt', 'llm', 'tts'):
@@ -286,11 +331,15 @@ def _load(plugin):
         _logger.exception('extension %s failed to load', plugin.id)
         plugin.error = f'{type(e).__name__}: {e}'
         plugin.providers, plugin.render_hooks, plugin.directives = [], [], {}
-        plugin.voice_engines = []
+        plugin.voice_engines, plugin.minigames = [], []
         plugin.handlers = {event: [] for event in EVENTS}
         plugin.page = plugin.companion_toggle = None
         return
     plugin.routers, plugin.static = api._routers, api._static
+    if plugin.minigames and plugin.static is None:
+        _logger.warning('extension %s: add_minigame needs add_static (where its pages live); games skipped',
+                        plugin.id)
+        plugin.minigames = []
     for dname, entry in plugin.directives.items():
         if dname in _directives:
             _logger.warning('extension %s: directive {%s} already belongs to %s, skipped',
@@ -436,6 +485,22 @@ def recording_rendered(mp3_path, timeline):
             if isinstance(note, str) and note.strip():
                 notes.append(note.strip())
     return notes
+
+
+def minigames():
+    """The games extensions add to the mini-games library: every sub-folder
+    of their static folder with a game.json, and each add_minigame page."""
+    from . import games
+    out = []
+    for plugin in _active():
+        name = plugin.manifest.get('name') or plugin.id
+        if plugin.static is not None:
+            out += games.read_manifests(plugin.static, f'/plugins/{plugin.id}', name)
+        out += [{'id': game['page'], 'title': game['title'], 'description': game['description'], 'tags': [],
+                 'url': f'/plugins/{plugin.id}/{game["page"]}', 'cover': None, 'icon': game['icon'],
+                 'background': None, 'save_key': game['title'], 'order': 100, 'extension': name}
+                for game in plugin.minigames]
+    return out
 
 
 def voice_engines(stage):

@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crazy Eights · Rexclaw</title>
+<link rel="stylesheet" href="../lib/games.css">
+<!-- Crazy Eights (the card game Uno grew from) in the galley, against a
+     companion over the Neuro API. Eights are the Kraken: wild. Chaos mode
+     adds the Uno-style power cards: a 2 makes the other side draw two and
+     lose their turn, a Jack skips them. The companion's hand changes every
+     turn, so the action takes a free-form card name, read forgivingly, and
+     every turn lists exactly which cards can be played. -->
+<style>
+  .middle { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 14px 0; }
+  .pile { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 0.78rem; color: #bbf7d0; }
+  .pile .rx-card.back { cursor: pointer; }
+  .pile .rx-card.back.off { cursor: default; filter: grayscale(.6) brightness(.8); }
+  .pile .rx-card.back:not(.off):hover { transform: translateY(-4px); box-shadow: 0 0 16px rgba(250,204,21,.5); }
+  .suit-now { font-size: 2.2rem; line-height: 1; transition: transform .3s; }
+  .suit-now.red { color: #f87171; } .suit-now.black { color: #e2e8f0; }
+  .suit-now.spin { animation: spin .6s cubic-bezier(.2,1.6,.4,1); }
+  @keyframes spin { from { transform: rotate(-360deg) scale(.3); } }
+  .them-hand .rx-card { margin-right: -30px; }
+  .picker { display: none; justify-content: center; gap: 10px; margin-top: 10px; }
+  .picker.on { display: flex; }
+  .picker button { font-size: 1.6rem; width: 58px; }
+  .rx-card.power::after { content: attr(data-power); position: absolute; bottom: 3px; right: 4px; font: 800 0.55rem system-ui; color: #7c3aed; }
+  .rx-card.kraken { background: linear-gradient(160deg, #fff, #ede9fe); }
+  .rx-card.kraken::after { content: "🐙"; position: absolute; bottom: 2px; right: 3px; font-size: 0.8rem; }
+  #banner { min-height: 2.2rem; }
+</style>
+</head>
+<body>
+<main>
+  <header class="rx-top">
+    <a class="rx-back" href="../index.html">← Deck</a>
+    <h1>Crazy Eights<small>In the galley. Eights are the Kraken.</small></h1>
+    <span id="rx-link" class="rx-pill off">Connecting…</span>
+  </header>
+  <div class="rx-table">
+    <p class="rx-label"><span data-companion>Your companion</span> · <span id="n-them">0</span> cards</p>
+    <div class="rx-hand them-hand" id="h-them"></div>
+    <div class="middle">
+      <div class="pile"><div id="stock"></div><span id="n-stock"></span></div>
+      <div class="pile"><div id="top"></div><span>discard</span></div>
+      <div class="pile"><span class="suit-now" id="suit"></span><span>to match</span></div>
+    </div>
+    <p class="rx-label">Your hand</p>
+    <div class="rx-hand" id="h-you"></div>
+    <div class="picker" id="picker"></div>
+  </div>
+  <div class="rx-banner" id="banner"></div>
+  <div id="status" class="rx-status"></div>
+  <div class="rx-bar"><button class="rx-btn primary" id="new">New game</button></div>
+  <div class="rx-log rx-panel" id="log"></div>
+  <p class="rx-hint" id="hint"></p>
+</main>
+<script src="../lib/neuro.js"></script>
+<script src="../lib/juice.js"></script>
+<script src="../lib/music.js"></script>
+<script src="../lib/scenes.js"></script>
+<script src="../lib/crew.js"></script>
+<script src="../lib/lines.js"></script>
+<script>
+"use strict";
+const { sfx, fx, cardText, cardName, SUITS, SUIT_SYMBOL } = RexGame;
+let stock = [], discard = [], hands = { you: [], them: [] }, suit = null, turn = "you", over = true, starter = "you", pending8 = null;
+const $ = (id) => document.getElementById(id);
+const chaos = () => game.mode === "chaos";
+const POWER = { 2: "+2", J: "SKIP" };
+
+const game = RexGame.create({
+  name: "Crazy Eights",
+  modes: [
+    { id: "classic", label: "Classic", hint: "eights are wild" },
+    { id: "chaos", label: "Chaos", hint: "2 = draw two · J = skip" },
+  ],
+  onMode: () => { paintHint(); if (!over) newGame(); else render(); },
+  music: ["galley-ruckus", "kraken-waltz"],
+  scenes: ["tavern", "deep", "night"],
+  rules: "You are playing Crazy Eights against the user. On your turn, play one card that matches the suit to match or "
+    + "the rank of the top card. Eights are wild (the Kraken): you can play an 8 any time and name the suit the user must "
+    + "match next. If you can't or don't want to play, draw a card; drawing ends your turn. In Chaos mode, a 2 makes the "
+    + "other player draw two cards and lose their turn, and a Jack skips their turn (so you go again). The first to get "
+    + "rid of all their cards wins.",
+  actions: [
+    { name: "play_card", description: "Play a card from your hand, e.g. \"9 of spades\". With an 8, also name the next suit.",
+      schema: { type: "object", properties: { card: { type: "string" }, suit: { type: "string", enum: SUITS } }, required: ["card"] } },
+    { name: "draw_card", description: "Draw one card from the pile. Your turn ends." },
+  ],
+  onAction(name, args) {
+    if (over) throw new RexGame.Refuse("No game is running. Wait for the user to start one.");
+    if (turn !== "them") throw new RexGame.Refuse("It's the user's turn.");
+    if (name === "draw_card") return drawFor("them");
+    const card = findCard(hands.them, args.card);
+    if (!card.ok) throw new RexGame.Refuse(card.error);
+    if (!canPlay(card.card)) throw new RexGame.Refuse(`${cardName(card.card)} doesn't match. ${playableText()}`);
+    let next = null;
+    if (card.card.rank === "8") {
+      next = SUITS.find((s) => s === String(args.suit || "").toLowerCase().replace(/s?$/, "s")) || mostHeld(hands.them, card.card);
+    }
+    return play("them", card.card, next, !args.suit && card.card.rank === "8");
+  },
+  onCompanion: () => render(),
+  onAgain: () => newGame(),
+});
+
+// Not `top`: a classic script's top-level `const top` collides with window.top.
+const topCard = () => discard[discard.length - 1];
+const canPlay = (c) => c.rank === "8" || c.suit === suit || c.rank === topCard().rank;
+const same = (a, b) => a.rank === b.rank && a.suit === b.suit;
+
+/** The card in `hand` that `text` names, forgiving a missing or misspelt suit. */
+function findCard(hand, text) {
+  const want = RexGame.parseCard(text);
+  if (!want) return { ok: false, error: `"${text}" isn't a card. Your hand: ${hand.map(cardText).join(", ")}.` };
+  const matches = hand.filter((c) => c.rank === want.rank && (!want.suit || c.suit === want.suit));
+  if (matches.length === 1) return { ok: true, card: matches[0] };
+  if (!matches.length) return { ok: false, error: `You don't hold ${want.suit ? cardName(want) : `a ${want.rank}`}. Your hand: ${hand.map(cardText).join(", ")}.` };
+  const playable = matches.filter(canPlay);
+  if (playable.length === 1) return { ok: true, card: playable[0] };
+  return { ok: false, error: `Which one? You hold ${matches.map(cardName).join(" and ")}.` };
+}
+
+function mostHeld(hand, except) {
+  const counts = Object.fromEntries(SUITS.map((s) => [s, 0]));
+  hand.forEach((c) => { if (!same(c, except) && c.rank !== "8") counts[c.suit]++; });
+  return SUITS.reduce((a, b) => (counts[b] > counts[a] ? b : a));
+}
+
+function playableText() {
+  const ok = hands.them.filter(canPlay);
+  const tag = (c) => cardText(c) + (chaos() && POWER[c.rank] ? ` (${POWER[c.rank] === "+2" ? "user draws two" : "skips the user"})` : "");
+  return ok.length ? `You can play: ${ok.map(tag).join(", ")}.` : "Nothing in your hand matches: draw_card.";
+}
+
+function askMove(lastLine) {
+  const ok = hands.them.filter(canPlay);
+  game.force({
+    state: `## ${chaos() ? "CHAOS MODE (2 = the other draws two and is skipped, J = skip). " : ""}`
+      + `Top card: ${cardText(topCard())}. Suit to match: ${suit} ${SUIT_SYMBOL[suit]}\n`
+      + `Your hand: ${hands.them.map(cardText).join(", ")}\n`
+      + `${playableText()}${ok.some((c) => c.rank === "8") && ok.length > 1 ? " (Eights are best kept for when nothing else fits.)" : ""}\n`
+      + `The user holds ${hands.you.length} card${hands.you.length === 1 ? "" : "s"}.`
+      + (hands.you.length === 1 ? " They're about to win!" : ""),
+    query: `${lastLine} Your turn: ${ok.length ? "play_card or draw_card" : "draw_card"}.`.trim(),
+    actions: ok.length ? ["play_card", "draw_card"] : ["draw_card"],
+  });
+}
+
+function refill() {
+  if (stock.length) return true;
+  if (discard.length < 2) return false;
+  const keep = discard.pop();
+  stock = RexGame.shuffle(discard);
+  discard = [keep];
+  sfx.shuffle();
+  return true;
+}
+
+function banner(text, color = null) {
+  const el = $("banner");
+  el.textContent = text; el.style.color = color || "";
+  el.style.animation = "none"; void el.offsetWidth; el.style.animation = "";
+}
+
+/** Returns the companion's result line. */
+function play(who, card, nextSuit, autoSuit = false) {
+  hands[who] = hands[who].filter((c) => !same(c, card));
+  discard.push(card);
+  suit = card.rank === "8" ? nextSuit : card.suit;
+  sfx.card();
+  const other = who === "you" ? "them" : "you";
+  const whoName = who === "you" ? "You" : RexGame.escape(game.companion);
+  log(`<b>${whoName}</b> played ${cardText(card)}${card.rank === "8" ? ` and chose ${SUIT_SYMBOL[suit]}` : ""}`);
+  banner("");
+  if (card.rank === "8") {
+    banner(`🐙 KRAKEN! ${SUIT_SYMBOL[suit]} ${suit}`, "#c4b5fd");
+    sfx.roar(); sfx.splash();
+    fx.flash("rgba(124,58,237,.25)");
+    game.heckle("kraken", { chance: 0.35 });
+    $("suit").classList.remove("spin"); void $("suit").offsetWidth; $("suit").classList.add("spin");
+    if (who === "them") game.react("wild");
+  }
+  if (!hands[who].length) {
+    over = true;
+    render();
+    const left = hands[other].length;
+    const end = who === "them" ? "You played your last card and won!" : `The user played ${cardName(card)}, their last card, and won.`;
+    if (who === "you") game.tell(`Game over: ${end}`, false);
+    setTimeout(() => game.end(who === "you"
+      ? { outcome: "win", points: Math.round((100 + left * 10) * (chaos() ? 1.3 : 1)), detail: `${game.companion} was left holding ${left} card${left === 1 ? "" : "s"}.` }
+      : { outcome: "loss", detail: `${game.companion} went out first.` }), 500);
+    return end;
+  }
+  // Chaos power cards keep the turn with whoever played them.
+  let keep = false, power = "";
+  if (chaos() && card.rank === "2") {
+    for (let i = 0; i < 2 && refill(); i++) hands[other].push(stock.pop());
+    keep = true;
+    banner("+2!", "#f472b6"); sfx.shuffle();
+    if (who === "them") game.react("draw_two"); else game.award(15, "+2!", $("h-them"));
+    power = who === "them" ? " The user draws two and loses their turn: go again." : "";
+  } else if (chaos() && card.rank === "J") {
+    keep = true;
+    banner("SKIP!", "#38bdf8"); sfx.whoosh();
+    power = who === "them" ? " The user is skipped: go again." : "";
+    if (who === "you") game.award(10, "Skip!", $("h-them"));
+  }
+  if (hands[who].length === 1) {
+    if (who === "them") game.react("last_card");
+    else { banner("LAST CARD!", "#facc15"); sfx.alarm(); }
+  }
+  turn = keep ? who : other;
+  render();
+  if (turn === "them") {
+    if (who === "you") askMove(`The user played ${cardName(card)}${card.rank === "8" ? ` and chose ${suit}` : ""}${keep ? "" : "."}`
+      + (chaos() && card.rank === "2" ? " You draw two and lose your turn." : chaos() && card.rank === "J" ? " You're skipped." : ""));
+    else askMove(`You played ${cardName(card)}.${power}`);
+    return who === "them" ? `You played ${cardName(card)}.${power}` : "";
+  }
+  return `You played ${cardName(card)}${card.rank === "8" ? `; the suit is now ${suit}${autoSuit ? " (you didn't name one, so it's your most-held suit)" : ""}` : ""}. `
+    + `You have ${hands.them.length} card${hands.them.length === 1 ? "" : "s"} left. The user's turn.`;
+}
+
+function drawFor(who) {
+  if (!refill()) {
+    turn = who === "you" ? "them" : "you";
+    render();
+    if (turn === "them") askMove("The pile is empty, so the user passed.");
+    return "The pile is empty: you pass. The user's turn.";
+  }
+  const card = stock.pop();
+  hands[who].push(card);
+  sfx.card();
+  log(`<b>${who === "you" ? "You" : RexGame.escape(game.companion)}</b> drew a card`);
+  turn = who === "you" ? "them" : "you";
+  render();
+  if (turn === "them") { askMove("The user drew a card."); return ""; }
+  return `You drew ${cardName(card)}. The user's turn.`;
+}
+
+function newGame() {
+  game.cancelForce();
+  stock = RexGame.deck();
+  hands = { you: stock.splice(0, 7), them: stock.splice(0, 7) };
+  // An eight or a power card can't start the pile.
+  const first = stock.findIndex((c) => c.rank !== "8" && !(chaos() && POWER[c.rank]));
+  discard = stock.splice(first, 1);
+  suit = topCard().suit;
+  over = false; pending8 = null;
+  turn = starter; starter = starter === "you" ? "them" : "you";
+  $("log").innerHTML = ""; banner("");
+  sfx.shuffle();
+  render();
+  game.tell(`New game of Crazy Eights${chaos() ? " in CHAOS mode" : ""}: 7 cards each. ${turn === "you" ? "The user goes" : "You go"} first.`);
+  if (turn === "them") askMove("");
+}
+
+function userClick(card) {
+  if (over || turn !== "you" || !canPlay(card)) { if (!over && turn === "you") sfx.error(); return; }
+  if (card.rank === "8") { pending8 = card; sfx.pop(); render(); return; }
+  play("you", card, null);
+}
+
+function render() {
+  const them = $("h-them"); them.innerHTML = "";
+  hands.them.forEach((c) => them.appendChild(RexGame.cardElement(c, { hidden: !over, small: true })));
+  const you = $("h-you"); you.innerHTML = "";
+  hands.you.forEach((c) => {
+    const el = RexGame.cardElement(c);
+    const playable = !over && turn === "you" && canPlay(c);
+    el.classList.toggle("playable", playable);
+    el.classList.toggle("dim", !over && turn === "you" && !playable);
+    if (c.rank === "8") el.classList.add("kraken");
+    else if (chaos() && POWER[c.rank]) { el.classList.add("power"); el.dataset.power = POWER[c.rank]; }
+    if (pending8 && same(pending8, c)) el.style.transform = "translateY(-10px)";
+    el.onclick = () => userClick(c);
+    you.appendChild(el);
+  });
+  $("n-them").textContent = hands.them.length;
+  const stockEl = $("stock"); stockEl.innerHTML = "";
+  const back = RexGame.cardElement(null, { hidden: true });
+  back.classList.toggle("off", over || turn !== "you");
+  back.title = "Draw a card";
+  back.onclick = () => { if (!over && turn === "you" && !pending8) drawFor("you"); };
+  stockEl.appendChild(back);
+  $("n-stock").textContent = `${stock.length} left`;
+  const topEl = $("top"); topEl.innerHTML = "";
+  if (discard.length) topEl.appendChild(RexGame.cardElement(topCard()));
+  $("suit").textContent = suit ? SUIT_SYMBOL[suit] : "";
+  $("suit").className = `suit-now ${suit === "hearts" || suit === "diamonds" ? "red" : "black"}${$("suit").classList.contains("spin") ? " spin" : ""}`;
+  const picker = $("picker");
+  picker.classList.toggle("on", !!pending8);
+  picker.innerHTML = "";
+  if (pending8) {
+    SUITS.forEach((s) => {
+      const b = document.createElement("button");
+      b.className = "rx-btn"; b.textContent = SUIT_SYMBOL[s]; b.title = s;
+      b.onclick = () => { const c = pending8; pending8 = null; play("you", c, s); };
+      picker.appendChild(b);
+    });
+  }
+  const name = RexGame.escape(game.companion);
+  $("status").innerHTML = over ? (discard.length ? (hands.you.length ? `<b>${name} wins!</b>` : "<b>You win!</b>") : "Press <b>New game</b> to deal.")
+    : pending8 ? "<b>Release the Kraken:</b> name the next suit."
+    : turn === "you" ? "<b>Your turn</b> - play a highlighted card or draw." : `<b>${name}</b> is choosing…`;
+}
+
+function paintHint() {
+  $("hint").textContent = "Play a card of the same suit or rank. Eights are the Kraken: wild, play one any time and name the next suit. "
+    + "Can't (or won't) play? Draw a card, and your turn ends. First to empty their hand wins."
+    + (chaos() ? " Chaos: a 2 makes the other side draw two and lose their turn; a Jack skips them." : "");
+}
+
+function log(html) { $("log").insertAdjacentHTML("afterbegin", `<div>${html}</div>`); }
+
+$("new").onclick = () => { sfx.click(); newGame(); };
+paintHint();
+render();
+</script>
+</body>
+</html>

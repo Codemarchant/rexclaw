@@ -68,7 +68,8 @@ SQLite ファイルに保存され、API キーはあなたのマシンにだけ
 | 🛠️ **ローカルコンピュータタスク** | オプトイン（`local_task`）：[Grok Build CLI](https://docs.x.ai/build) を通じて、あなたのマシン上でファイル・コード・シェルを実際に操作します。作業は指定した作業フォルダー内に限定されます（設定 → ローカルコンピュータタスク）。そのフォルダー内では確認プロンプトなしで動くため、**デフォルトはオフ** です。Docker では提供されません。 |
 | ⛏️ **Minecraft ボット** | オプトイン：コンパニオンが本物のプレイヤーとしてあなたの Minecraft ワールドに参加し、音声の指示でプレイして、ワールドの出来事に声で反応します（「ダイヤ見つけた！」）。モデルが書いたスクリプトをワールド内で実行するため **デフォルトはオフ** です。自分のサーバーか信頼できるサーバーでのみ使ってください。 |
 | 🔌 **リモート MCP ツール** | コンパニオンごとにリモート MCP サーバーを接続できます。Bearer 認証とツール単位のホワイトリストに対応し、すべて UI から設定できます。 |
-| 🧩 **拡張機能** | フォルダを置くだけで、独自のコンパニオン用ツール、ページ、音声エンジンを追加できます。 |
+| 🎮 **ゲーム（Neuro API）** | Neuro-sama のオープンなゲーム API 向けのゲーム（Slay the Spire 2、Inscryption、Buckshot Roulette、多数のコミュニティ MOD）をコンパニオンがプレイし、あなたと話しながら遊びます。四目並べからライアーズダイスまで、8 つのミニゲームを内蔵。 |
+| 🧩 **拡張機能** | フォルダを置くだけで、独自のコンパニオン用ツール、ページ、音声エンジン、ゲームを追加できます。 |
 
 ### あなたのもの
 
@@ -434,6 +435,42 @@ node index.js --port <LANポート> --username <コンパニオンの名前>
 セットアップ・設定・アーキテクチャ・安全上の注意の詳細：
 **[game_integrations/minecraft/README.md](../game_integrations/minecraft/README.md)**（英語）。
 
+## 🎮 ゲーム（Neuro API）
+
+Rexclaw は、Neuro-sama のゲーム連携が使うオープンなプロトコル
+**[Neuro API](https://github.com/VedalAI/neuro-sdk)** に対応しています。
+これに対応したゲームや MOD なら、コンパニオンが通話であなたと話しながら
+プレイできます。向いているのはターン制のゲーム（カードゲーム、デッキ構築、
+ボードゲーム、ローグライク、ノベルゲーム）です。1 手ごとにモデルが 1 秒以上
+かかるため、速いアクションゲームには向きません。
+
+連携はゲームに入れる MOD です。公式：
+[Slay the Spire 2](https://github.com/VedalAI/neuro-sts2)、
+[Inscryption](https://github.com/VedalAI/neuro-inscryption)、
+[Buckshot Roulette](https://github.com/VedalAI/neuro-buckshotroulette-reference)、
+[Hollow Knight](https://github.com/VedalAI/neuro-hollow-knight)、
+[Pokémon Platinum](https://github.com/VedalAI/neuro-pokemon-platinum)。
+コミュニティ製の MOD は
+[Neuro SDK の README](https://github.com/VedalAI/neuro-sdk#community-maintained)
+にあります。
+
+1. コンパニオンの **ゲーム** をオンにします（コンパニオン → 編集 → ツール）。
+2. ゲームを `ws://localhost:8990/game` に向けます（多くは環境変数
+   `NEURO_SDK_WS_URL` で設定）。Neuro の既定アドレスを使う MOD には、
+   **ゲーム** タブの **ws://localhost:8000 でも待ち受ける** にチェックを入れます。
+3. そのコンパニオンと通話を始めて遊びます。通話していないとき MOD は
+   あなたを待ちますが、ゲームタブでチャットでのプレイ継続も選べます。
+
+**内蔵ゲーム：** ブロードサイド！（3D の海戦）、四目並べ、ライアーズダイス、
+ブラックジャック、クレイジーエイト、板歩き、じゃんけん、三目並べ。ゲームタブの
+一覧から開け、クルーが本人の声で茶々を入れます。
+
+**自作ゲーム：** ゲームは `game.json` を置いたフォルダです。拡張機能も
+自分のゲームを追加したり、`api.connect_game()` でつないだりできます。詳しくは
+[web/public/games/README.md](../web/public/games/README.md)（英語）。
+他のマシンからサーバーに接続できる場合は `REXCLAW_GAMES_TOKEN` を設定し、
+アドレスに `?token=<その値>` を付けてください。
+
 
 ## 🖥️ ローカル生成（ComfyUI）
 
@@ -550,7 +587,7 @@ def setup(api):
 
 アップデート後も動作させるには `api` の呼び出しだけを使ってください（アプリ
 内部のモジュールは変わることがあります）。API の一覧（ルート、ページ、
-イベント、録音スクリプトのディレクティブ、音声エンジン）は
+イベント、録音スクリプトのディレクティブ、音声エンジン、ゲーム）は
 `server/plugins.py` にあります。
 
 ## 📋 クレジット

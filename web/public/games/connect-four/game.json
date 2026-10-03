@@ -1,0 +1,8 @@
+{
+  "title": "Connect Four",
+  "description": "Rubies against doubloons. Classic, a nine-wide Broadside, or Blitz with eight seconds on your clock.",
+  "tags": ["strategy", "board", "3 modes"],
+  "cover": "cover.svg",
+  "background": "linear-gradient(135deg,#2563eb,#1e3a8a)",
+  "order": 10
+}

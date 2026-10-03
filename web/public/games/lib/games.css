@@ -1,0 +1,64 @@
+/* The Rexmaw table theme: an optional look for game pages (header, panels,
+   felt tables, buttons). The kit's own widgets are styled by kit.css, which
+   neuro.js loads by itself; a game with a look of its own skips this file.
+   The animated backdrop is scenes.js; this is only its fallback. */
+:root {
+  --bg: #0f172a; --panel: #16213b; --panel-2: #1e293b; --line: #334155;
+  --text: #e2e8f0; --muted: #94a3b8; --accent: #818cf8; --ok: #22c55e; --bad: #f87171;
+  --gold: #facc15; --red: #ef4444; --felt: #14532d; --felt-2: #166534;
+}
+* { box-sizing: border-box; }
+html { color-scheme: dark; }
+body {
+  margin: 0; min-height: 100vh; color: var(--text);
+  background: radial-gradient(ellipse at 50% -10%, #1e3a5f, var(--bg) 62%) fixed;
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  display: flex; justify-content: center; padding: 20px 16px 32px;
+}
+main { width: 100%; max-width: 600px; position: relative; z-index: 1; }
+a { color: var(--accent); }
+
+/* Header: back to the library, the game's name, the toolbar, the link. */
+.rx-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.rx-top h1 {
+  font: italic 800 1.45rem/1.1 Georgia, "Times New Roman", serif; margin: 0; flex: 1; letter-spacing: 0.01em;
+  background: linear-gradient(180deg, #fef3c7, #f59e0b); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.6));
+}
+.rx-top h1 small { display: block; font: 500 0.72rem/1.2 system-ui, sans-serif; color: var(--muted); -webkit-text-fill-color: var(--muted); letter-spacing: .02em; }
+.rx-back { color: var(--muted); text-decoration: none; font-size: 0.9rem; white-space: nowrap; }
+.rx-back:hover { color: var(--text); }
+.rx-pill { font-size: 0.75rem; padding: 3px 10px; border-radius: 999px; background: rgba(30,41,59,.85); color: var(--muted); white-space: nowrap; }
+.rx-pill.on { color: var(--ok); } .rx-pill.off { color: var(--bad); }
+
+/* Who is who, and whose turn it is. */
+.rx-players { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 10px; font-weight: 600; }
+.rx-players > span { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 8px; transition: background .2s; }
+.rx-players > span.turn { background: rgba(30,41,59,.9); box-shadow: inset 0 0 0 1px var(--line), 0 0 14px rgba(250,204,21,.15); }
+.rx-score { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 500; }
+
+.rx-panel { background: rgba(22,33,59,.88); border: 1px solid var(--line); border-radius: 14px; padding: 14px; backdrop-filter: blur(4px); }
+.rx-table { background: radial-gradient(circle at 50% 40%, var(--felt-2), var(--felt)); border-radius: 18px; padding: 16px;
+  box-shadow: 0 18px 40px rgba(0,0,0,.4), inset 0 0 0 6px rgba(0,0,0,.18), 0 0 0 3px #5b3a1e, 0 0 0 6px #3f2713; }
+.rx-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; font-weight: 700; }
+.rx-table .rx-label { color: #bbf7d0; }
+
+.rx-status { min-height: 1.5em; margin: 14px 0 10px; text-align: center; color: var(--muted); text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+.rx-status b { color: var(--text); }
+.rx-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+.rx-btn {
+  font: inherit; padding: 8px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2);
+  color: var(--text); cursor: pointer; transition: background .15s, transform .05s;
+}
+.rx-btn:hover:not(:disabled) { background: #273449; }
+.rx-btn:active:not(:disabled) { transform: translateY(1px); }
+.rx-btn:disabled { opacity: .45; cursor: default; }
+.rx-btn.primary { background: linear-gradient(180deg, #b45309, #78350f); border-color: #f59e0b; color: #fff; }
+.rx-btn.primary:hover:not(:disabled) { background: linear-gradient(180deg, #c2410c, #7c2d12); }
+.rx-btn.danger { background: #9f1239; border-color: #be123c; }
+.rx-hint { margin-top: 16px; font-size: 0.82rem; color: var(--muted); text-align: center; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+.rx-hint code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; }
+.rx-log { margin-top: 12px; max-height: 9.5rem; overflow-y: auto; font-size: 0.85rem; color: var(--muted); }
+.rx-log:empty { display: none; }
+.rx-log div + div { margin-top: 3px; }
+.rx-log b { color: var(--text); }

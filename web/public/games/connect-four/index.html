@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Four · Rexclaw</title>
+<link rel="stylesheet" href="../lib/games.css">
+<!--
+  Connect Four against a companion, over the Neuro API (../lib/neuro.js).
+  Rubies (you) against doubloons (them), in three modes. A language model is
+  bad at spotting lines on a text grid, so the board goes with the facts a
+  player sees at a glance: a winning column, a column that must be blocked,
+  a column that hands the user the win.
+-->
+<style>
+  :root { --board: #1d4ed8; --board-edge: #1e3a8a; --hole: #0b1222; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+  .dot.r { background: radial-gradient(circle at 35% 30%, #fecaca, #e11d48); } .dot.y { background: radial-gradient(circle at 35% 30%, #fef3c7, #f59e0b); }
+  .board {
+    display: grid; gap: clamp(3px, 1.2vw, 9px); padding: clamp(8px, 2.4vw, 15px);
+    background: linear-gradient(180deg, var(--board), var(--board-edge)); border-radius: 18px; position: relative;
+    box-shadow: 0 18px 40px rgba(0,0,0,.45), inset 0 -6px 0 rgba(0,0,0,.18), inset 0 2px 0 rgba(255,255,255,.15); user-select: none;
+  }
+  .col { display: grid; gap: clamp(3px, 1.2vw, 9px); border-radius: 12px; cursor: pointer; padding: 2px; transition: background .12s; }
+  .col.can:hover { background: rgba(255,255,255,.1); }
+  .cell { aspect-ratio: 1; border-radius: 50%; background: var(--hole); box-shadow: inset 0 4px 8px rgba(0,0,0,.65); position: relative; overflow: hidden; }
+  .disc { position: absolute; inset: 7%; border-radius: 50%; animation: drop .4s cubic-bezier(.35,0,.6,1.3); }
+  .disc.r { background: radial-gradient(circle at 35% 30%, #fecdd3, #e11d48 48%, #881337); box-shadow: inset 0 0 0 3px rgba(255,255,255,.18); }
+  .disc.y { background: radial-gradient(circle at 35% 30%, #fef9c3, #f59e0b 50%, #92400e); box-shadow: inset 0 0 0 3px rgba(120,53,15,.5), inset 0 0 0 6px rgba(254,243,199,.35); }
+  .disc.y::after { content: "⚓"; position: absolute; inset: 0; display: grid; place-items: center; color: rgba(120,53,15,.55); font-size: 55%; }
+  .disc.win { animation: winpulse .7s ease-in-out infinite alternate; }
+  @keyframes drop { from { transform: translateY(var(--from, -600%)); } to { transform: translateY(0); } }
+  @keyframes winpulse { to { box-shadow: 0 0 0 3px #fff, 0 0 24px 6px #fde047; transform: scale(1.06); } }
+  .timer { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; margin: 10px 0 0; visibility: hidden; }
+  .timer.on { visibility: visible; }
+  .timer i { display: block; height: 100%; background: linear-gradient(90deg, #22c55e, #facc15, #ef4444); transform-origin: left; }
+</style>
+</head>
+<body>
+<main>
+  <header class="rx-top">
+    <a class="rx-back" href="../index.html">← Deck</a>
+    <h1>Connect Four<small>Rubies against doubloons, on the chart table</small></h1>
+    <span id="rx-link" class="rx-pill off">Connecting…</span>
+  </header>
+  <div class="rx-players">
+    <span id="you"><i class="dot r"></i>You <span class="rx-score" id="score-you">0</span></span>
+    <span id="them"><span class="rx-score" id="score-them">0</span><i class="dot y"></i><b data-companion>Your companion</b></span>
+  </div>
+  <div id="board" class="board" aria-label="Connect Four board"></div>
+  <div class="timer" id="timer"><i id="timer-bar"></i></div>
+  <div id="status" class="rx-status"></div>
+  <div class="rx-bar"><button class="rx-btn primary" id="new">New game</button></div>
+</main>
+<script src="../lib/neuro.js"></script>
+<script src="../lib/juice.js"></script>
+<script src="../lib/music.js"></script>
+<script src="../lib/scenes.js"></script>
+<script src="../lib/crew.js"></script>
+<script src="../lib/lines.js"></script>
+<script>
+"use strict";
+const { sfx, fx } = RexGame;
+const MODES = {
+  classic: { cols: 7, rows: 6, need: 4, clock: 0, bonus: 0 },
+  broadside: { cols: 9, rows: 7, need: 5, clock: 0, bonus: 60 },
+  blitz: { cols: 7, rows: 6, need: 4, clock: 8, bonus: 40 },
+};
+const YOU = "R", THEM = "Y";
+let M = MODES.classic, board, turn, over, winLine, starter = THEM, lastUserCol = null, moves = 0, clockTimer = null, clockEnds = 0;
+const score = { [YOU]: 0, [THEM]: 0 };
+const $ = (id) => document.getElementById(id);
+
+const game = RexGame.create({
+  name: "Connect Four",
+  modes: [
+    { id: "classic", label: "Classic", hint: "7×6 · four in a row" },
+    { id: "broadside", label: "Broadside", hint: "9×7 · five in a row" },
+    { id: "blitz", label: "Blitz", hint: "8 s a move for you" },
+  ],
+  onMode: () => { M = MODES[game.mode]; newGame(true); },
+  music: ["chart-chiptune", "lazy-doubloons", "below-deck"],
+  scenes: ["night", "sunset", "storm", "dawn"],
+  rules: "You are playing Connect Four against the user. You have the gold doubloons (Y), the user has rubies (R). "
+    + "Players take turns dropping a disc into a column; it falls to the lowest free row. Line up the number of your "
+    + "discs the game asks for in a row, column or diagonal to win. Each turn tells you the board size and that number.",
+  actions: [{
+    name: "drop_disc",
+    description: "Drop one of your doubloons into a column. It falls to the lowest free row.",
+    schema: { type: "object", properties: { column: { type: "integer", minimum: 1, maximum: 9 } }, required: ["column"] },
+  }],
+  onAction(name, { column }) {
+    if (over) throw new RexGame.Refuse("The game is over. Wait for the user to start a new one.");
+    if (turn !== THEM) throw new RexGame.Refuse("It is not your turn yet: the user is still thinking.");
+    const col = RexGame.toInt(column);
+    if (!open().includes(col)) throw new RexGame.Refuse(`Column ${column} can't take a disc. Columns with room: ${open().join(", ")}.`);
+    return play(col, THEM);
+  },
+  onCompanion: () => render(),
+  onConnect: () => { if (!over && turn === THEM && !game.waiting()) askMove(); },
+  onAgain: () => newGame(),
+});
+
+function askMove() {
+  game.force({
+    state: boardText(),
+    query: (lastUserCol ? `The user just dropped a ruby into column ${lastUserCol}. ` : "You go first. ")
+      + "Your turn: drop_disc into a column.",
+    actions: ["drop_disc"],
+  });
+}
+
+function newGame(modeChange = false) {
+  game.cancelForce();
+  stopClock();
+  board = Array.from({ length: M.rows }, () => Array(M.cols).fill(null));
+  over = false; winLine = null; lastUserCol = null; moves = 0;
+  turn = starter;
+  starter = starter === YOU ? THEM : YOU;
+  render(true);
+  sfx.whoosh();
+  game.tell(`A new game of Connect Four started: ${M.cols} columns, ${M.rows} rows, ${M.need} in a row wins`
+    + `${M.clock ? `, and the user has ${M.clock} seconds a move` : ""}. ${turn === YOU ? "The user goes" : "You go"} first.`);
+  if (turn === THEM) askMove(); else startClock();
+}
+
+const open = (b = board) => [...Array(M.cols).keys()].filter((c) => b[0][c] === null).map((c) => c + 1);
+
+function landingRow(b, col) {
+  for (let r = M.rows - 1; r >= 0; r--) if (b[r][col - 1] === null) return r;
+  return -1;
+}
+
+/** A line of M.need through (r, c) for `who`, or null. */
+function findWin(b, r, c, who) {
+  for (const [dr, dc] of [[0, 1], [1, 0], [1, 1], [1, -1]]) {
+    const line = [[r, c]];
+    for (const s of [1, -1]) {
+      let rr = r + dr * s, cc = c + dc * s;
+      while (rr >= 0 && rr < M.rows && cc >= 0 && cc < M.cols && b[rr][cc] === who) { line.push([rr, cc]); rr += dr * s; cc += dc * s; }
+    }
+    if (line.length >= M.need) return line;
+  }
+  return null;
+}
+
+/** Columns where `who` would complete a line right now. */
+function winningColumns(b, who) {
+  return open(b).filter((col) => {
+    const r = landingRow(b, col);
+    b[r][col - 1] = who;
+    const wins = !!findWin(b, r, col - 1, who);
+    b[r][col - 1] = null;
+    return wins;
+  });
+}
+
+/** Columns where dropping `who` lets the other side win on top of it. */
+function givesAway(b, who) {
+  const other = who === YOU ? THEM : YOU;
+  return open(b).filter((col) => {
+    const r = landingRow(b, col);
+    if (r === 0) return false;
+    b[r][col - 1] = who; b[r - 1][col - 1] = other;
+    const loses = !!findWin(b, r - 1, col - 1, other);
+    b[r - 1][col - 1] = null; b[r][col - 1] = null;
+    return loses;
+  });
+}
+
+function boardText() {
+  const header = "Column: " + [...Array(M.cols).keys()].map((c) => c + 1).join(" ");
+  const grid = board.map((row, i) => `Row ${M.rows - i}: ` + row.map((v) => v || ".").join(" ")).join("\n");
+  const facts = [`${M.need} in a row wins. Columns with room: ${open().join(", ")}.`];
+  const win = winningColumns(board, THEM);
+  const threat = winningColumns(board, YOU);
+  const careful = givesAway(board, THEM).filter((c) => !win.includes(c));
+  if (win.length) facts.push(`You can WIN right now by playing column ${win.join(" or ")}.`);
+  if (threat.length) facts.push(`The user wins next turn in column ${threat.join(" and ")} unless you block it there.`);
+  if (careful.length) facts.push(`Avoid column ${careful.join(", ")}: it lets the user win on top of your disc.`);
+  if (facts.length === 1) facts.push("No immediate wins or threats. Central columns are usually strongest.");
+  return `## Board (Y = yours, R = the user's, . = empty; row 1 is the bottom)\n${header}\n${grid}\n\n${facts.join("\n")}`;
+}
+
+function play(col, who) {
+  const blocking = winningColumns(board, who === YOU ? THEM : YOU).includes(col);
+  const r = landingRow(board, col);
+  board[r][col - 1] = who;
+  moves++;
+  sfx.drop();
+  setTimeout(() => sfx.clink(), 330);
+  const line = findWin(board, r, col - 1, who);
+  render(false, r, col - 1);
+  if (line) {
+    over = true; winLine = line; score[who]++;
+    stopClock();
+    render();
+    if (who === YOU) {
+      const pts = Math.round((100 + Math.max(0, M.cols * M.rows - moves) * 2 + M.bonus) * (M.clock ? 1.5 : 1));
+      game.tell(`Game over: the user won with ${M.need} rubies in a row, finished in column ${col}. `
+        + `Score this session: you ${score[THEM]}, the user ${score[YOU]}.`, false);
+      setTimeout(() => game.end({ outcome: "win", points: pts, detail: `${M.need} in a row in ${Math.ceil(moves / 2)} moves.` }), 700);
+      return "";
+    }
+    setTimeout(() => game.end({ outcome: "loss", detail: `${game.companion} lined up ${M.need} doubloons.` }), 700);
+    return `You won! ${M.need} in a row, finished in column ${col}.`;
+  }
+  if (!open().length) {
+    over = true; stopClock(); render();
+    if (who === YOU) game.tell("Game over: the board is full, it's a draw.", false);
+    setTimeout(() => game.end({ outcome: "draw", points: 30, detail: "The board is full." }), 600);
+    return "The board is full: a draw.";
+  }
+  if (blocking) {
+    if (who === YOU) { game.award(15, "Blocked!", $("board").children[col - 1]); game.heckle("block", { chance: 0.4 }); }
+    else { game.react("block"); sfx.clang(); }
+  }
+  turn = who === YOU ? THEM : YOU;
+  render();
+  // The companion just set up a win: let them gloat, and the gallery gasp.
+  if (who === THEM && winningColumns(board, THEM).length) {
+    game.react("threat");
+    game.heckle("close_call", { chance: 0.35 });
+  }
+  if (turn === THEM) { stopClock(); lastUserCol = col; askMove(); } else startClock();
+  return `Your doubloon landed in column ${col}. Now it's the user's turn.`;
+}
+
+function userDrop(col) {
+  if (over || turn !== YOU || !open().includes(col)) return;
+  play(col, YOU);
+}
+
+// Blitz: the user's clock. Running out drops a disc in a random column.
+function startClock() {
+  stopClock();
+  if (!M.clock || over) return;
+  clockEnds = Date.now() + M.clock * 1000;
+  $("timer").classList.add("on");
+  let lastSec = M.clock;
+  clockTimer = setInterval(() => {
+    const left = clockEnds - Date.now();
+    $("timer-bar").style.transform = `scaleX(${Math.max(0, left / (M.clock * 1000))})`;
+    const sec = Math.ceil(left / 1000);
+    if (sec < lastSec && sec <= 3 && sec > 0) sfx.tick();
+    lastSec = sec;
+    if (left <= 0) {
+      stopClock();
+      sfx.alarm();
+      fx.float("Too slow!", { at: $("board"), color: "#f87171", big: true });
+      game.react("timeout");
+      const cols = open();
+      game.tell("The user's clock ran out, so their ruby dropped into a random column.");
+      userDrop(cols[(Math.random() * cols.length) | 0]);
+    }
+  }, 100);
+}
+function stopClock() { clearInterval(clockTimer); clockTimer = null; $("timer").classList.remove("on"); }
+
+function render(fresh = false, newR = -1, newC = -1) {
+  const el = $("board");
+  if (fresh || el.children.length !== M.cols) {
+    el.innerHTML = "";
+    el.style.gridTemplateColumns = `repeat(${M.cols}, 1fr)`;
+    for (let c = 0; c < M.cols; c++) {
+      const col = document.createElement("div");
+      col.className = "col";
+      col.style.gridTemplateRows = `repeat(${M.rows}, 1fr)`;
+      col.setAttribute("role", "button");
+      col.setAttribute("aria-label", `Column ${c + 1}`);
+      col.onclick = () => userDrop(c + 1);
+      col.onmouseenter = () => { if (col.classList.contains("can")) sfx.hover(); };
+      for (let r = 0; r < M.rows; r++) col.appendChild(Object.assign(document.createElement("div"), { className: "cell" }));
+      el.appendChild(col);
+    }
+  }
+  const wins = new Set((winLine || []).map(([r, c]) => `${r},${c}`));
+  [...el.children].forEach((col, c) => {
+    col.classList.toggle("can", !over && turn === YOU && board[0][c] === null);
+    [...col.children].forEach((cell, r) => {
+      const v = board[r][c];
+      let disc = cell.firstChild;
+      if (!v) { if (disc) disc.remove(); return; }
+      if (!disc) {
+        disc = document.createElement("div");
+        if (r === newR && c === newC) disc.style.setProperty("--from", `${-(r + 1) * 115}%`);
+        else disc.style.animation = "none";
+        cell.appendChild(disc);
+      }
+      disc.className = `disc ${v === YOU ? "r" : "y"}${wins.has(`${r},${c}`) ? " win" : ""}`;
+    });
+  });
+  $("score-you").textContent = score[YOU];
+  $("score-them").textContent = score[THEM];
+  $("you").classList.toggle("turn", !over && turn === YOU);
+  $("them").classList.toggle("turn", !over && turn === THEM);
+  const name = RexGame.escape(game.companion);
+  const winner = winLine ? board[winLine[0][0]][winLine[0][1]] : null;
+  $("status").innerHTML = over ? (winner === YOU ? "<b>You win!</b>" : winner === THEM ? `<b>${name} wins!</b>` : "<b>Draw.</b>")
+    : turn === YOU ? `<b>Your turn</b> - drop a ruby.${M.clock ? " Quick!" : ""}` : `<b>${name}</b> is thinking…`;
+}
+
+$("new").onclick = () => { sfx.click(); newGame(); };
+board = Array.from({ length: M.rows }, () => Array(M.cols).fill(null));
+over = false; turn = YOU;
+render(true);
+</script>
+</body>
+</html>

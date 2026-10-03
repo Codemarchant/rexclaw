@@ -447,6 +447,94 @@ body {
         color: #475569;
     }
 
+    // ── Games tab: Neuro API games ────────────────────────────────────────
+    .rx_games_address {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem;
+        margin-bottom: 0.75rem;
+
+        code { padding: 0.2rem 0.45rem; border-radius: 0.3rem; background: #f1f5f9; }
+        code + button { margin-right: 0.75rem; }
+    }
+    .rx_games_howto {
+        margin-top: 0.6rem;
+        font-size: 0.875rem;
+        color: #475569;
+
+        summary { cursor: pointer; font-weight: 600; }
+        pre {
+            background: #f1f5f9;
+            border-radius: 0.4rem;
+            padding: 0.6rem 0.75rem;
+            font-size: 0.8rem;
+            overflow-x: auto;
+        }
+    }
+    .rx_games_heading {
+        font-size: 0.8rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #64748b;
+        margin: 1rem 0 0.4rem;
+    }
+    .rx_game_card {
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+        padding: 0.6rem 0.75rem;
+        margin-bottom: 0.6rem;
+        background: #fff;
+    }
+    .rx_game_head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.5rem;
+        margin-bottom: 0.4rem;
+    }
+    .rx_game_force {
+        padding: 0.35rem 0.55rem;
+        margin-bottom: 0.4rem;
+        border-radius: 0.4rem;
+        background: #fef3c7;
+        color: #92400e;
+        font-size: 0.875rem;
+    }
+    .rx_game_actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        margin-bottom: 0.4rem;
+    }
+    .rx_game_action {
+        padding: 0.1rem 0.45rem;
+        border-radius: 999px;
+        background: #e0e7ff;
+        color: #3730a3;
+        font-size: 0.78rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        cursor: help;
+    }
+    .rx_game_log {
+        max-height: 14rem;
+        overflow-y: auto;
+        padding: 0.4rem 0.5rem;
+        border-radius: 0.4rem;
+        background: #f8fafc;
+        font-size: 0.78rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+
+        > div + div { margin-top: 0.15rem; }
+        .rx_game_log_move b, .rx_game_log_companion b { color: #4f46e5; }
+        .rx_game_log_force b { color: #b45309; }
+        .rx_game_log_result b { color: #15803d; }
+        .rx_game_log_autopilot b { color: #be185d; }
+    }
+
     // ── Hotkey editor ─────────────────────────────────────────────────────
     .rx_hotkey_group {
         margin-top: 1rem;

@@ -62,6 +62,10 @@ const DIRECTOR_TIMEOUT_MS = 4000;
 // enough to ignore.
 const INACTIVITY_TICK_MS = 15000;
 const MINECRAFT_POLL_MS = 4000;
+// Games poll at the Minecraft cadence until one is connected, then fast:
+// in a turn-based game every move the companion owes waits on this poll.
+const GAMES_POLL_IDLE_MS = 4000;
+const GAMES_POLL_LIVE_MS = 1000;
 
 class VoiceCallService {
     // xAI's accepted PCM sample rates (from the server validator). Browsers
@@ -121,6 +125,13 @@ class VoiceCallService {
         this._minecraftCursor = null;
         this._minecraftIneligible = false; // set per-call once the server says the companion can't use the bot
         this._minecraftTimer = setInterval(() => this._pumpMinecraftEvents(), MINECRAFT_POLL_MS);
+
+        // Games over the Neuro API (server/games.py) → the live call, the
+        // same way: polled while live, injected as [Game: …] notes.
+        this._gamesCursor = null;
+        this._gamesIneligible = false;
+        this._gamesConnected = false;
+        this._scheduleGamesPoll();
 
         // Idle events: the companion's prompts for when the call goes quiet
         // (lib/idle_events.js), armed per call from the primary's start.
@@ -458,6 +469,61 @@ class VoiceCallService {
                 this.sendContextEvent(render(speakNow), { minIntervalMs: 0 });
             }
         } catch (e) { /* endpoint gated or server restarting — quiet */ }
+    }
+
+    _scheduleGamesPoll() {
+        this._gamesTimer = setTimeout(async () => {
+            await this._pumpGameEvents();
+            this._scheduleGamesPoll();
+        }, this._gamesConnected ? GAMES_POLL_LIVE_MS : GAMES_POLL_IDLE_MS);
+    }
+
+    /** Feed the connected games into a live call. The server writes the
+     *  notes; `prompt` says whether the companion should react now (a
+     *  move the game waits on, a non-silent context) or just know. The
+     *  call's first poll (no cursor) brings where each game stands rather
+     *  than the backlog, including a move still owed. A "critical" move
+     *  cuts the companion off mid-sentence, as it does Neuro; the other
+     *  priorities wait for the current reply to finish. */
+    async _pumpGameEvents() {
+        if (this.state.status !== "live") {
+            this._gamesCursor = null;
+            this._gamesIneligible = false;
+            this._gamesConnected = false;
+            return;
+        }
+        if (this._gamesIneligible) return;
+        const sessionId = this.primary?.state?.sessionId;
+        if (!sessionId) return;
+        try {
+            const res = await rpc("/api/games/state", {
+                cursor: this._gamesCursor,
+                session_id: sessionId,
+            });
+            if (res.eligible === false) {
+                this._gamesIneligible = true;
+                return;
+            }
+            this._gamesConnected = !!res.connected;
+            // A note sent now would be dropped (compaction restart, socket
+            // reopening): keep the cursor so a later poll brings them again.
+            const leg = this.primary;
+            if (leg.state.compacting || leg.ws?.readyState !== WebSocket.OPEN) return;
+            this._gamesCursor = res.cursor ?? this._gamesCursor;
+            const events = res.events || [];
+            const quiet = events.filter((e) => !e.prompt);
+            const speakNow = events.filter((e) => e.prompt);
+            const render = (list) => list.map((e) => e.text).join("\n\n");
+            if (quiet.length) {
+                this.sendContextEvent(render(quiet), { minIntervalMs: 0, promptResponse: false });
+            }
+            if (speakNow.length) {
+                if (speakNow.some((e) => e.priority === "critical")) {
+                    this.primary.cancelActiveResponse("game: critical move");
+                }
+                this.sendContextEvent(render(speakNow), { minIntervalMs: 0 });
+            }
+        } catch (e) { /* server restarting — quiet */ }
     }
 
     /** Arm this call's idle events from the primary's start payload (null =
@@ -1450,6 +1516,13 @@ class VoiceCallService {
      *  cap). */
     onAgentFinalTranscript(conn, text) {
         this.noteActivity();
+        // The companion's games show what it said (a speech bubble), and
+        // games that pace themselves on Neuro's speech_finished get ours.
+        // Sent when the transcript is done, which can be a moment before
+        // the last of the audio has played.
+        if (conn === this.primary && this._gamesConnected) {
+            rpc("/api/games/speech", { session_id: conn.state.sessionId, text }).catch(() => {});
+        }
         if (!this.hasPeers()) return;
         this.closeUserRows();
         if (conn.role === "peer") {

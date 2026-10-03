@@ -256,6 +256,15 @@ CREATE TABLE IF NOT EXISTS config (
     minecraft_brain_model_hard TEXT NOT NULL DEFAULT '',
     minecraft_brain_connection TEXT NOT NULL DEFAULT 'xai',
     minecraft_master TEXT NOT NULL DEFAULT '',
+    -- Games over the Neuro API (games.py): also listen on this port, this
+    -- computer only (0 = off; 8000 is the address Neuro mods default to).
+    -- A game that doesn't name its companion (a Neuro mod; the mini-games
+    -- name theirs) plays with games_default_agent_id (0 = the first with
+    -- games on), and off a call it: 'wait's for one, plays in a 'separate'
+    -- game chat, or in the 'latest' conversation (the one a call resumes).
+    games_neuro_port INTEGER NOT NULL DEFAULT 0,
+    games_default_agent_id INTEGER NOT NULL DEFAULT 0,
+    games_offcall_mode TEXT NOT NULL DEFAULT 'wait',
     -- Live-stream chat for companions' idle events (see live_chat.py): the
     -- Twitch channel is read anonymously over IRC; a YouTube live stream
     -- (its link or video id) through the Data API with the user's own key,
@@ -274,6 +283,18 @@ CREATE TABLE IF NOT EXISTS config (
     spend_lifetime_usd REAL NOT NULL DEFAULT 0,
     spend_today_usd REAL NOT NULL DEFAULT 0,
     spend_today_date TEXT
+);
+
+-- Mini-game saves (routes/games.py): one JSON blob per game per companion
+-- (agent_id 0 = no companion), written by the game page itself. Holds the
+-- standard win/loss record the library shows, plus whatever the game keeps
+-- (chips, high scores...).
+CREATE TABLE IF NOT EXISTS game_saves (
+    game TEXT NOT NULL,
+    agent_id INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT,
+    PRIMARY KEY (game, agent_id)
 );
 
 CREATE TABLE IF NOT EXISTS avatars (
@@ -504,6 +525,9 @@ CREATE TABLE IF NOT EXISTS agents (
     -- (game_integrations/minecraft/ folder).
     -- Runs LLM-generated scripts against the user's world → opt-in.
     enable_minecraft INTEGER NOT NULL DEFAULT 0,
+    -- game_action / game_status: play games connected over the Neuro API
+    -- (games.py) → opt-in.
+    enable_games INTEGER NOT NULL DEFAULT 0,
     -- generate_gesture: new avatar motions from a description, made by the
     -- user's Text-To-VRMA app (text_to_vrma.py). Needs that app → opt-in.
     enable_gesture_gen INTEGER NOT NULL DEFAULT 0,
@@ -1396,6 +1420,11 @@ MIGRATIONS = (
     "ALTER TABLE sessions ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE sessions ADD COLUMN context_floor INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE agents ADD COLUMN speech_tag_guides TEXT NOT NULL DEFAULT ''",
+    # Games over the Neuro API (games.py).
+    "ALTER TABLE agents ADD COLUMN enable_games INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN games_neuro_port INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN games_default_agent_id INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN games_offcall_mode TEXT NOT NULL DEFAULT 'wait'",
 )
 
 

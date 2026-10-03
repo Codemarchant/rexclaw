@@ -1,0 +1,9 @@
+{
+  "title": "Broadside!",
+  "description": "3D naval tactics. Out-sail them to bring your broadside to bear, rake their stern, hide behind islands, grab loot, ram. And yes, you can fire the anchor.",
+  "tags": ["3D", "tactics", "4 modes", "showcase"],
+  "cover": "cover.svg",
+  "background": "linear-gradient(135deg,#f59e5b,#24315e)",
+  "save_key": "Broadside",
+  "order": 1
+}

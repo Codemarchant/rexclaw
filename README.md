@@ -67,7 +67,8 @@ on your disk, and your API keys are stored only on your machine.
 | 🛠️ **Local computer tasks** | Opt-in (`local_task`): real files, code and shell on your machine through the [Grok Build CLI](https://docs.x.ai/build), confined to a working folder you choose (Settings → Local computer tasks). It runs without confirmation prompts inside that folder, so it's **off by default**. Never offered in Docker. |
 | ⛏️ **Minecraft bot** | Opt-in: your companion joins your Minecraft world as a real player, plays on your spoken directions and reacts aloud to what happens ("found diamonds!"). **Off by default**: it runs model-written scripts in your world, so use your own or trusted servers. |
 | 🔌 **Remote MCP tools** | Attach remote MCP servers per companion, with bearer auth and per-tool whitelists, all from the UI. |
-| 🧩 **Extensions** | Drop-in folders that add your own companion tools, pages and voice engines. |
+| 🎮 **Games (Neuro API)** | Your companion plays games built for Neuro-sama's open game API (Slay the Spire 2, Inscryption, Buckshot Roulette and many community mods) and talks it through with you. Eight built-in mini-games, from Connect Four to Liar's Dice. |
+| 🧩 **Extensions** | Drop-in folders that add your own companion tools, pages, voice engines and games. |
 
 ### Yours
 
@@ -424,6 +425,43 @@ up on the **Games** tab: your in-game name, and where the bot's planner runs
 architecture and safety notes:
 **[game_integrations/minecraft/README.md](game_integrations/minecraft/README.md)**.
 
+## 🎮 Games (Neuro API)
+
+Rexclaw speaks the **[Neuro API](https://github.com/VedalAI/neuro-sdk)**,
+the open protocol behind Neuro-sama's game integrations. Any game or mod
+built on it can be played by a companion, who makes the moves while talking
+them through with you on a call. It suits turn-based games (card games,
+deck-builders, board games, roguelikes, visual novels). Fast action games
+don't work, since each move takes the model a second or more.
+
+Integrations are mods you install into the game. Official ones:
+[Slay the Spire 2](https://github.com/VedalAI/neuro-sts2),
+[Inscryption](https://github.com/VedalAI/neuro-inscryption),
+[Buckshot Roulette](https://github.com/VedalAI/neuro-buckshotroulette-reference),
+[Hollow Knight](https://github.com/VedalAI/neuro-hollow-knight),
+[Pokémon Platinum](https://github.com/VedalAI/neuro-pokemon-platinum).
+Community mods are listed in the
+[Neuro SDK README](https://github.com/VedalAI/neuro-sdk#community-maintained).
+
+1. Switch on **Games** for a companion (Companions → Edit → Tools).
+2. Point the game at `ws://localhost:8990/game`, usually through the
+   `NEURO_SDK_WS_URL` environment variable. For mods that expect Neuro's
+   default address, tick **Also listen on ws://localhost:8000** on the
+   **Games** tab.
+3. Start a call with that companion and play. Off a call, the mod waits for
+   you, unless the Games tab lets the companion play on in a chat.
+
+**Built in:** Broadside! (a 3D cannon duel), Connect Four, Liar's Dice,
+Blackjack, Crazy Eights, Walk the Plank, Rock Paper Scissors and
+Tic-Tac-Toe, in the Games tab library, with the crew chiming in in their own
+voices.
+
+**Your own games:** a game is a folder with a `game.json`; extensions can
+add their own or connect one with `api.connect_game()`. See
+[web/public/games/README.md](web/public/games/README.md). If the server is
+reachable from other machines, set `REXCLAW_GAMES_TOKEN` and add
+`?token=<it>` to the address.
+
 ## 🖥️ Local generation (ComfyUI)
 
 The three media tools (`create_image`, `create_video`, `change_background`)
@@ -535,7 +573,7 @@ def setup(api):
 
 To keep an extension working across updates, use only the `api` calls; the
 app's own modules can change. The full list (routes, a page, events,
-recording-script directives, voice engines) is in `server/plugins.py`.
+recording-script directives, voice engines, games) is in `server/plugins.py`.
 
 ## 📋 Credits
 

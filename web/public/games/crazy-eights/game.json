@@ -1,0 +1,8 @@
+{
+  "title": "Crazy Eights",
+  "description": "The card game Uno grew from, in the galley. Eights are the Kraken; Chaos mode adds draw-twos and skips.",
+  "tags": ["cards", "2 modes"],
+  "cover": "cover.svg",
+  "background": "linear-gradient(135deg,#be185d,#4a044e)",
+  "order": 40
+}

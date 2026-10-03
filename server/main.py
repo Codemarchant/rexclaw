@@ -14,10 +14,10 @@ from fastapi.staticfiles import StaticFiles
 
 from . import heartbeat, parent_watch, plugins
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
-from .db import ASSETS_DIR, FILES_DIR, connect, init_db
+from .db import ASSETS_DIR, FILES_DIR, connect, get_config, init_db
 from .errors import UserError
-from .routes import (audio, avatars, extensions, heartbeats, live_chat, manga, minecraft, misc, pipeline,
-                     songs, text, voice, voicelab)
+from .routes import (audio, avatars, extensions, games, heartbeats, live_chat, manga, minecraft, misc,
+                     pipeline, songs, text, voice, voicelab)
 from .lore_seeds import seed_lore_if_empty
 from .seeds import migrate_default_outfit_sections, seed_if_empty
 
@@ -54,8 +54,11 @@ def startup():
         # After the scan: moves legacy "## Default outfit" prompt sections
         # onto the avatar record (no-op once every prompt is clean).
         migrate_default_outfit_sections(con)
+        games_port = get_config(con)['games_neuro_port']
     finally:
         con.close()
+    # The Neuro API's own port, when switched on in the Games tab.
+    games.apply_listener(games_port)
     # Daemon thread; opens its own DB connection per tick. Its first pass
     # flags schedules missed while the server was off as past-due. Only
     # spins up when active heartbeats exist — activating one later starts
@@ -68,6 +71,7 @@ def startup():
 @app.on_event("shutdown")
 def shutdown():
     plugins.emit('shutdown')
+    games.stop_listener()
 
 
 app.include_router(voice.router)
@@ -77,6 +81,7 @@ app.include_router(misc.router)
 app.include_router(heartbeats.router)
 app.include_router(avatars.router)
 app.include_router(minecraft.router)
+app.include_router(games.router)
 app.include_router(live_chat.router)
 app.include_router(audio.router)
 app.include_router(songs.router)

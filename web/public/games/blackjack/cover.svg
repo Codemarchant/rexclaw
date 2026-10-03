@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80">
+  <g transform="translate(46 42) rotate(-12)"><rect x="-15" y="-21" width="30" height="42" rx="4" fill="#fff" stroke="rgba(0,0,0,.25)"/>
+    <text x="-11" y="-9" font-size="10" font-weight="700" fill="#0f172a" font-family="system-ui,sans-serif">A</text>
+    <text x="0" y="10" font-size="17" text-anchor="middle" fill="#0f172a">♠</text></g>
+  <g transform="translate(72 40) rotate(10)"><rect x="-15" y="-21" width="30" height="42" rx="4" fill="#fff" stroke="rgba(0,0,0,.25)"/>
+    <text x="-11" y="-9" font-size="10" font-weight="700" fill="#dc2626" font-family="system-ui,sans-serif">K</text>
+    <text x="0" y="10" font-size="17" text-anchor="middle" fill="#dc2626">♥</text></g>
+  <g transform="translate(98 62)"><ellipse cx="0" cy="3" rx="10" ry="4" fill="#7f1d1d"/><ellipse cx="0" cy="0" rx="10" ry="4" fill="#dc2626" stroke="#fff" stroke-width="1.5" stroke-dasharray="3 3"/></g>
+  <g transform="translate(20 64)"><ellipse cx="0" cy="3" rx="9" ry="3.5" fill="#a16207"/><ellipse cx="0" cy="0" rx="9" ry="3.5" fill="#facc15" stroke="#a16207"/></g>
+  <text x="60" y="76" font-size="7" font-weight="800" text-anchor="middle" fill="#bbf7d0" opacity=".7" font-family="system-ui,sans-serif" letter-spacing="2">21</text>
+</svg>

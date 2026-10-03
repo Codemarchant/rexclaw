@@ -1,0 +1,8 @@
+{
+  "title": "Liar's Dice",
+  "description": "Hidden dice, rising bids and calling the bluff at the Brine & Barnacle. Can you read them, or can they read you?",
+  "tags": ["bluffing", "dice", "talky", "3 modes"],
+  "cover": "cover.svg",
+  "background": "linear-gradient(135deg,#9a3412,#450a0a)",
+  "order": 20
+}
