@@ -1469,6 +1469,8 @@ export const JA = {
     "%s をアバター %s と一緒にインポートしました — メモリ %s 件・セッション %s 件。",
   "Imported %s — %s memories, %s sessions.":
     "%s をインポートしました — メモリ %s 件・セッション %s 件。",
+  "Added the voice connection %s for this companion — enter its API key in Settings → Models & providers.":
+    "このコンパニオン用に音声接続 %s を追加しました — 設定 → モデルとプロバイダーで API キーを入力してください。",
   "New avatar": "新しいアバター",
   "Edit avatar": "アバターを編集",
   "Could not load avatars": "アバターを読み込めませんでした",

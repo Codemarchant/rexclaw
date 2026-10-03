@@ -137,14 +137,24 @@ class TurnDetector:
         self._turn_voiced = 0     # speech windows in the turn so far
         self.state = 'idle'       # idle | speaking | paused | ended
         self.windows_seen = 0
-        # Anything above silence (neg_threshold) since the last turn ended,
-        # even too little to start one: what a transcript the engine sends
-        # outside a turn must have come from (PipelineSession._on_stt_event).
-        self.heard_voice = False
+        # The window of the last sound above silence (neg_threshold) since
+        # the last turn ended, even too little to start one. See heard_voice.
+        self._last_voice = None
 
     @property
     def audio_ms(self):
         return self.windows_seen * WINDOW_MS
+
+    @property
+    def heard_voice(self):
+        """Whether something above silence was on the mic recently enough
+        to be what a transcript arriving now is about: within
+        max_silence_ms, the longest pause a turn may hold. A transcript the
+        engine sends outside a turn must have come from such a sound
+        (PipelineSession._on_stt_event); one from minutes ago (the
+        companion's own voice through the speakers, a door) says nothing
+        about words arriving now."""
+        return self._last_voice is not None and self.windows_seen - self._last_voice <= self.timeout_windows
 
     @property
     def voiced_ms(self):
@@ -165,7 +175,7 @@ class TurnDetector:
         self._utterance, self._history = [], []
         self._voiced_run = self._silent_run = self._turn_voiced = 0
         self.state = 'idle'
-        self.heard_voice = False
+        self._last_voice = None
         return audio
 
     def feed(self, samples16k):
@@ -178,7 +188,7 @@ class TurnDetector:
             self.windows_seen += 1
             voiced = prob >= self.threshold
             if prob >= self.neg_threshold:
-                self.heard_voice = True
+                self._last_voice = self.windows_seen
             if self.state == 'idle':
                 self._history.append(window)
                 keep = self.prefix_windows + self.start_windows

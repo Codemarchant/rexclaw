@@ -34,26 +34,52 @@
 import { GAZE_AMP } from "./idle_motion";
 import { expressionSize, splitEmotionExpressions } from "./face_regions";
 
-// Each feeling's parts: [channel, from level, to level (default 3)]. A
-// channel is an expression half ("sad:upper") or an accent (FACE_ACCENTS).
+// Each feeling's parts: [channel, from level, to level (default 3), scale
+// (default 1)]. A channel is an expression half ("sad:upper") or an accent
+// (FACE_ACCENTS).
 // Levels: 1 a light trace, 2 clear, 3 taking over the face — a peak on top
 // of the mood, which itself rests at 2 at most. A light trace keeps to the
 // upper face, so a hint of a feeling never pulls the mouth against the
-// speech (design choice).
+// speech (design choice). Where it can, a level past it adds a part of the
+// feeling's full face rather than only more of the same one: the brow
+// shapes most features start with move a few millimetres on a VRoid model,
+// so a level that only turned them up read the same as the one below.
+// `arrive` parts belong to the clear level but are not held with the mood:
+// they play once as it arrives, timed like the peak, and the face settles
+// back to the held parts. A spontaneous expression lasts 0.5–4 s (Ekman
+// 2003) and surprise is the briefest of them, so a laughing eye, an open
+// grin or a dropped jaw held through a whole reply stops reading as a
+// feeling and starts reading as a mask.
+// `glance` = the eyes look away as a clear one arrives, once, as people do
+// while working something out (gaze aversion under thinking load,
+// Glenberg, Schroeder & Robertson 1998).
 // Smiles follow FACS: a social smile is the mouth alone (AU12); the eyes
 // joining in (AU6, the cheek raise that narrows them) marks a felt one
-// (Ekman, Davidson & Friesen 1990), and the jaw drops for a laugh — so a
-// closed smile carries light and clear happiness, and the `happy`
-// expression's open grin and crescent eyes only its peak. The rest are
-// FACS readings: excitement = happily surprised, brows up over the smile
-// (AU 1+2+12+25, Du, Tao & Martinez 2014); worry = the sad brow (AU 1+4);
-// puzzlement = the brow knit (AU 4, Rozin & Cohen 2003); embarrassment = a
-// smile with the gaze and head down and away (Keltner 1995); pride = a
-// small smile with the head up (Tracy & Robins 2004), one-sided where the
+// (Ekman, Davidson & Friesen 1990), and the jaw drops for a laugh — so
+// warmth and light happiness stay a closed smile, clear happiness narrows
+// the eyes as it arrives, and the `happy` expression's open grin and
+// crescent eyes are its peak. Happiness is among the commonest feelings
+// read, so the clear one's eyes are only a trace, just above the weight
+// where an expression stops showing (design choice). The rest
+// are FACS readings: excitement = happily surprised, brows up over a smile
+// with the lips parted (AU 1+2+12+25, Du, Tao & Martinez 2014), so a clear
+// one opens as it arrives; surprise = brows up, eyes wide, jaw dropped (AU
+// 1+2+5+26, Ekman & Friesen 1978), the mouth parting as a clear one
+// arrives and dropping at the peak; worry = the sad brow (AU 1+4), and
+// clear anxiety stretches the lips sideways (AU 20, Harrigan & O'Connell
+// 1996); puzzlement = the brow knit (AU 4, Rozin & Cohen 2003);
+// embarrassment = a smile with the gaze and head down and away (Keltner
+// 1995); pride = a small smile with the head up, at every level — a broad
+// grin reads as joy instead (Tracy & Robins 2004), one-sided where the
 // model can (the unilateral lip corner of smugness, Ekman & Friesen 1986).
+// A clear puzzlement adds no face part (the lid tightening that goes with
+// the knit read as anger) but the thinking glance.
 // Interest has no face of its own here.
 // The anime displays are design calls, built from those same parts:
-// teasing = the smug smile; flustered embarrassment adds the worried brow;
+// teasing = the smug smile, and a clear one cocks the head as it arrives
+// (`tilt`) — the playful display's head tilt, which marks an edged remark
+// as friendly (34% of amusement displays, Shiota, Campos & Keltner 2003,
+// who name teasing as the case); flustered embarrassment adds the worried brow;
 // a huffy "hmph" = a knit brow, a pout (puffed cheeks where the model has
 // them) and the head turned away, chin up. The wink is not one of these:
 // it is a line's act, asked for on its own (see the acts below).
@@ -75,19 +101,24 @@ import { expressionSize, splitEmotionExpressions } from "./face_regions";
 // reached level 3 zero times in those 65 lines).
 const FACE_FEELINGS = {
     warm:        { parts: [["smile", 1], ["relaxed:upper", 3]] },
-    happy:       { parts: [["smile", 1, 2], ["happy:mouth", 3], ["happy:upper", 3]], mark: "happy" },
-    teasing:     { parts: [["smirk", 1, 2], ["happy:mouth", 3], ["happy:upper", 3]] },
-    excited:     { parts: [["smile", 1, 2], ["happy:mouth", 3], ["happy:upper", 3], ["brow_raise", 1]] },
-    proud:       { parts: [["smirk", 1, 2], ["happy:mouth", 3]] },
+    // Clear happiness: a trace of the smiling eye as it arrives — 0.375 of
+    // the clear band (0.67) is the 0.25 trace weight (FACE_TRACE_W).
+    happy:       { parts: [["smile", 1, 2], ["happy:mouth", 3], ["happy:upper", 3]],
+        arrive: [["happy:upper", 2, 2, 0.375]], mark: "happy" },
+    teasing:     { parts: [["smirk", 1, 2], ["happy:mouth", 3], ["happy:upper", 3]], tilt: true },
+    excited:     { parts: [["smile", 1, 2], ["happy:mouth", 3], ["happy:upper", 3], ["brow_raise", 1]],
+        arrive: [["happy:mouth", 2, 2]] },
+    proud:       { parts: [["smirk", 1]] },
     interested:  { parts: [] },
-    puzzled:     { parts: [["brow_knit", 1]], mark: "puzzled" },
-    surprised:   { parts: [["brow_raise", 1], ["eye_widen", 2], ["surprised:mouth", 3]], mark: "surprised" },
+    puzzled:     { parts: [["brow_knit", 1]], glance: true, mark: "puzzled" },
+    surprised:   { parts: [["brow_raise", 1], ["eye_widen", 2], ["surprised:mouth", 3]],
+        arrive: [["surprised:mouth", 2, 2, 0.5]], mark: "surprised" },
     // `markUnless` names a channel that says it better: the steam mark
     // stands in for a blush only on a model with no blush shape rigged.
     embarrassed: { parts: [["smile", 1], ["brow_sad", 2], ["blush", 2]],
         mark: "flustered", markUnless: "blush", turn: "down" },
     huffy:       { parts: [["brow_knit", 1], ["pout", 1]], mark: "huffy", turn: "away" },
-    worried:     { parts: [["sad:upper", 1]], mark: "worried" },
+    worried:     { parts: [["sad:upper", 1], ["lip_stretch", 2]], mark: "worried" },
     sad:         { parts: [["sad:upper", 1], ["sad:mouth", 2]], mark: "sad" },
     annoyed:     { parts: [["angry:upper", 1], ["angry:mouth", 2]], mark: "angry" },
 };
@@ -114,6 +145,11 @@ const FACE_ACCENTS = {
     // The huffy pout: VRoid's own angry mouth, the closed downturned "へ"
     // its author drew (what the angry expression's mouth half is made of).
     pout:       [{ Fcl_MTH_Angry: 1 }, { mouthPucker: 1, cheekPuff: 1 }, { "rx:angry:mouth": 1 }],
+    // The anxious lips stretched sideways (AU20), which ARKit has as is.
+    // VRoid has no stretch, so its nearest is the sad mouth at half — half
+    // so that worry stays short of sadness, which carries it whole.
+    lip_stretch: [{ mouthStretchLeft: 1, mouthStretchRight: 1 }, { Fcl_MTH_Sorrow: 0.5 },
+        { "rx:sad:mouth": 0.5 }],
     // The anime smiling eye (^^) and its brow, as authored. Again the same
     // strength as the half they replace — `happy` binds Fcl_ALL_Joy, and
     // both it and Fcl_EYE_Joy peak at 1.25 cm.
@@ -169,6 +205,8 @@ export const FACE_TUNING = [
         { id: "pout", label: "Pout", ref: 0.0055 },
         { id: "happy:mouth", label: "Grin", ref: 0.0159 },
         { id: "sad:mouth", label: "Sad mouth", ref: 0.0123 },
+        // No `ref` yet: not among the 11 models measured.
+        { id: "lip_stretch", label: "Tense mouth" },
         { id: "angry:mouth", label: "Angry mouth", ref: 0.0055 },
         { id: "surprised:mouth", label: "Shocked mouth", ref: 0.0200 },
         { id: "blush", label: "Blush" },
@@ -192,11 +230,13 @@ const EYE_SHAPE = /(^rx:(happy|relaxed|sad|angry):upper$|^Fcl_EYE_(Joy|Close|Ang
 // How strong. A conversational signal plays at 0.5–1.0 of its shape, the
 // band dialogue systems run facial gestures in — below ~0.4 most
 // expressions stop being recognised at all. A mood is the lighter resting
-// layer: 0.45–0.6, where a resting expression reads as friendly (0.2 is
-// invisible, past 0.7 a fixed grin) — a light one at the low end, a clear
-// one at the top. A peak plays at the signal band's top.
+// layer, on the three-step intensity scale avatar SDKs use (1/3, 2/3,
+// full): a light one at a third, a clear one at two thirds — still short of
+// the 0.7 where a resting expression turns into a fixed grin (0.2 is
+// invisible). The full step is the peak, at the signal band's top. Light
+// and clear were 0.45 and 0.6, too close to tell apart on the face.
 const FACE_SIGNAL_BAND = [0.5, 1.0];
-const FACE_MOOD_BAND = [0.45, 0.6];
+const FACE_MOOD_BAND = [0.33, 0.67];
 // When and how long, in seconds, from measured conversation: the median
 // length of each signal and how far ahead of its words it starts (Nota,
 // Trujillo & Holler 2021). Brow shapes rise 0.1 s and fall 0.2 s, the
@@ -204,11 +244,16 @@ const FACE_MOOD_BAND = [0.45, 0.6];
 // (Granström et al. 1999); a glance takes the median rise and fall of
 // professionally authored reaction clips, 0.27 / 0.33 s. A peak runs like
 // an amused smile: ~4 s (Ambadar et al. 2009), in over ~0.56 s (Schmidt et
-// al. 2003), out over ~1.1 s (Guo et al. 2018).
+// al. 2003), out over ~1.1 s (Guo et al. 2018). Looking away to think —
+// puzzling, remembering, about to answer a question — is held far longer
+// than a glance: 3.54 s, starting 1.32 s ahead of the answer, measured on
+// conversations (Andrist, Tan, Gleicher & Mutlu 2014), with the glance's
+// own rise and fall.
 const FACE_SIGNALS = {
     brow_raise:  { lead: 0.2,  dur: 0.64, rise: 0.1,  fall: 0.2 },
     frown:       { lead: 0.2,  dur: 0.96, rise: 0.1,  fall: 0.2 },
     look_away:   { lead: 0.5,  dur: 0.92, rise: 0.27, fall: 0.33 },
+    think:       { lead: 1.32, dur: 3.54, rise: 0.27, fall: 0.33 },
 };
 const FACE_PEAK = { lead: 0.89, dur: 4.0, rise: 0.56, fall: 1.1 };
 // What a line's acts bring, after the USC nonverbal behaviour generator's
@@ -319,9 +364,12 @@ const FACE_MOOD_S = 1.5;                // a mood eases in and out over 1.5 s
 // 0.6-1.0, down 0.25-0.7), so the director's glances are the size of the
 // idle's: aside is a mid-range sideways look at the shallowest dip, down
 // is the idle's deepest dip.
+// Looking away to think goes up more often than not (same study as
+// FACE_SIGNALS.think), so it is the aside glance mirrored upward.
 const FACE_GAZE = {
     glance_away: { x: 0.8, y: -0.25 },
     look_down: { x: 0, y: -0.7 },
+    think: { x: 0.8, y: 0.25 },
 };
 // While they talk the mouth belongs to the lip-sync: the open-jawed halves
 // (a laugh, a gasp) wait for the pauses, and the rest never pass 1 − the
@@ -480,6 +528,7 @@ export class FaceMotion {
         // Resting at most at "clear": a strong feeling is a peak on top.
         const rest = Math.min(level, 2);
         const moodKey = rest ? `${face.top}/${rest}` : null;
+        const arrived = !!moodKey && moodKey !== this.moodKey;
         if (moodKey !== this.moodKey && (moodKey || first)) {
             for (const old of [this.moodItem, this.traceItem]) {
                 if (old) this._retire(old, now, FACE_MOOD_S);
@@ -498,6 +547,12 @@ export class FaceMotion {
                     start: now, rise: FACE_MOOD_S, hold: Infinity, fall: FACE_MOOD_S, burst: true,
                 };
                 this.items.push(this.moodItem);
+                // What only arrives with a clear feeling (`arrive`), once,
+                // then the face settles to the mood. A strong one has its
+                // peak below instead.
+                if (level === 2) {
+                    this.items.push({ ...this._mix(rig, feelings, 2, band, "arrive"), ...timed(FACE_PEAK) });
+                }
                 // The anime displays pop their manga mark as the feeling
                 // arrives — but ON the line, not with this hand-over.
                 // Everything here is handed over FACE_LEAD_MS early on
@@ -558,11 +613,17 @@ export class FaceMotion {
             if (kind === "raise") signal("brow_raise", FACE_SIGNALS.brow_raise);
             else if (kind === "knit") signal("brow_knit", FACE_SIGNALS.frown);
         };
-        const glance = (kind, dir = side()) => {
-            const g = FACE_GAZE[kind];
+        // Looking away to think, up and to one side, held (FACE_SIGNALS.think).
+        const think = (dir = side()) => {
+            const g = FACE_GAZE.think;
+            this._recording?.add("gaze");   // the tuning dialog's "now playing"
+            // The head turns with the eyes, its share of a full aversion
+            // (FACE_TURN_YAW) scaled like the idle's: eyes alone barely
+            // move, because a VRM's authors allow them 1–12° of turn.
             this.items.push({
                 shapes: {}, presets: {}, gaze: { x: g.x * dir * GAZE_AMP, y: g.y * GAZE_AMP },
-                ...timed(FACE_SIGNALS.look_away),
+                bearing: { pitch: 0, yaw: FACE_TURN_YAW * g.x * dir, roll: 0 },
+                ...timed(FACE_SIGNALS.think),
             });
         };
         const gain = this._gain();
@@ -638,7 +699,7 @@ export class FaceMotion {
         }
         if (acts.has("recalls")) {
             brows("raise");
-            glance("glance_away");
+            think();
             held({ pitch: 0, yaw: 0, roll: FACE_HEAD_TILT * side() }, 0, span);
         }
         if (acts.has("asks") && !acts.has("negates") && !acts.has("recalls")) {
@@ -646,7 +707,7 @@ export class FaceMotion {
             if (roll < FACE_QUESTION_RAISE_P) brows("raise");
             else if (roll < FACE_QUESTION_RAISE_P + FACE_QUESTION_FROWN_P) brows("knit");
         }
-        if (acts.has("asked")) glance("glance_away");
+        if (acts.has("asked")) think();
         if (acts.has("agrees")) this._move("nod", Date.now(), 1);
         // Told something worth taking in: the listener's brow raise
         // (Chovil 1991 — among recipients a raise works as a response and a
@@ -668,6 +729,23 @@ export class FaceMotion {
         // the turn away (embarrassment down and aside, a huff away with the
         // eyes following) for the line, and a teasing wink as it ends.
         const top = FACE_FEELINGS[face.top];
+        // The thinking look (`glance`), as a clear feeling arrives —
+        // unless the line already looks away for remembering or asking.
+        if (top?.glance && arrived && rest >= 2 && !acts.has("recalls") && !acts.has("asked")) {
+            think();
+        }
+        // The teasing head tilt (`tilt`), as a clear feeling arrives —
+        // remembering already tilts the head its own way. It belongs to the
+        // amused smile, so it moves on the smile's timing (FACE_PEAK: in
+        // over ~0.56 s, out over ~1.1 s, ~4 s in all) and holds through a
+        // longer line; a glance's quarter-second rise is an eye's speed,
+        // not a head's.
+        if (top?.tilt && arrived && rest >= 2 && !acts.has("recalls")) {
+            this.items.push({
+                shapes: {}, presets: {}, bearing: { pitch: 0, yaw: 0, roll: FACE_HEAD_TILT * side() },
+                ...timed({ ...FACE_PEAK, dur: Math.max(span, FACE_PEAK.dur) }),
+            });
+        }
         if (top?.turn && rest >= 2) {
             // A huff turns away at once; embarrassment takes Keltner's
             // order — the gaze down first, the head aside a beat later,
@@ -891,16 +969,18 @@ export class FaceMotion {
         head.addHeadMove({ axis, keys, delay: (atMs - Date.now()) / 1000 - peak });
     }
 
-    /** A feeling blend as face shapes: each feeling's parts (FACE_FEELINGS)
-     *  that belong at `level`, at `w` × its share. Returns { shapes, presets }
-     *  — presets for an avatar whose expressions couldn't be split. */
-    _mix(rig, feelings, level, w) {
+    /** A feeling blend as face shapes: each feeling's parts (FACE_FEELINGS;
+     *  `list` "arrive" for the ones played once as it arrives) that belong
+     *  at `level`, at `w` × its share × the part's scale. Returns { shapes,
+     *  presets } — presets for an avatar whose expressions couldn't be
+     *  split. */
+    _mix(rig, feelings, level, w, list = "parts") {
         const shapes = {};
         const presets = {};
         for (const [feeling, share] of Object.entries(feelings)) {
-            for (const [part, from, to = 3] of FACE_FEELINGS[feeling]?.parts || []) {
+            for (const [part, from, to = 3, scale = 1] of FACE_FEELINGS[feeling]?.[list] || []) {
                 if (level < from || level > to) continue;
-                const got = this._channel(rig, part, share * w);
+                const got = this._channel(rig, part, share * w * scale);
                 for (const [m, v] of Object.entries(got?.shapes || {})) shapes[m] = (shapes[m] || 0) + v;
                 for (const [n, v] of Object.entries(got?.presets || {})) presets[n] = (presets[n] || 0) + v;
             }

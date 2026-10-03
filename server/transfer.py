@@ -49,7 +49,7 @@ from pathlib import Path
 from . import avatar_packs, lore_tools, memory_tools, portraits
 from .db import ASSETS_DIR, utcnow
 from .errors import UserError
-from .pipeline import setups as voice_setups
+from .pipeline import engines as pipeline_engines, setups as voice_setups
 
 _logger = logging.getLogger(__name__)
 
@@ -613,8 +613,8 @@ def _agent_portable_fields():
     travels by pack_key/name instead — and singing_profile_id, voice_setup,
     pipeline_voice and speech_tag_guides: a Voice Lab model, and a voice
     setup, voices and speech tags keyed by ids that only exist on this
-    install. The setup, voices and tags travel by name instead
-    (voice_setup_ref). Imported lazily: routes.misc imports this module at
+    install. The setup, voices and tags travel by their settings and names
+    instead (voice_setup_ref). Imported lazily: routes.misc imports this module at
     load time."""
     from .routes.misc import _AGENT_FIELDS
     return tuple(k for k in _AGENT_FIELDS
@@ -630,20 +630,41 @@ def _json_map(text):
     return value if isinstance(value, dict) else {}
 
 
+def _connection_fields(kind):
+    """A connection kind's portable fields — all but its secrets (API keys)
+    — or None when the kind isn't loaded here."""
+    entry = pipeline_engines.kinds().get(kind)
+    if not entry or kind == voice_setups.XAI:
+        return None
+    return [f for f in entry["fields"] if f.kind != "secret"]
+
+
+def _connection_values(fields, settings):
+    settings = settings if isinstance(settings, dict) else {}
+    return {f.key: pipeline_engines.coerce(f, settings.get(f.key, f.default)) for f in fields}
+
+
 def voice_setup_ref(con, agent):
     """A companion's voice setup, and its voice and speech tags on each
-    voice connection, by name: {'kind': 'default' | 'realtime' | 'setup',
-    'name': the setup's, 'voices': [{'connection': its name, 'engine': its
-    kind, 'voice', 'tags'}]}. Only names, voice ids and the companion's own
-    text — never a connection's API key or server URL."""
+    voice connection: {'kind': 'default' | 'realtime' | 'setup', 'name':
+    the setup's, 'stages': its stages as stored (kind 'setup'),
+    'connections': {ref: {'name', 'kind', 'settings'}} for every connection
+    the setup and voices use, 'voices': [{'ref', 'connection': its name,
+    'engine': its kind, 'voice', 'tags'}]}. A connection's settings leave
+    out its API key (every secret field), so the importer can match or
+    rebuild the setup but never gets the key."""
     choice = (agent["voice_setup"] or "").strip()
     ref = {"kind": "default", "name": None}
+    stage_refs = []
     if choice == voice_setups.REALTIME:
         ref["kind"] = "realtime"
     elif choice:
-        row = con.execute("SELECT name FROM voice_setups WHERE id = ?", (choice,)).fetchone()
+        row = con.execute("SELECT name, stages FROM voice_setups WHERE id = ?", (choice,)).fetchone()
         if row:
-            ref = {"kind": "setup", "name": row["name"]}
+            stages = voice_setups._json(row["stages"])
+            ref = {"kind": "setup", "name": row["name"], "stages": stages}
+            stage_refs = [s["connection"] for s in stages.values()
+                          if isinstance(s, dict) and "connection" in s]
     voices, tags = _json_map(agent["pipeline_voice"]), _json_map(agent["speech_tag_guides"])
     connections = voice_setups._connections(con)
     ref["voices"] = []
@@ -651,42 +672,138 @@ def voice_setup_ref(con, agent):
         conn = connections.get(voice_setups._conn_id(conn_id))
         voice, text = str(voices.get(conn_id) or "").strip(), str(tags.get(conn_id) or "").strip()
         if conn and (voice or text):
-            ref["voices"].append({"connection": conn["name"], "engine": conn["kind"],
-                                  "voice": voice, "tags": text})
+            ref["voices"].append({"ref": str(conn["id"]), "connection": conn["name"],
+                                  "engine": conn["kind"], "voice": voice, "tags": text})
+    ref["connections"] = {}
+    for conn_id in [*stage_refs, *(v["ref"] for v in ref["voices"])]:
+        conn = connections.get(voice_setups._conn_id(conn_id))
+        fields = _connection_fields(conn["kind"]) if conn else None
+        if fields is not None:
+            ref["connections"][str(conn["id"])] = {
+                "name": conn["name"], "kind": conn["kind"],
+                "settings": _connection_values(fields, conn["settings"])}
     return ref
 
 
+def _match_connection(con, desc):
+    """The id of a connection here with the same kind and settings as an
+    exported one (API key aside), preferring the same name; None if none."""
+    fields = _connection_fields(desc.get("kind")) if isinstance(desc, dict) else None
+    if fields is None:
+        return None
+    want = _connection_values(fields, desc.get("settings"))
+    same = [c for c in voice_setups._connections(con).values()
+            if not c.get("builtin") and c["kind"] == desc["kind"]
+            and _connection_values(fields, c["settings"]) == want]
+    match = next((c for c in same if c["name"] == desc.get("name")), same[0] if same else None)
+    return match["id"] if match else None
+
+
+def _setup_shape(stages, connections):
+    """A setup's stages with every default filled in, for comparing two
+    setups field by field."""
+    shape = {"turn": pipeline_engines.with_defaults(pipeline_engines.TURN_FIELDS, stages.get("turn"))}
+    for stage in (*pipeline_engines.STAGES, pipeline_engines.REALTIME):
+        saved = stages.get(stage)
+        conn = connections.get(voice_setups._conn_id(saved.get("connection"))) \
+            if isinstance(saved, dict) else None
+        cls = pipeline_engines.engine_for(stage, conn["kind"]) if conn else None
+        shape[stage] = (conn["id"], pipeline_engines.with_defaults(pipeline_engines.setup_fields(cls), saved)) \
+            if cls else None
+    return shape
+
+
+def _link_setup(con, ref, linked, added):
+    """The id (as stored on agents.voice_setup) of the setup here that
+    matches an exported one field by field — its connections matched by
+    kind and settings, API keys aside — else a new copy of it, adding the
+    connections it needs without their keys (their names go to `added`).
+    Packages from before setups travelled with their stages match by name
+    only. '' when nothing matches or can be built."""
+    name = str(ref.get("name") or "").strip()
+    stages = ref.get("stages")
+    described = ref.get("connections") if isinstance(ref.get("connections"), dict) else {}
+    if isinstance(stages, dict):
+        stages = {k: s for k, s in stages.items()
+                  if k in (*pipeline_engines.STAGES, pipeline_engines.REALTIME, "turn")
+                  and isinstance(s, dict)}
+        needed = {str(s["connection"]) for k, s in stages.items() if k != "turn" and "connection" in s}
+        missing = needed - linked.keys()
+        if all(_connection_fields((described.get(r) or {}).get("kind")) is not None for r in missing):
+            for r in missing:
+                desc = described[r]
+                fields = _connection_fields(desc["kind"])
+                values = _connection_values(fields, desc.get("settings"))
+                stored = {f.key: values[f.key] for f in fields if values[f.key] != f.default}
+                linked[r] = con.execute(
+                    "INSERT INTO voice_connections (name, kind, settings) VALUES (?, ?, ?)",
+                    (str(desc.get("name") or desc["kind"]), desc["kind"], json.dumps(stored))).lastrowid
+                if any(f.kind == "secret" for f in pipeline_engines.kinds()[desc["kind"]]["fields"]):
+                    added.append(str(desc.get("name") or desc["kind"]))
+            here = {k: ({**s, "connection": linked[str(s["connection"])]} if "connection" in s else s)
+                    for k, s in stages.items()}
+            connections = voice_setups._connections(con)
+            want = _setup_shape(here, connections)
+            rows = con.execute("SELECT id, name, stages FROM voice_setups "
+                               "ORDER BY name != ?, sequence, id", (name,)).fetchall()
+            for row in rows:
+                if _setup_shape(voice_setups._json(row["stages"]), connections) == want:
+                    return str(row["id"])
+            taken = {row["name"] for row in rows}
+            name = name or "Voice setup"
+            candidate, n = name, 1
+            while candidate in taken:
+                candidate, n = f"{name} - Imported{f' {n}' if n > 1 else ''}", n + 1
+            return str(con.execute("INSERT INTO voice_setups (name, stages) VALUES (?, ?)",
+                                   (candidate, json.dumps(here))).lastrowid)
+    if name:
+        row = con.execute("SELECT id FROM voice_setups WHERE name = ? ORDER BY sequence, id",
+                          (name,)).fetchone()
+        return str(row["id"]) if row else ""
+    return ""
+
+
 def link_voice_setup(con, ref):
-    """(voice_setup, pipeline_voice, speech_tag_guides) for an imported
-    companion from its voice_setup_ref: the setup here with the same name,
-    and each voice and tag text on the connection here of the same engine
-    and name (or the only one of that engine). Whatever has no match is
-    left out — the companion then uses the app's default setup and that
-    setup's default voice."""
+    """(voice_setup, pipeline_voice, speech_tag_guides, added) for an
+    imported companion from its voice_setup_ref: the matching setup here,
+    or a copy of it (_link_setup), and each voice and tag text on the
+    matching connection here — same kind and settings, else the same engine
+    and name, or the only one of that engine. `added` names the connections
+    created that still need an API key. Whatever has no match is left out —
+    the companion then uses the app's default setup and that setup's
+    default voice."""
+    added = []
     if not isinstance(ref, dict):
-        return "", "", ""
+        return "", "", "", added
+    described = ref.get("connections") if isinstance(ref.get("connections"), dict) else {}
+    linked = {voice_setups.XAI: voice_setups.XAI}
+    for key, desc in described.items():
+        found = _match_connection(con, desc)
+        if found is not None:
+            linked[str(key)] = found
     setup = ""
     if ref.get("kind") == "realtime":
         setup = voice_setups.REALTIME
-    elif ref.get("kind") == "setup" and ref.get("name"):
-        row = con.execute("SELECT id FROM voice_setups WHERE name = ? ORDER BY sequence, id",
-                          (str(ref["name"]),)).fetchone()
-        setup = str(row["id"]) if row else ""
+    elif ref.get("kind") == "setup":
+        setup = _link_setup(con, ref, linked, added)
     connections = [c for c in voice_setups._connections(con).values() if not c.get("builtin")]
     voices, tags = {}, {}
     for v in ref.get("voices") or []:
         if not isinstance(v, dict):
             continue
-        same_engine = [c for c in connections if c["kind"] == v.get("engine")]
-        match = next((c for c in same_engine if c["name"] == v.get("connection")),
-                     same_engine[0] if len(same_engine) == 1 else None)
-        if not match:
+        match_id = linked.get(str(v.get("ref")))
+        if match_id is None:
+            same_engine = [c for c in connections if c["kind"] == v.get("engine")]
+            match = next((c for c in same_engine if c["name"] == v.get("connection")),
+                         same_engine[0] if len(same_engine) == 1 else None)
+            match_id = match["id"] if match else None
+        if match_id is None:
             continue
         for found, key in ((voices, "voice"), (tags, "tags")):
             text = str(v.get(key) or "").strip()
             if text:
-                found.setdefault(str(match["id"]), text)
-    return setup, json.dumps(voices) if voices else "", json.dumps(tags) if tags else ""
+                found.setdefault(str(match_id), text)
+    return setup, json.dumps(voices) if voices else "", json.dumps(tags) if tags else "", added
 
 
 def _idle_event_fields():
@@ -879,8 +996,8 @@ def import_companion_zip(con, zip_path):
                                       (avatar_ref["name"],)).fetchone()
                 avatar_id = row["id"] if row else None
             vals["avatar_id"] = avatar_id
-            vals["voice_setup"], vals["pipeline_voice"], vals["speech_tag_guides"] = link_voice_setup(
-                con, companion.get("voice_setup"))
+            vals["voice_setup"], vals["pipeline_voice"], vals["speech_tag_guides"], keys_needed = \
+                link_voice_setup(con, companion.get("voice_setup"))
 
             cols = ", ".join(vals)
             marks = ", ".join("?" * len(vals))
@@ -936,6 +1053,7 @@ def import_companion_zip(con, zip_path):
             "sessions_imported": sessions_imported,
             "messages_imported": messages_imported,
             "heartbeats_imported": heartbeats_imported,
+            "voice_keys_needed": keys_needed,
         }
     except zipfile.BadZipFile:
         raise UserError("Not a zip file.")

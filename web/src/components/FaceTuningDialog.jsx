@@ -13,6 +13,7 @@ const ACTS = [
     ["affirms", "Nod", "a yes: a nod with the brows raised", "head nod"],
     ["negates", "Shake", "a no: a head shake with the brows knitted", "head shake"],
     ["winks", "Wink", "a wink at the end of the line", null],
+    ["asked", "Glance", "looking away to think: up and aside for a few seconds, as when asked something or puzzled", null],
 ];
 const MAX = 2;
 

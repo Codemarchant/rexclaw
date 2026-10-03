@@ -490,6 +490,13 @@ export default function CompanionsView({ active }) {
                         body.name, body.memories_imported, body.sessions_imported),
                 { type: "success" },
             );
+            if (body.voice_keys_needed?.length) {
+                notification.add(
+                    _t("Added the voice connection %s for this companion — enter its API key in Settings → Models & providers.",
+                        body.voice_keys_needed.join(", ")),
+                    { type: "warning" },
+                );
+            }
             load();
         } catch (e) {
             notification.add(e?.message || _t("Import failed"), { type: "danger" });
