@@ -17,11 +17,12 @@ you, in 3D scenes you can walk them through. Memory grows across sessions,
 voice and text chat share one conversation, and companions can search the
 web, see your screen, make images and video, and use your own MCP tools.
 
-By default calls run on xAI's Grok Realtime with your own xAI key. Or build
-a voice setup from OpenAI, Claude, ElevenLabs, Fish Audio and others, or from
-models on your own computer with no API key at all (see
+By default calls run on xAI's Grok Realtime: sign in with your SuperGrok or
+X Premium subscription, or use your own xAI API key. Or build a voice setup
+from OpenAI, Claude, ElevenLabs, Fish Audio and others, or from models on
+your own computer with no API key at all (see
 [Models & providers](#-models--providers)). Your data lives in a SQLite file
-on your disk, and your API keys are stored only on your machine.
+on your disk, and your API keys and sign-ins are stored only on your machine.
 
 ---
 
