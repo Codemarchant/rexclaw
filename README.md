@@ -67,7 +67,7 @@ on your disk, and your API keys are stored only on your machine.
 | 🛠️ **Local computer tasks** | Opt-in (`local_task`): real files, code and shell on your machine through the [Grok Build CLI](https://docs.x.ai/build), confined to a working folder you choose (Settings → Local computer tasks). It runs without confirmation prompts inside that folder, so it's **off by default**. Never offered in Docker. |
 | ⛏️ **Minecraft bot** | Opt-in: your companion joins your Minecraft world as a real player, plays on your spoken directions and reacts aloud to what happens ("found diamonds!"). **Off by default**: it runs model-written scripts in your world, so use your own or trusted servers. |
 | 🔌 **Remote MCP tools** | Attach remote MCP servers per companion, with bearer auth and per-tool whitelists, all from the UI. |
-| 🎮 **Games (Neuro API)** | Your companion plays games built for Neuro-sama's open game API (Slay the Spire 2, Inscryption, Buckshot Roulette and many community mods) and talks it through with you. Eight built-in mini-games, from Connect Four to Liar's Dice. |
+| 🎮 **Games (Neuro API)** | Your companion plays games built for Neuro-sama's open game API (Slay the Spire 2, Inscryption, Buckshot Roulette and many community mods) and talks it through with you. Ten built-in mini-games, from chess to heads-up poker. |
 | 🧩 **Extensions** | Drop-in folders that add your own companion tools, pages, voice engines and games. |
 
 ### Yours
@@ -451,8 +451,8 @@ Community mods are listed in the
 3. Start a call with that companion and play. Off a call, the mod waits for
    you, unless the Games tab lets the companion play on in a chat.
 
-**Built in:** Broadside! (a 3D cannon duel), Connect Four, Liar's Dice,
-Blackjack, Crazy Eights, Walk the Plank, Rock Paper Scissors and
+**Built in:** Broadside! (a 3D cannon duel), chess, heads-up Hold'em,
+Connect Four, Liar's Dice, Blackjack, Crazy Eights, Walk the Plank, Rock Paper Scissors and
 Tic-Tac-Toe, in the Games tab library, with the crew chiming in in their own
 voices.
 

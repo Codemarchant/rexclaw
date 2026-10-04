@@ -263,7 +263,7 @@ class XaiLlm(LlmEngine):
                    '(Artificial Analysis, time to first answer token).'),
         # The word limits are Settings' own defaults; the size is the call
         # budget's (summary_threshold_tokens), here measured as a request.
-        *conversation_fields(64000, 4000, 12000),
+        *conversation_fields(64000, 3000, 9000),
     )
 
     def __init__(self, settings, config):
@@ -774,7 +774,7 @@ class OpenAiCloudLlm(OpenAiLlm):
                    'Low (a level a model doesn\'t take falls back to its default).'),
         # As Claude's: 1M context isn't the limit, the cost of resending a
         # growing conversation is - cached input is 5-10% of the price.
-        *conversation_fields(128000, 4000, 12000),
+        *conversation_fields(128000, 3000, 9000),
         Field('vision', 'Can see images', 'bool', True,
               help='OpenAI\'s current models all see images: ones you attach in chat reach it, and '
                    'analyze_screen runs on it instead of Grok vision.'),
@@ -1055,7 +1055,7 @@ class AnthropicLlm(LlmEngine):
         # on Grok (Sal, 2026-10-02), and cache reads make the extra room
         # cheap (~$0.20/M on Opus/Sonnet 5.5) - Jonathan's pick. Word
         # limits are Settings' own.
-        *conversation_fields(128000, 4000, 12000),
+        *conversation_fields(128000, 3000, 9000),
         Field('vision', 'Can see images and PDFs', 'bool', True,
               help='Images and PDFs you attach in chat reach Claude, and analyze_screen runs on it '
                    'instead of Grok vision.'),

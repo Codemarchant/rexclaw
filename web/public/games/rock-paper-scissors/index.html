@@ -118,7 +118,9 @@ const game = RexGame.create({
   onAgain: () => newMatch(),
 });
 
-function askThrow() {
+/** auto: the next round, started by the clock after a reveal - it waits for
+ *  their reaction to finish ("low") and answers no move of the user's. */
+function askThrow(auto = false) {
   const past = pastRounds.length
     ? pastRounds.map((h, i) => `Round ${i + 1}: you ${h.them}, the user ${h.you} (${h.winner})`).join("\n")
     : "No rounds yet.";
@@ -127,6 +129,7 @@ function askThrow() {
       + `Score: you ${wins.them}, the user ${wins.you} (first to ${M.target})\n${past}`,
     query: `${lastResult}Round ${round}: throw_hand now.`.trim(),
     actions: ["throw_hand"],
+    ...(auto ? { priority: "low", afterUser: false } : {}),
   });
 }
 
@@ -186,7 +189,7 @@ function nextRound() {
   round++; mine = theirs = null;
   $("verb").textContent = "";
   render();
-  askThrow();
+  askThrow(true);
 }
 
 function userThrow(hand) {

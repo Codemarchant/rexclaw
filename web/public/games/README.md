@@ -80,6 +80,12 @@ const game = RexGame.create({
   onLoad(saved) { /* the save arrived: restore anything you keep */ },
 });
 game.force({ state, query, actions: ["make_move"] });   // the companion's turn
+// priority (Neuro's): "low" waits for them to finish talking, "medium" skips
+// their talk about their last move if it hasn't started, "high" cuts it,
+// "critical" cuts anything they're saying. Left out, the kit picks: "low" for
+// a force made while handling their own move (chained), "high" for anything
+// the user's input set off. afterUser: false for a force started by a timer
+// or a reconnect, so it isn't timed as the user's answer (rapid play).
 game.tell("Something happened.", /* silent */ true);
 game.award(20, "Nice!", element);                        // doubloons, with a pop
 game.end({ outcome: "win", points: 100, detail: "..." }); // record, sound, confetti, result screen

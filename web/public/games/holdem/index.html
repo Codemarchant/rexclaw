@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hold'em · Rexclaw</title>
+<link rel="stylesheet" href="../lib/games.css">
+<!--
+  Heads-up no-limit Texas Hold'em against a companion, over the Neuro API
+  (../lib/neuro.js). js/poker.js = cards and equity, js/table.js = the
+  betting rules, js/coach.js = the companion's briefing each turn.
+  The user's hole cards never reach the companion before a showdown.
+-->
+<style>
+  main { max-width: 680px; }
+  .info { display: flex; justify-content: space-between; gap: 8px; font-size: .8rem; color: var(--muted); margin: 0 4px 10px; }
+  .info b { color: var(--text); }
+  .felt { position: relative; border-radius: 170px / 120px; padding: 22px 26px; display: grid; grid-template-rows: auto 1fr auto; gap: 10px; min-height: 430px;
+    background: radial-gradient(ellipse at 50% 38%, #1f7a4d, #0f3d2a 78%);
+    box-shadow: 0 18px 40px rgba(0,0,0,.45), inset 0 0 0 8px rgba(0,0,0,.18), 0 0 0 5px #5b3a1e, 0 0 0 9px #3f2713, 0 0 0 11px rgba(250,204,21,.22); }
+  .felt::before { content: "THE BRINE & BARNACLE · BACK ROOM"; position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+    text-align: center; font: 800 .7rem/1 Georgia, serif; letter-spacing: .3em; color: rgba(255,255,255,.06); pointer-events: none; }
+  .seat { display: flex; align-items: center; justify-content: center; gap: 14px; position: relative; flex-wrap: wrap; }
+  .who { text-align: center; min-width: 108px; padding: 6px 10px; border-radius: 12px; background: rgba(2,6,23,.35); transition: box-shadow .2s; }
+  .who b { display: block; font-size: .9rem; }
+  .seat.turn .who { box-shadow: 0 0 0 2px #facc15, 0 0 18px rgba(250,204,21,.35); }
+  .stack { color: var(--gold); font-weight: 800; font-variant-numeric: tabular-nums; font-size: .95rem; }
+  .cards { display: flex; gap: 6px; min-height: 88px; align-items: center; }
+  .chips { display: inline-flex; align-items: center; gap: 6px; font-weight: 800; color: #fef3c7; min-width: 70px; font-variant-numeric: tabular-nums; }
+  .chips:empty { visibility: hidden; }
+  .chips i { width: 18px; height: 18px; border-radius: 50%; flex: none; background: radial-gradient(circle at 35% 30%, #fde68a, #d97706);
+    box-shadow: 0 2px 0 #92400e, 0 4px 0 #78350f, 0 6px 0 #92400e; }
+  .dealer { width: 26px; height: 26px; border-radius: 50%; background: #f8fafc; color: #0f172a; font: 800 .72rem/26px Georgia, serif; text-align: center;
+    box-shadow: 0 2px 5px rgba(0,0,0,.5), inset 0 0 0 2px #cbd5e1; flex: none; }
+  .dealer[hidden] { display: none !important; }
+  .middle { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  .board { display: flex; gap: 6px; min-height: 88px; }
+  .slot { width: 62px; height: 88px; border-radius: 8px; border: 2px dashed rgba(255,255,255,.14); flex: none; }
+  .pot { font-weight: 800; color: #fef3c7; display: flex; align-items: center; gap: 8px; min-height: 1.5em; }
+  .handname { font-size: .8rem; color: #bbf7d0; min-height: 1.15em; text-align: center; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+  .handname b { color: #fff; }
+  .felt .rx-card.win { box-shadow: 0 0 0 3px #facc15, 0 0 18px #facc15; transform: translateY(-5px); }
+  .felt .rx-card.dim { filter: brightness(.55); }
+
+  /* Polly, on the rail */
+  .polly { position: absolute; right: 7%; top: -34px; width: 58px; z-index: 3; cursor: help; }
+  .polly svg { width: 100%; display: block; filter: drop-shadow(0 4px 3px rgba(0,0,0,.5)); }
+  .polly.squawk svg { animation: squawk .6s ease-in-out; }
+  @keyframes squawk { 25% { transform: rotate(-12deg) scale(1.12); } 50% { transform: rotate(8deg); } 75% { transform: rotate(-6deg); } }
+  .squawk-bubble { position: absolute; right: 52px; top: -6px; background: #fff; color: #b91c1c; font: 900 .85rem/1 system-ui, sans-serif;
+    padding: 6px 10px; border-radius: 12px 12px 2px 12px; white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,.4); animation: pop .3s; }
+  .squawk-bubble[hidden] { display: none !important; }
+  @keyframes pop { from { transform: scale(.3); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; margin-top: 16px; min-height: 42px; }
+  .raise { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; padding: 6px 8px; border-radius: 12px; background: rgba(22,33,59,.75); border: 1px solid var(--line); }
+  .raise input[type=range] { width: 150px; accent-color: #f59e0b; }
+  .raise input[type=number] { width: 84px; font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+  .raise .pre { font-size: .75rem; padding: 4px 8px; }
+  .odds { font-size: .78rem; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .log { margin-top: 12px; }
+  .log summary { cursor: pointer; font-weight: 700; color: var(--muted); }
+  @media (max-width: 560px) {
+    .felt { padding: 18px 10px; border-radius: 60px; }
+    .felt .rx-card, .slot { width: 46px; height: 66px; }
+    .felt .rx-card .pip { font-size: 1.35rem; } .felt .rx-card .corner { font-size: .72rem; }
+    .cards, .board { min-height: 66px; }
+    .polly { width: 46px; top: -28px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="rx-top">
+    <a class="rx-back" href="../index.html">← Deck</a>
+    <h1>Hold'em<small>Heads-up, no limit, in the Brine &amp; Barnacle's back room</small></h1>
+    <span id="rx-link" class="rx-pill off">Connecting…</span>
+  </header>
+  <div class="rx-players">
+    <span id="you">You <span class="rx-score" id="score-you">0</span></span>
+    <span id="them"><span class="rx-score" id="score-them">0</span><b data-companion>Your companion</b></span>
+  </div>
+  <div class="info"><span id="level"></span><span id="handno"></span></div>
+  <div class="felt" id="felt">
+    <div class="polly" id="polly" title="Polly. She squawks when she thinks someone's bluffing. She isn't always right.">
+      <div class="squawk-bubble" id="squawk" hidden>BLUFF!</div>
+      <svg viewBox="0 0 64 80" aria-hidden="true">
+        <path d="M30 78l-4 -14h12l-4 14z" fill="#1d4ed8"/>
+        <path d="M22 40c-6 12-4 26 8 30 12 2 18-8 16-22-1-8-6-12-12-12z" fill="#16a34a"/>
+        <path d="M26 46c-2 8 0 16 6 20" fill="none" stroke="#14532d" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M34 50c-1 6 0 11 4 14" fill="none" stroke="#facc15" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="34" cy="28" r="13" fill="#dc2626"/>
+        <path d="M28 16l-4-12 8 9 2-11 4 12z" fill="#dc2626"/>
+        <path d="M44 22c9 0 12 10 5 15 0-4-3-6-7-6z" fill="#fbbf24" stroke="#78350f" stroke-width="1.2"/>
+        <circle cx="37" cy="25" r="4" fill="#fff"/><circle cx="38" cy="25" r="2" fill="#0f172a"/>
+        <path d="M24 70h22" stroke="#5b3a1e" stroke-width="4" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="seat" id="seat-them">
+      <div class="who"><b data-companion>Your companion</b><span class="stack" id="stack-them"></span></div>
+      <div class="cards" id="cards-them"></div>
+      <i class="dealer" id="d-them" hidden>D</i>
+      <span class="chips" id="bet-them"></span>
+    </div>
+    <div class="middle">
+      <div class="handname" id="name-them"></div>
+      <div class="board" id="board"></div>
+      <div class="pot" id="pot"></div>
+      <div class="handname" id="name-you"></div>
+    </div>
+    <div class="seat" id="seat-you">
+      <div class="who"><b>You</b><span class="stack" id="stack-you"></span></div>
+      <div class="cards" id="cards-you"></div>
+      <i class="dealer" id="d-you" hidden>D</i>
+      <span class="chips" id="bet-you"></span>
+    </div>
+  </div>
+  <div class="actions" id="actions"></div>
+  <div id="status" class="rx-status"></div>
+  <details class="log rx-panel"><summary>Ship's log</summary><div class="rx-log" id="log"></div></details>
+  <p class="rx-hint">Polly sits on the rail and squawks when she thinks your opponent is bluffing. She isn't always right.
+    Chips are doubloons. Bluffing, table talk and staring meaningfully are all encouraged.</p>
+</main>
+<script src="../lib/neuro.js"></script>
+<script src="../lib/juice.js"></script>
+<script src="../lib/music.js"></script>
+<script src="../lib/scenes.js"></script>
+<script src="../lib/crew.js"></script>
+<script src="../lib/lines.js"></script>
+<script src="js/poker.js"></script>
+<script src="js/table.js"></script>
+<script src="js/coach.js"></script>
+<script>
+"use strict";
+const { sfx, fx } = RexGame;
+const P = RexPoker, T = RexTable, K = RexCoach;
+const MODE_TABS = [
+  { id: "sng", label: "Sit & Go", hint: "1,500 chips, blinds rise" },
+  { id: "deep", label: "Deep Water", hint: "4,000 chips, fixed blinds" },
+  { id: "shove", label: "Shove or Fold", hint: "all-in or nothing, first to 5" },
+];
+const MODES = {
+  sng: { label: "Sit & Go", start: 1500, every: 8, bonus: 0,
+         levels: [[10, 20], [15, 30], [25, 50], [50, 100], [75, 150], [100, 200], [150, 300], [200, 400], [300, 600], [500, 1000]] },
+  deep: { label: "Deep Water", start: 4000, every: 0, bonus: 150, levels: [[10, 20]] },
+  shove: { label: "Shove or Fold", start: 200, every: 0, bonus: 0, levels: [[10, 20]], reset: true, target: 5 },
+};
+const RULES = "You are playing heads-up no-limit Texas Hold'em against the user, in the back room of the Brine & Barnacle, "
+  + "for doubloons. Standard rules: two hole cards each, blinds, a betting round before the flop, on the flop, on the "
+  + "turn and on the river, and the best five-card hand wins at a showdown. Every amount you give is a raise-TO total "
+  + "for the current betting round (raise to 300 means your bet this round becomes 300 in all). You never see the "
+  + "user's cards before a showdown, and nothing you're told gives them away: your equity figures are against a random "
+  + "hand. Your own cards are secret too: never say what they are (until a showdown, or show_cards). Talk about your "
+  + "hand all you like, and lie about it if you want, but don't give it away. "
+  + "The user may lie about their hand, and so may you: bluffing, table talk and fishing for tells are the game. "
+  + "Play in your own character and talk while you play. On your turn you get your cards, what you hold, the pot and "
+  + "the price, a read on how the user plays, and a sensible plan with a bluff option. You decide; your character can "
+  + "overrule the plan. Polly, the parrot on the rail, sometimes squawks 'Bluff!' after your bets. She isn't always right.";
+
+let M = MODES.sng, modeId = "sng", ready = true, match = null, h = null, shown = { you: false, them: false };
+const score = { you: 0, them: 0 };   // matches won this session
+const logLines = [];
+const $ = (id) => document.getElementById(id);
+const cards = (list) => K.cardsText(list);
+const yourTurn = () => !!h && !h.done && h.toAct === "you";
+const theirTurn = () => !!h && !h.done && h.toAct === "them";
+const blinds = () => {
+  const i = M.every ? Math.min(M.levels.length - 1, Math.floor((match.handNo - 1) / M.every)) : 0;
+  return M.levels[i];
+};
+const levelText = () => (M.reset ? "" : `blinds ${blinds()[0]}/${blinds()[1]}`);
+const local = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+};
+
+const game = RexGame.create({
+  name: "Hold'em",
+  modes: MODE_TABS,
+  onMode: (id) => pickMode(id),
+  music: ["river-noir", "high-stakes", "quartermaster-lounge", "candlelight-bluff"],
+  scenes: ["tavern", "night", "storm"],
+  rules: RULES,
+  actions: [
+    { name: "poker_action",
+      description: "Your poker action. action: fold, check, call, bet, raise or all_in. amount: for bet or raise, the raise-TO total for this betting round (a number; \"half pot\", \"pot\" and \"min\" work too).",
+      schema: { type: "object", properties: {
+        action: { type: "string", enum: ["fold", "check", "call", "bet", "raise", "all_in"] },
+        amount: { type: "integer" } }, required: ["action"] } },
+    { name: "show_cards",
+      description: "After the user folds to you, show them your cards (optional: to needle them, or to prove you weren't bluffing).",
+      schema: { type: "object", properties: {} } },
+  ],
+  onAction(name, data) {
+    if (name === "show_cards") return showTheirs();
+    return theirAction(data);
+  },
+  onCompanion: () => render(),
+  onConnect: () => { if (theirTurn() && !game.waiting()) askMove("", false); },
+  onAgain: () => startMatch(),
+  onLoad: (saved) => resume(saved.match),
+});
+
+function reads() {
+  return { hands: 0, vpip: 0, pfr: 0, faced: 0, folds: 0, aggr: 0, calls: 0, shown: [], caught: 0, ...(game.saved.reads || {}) };
+}
+
+// ---- Match and hands ------------------------------------------------------------
+
+/** A mode tab only sets the table up; nothing starts until Start game. A
+ *  match in progress plays on, and the mode is for the next one. */
+function pickMode(id) {
+  if (match && !match.over && !ready) { render(); return; }
+  M = MODES[id]; modeId = id;
+  game.cancelForce();
+  ready = true; match = null; h = null;
+  render();
+}
+
+function startMatch() {
+  game.cancelForce();
+  modeId = game.mode || "sng"; M = MODES[modeId];
+  ready = false; h = null;
+  match = { mode: modeId, stacks: { you: M.start, them: M.start }, handNo: 0, button: Math.random() < 0.5 ? "you" : "them",
+            wins: { you: 0, them: 0 }, over: null };
+  logLines.length = 0;
+  game.tell(`A new ${M.label} match of heads-up hold'em started: ${M.start} chips each`
+    + (M.reset ? `. Every hand you both start with 10 big blinds and may only go all-in or fold; first to win ${M.target} hands takes the match.`
+      : M.every ? `, blinds 10/20 rising every ${M.every} hands.` : ", blinds 10/20 all match."));
+  sfx.whoosh();
+  dealHand();
+}
+
+/** Pick up a match left between hands (a reload, an app restart). */
+function resume(saved) {
+  if (!ready || !saved || !MODES[saved.mode] || saved.over) return;
+  modeId = saved.mode; M = MODES[modeId];
+  match = { ...saved, over: null };
+  ready = false; h = null;
+  game.tell(`Picking up a ${M.label} match of hold'em before hand ${match.handNo + 1}. `
+    + `Stacks: you ${match.stacks.them}, the user ${match.stacks.you}.`);
+  render();
+}
+
+function dealHand() {
+  game.cancelForce();
+  match.handNo++;
+  if (match.handNo > 1) match.button = T.other(match.button);
+  if (M.reset) match.stacks = { you: M.start, them: M.start };
+  const [sb, bb] = blinds();
+  shown = { you: false, them: false };
+  h = T.newHand({ stacks: match.stacks, button: match.button, sb, bb, deck: RexGame.deck() });
+  sfx.shuffle();
+  [0, 1, 2, 3].forEach((i) => setTimeout(() => sfx.card(), 250 + i * 110));
+  if (M.every && match.handNo > 1 && (match.handNo - 1) % M.every === 0) {
+    fx.float(`Blinds up: ${sb}/${bb}`, { at: $("pot"), color: "#fca5a5", big: true });
+    sfx.bell();
+  }
+  addLog(`<b>Hand ${match.handNo}</b> · ${levelText() || "shove or fold"} · ${match.button === "you" ? "you have" : `${RexGame.escape(game.companion)} has`} the button`);
+  render();
+  // The companion knows its cards from the deal, so it can talk about them.
+  const intro = `Hand ${match.handNo} dealt${levelText() ? ` (${levelText()})` : ""}. Your cards (secret, don't say them): ${cards(h.hole.them)} `
+    + `(${P.describe(h.hole.them, [])}). ${h.button === "them" ? "You have the button and act first." : "The user has the button and acts first."}`;
+  if (h.done) { afterEvents(h.openingEvents); endHand(null); return; }
+  if (theirTurn()) askMove(intro + " ");
+  else game.tell(intro, true);
+}
+
+/** afterUser: false on a reconnect, which answers nothing. Otherwise the kit
+ *  tells (game.force): asked while handling the companion's own action (it
+ *  acts first on the new street) is chained, anything else follows the user. */
+function askMove(lead = "", afterUser = null) {
+  const lastUser = [...h.history].reverse().find((a) => a.p === "you" && a.street === h.street);
+  const did = lastUser ? `The user ${({ check: "checked", call: `called ${lastUser.amount}`, bet: `bet ${lastUser.amount}`,
+    raise: `raised to ${lastUser.amount}`, fold: "folded" })[lastUser.action]}${lastUser.allIn ? " (all-in)" : ""}. ` : "";
+  game.force({
+    state: K.brief(h, { handNo: match.handNo, reads: reads(), shoveOnly: !!M.reset, levelText: levelText() }),
+    // Last thing they read before speaking, so the secrecy rule goes here:
+    // a voice model otherwise narrates its decision ("nine-three, I fold").
+    query: `${lead}${did}Your turn: poker_action. Act first, then talk. Poker face: say what you did and talk to `
+      + "the user, but never name your cards, say how strong or weak your hand is, or admit a bluff.",
+    actions: ["poker_action"],
+    afterUser,
+  });
+}
+
+// ---- Actions ------------------------------------------------------------------
+
+/** What a companion's amount means: a number, number words, or a size. */
+function readAmount(value, o) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "number") return Math.round(value);
+  const text = String(value).toLowerCase().trim();
+  const n = RexGame.toInt(text.replace(/[,\s]*(chips|doubloons)$/, "").replace(/,/g, ""));
+  if (!Number.isNaN(n)) return n;
+  const sizes = [[/two.?thirds|2\/3/, 2 / 3], [/half|1\/2/, 1 / 2], [/third|1\/3/, 1 / 3], [/quarter|1\/4/, 1 / 4], [/pot/, 1]];
+  for (const [re, frac] of sizes) if (re.test(text)) return K.sizeTo(h, o, frac);
+  if (/min/.test(text)) return o.minTo;
+  if (/max|all/.test(text)) return o.maxTo;
+  const x = /(\d+(?:\.\d+)?)\s*x/.exec(text);
+  if (x) return Math.round(Number(x[1]) * (h.betTo || h.bb));
+  return null;
+}
+
+function theirAction(data) {
+  if (!h || h.done) throw new RexGame.Refuse("No hand is being played: wait for the user to deal the next one.");
+  if (h.toAct !== "them") throw new RexGame.Refuse("It's the user's turn to act, not yours.");
+  const o = T.options(h, "them"), notes = [];
+  const SYN = { allin: "all_in", all: "all_in", shove: "all_in", jam: "all_in", push: "all_in", go_all_in: "all_in",
+                muck: "fold", pass: "check", knock: "check", min_raise: "raise", reraise: "raise", re_raise: "raise" };
+  let action = String(data.action || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+  action = SYN[action] || action;
+  if (M.reset && (action === "bet" || action === "raise")) { action = "all_in"; notes.push("Shove or Fold has no smaller bets, so you went all-in"); }
+  if (M.reset && action === "call" && h.stacks.you > 0 && o.canRaise) { action = "all_in"; notes.push("Shove or Fold has no calling the blind, so you went all-in"); }
+  if (action === "call" && o.canCheck) { action = "check"; notes.push("there was nothing to call, so you checked"); }
+  if (action === "check" && !o.canCheck) {
+    throw new RexGame.Refuse(`You can't check: the user bet. It's ${o.toCall} to call; you can call, ${o.canRaise ? "raise, " : ""}or fold.`);
+  }
+  if (action === "fold" && o.canCheck) throw new RexGame.Refuse("Nobody has bet, so there's nothing to fold to: check instead (it's free).");
+  let to = 0;
+  if (action === "bet" || action === "raise") {
+    if (!o.canRaise) throw new RexGame.Refuse(`You can't ${action} now: ${o.toCall ? `call ${o.toCall} or fold` : "check"}.`);
+    to = readAmount(data.amount, o);
+    if (to === null) {
+      to = h.street === 0 ? Math.max(o.minTo, Math.min(o.maxTo, h.betTo > h.bb ? 3 * h.betTo : 2.5 * h.bb)) : K.sizeTo(h, o, 1 / 2);
+      notes.push(`no amount given, so you ${o.isBet ? "bet" : "raised to"} ${to}`);
+    } else if (!o.isBet && to <= h.betTo && h.betTo + to >= o.minTo && h.betTo + to <= o.maxTo) {
+      notes.push(`${to} is less than the bet already in, so it was read as raising BY ${to}, to ${h.betTo + to}`);
+      to = h.betTo + to;
+    }
+    if (to < o.minTo) { notes.push(`the smallest ${o.isBet ? "bet" : "raise"} is to ${o.minTo}, so that's what you made`); to = o.minTo; }
+    if (to >= o.maxTo) { if (to > o.maxTo) notes.push(`that's more than can be bet, so you're all-in for ${o.maxTo}`); to = o.maxTo; }
+  }
+  const aggressive = action === "bet" || action === "raise" || (action === "all_in" && o.canRaise);
+  const wasBluff = aggressive && K.bluffy(h);
+  const before = h.street;
+  const res = T.act(h, "them", action, to);
+  if (!res.ok) throw new RexGame.Refuse(res.error);
+  const squawk = aggressive && pollyCheck(wasBluff);
+  return afterAction("them", res.events, before, notes, squawk);
+}
+
+function yourAction(action, to = 0) {
+  if (!yourTurn()) return;
+  const aggressive = action === "raise" || action === "bet" || (action === "all_in" && T.options(h, "you").canRaise);
+  const before = h.street;
+  const res = T.act(h, "you", action, to);
+  if (!res.ok) { sfx.error(); fx.float(res.error, { at: $("actions"), color: "#f87171" }); return; }
+  game.cancelForce();
+  if (aggressive && h.stacks.you === 0) { game.react("user_all_in"); game.heckle("all_in", { chance: 0.4 }); }
+  afterAction("you", res.events, before);
+}
+
+/** After a move: sounds, the log, the next turn, or the end of the hand.
+ *  For the companion's move, returns what it's told back. */
+function afterAction(p, events, before, notes = [], squawk = false) {
+  const a = h.history[h.history.length - 1];
+  const name = p === "you" ? "You" : RexGame.escape(game.companion);
+  const verb = { fold: "fold", check: "check", call: `call ${a.amount}`, bet: `bet ${a.amount}`, raise: `raise to ${a.amount}` }[a.action];
+  addLog(`${name} ${p === "you" ? verb : verb.replace(/^(\w+)/, (w) => w === "raise" ? "raises" : w + "s")}${a.allIn ? " <b>(all-in)</b>" : ""}`);
+  ({ fold: () => sfx.card(), check: () => sfx.click(), call: () => sfx.coins(3), bet: () => sfx.coins(6), raise: () => sfx.coins(8) })[a.action]();
+  if (a.allIn && a.action !== "call") { sfx.boom(); fx.shake(); }
+  if (p === "them" && a.allIn && a.action !== "call") { game.react("all_in"); game.heckle("all_in", { chance: 0.5 }); }
+  if (p === "them" && a.action === "fold") game.react("they_fold");
+  if (p === "you" && a.action === "fold") game.react("user_folds");
+  afterEvents(events);
+  render();
+
+  let told = "";
+  if (p === "them") {
+    told = `You ${verb}${a.allIn ? " (all-in)" : ""}.${notes.length ? ` (${notes.join("; ")}.)` : ""}`;
+    // Their line after the action is the other place a hand slips out.
+    if (!h.done || h.result.how === "fold") told += " Poker face: don't reveal your cards or your hand's strength.";
+    if (squawk) told += " Polly the parrot squawked \"Bluff!\" at your bet. She isn't always right; the user heard her.";
+  }
+  if (h.street !== before && !h.done) {
+    const streetNote = `${T.STREETS[h.street][0].toUpperCase() + T.STREETS[h.street].slice(1)}: the board is ${cards(h.board)}. `
+      + `You have ${P.describe(h.hole.them, h.board)}. Pot ${T.potTotal(h)}.`;
+    if (p === "them") told += ` ${streetNote}`;
+    else if (!theirTurn()) game.tell(streetNote, true);
+  }
+  if (h.done) return (told + " " + endHand(p)).trim();
+  if (theirTurn()) {
+    if (p === "them") told += " It's your turn again.";
+    askMove();
+  } else if (p === "them") {
+    told += ` Pot ${T.potTotal(h)}; stacks behind: you ${h.stacks.them}, the user ${h.stacks.you}. The user is thinking.`;
+  }
+  return told;
+}
+
+/** Streets dealt, uncalled chips back: the log and the sounds. */
+function afterEvents(events) {
+  events.forEach((e, i) => {
+    if (e.kind === "returned") addLog(`${e.amount} uncalled goes back to ${e.p === "you" ? "you" : RexGame.escape(game.companion)}`);
+    if (["flop", "turn", "river"].includes(e.kind)) {
+      const shownCards = e.kind === "flop" ? h.board.slice(0, 3) : h.board.slice(e.kind === "turn" ? 3 : 4, e.kind === "turn" ? 4 : 5);
+      addLog(`<b>${e.kind[0].toUpperCase() + e.kind.slice(1)}:</b> ${cards(shownCards)}`);
+      setTimeout(() => sfx.card(), 120 * i);
+      if (e.kind === "river") game.heckle("river", { chance: 0.2 });
+    }
+    if (e.kind === "runout") addLog("All in: the cards are run out.");
+  });
+}
+
+// ---- The end of a hand -------------------------------------------------------
+
+/** Pay out, react, read the user, and say how it ended. Returns the text for
+ *  the companion; tells them directly when the user's move ended it. */
+function endHand(lastActor) {
+  const r = h.result, name = RexGame.escape(game.companion), bb = h.bb;
+  match.stacks = { ...h.stacks };
+  const youWin = r.winner === "you", theyWin = r.winner === "them";
+  let text;
+  if (r.how === "fold") {
+    text = youWin ? `You folded; the user wins the pot of ${r.pot}.` : `The user folded; you win the pot of ${r.pot}.`;
+    addLog(`${youWin ? "You win" : `${name} wins`} ${r.pot}`);
+  } else {
+    const yh = P.handName(r.hands.you), th = P.handName(r.hands.them);
+    text = `Showdown: the user had ${cards(h.hole.you)} (${yh}); you had ${cards(h.hole.them)} (${th}). `
+      + (r.winner === "split" ? `Split pot: ${r.pot / 2} each.` : `${youWin ? "The user wins" : "You win"} the pot of ${r.pot}.`);
+    addLog(`Showdown: you ${cards(h.hole.you)} (${yh}) · ${name} ${cards(h.hole.them)} (${th}) → `
+      + (r.winner === "split" ? "split pot" : `<b>${youWin ? "you win" : `${name} wins`} ${r.pot}</b>`));
+    game.heckle("showdown", { chance: 0.25 });
+  }
+  if (youWin) sfx.cash(); else if (theyWin) sfx.coins(5);
+  flair(r, bb);
+  noteReads(r);
+
+  if (M.reset && r.winner !== "split") match.wins[r.winner]++;
+  const busted = match.stacks.you === 0 ? "you" : match.stacks.them === 0 ? "them" : null;
+  const matchWinner = M.reset ? (match.wins.you >= M.target ? "you" : match.wins.them >= M.target ? "them" : null)
+    : busted ? T.other(busted) : null;
+  text += M.reset ? ` Hands won: you ${match.wins.them}, the user ${match.wins.you} (first to ${M.target}).`
+    : ` Stacks now: you ${match.stacks.them}, the user ${match.stacks.you}.`;
+  if (matchWinner) {
+    text += matchWinner === "you" ? " That's the match: the user won it." : " That's the match: you won it!";
+    endMatch(matchWinner);
+  } else {
+    text += " The user deals the next hand when ready.";
+    game.save({ match: { ...match } });
+  }
+  render();
+  if (lastActor !== "them") game.tell(text, false);
+  return text;
+}
+
+/** Doubloons and reactions for the hand just played. */
+function flair(r, bb) {
+  const last = (p, street) => [...h.history].reverse().find((a) => a.p === p && (street === undefined || a.street === street));
+  const youLast = last("you"), themLast = last("them");
+  // The user bluffed them off a pot.
+  if (r.how === "fold" && r.winner === "you" && youLast && (youLast.action === "bet" || youLast.action === "raise")
+      && P.equity(h.hole.you, h.board, 600) < 0.4) {
+    game.award(25, "Bluff landed!", $("pot"));
+  }
+  if (r.how === "showdown") {
+    if (r.winner !== "split" && r.pot >= 20 * bb) game.award(r.winner === "you" ? 10 : 0, "Big pot!", $("pot"));
+    if (r.winner === "you" && youLast?.street === 3 && youLast.action === "call" && r.hands.you.cat <= 1) {
+      game.award(25, "Hero call!", $("pot")); game.heckle("hero_call", { chance: 0.7 }); game.react("hero_call");
+    }
+    // Who was ahead when the last chip went in? A big favourite losing is a bad beat.
+    const street = h.history[h.history.length - 1]?.street || 0;   // no actions: the blinds put someone all-in
+    const boardThen = h.board.slice(0, [0, 3, 4, 5][street]);
+    if (boardThen.length < 5 && r.winner !== "split") {
+      const loser = T.other(r.winner);
+      const odds = P.versus(h.hole[loser], h.hole[r.winner], boardThen, 1200);
+      if (odds >= 0.7) {
+        fx.float(`Bad beat! (${Math.round(odds * 100)}% to win)`, { at: $("board"), color: "#fca5a5", big: true });
+        game.heckle("bad_beat", { chance: 0.7 });
+        game.react(loser === "them" ? "bad_beat" : "suckout");
+      }
+    }
+    // The companion bet the river and got caught.
+    if (r.winner === "you" && themLast?.street === 3 && (themLast.action === "bet" || themLast.action === "raise") && r.hands.them.cat <= 1) {
+      game.react("caught_bluff");
+    }
+    if (r.winner === "them" && r.pot >= 30 * bb) game.react("big_pot");
+  }
+}
+
+/** What the companion can know about the user's habits: public actions,
+ *  and the cards the user showed down. Kept across matches. */
+function noteReads(r) {
+  const rd = reads(), H = h.history;
+  rd.hands++;
+  const pre = H.filter((a) => a.street === 0 && a.p === "you");
+  if (pre.some((a) => a.action === "call" || a.action === "raise")) rd.vpip++;
+  if (pre.some((a) => a.action === "raise")) rd.pfr++;
+  H.forEach((a, i) => {
+    if (a.street > 0 && a.p === "you") { if (a.action === "bet" || a.action === "raise") rd.aggr++; else if (a.action === "call") rd.calls++; }
+    if (a.street > 0 && a.p === "them" && (a.action === "bet" || a.action === "raise")) {
+      const reply = H.slice(i + 1).find((b) => b.p === "you");
+      if (reply) { rd.faced++; if (reply.action === "fold") rd.folds++; }
+    }
+  });
+  if (r.how === "showdown") {
+    const river = [...H].reverse().find((a) => a.p === "you" && a.street === 3);
+    const lost = r.winner === "them";
+    rd.shown = [...(rd.shown || []), { hand: match.handNo, cards: cards(h.hole.you), what: P.handName(r.hands.you),
+      note: river && (river.action === "bet" || river.action === "raise") ? (lost ? "after betting the river and losing: a bluff or an overplayed hand" : "after betting the river for value")
+        : river?.action === "call" ? "after calling your river bet" : "" }].slice(-3);
+    const theirRiver = [...H].reverse().find((a) => a.p === "them" && a.street === 3);
+    if (r.winner === "you" && theirRiver && (theirRiver.action === "bet" || theirRiver.action === "raise") && r.hands.them.cat <= 1) rd.caught++;
+  }
+  game.save({ reads: rd });
+}
+
+function endMatch(winner) {
+  match.over = winner;
+  score[winner]++;
+  game.save({ match: null });
+  const name = game.companion;
+  const detail = M.reset ? `${match.wins.you}-${match.wins.them} in hands, after ${match.handNo} hands.`
+    : winner === "you" ? `${name} is out of doubloons after ${match.handNo} hands.` : `You're out of doubloons after ${match.handNo} hands.`;
+  const points = winner === "you" ? 200 + M.bonus + Math.max(0, 40 - match.handNo) * 3 : 0;
+  setTimeout(() => game.end({ outcome: winner === "you" ? "win" : "loss",
+    title: winner === "you" ? "THE TABLE IS YOURS!" : "BUSTED", points, detail }), 1600);
+}
+
+// ---- Showing cards after a fold -------------------------------------------------
+
+function showTheirs() {
+  if (!h?.done || h.result.how !== "fold" || h.result.winner !== "them") {
+    throw new RexGame.Refuse("You can only show your cards after the user folds to you, before the next hand.");
+  }
+  if (shown.them) throw new RexGame.Refuse("You've already shown them.");
+  shown.them = true;
+  const bluff = P.equity(h.hole.them, h.board, 600) < 0.4;
+  sfx.card();
+  addLog(`${RexGame.escape(game.companion)} shows ${cards(h.hole.them)}${bluff ? " <b>(a bluff!)</b>" : ""}`);
+  if (bluff) {
+    fx.float("They were bluffing!", { at: $("cards-them"), color: "#fca5a5", big: true });
+    game.react("show_bluff");
+    game.heckle("bluff_shown", { chance: 0.7 });
+  }
+  render();
+  return `You showed ${cards(h.hole.them)} (${P.describe(h.hole.them, h.board)}). The user can see them now.`;
+}
+
+function showYours() {
+  if (!h?.done || h.result.how !== "fold" || h.result.winner !== "you" || shown.you) return;
+  shown.you = true;
+  sfx.card();
+  addLog(`You show ${cards(h.hole.you)}`);
+  game.tell(`The user showed the cards they won with: ${cards(h.hole.you)} (${P.describe(h.hole.you, h.board)}).`, false);
+  render();
+}
+
+// ---- Polly -------------------------------------------------------------------
+
+/** Polly squawks at about a third of the companion's bluffs and a tenth of
+ *  their honest bets: a tell, but a noisy one. Only ever at the companion. */
+function pollyCheck(bluff) {
+  if (Math.random() >= (bluff ? 0.33 : 0.1)) return false;
+  setTimeout(() => {
+    const el = $("polly"), bubble = $("squawk");
+    el.classList.remove("squawk"); void el.offsetWidth; el.classList.add("squawk");
+    bubble.textContent = ["BLUFF!", "BLUFF! BLUFF!", "Squawk! Bluff!"][(Math.random() * 3) | 0];
+    bubble.hidden = false;
+    sfx.parrot();
+    setTimeout(() => { bubble.hidden = true; }, 2200);
+    game.react("polly");
+    game.heckle("polly", { chance: 0.35 });
+  }, 600);
+  return true;
+}
+
+// ---- Drawing -------------------------------------------------------------------
+
+function addLog(line) {
+  logLines.push(line);
+  if (logLines.length > 80) logLines.shift();
+  const el = $("log");
+  el.innerHTML = logLines.map((l) => `<div>${l}</div>`).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+/** Cards into a container, rebuilt only when they change (so they don't re-deal). */
+function setCards(el, list, { hidden = false, count = 0, mark = null } = {}) {
+  const sig = JSON.stringify([list.map(P.key), hidden, count, mark ? [...mark] : null]);
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig;
+  el.innerHTML = "";
+  if (hidden) { for (let i = 0; i < list.length; i++) el.appendChild(RexGame.cardElement(null, { hidden: true })); return; }
+  list.forEach((c) => {
+    const card = RexGame.cardElement(c);
+    if (mark) card.classList.add(mark.has(P.key(c)) ? "win" : "dim");
+    el.appendChild(card);
+  });
+  for (let i = list.length; i < count; i++) el.appendChild(Object.assign(document.createElement("div"), { className: "slot" }));
+}
+
+let oddsMemo = { sig: null, eq: 0 };
+function render() {
+  const name = RexGame.escape(game.companion);
+  $("score-you").textContent = score.you;
+  $("score-them").textContent = score.them;
+  if (match) {
+    // Hands left at this level, the one being played included.
+    const left = M.every ? M.every - ((Math.max(1, match.handNo) - 1) % M.every) : 0;
+    $("level").innerHTML = M.reset ? `<b>${M.label}</b> · hands won: you <b>${match.wins.you}</b> - <b>${match.wins.them}</b> ${name} (first to ${M.target})`
+      : `<b>${M.label}</b> · blinds <b>${blinds()[0]}/${blinds()[1]}</b>`
+        + (M.every ? ` · ${left} hand${left === 1 ? "" : "s"} left at this level` : "");
+    $("handno").textContent = match.handNo ? `Hand ${match.handNo}` : "";
+  } else {
+    $("level").innerHTML = `<b>${MODES[modeId].label}</b>`;
+    $("handno").textContent = "";
+  }
+
+  const stacks = h ? h.stacks : match ? match.stacks : { you: M.start, them: M.start };
+  $("stack-you").textContent = `${stacks.you.toLocaleString()}`;
+  $("stack-them").textContent = `${stacks.them.toLocaleString()}`;
+  const chip = (n) => (n ? `<i></i>${n.toLocaleString()}` : "");
+  $("bet-you").innerHTML = h && !h.done ? chip(h.bets.you) : "";
+  $("bet-them").innerHTML = h && !h.done ? chip(h.bets.them) : "";
+  $("d-you").hidden = !(h || match) || (h ? h.button : match.button) !== "you";
+  $("d-them").hidden = !(h || match) || (h ? h.button : match.button) !== "them";
+  $("seat-you").classList.toggle("turn", yourTurn());
+  $("seat-them").classList.toggle("turn", theirTurn());
+
+  // Cards: theirs stay face down unless shown down or shown.
+  let mark = null;
+  if (h?.done && h.result.how === "showdown" && h.result.winner !== "split") {
+    mark = new Set(P.bestFive([...h.hole[h.result.winner], ...h.board]).map(P.key));
+  }
+  if (h) {
+    const open = h.done && (h.result.how === "showdown" || shown.them);
+    setCards($("cards-you"), h.hole.you, { mark: mark && h.result.winner === "you" ? mark : mark ? new Set() : null });
+    setCards($("cards-them"), h.hole.them, { hidden: !open, mark: open && mark ? (h.result.winner === "them" ? mark : new Set()) : null });
+    setCards($("board"), h.board, { count: 5, mark });
+  } else {
+    setCards($("cards-you"), []); setCards($("cards-them"), []); setCards($("board"), [], { count: 5 });
+  }
+
+  // The pot and the hand names.
+  $("pot").innerHTML = h ? (h.done ? `${h.result.winner === "split" ? "Split pot" : h.result.winner === "you" ? "You win" : `${name} wins`} ${h.result.pot.toLocaleString()}`
+    : `<span class="chips"><i></i>Pot ${T.potTotal(h).toLocaleString()}</span>`) : "";
+  const showOdds = local.get("rx-holdem-odds") === "1";
+  if (h) {
+    let mine = P.describe(h.hole.you, h.board);
+    if (showOdds && !h.done) {
+      const sig = JSON.stringify([h.hole.you.map(P.key), h.board.map(P.key)]);
+      if (oddsMemo.sig !== sig) oddsMemo = { sig, eq: P.equity(h.hole.you, h.board, 1500) };
+      mine += ` · <b>${Math.round(oddsMemo.eq * 100)}%</b> against a random hand`;
+    }
+    $("name-you").innerHTML = `You: ${mine}`;
+    $("name-them").innerHTML = h.done && (h.result.how === "showdown" || shown.them) ? `${name}: ${P.describe(h.hole.them, h.board)}` : "";
+  } else { $("name-you").textContent = ""; $("name-them").textContent = ""; }
+
+  renderActions(showOdds);
+
+  // Status.
+  let text;
+  if (ready) text = `<b>${MODES[modeId].label}</b>: press <b>Start game</b> when you're ready.`;
+  else if (match?.over) text = match.over === "you" ? "<b>You win the match!</b>" : `<b>${name} wins the match.</b>`;
+  else if (!h || h.done) text = match ? `Hand ${match.handNo + (h ? 0 : 1)}${h ? " is over" : " is next"}. Deal when you're ready.` : "";
+  else if (yourTurn()) {
+    const o = T.options(h, "you");
+    text = o.toCall ? `<b>Your move:</b> ${o.toCall} to call.` : "<b>Your move.</b>";
+  } else text = `<b>${name}</b> is thinking…`;
+  if (match && !ready && !match.over && game.mode && game.mode !== modeId) {
+    text += ` <i>${MODE_TABS.find((m) => m.id === game.mode)?.label} starts with your next match.</i>`;
+  }
+  $("status").innerHTML = text;
+}
+
+function renderActions(showOdds) {
+  const box = $("actions");
+  const btn = (label, cls, onClick, disabled = false) => {
+    const b = document.createElement("button");
+    b.className = `rx-btn ${cls}`; b.innerHTML = label; b.disabled = disabled;
+    b.onclick = () => { sfx.click(); onClick(); };
+    return b;
+  };
+  const state = ready ? "ready" : match?.over ? "over" : !h || h.done ? "between" : yourTurn() ? "you" : "them";
+  const sig = JSON.stringify([state, h && !h.done ? [h.street, h.betTo, h.bets, h.toAct, h.history.length] : null, shown, showOdds]);
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.innerHTML = "";
+  if (state === "ready") { box.appendChild(btn("Start game", "primary", startMatch)); return; }
+  if (state === "over") { box.appendChild(btn("New game", "primary", startMatch)); return; }
+  if (state === "between") {
+    box.appendChild(btn("Deal next hand", "primary", dealHand));
+    if (h?.done && h.result.how === "fold" && h.result.winner === "you" && !shown.you) box.appendChild(btn("Show my cards", "", showYours));
+    box.appendChild(btn("New game", "", () => { if (confirmNew()) startMatch(); }));
+    return;
+  }
+  const o = T.options(h, "you"), mine = state === "you";
+  // Shove or Fold: all-in or fold, and a call only against an all-in.
+  if (M.reset && h.stacks.them > 0 && o.canRaise) {
+    box.appendChild(btn("Fold", "danger", () => yourAction("fold"), !mine));
+    box.appendChild(btn(`All-in ${o.maxTo.toLocaleString()}`, "primary", () => yourAction("all_in"), !mine));
+    return;
+  }
+  if (o.toCall) box.appendChild(btn("Fold", "danger", () => yourAction("fold"), !mine));
+  box.appendChild(o.toCall ? btn(`Call ${o.toCall.toLocaleString()}`, "", () => yourAction("call"), !mine)
+    : btn("Check", "", () => yourAction("check"), !mine));
+  if (o.canRaise && !M.reset) {
+    const wrap = document.createElement("div");
+    wrap.className = "raise";
+    const range = Object.assign(document.createElement("input"), { type: "range", min: o.minTo, max: o.maxTo, step: h.sb, value: o.minTo, disabled: !mine });
+    const num = Object.assign(document.createElement("input"), { type: "number", min: o.minTo, max: o.maxTo, step: h.sb, value: o.minTo, disabled: !mine });
+    const go = btn(`${o.isBet ? "Bet" : "Raise to"} ${o.minTo}`, "primary", () => yourAction(o.isBet ? "bet" : "raise", Number(num.value)), !mine);
+    const set = (v) => {
+      v = Math.max(o.minTo, Math.min(o.maxTo, Math.round(Number(v) || o.minTo)));
+      range.value = num.value = v;
+      go.innerHTML = v >= o.maxTo ? `All-in ${v.toLocaleString()}` : `${o.isBet ? "Bet" : "Raise to"} ${v.toLocaleString()}`;
+    };
+    range.oninput = () => set(range.value);
+    num.oninput = () => set(num.value);
+    const presets = h.street === 0
+      ? [["Min", o.minTo], ["2.5x", 2.5 * h.bb], ["3x", 3 * Math.max(h.betTo, h.bb)], ["Pot", K.sizeTo(h, o, 1)]]
+      : [["½ pot", K.sizeTo(h, o, 1 / 2)], ["⅔ pot", K.sizeTo(h, o, 2 / 3)], ["Pot", K.sizeTo(h, o, 1)]];
+    wrap.append(range, num);
+    for (const [label, v] of presets) {
+      const p = btn(label, "pre", () => set(v), !mine);
+      wrap.appendChild(p);
+    }
+    wrap.appendChild(go);
+    box.appendChild(wrap);
+  }
+  if (o.canRaise) box.appendChild(btn(`All-in ${o.maxTo.toLocaleString()}`, "danger", () => yourAction("all_in"), !mine));
+  const odds = document.createElement("label");
+  odds.className = "odds";
+  odds.title = "Eve's odds: your hand against a random hand";
+  odds.innerHTML = `<input type="checkbox" ${showOdds ? "checked" : ""}> Eve's odds`;
+  odds.querySelector("input").onchange = (ev) => { local.set("rx-holdem-odds", ev.target.checked ? "1" : "0"); render(); };
+  box.appendChild(odds);
+}
+
+let newArmed = 0;
+function confirmNew() {
+  if (Date.now() - newArmed < 3000) return true;
+  newArmed = Date.now();
+  fx.float("Click again to abandon this match", { at: $("actions"), color: "#fca5a5" });
+  return false;
+}
+
+render();
+</script>
+</body>
+</html>

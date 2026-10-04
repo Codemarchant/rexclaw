@@ -136,17 +136,18 @@ CREATE TABLE IF NOT EXISTS config (
     -- the older text; once the summary passes summary_consolidate_words, one
     -- pass rewrites it into sections under summary_max_words. Grow-then-
     -- compress follows BooookScore's incremental method (rated more detailed
-    -- than re-merging, 83% vs 11%). 4000/12000 (was 2000/8000): consolidated
-    -- summaries were already landing near 3000 words (BooookScore: running
-    -- summaries overshoot their target), and a gentler cut per rewrite with
-    -- fewer rewrites loses less (BooookScore: fewer compression steps score
-    -- higher; ACE arXiv 2510.04618: one rewrite can collapse a context).
+    -- than re-merging, 83% vs 11%). 3000/9000 (2026-10-04, after running
+    -- them in practice; was 4000/12000, before that 2000/8000): consolidated
+    -- summaries land near 3000 words anyway (BooookScore: running summaries
+    -- overshoot their target), and the 1:3 ratio keeps the gentle cut per
+    -- rewrite (BooookScore: fewer compression steps score higher; ACE arXiv
+    -- 2510.04618: one rewrite can collapse a context).
     -- grok-4 holds steady from 8k to 120k tokens on Fiction.LiveBench, so the
     -- ~16k-token peak is well inside what the text model handles.
     -- summary_max_words 0 = off: the original prompt, whose summary carries
     -- everything forward on every pass and only grows.
-    summary_max_words INTEGER NOT NULL DEFAULT 4000,
-    summary_consolidate_words INTEGER NOT NULL DEFAULT 12000,
+    summary_max_words INTEGER NOT NULL DEFAULT 3000,
+    summary_consolidate_words INTEGER NOT NULL DEFAULT 9000,
     -- After each compaction, run a second pass that distils durable facts +
     -- one conversation episode from the rolled-up block. Off saves one model
     -- call per compaction (only `remember`-tool memories are kept then).
@@ -1377,8 +1378,8 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN live_memory_cooldown_seconds INTEGER NOT NULL DEFAULT 60",
     "ALTER TABLE memories ADD COLUMN recall_revision INTEGER NOT NULL DEFAULT 0",
     # Which model picks a speech gesture (see the config schema comment).
-    "ALTER TABLE config ADD COLUMN summary_max_words INTEGER NOT NULL DEFAULT 4000",
-    "ALTER TABLE config ADD COLUMN summary_consolidate_words INTEGER NOT NULL DEFAULT 12000",
+    "ALTER TABLE config ADD COLUMN summary_max_words INTEGER NOT NULL DEFAULT 3000",
+    "ALTER TABLE config ADD COLUMN summary_consolidate_words INTEGER NOT NULL DEFAULT 9000",
     # Per-look face tuning (JSON {channel: strength}) from the pack
     # manifest's `face_tuning` — the main look's on avatars, each outfit's
     # on its row. NULL = the face director's own numbers.

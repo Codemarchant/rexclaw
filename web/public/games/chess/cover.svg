@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80">
+  <g transform="translate(14 8)">
+    <rect width="92" height="64" rx="4" fill="#3f7f7b"/>
+    <g fill="#ecdcb6">
+      <rect x="0" y="0" width="16" height="16"/><rect x="32" y="0" width="16" height="16"/><rect x="64" y="0" width="16" height="16"/>
+      <rect x="16" y="16" width="16" height="16"/><rect x="48" y="16" width="16" height="16"/><rect x="80" y="16" width="12" height="16"/>
+      <rect x="0" y="32" width="16" height="16"/><rect x="32" y="32" width="16" height="16"/><rect x="64" y="32" width="16" height="16"/>
+      <rect x="16" y="48" width="16" height="16"/><rect x="48" y="48" width="16" height="16"/><rect x="80" y="48" width="12" height="16"/>
+    </g>
+  </g>
+  <!-- the Kraken, in her tiara -->
+  <g transform="translate(55 10) scale(.5)" stroke="#e9b949" stroke-width="3" stroke-linejoin="round">
+    <path fill="#22263a" d="M33 42C31 56 22 64 13 66C19 75 30 73 35 65C35 73 32 79 27 82H73C68 79 65 73 65 65C70 73 81 75 87 66C78 64 69 56 67 42Z"/>
+    <path fill="#22263a" d="M50 9C67 9 73 27 68 41C65 49 58 52 50 52C42 52 35 49 32 41C27 27 33 9 50 9Z"/>
+    <circle cx="42" cy="34" r="5.5" fill="#fff" stroke-width="1.5"/><circle cx="44" cy="34" r="2.8" fill="#e9b949" stroke="none"/>
+    <circle cx="58" cy="34" r="5.5" fill="#fff" stroke-width="1.5"/><circle cx="60" cy="34" r="2.8" fill="#e9b949" stroke="none"/>
+    <path fill="#f5b82e" stroke-width="2" d="M38 16L40 5l5 6 5-9 5 9 5-6 2 11Q50 12 38 16Z"/>
+  </g>
+  <!-- a crab, squaring up -->
+  <g transform="translate(22 34) scale(.42)" stroke="#3b2616" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+    <path fill="none" d="M35 72l-10 8M33 66l-13 3M65 72l10 8M67 66l13 3M38 58l-9-12M62 58l9-12M45 54v-9M55 54v-9"/>
+    <ellipse fill="#fbf3e2" cx="50" cy="66" rx="19" ry="13"/>
+    <path fill="#fbf3e2" d="M27 40L32.4 32.8A9 9 0 1 0 35.95 39.06Z"/><path fill="#fbf3e2" d="M73 40L67.6 32.8A9 9 0 1 1 64.05 39.06Z"/>
+    <circle cx="45" cy="43" r="4" fill="#fff" stroke-width="1.5"/><circle cx="45" cy="43" r="2" fill="#3b2616" stroke="none"/>
+    <circle cx="55" cy="43" r="4" fill="#fff" stroke-width="1.5"/><circle cx="55" cy="43" r="2" fill="#3b2616" stroke="none"/>
+  </g>
+</svg>

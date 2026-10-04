@@ -301,7 +301,7 @@ function NeuroGamesSection({ active, config, agents, setField }) {
 
             <h4 className="rx_games_heading">{_t("Mini-games")}</h4>
             <p className="text-muted">
-                {_t("The Rexmaw games deck: Broadside! (a 3D cannon duel), Connect Four, Liar's Dice, Blackjack, "
+                {_t("The Rexmaw games deck: Broadside! (a 3D cannon duel), chess, heads-up Hold'em, Connect Four, Liar's Dice, Blackjack, "
                     + "Crazy Eights, Walk the Plank, Rock Paper Scissors and Tic-Tac-Toe, each with its own modes, "
                     + "music, sound effects, backdrops, doubloons and streaks, and the crew chiming in. In the "
                     + "library you pick who you play with and what happens off a call, see the crew's standings, "

@@ -4,6 +4,7 @@ import { MASCOT_MODE } from "../lib/ui_state";
 import { makeConversationState } from "../models/conversation_state";
 import {
     AgentConnection,
+    GAME_RAPID_MS,
     floatToPcm16,
     arrayBufferToBase64,
 } from "../models/agent_connection";
@@ -131,6 +132,12 @@ class VoiceCallService {
         this._gamesCursor = null;
         this._gamesIneligible = false;
         this._gamesConnected = false;
+        // Rapid play: the user's last answers to the companion's moves (ms),
+        // whether they were all quicker than GAME_RAPID_MS, and when the
+        // last one came (see the gamesRapid getter).
+        this._gameAnswerTimes = [];
+        this._gamesRapid = false;
+        this._gameAnswerAt = 0;
         this._scheduleGamesPoll();
 
         // Idle events: the companion's prompts for when the call goes quiet
@@ -490,6 +497,8 @@ class VoiceCallService {
             this._gamesCursor = null;
             this._gamesIneligible = false;
             this._gamesConnected = false;
+            this._gameAnswerTimes = [];
+            this._gamesRapid = false;
             return;
         }
         if (this._gamesIneligible) return;
@@ -509,6 +518,11 @@ class VoiceCallService {
             // reopening): keep the cursor so a later poll brings them again.
             const leg = this.primary;
             if (leg.state.compacting || leg.ws?.readyState !== WebSocket.OPEN) return;
+            // The user has the floor (talking, or their words are still being
+            // transcribed): hold the notes the same way. A move note now would
+            // start a reply over them; their own turn comes first, and the
+            // move is asked for once it's answered.
+            if (leg._userSpeaking || leg._userTranscriptPending()) return;
             this._gamesCursor = res.cursor ?? this._gamesCursor;
             const events = res.events || [];
             const quiet = events.filter((e) => !e.prompt);
@@ -520,10 +534,48 @@ class VoiceCallService {
             if (speakNow.length) {
                 if (speakNow.some((e) => e.priority === "critical")) {
                     this.primary.cancelActiveResponse("game: critical move");
+                } else if (speakNow.some((e) => e.priority === "high")) {
+                    // Neuro's "high": answer now, cutting short what's being
+                    // said - here only the commentary on the last game move.
+                    this.primary.cutGameReply("game: high-priority move");
+                } else if (speakNow.some((e) => e.priority === "medium")) {
+                    // Neuro's "medium": finish sooner. A line can't be sped
+                    // up, so one about the last move that hasn't started yet
+                    // is dropped, and one already playing finishes.
+                    this.primary.cutGameReply("game: medium-priority move", { midSpeech: false });
+                }
+                if (speakNow.some((e) => e.kind === "force" && e.after_user)) this._timeGameAnswer();
+                // A move note's reply is the game's own (cut or held for the
+                // next move); the user typing in the game makes it theirs.
+                if (speakNow.some((e) => e.kind === "force") && !speakNow.some((e) => e.kind === "chat")) {
+                    this.primary.markNextReplyFromGame();
                 }
                 this.sendContextEvent(render(speakNow), { minIntervalMs: 0 });
             }
         } catch (e) { /* server restarting — quiet */ }
+    }
+
+    /** A game asked for the companion's next move because the user just made
+     *  theirs (our games mark these; Neuro games don't, so a solo game's
+     *  back-to-back moves are never mistaken for the user's): time that
+     *  answer from the companion's last move. Two quick ones running is
+     *  rapid play; one slow one ends it. */
+    _timeGameAnswer() {
+        const landed = this.primary?._lastGameMoveAt;
+        if (!landed) return;
+        this.primary._lastGameMoveAt = 0;   // one answer per move
+        this._gameAnswerAt = Date.now();
+        this._gameAnswerTimes = [...this._gameAnswerTimes, this._gameAnswerAt - landed].slice(-2);
+        const rapid = this._gameAnswerTimes.length === 2 && this._gameAnswerTimes.every((t) => t < GAME_RAPID_MS);
+        if (rapid !== this._gamesRapid) console.debug(`[voice] games: rapid play ${rapid ? "on" : "off"}`, this._gameAnswerTimes);
+        this._gamesRapid = rapid;
+    }
+
+    /** Rapid play, while the user's last quick answer is recent: it lapses on
+     *  its own when they stop (or another game takes over), with no slow
+     *  move needed to end it. */
+    get gamesRapid() {
+        return this._gamesRapid && Date.now() - this._gameAnswerAt < 3 * GAME_RAPID_MS;
     }
 
     /** Arm this call's idle events from the primary's start payload (null =

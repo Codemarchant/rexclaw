@@ -243,6 +243,19 @@ def games_voiceline(payload: dict = Body(default={}), con=Depends(db_con)):
         return {'url': None, 'error': f'{type(e).__name__}: {e}'}
 
 
+@router.post('/api/games/voicelines/missing')
+def games_voicelines_missing(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Which of `texts` the companion has no recording of yet, in their
+    current voice: the library shows "N of M recorded" and records only
+    those."""
+    texts = [str(t) for t in payload.get('texts') or []][:2000]
+    try:
+        agent = store.get_agent(con, int(payload.get('agent_id') or 0))
+        return {'missing': game_voice.missing(con, agent, texts), 'total': len(texts)}
+    except Exception as e:
+        return {'missing': None, 'total': len(texts), 'error': str(e)}
+
+
 @router.post('/api/games/leaderboard')
 def games_leaderboard(payload: dict = Body(default={}), con=Depends(db_con)):
     """Every companion's standing across the mini-games, from the saves:

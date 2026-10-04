@@ -875,14 +875,14 @@ export default function SettingsView({ active }) {
                             <label title={_t("When a summary passes the high limit, it is rewritten down to about this many words, relationship milestones first. 0 = off (summaries keep growing).")}>
                                 {_t("Summary word limit (low)")}
                             </label>
-                            <input type="number" min="0" max="100000" value={config.summary_max_words ?? 4000}
+                            <input type="number" min="0" max="100000" value={config.summary_max_words ?? 3000}
                                    onChange={(ev) => setField("summary_max_words", ev.target.value === "" ? "" : Number(ev.target.value))} />
                         </div>
                         <div>
                             <label title={_t("Below this, new conversation is added to the summary and older text is left as it is. Above it, the summary is rewritten down to the low limit.")}>
                                 {_t("Summary word limit (high)")}
                             </label>
-                            <input type="number" min="0" max="100000" value={config.summary_consolidate_words ?? 12000}
+                            <input type="number" min="0" max="100000" value={config.summary_consolidate_words ?? 9000}
                                    onChange={(ev) => setField("summary_consolidate_words", ev.target.value === "" ? "" : Number(ev.target.value))} />
                         </div>
                         <div>

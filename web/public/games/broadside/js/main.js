@@ -478,6 +478,7 @@ function companionAct() {
     query: side ? "Act: fire (angle, power, ammo), or repair/ram/hold." : `Act: ${me.kits ? "repair, " : ""}${canRam(me, foe) ? "ram, " : ""}or hold.`,
     actions: ["act"],
     priority: "medium",
+    afterUser: false,   // follows their own steer, once the ship has sailed (not the user's move)
   });
 }
 

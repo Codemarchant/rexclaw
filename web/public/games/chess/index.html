@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chess · Rexclaw</title>
+<link rel="stylesheet" href="../lib/games.css">
+<!--
+  Chess against a companion, over the Neuro API (../lib/neuro.js). The full
+  rules live in js/engine.js, the costumed pieces in js/pieces.js.
+  A voice model plays chess about as well as it spots lines in Connect
+  Four, so every turn it gets the facts a player sees at a glance: check,
+  a mate in one, the user's mate threat, its loose pieces, captures that
+  win material, and every legal move in notation it can copy.
+-->
+<style>
+  :root { --light: #ecdcb6; --dark: #3f7f7b; --frame: #5b3a1e; --frame-2: #3f2713; }
+  main { max-width: 620px; }
+  .side { width: 14px; height: 14px; border-radius: 50%; display: inline-block; box-shadow: inset 0 0 0 2px rgba(0,0,0,.35); }
+  .side.w { background: radial-gradient(circle at 35% 30%, #fff, #e9dcc0); } .side.b { background: radial-gradient(circle at 35% 30%, #4b5163, #161922); box-shadow: inset 0 0 0 2px #e9b949; }
+  .adv { font-style: normal; font-size: .78rem; color: var(--gold); min-width: 1.6em; }
+
+  .frame { padding: clamp(6px, 1.6vw, 12px); border-radius: 14px; position: relative;
+    background: repeating-linear-gradient(95deg, var(--frame) 0 14px, #6b4524 14px 17px, var(--frame) 17px 40px), var(--frame);
+    box-shadow: 0 18px 40px rgba(0,0,0,.5), inset 0 0 0 2px var(--frame-2), inset 0 0 0 4px rgba(250,204,21,.18); }
+  .board { position: relative; aspect-ratio: 1; touch-action: none; user-select: none; border-radius: 4px; overflow: hidden;
+    box-shadow: 0 0 0 2px var(--frame-2); }
+  .squares { position: absolute; inset: 0; display: grid; grid-template: repeat(8, 1fr) / repeat(8, 1fr); }
+  .sq { position: relative; background: var(--dark); }
+  .sq.l { background: var(--light); }
+  .sq .co { position: absolute; font: 700 clamp(8px, 1.6vw, 11px)/1 system-ui, sans-serif; opacity: .75; pointer-events: none; }
+  .sq .co.f { right: 3px; bottom: 2px; } .sq .co.r { left: 3px; top: 3px; }
+  .sq.l .co { color: var(--dark); } .sq:not(.l) .co { color: var(--light); }
+  .sq.last::before { content: ""; position: absolute; inset: 0; background: rgba(250,204,21,.32); }
+  .sq.sel::before { content: ""; position: absolute; inset: 0; background: rgba(250,204,21,.55); }
+  .sq.check::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle, rgba(239,68,68,.95) 0, rgba(239,68,68,.55) 35%, transparent 72%); }
+  .sq.to::after { content: ""; position: absolute; left: 36%; top: 36%; width: 28%; height: 28%; border-radius: 50%; background: rgba(15,23,42,.35); }
+  .sq.to.cap::after { left: 4%; top: 4%; width: 92%; height: 92%; background: none; box-shadow: inset 0 0 0 5px rgba(15,23,42,.38); }
+  .board.can .sq.to { cursor: pointer; }
+  .board.can .sq.mine { cursor: grab; }
+
+  .pieces { position: absolute; inset: 0; pointer-events: none; }
+  .pc { position: absolute; width: 12.5%; height: 12.5%; transition: left .26s cubic-bezier(.3,.7,.3,1), top .26s cubic-bezier(.3,.7,.3,1), opacity .3s;
+    filter: drop-shadow(0 3px 2px rgba(0,0,0,.45)); }
+  .pc.drag { transition: none; z-index: 5; filter: drop-shadow(0 10px 8px rgba(0,0,0,.5)); }
+  .pc.gone { opacity: 0; transform: scale(.4) rotate(25deg); transition: opacity .35s, transform .35s; }
+  .pc.pop { animation: pop .45s cubic-bezier(.3,1.6,.5,1); }
+  .pc svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .pc .b, .lk .b, .promo .b { fill: var(--pf); stroke: var(--ps); stroke-width: 2.6; stroke-linejoin: round; }
+  .pc .d, .lk .d, .promo .d { fill: none; stroke: var(--ps); stroke-width: 2.2; stroke-linecap: round; }
+  .pc .k, .lk .k, .promo .k { fill: var(--ps); }
+  .pc .w, .lk .w, .promo .w { fill: #fff; stroke: var(--ps); stroke-width: 1.4; }
+  .pc .g, .lk .g, .promo .g { fill: #f5b82e; stroke: var(--ps); stroke-width: 1.8; stroke-linejoin: round; }
+  .pc .gd, .lk .gd, .promo .gd { fill: none; stroke: #f5b82e; stroke-width: 2.4; stroke-linecap: round; }
+  .pc .s, .lk .s, .promo .s { fill: var(--st); }
+  .pc .beam, .lk .beam, .promo .beam { fill: rgba(253,224,71,.28); }
+  .pc .q, .lk .q, .promo .q { font: 900 15px Georgia, serif; fill: var(--ps); }
+  .w-side { --pf: #fbf3e2; --ps: #3b2616; --st: #c2410c; }
+  .b-side { --pf: #22263a; --ps: #e9b949; --st: #7f1d1d; }
+  @keyframes pop { 0% { transform: scale(1.5); } 100% { transform: scale(1); } }
+
+  .lockers { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 26px; margin: 6px 2px; }
+  .lk { display: flex; flex-wrap: wrap; align-items: center; gap: 0; min-height: 24px; }
+  .lk svg { width: 22px; height: 22px; margin-right: -6px; }
+  .lk .lbl { font-size: .7rem; color: var(--muted); margin-right: 8px; text-transform: uppercase; letter-spacing: .05em; }
+  .lk:empty { display: none; }
+
+  .timer { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; margin: 10px 0 0; visibility: hidden; }
+  .timer.on { visibility: visible; }
+  .timer i { display: block; height: 100%; background: linear-gradient(90deg, #22c55e, #facc15, #ef4444); transform-origin: left; }
+
+  .log { margin-top: 12px; }
+  .log summary { cursor: pointer; font-weight: 700; color: var(--muted); }
+  .log ol { margin: 8px 0 0; padding-left: 2.4em; max-height: 8.5rem; overflow-y: auto; columns: 2; font: .85rem/1.5 ui-monospace, Consolas, monospace; }
+  .log li span { display: inline-block; min-width: 4.6em; } .log li .you { color: var(--gold); }
+  .legend { font-size: .8rem; }
+  .legend b { color: var(--text); }
+
+  .promo { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: rgba(2,6,23,.6); padding: 16px; }
+  .promo[hidden] { display: none !important; }
+  .promo .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; text-align: center; max-width: 420px; }
+  .promo h3 { margin: 0 0 4px; font: italic 800 1.25rem Georgia, serif; color: var(--gold); }
+  .promo p { margin: 0 0 12px; color: var(--muted); font-size: .88rem; }
+  .promo .opts { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .promo button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 6px 6px 4px; cursor: pointer; color: var(--text); font: 600 .75rem system-ui, sans-serif; }
+  .promo button:hover:not(:disabled) { border-color: var(--gold); transform: translateY(-2px); }
+  .promo button svg { width: 58px; height: 58px; display: block; }
+  .promo button:disabled { opacity: .45; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<main>
+  <header class="rx-top">
+    <a class="rx-back" href="../index.html">← Deck</a>
+    <h1>Chess<small>Crabs, seahorses, and a Kraken in a tiara</small></h1>
+    <span id="rx-link" class="rx-pill off">Connecting…</span>
+  </header>
+  <div class="rx-players">
+    <span id="you"><i class="side" id="you-side"></i>You <span class="rx-score" id="score-you">0</span><em class="adv" id="adv-you"></em></span>
+    <span id="them"><em class="adv" id="adv-them"></em><span class="rx-score" id="score-them">0</span><i class="side" id="them-side"></i><b data-companion>Your companion</b></span>
+  </div>
+  <div class="lockers"><div class="lk" id="lk-them"></div></div>
+  <div class="frame"><div id="board" class="board" aria-label="Chess board"><div class="squares" id="squares"></div><div class="pieces" id="pieces"></div></div></div>
+  <div class="lockers"><div class="lk" id="lk-you"></div></div>
+  <div class="timer" id="timer"><i id="timer-bar"></i></div>
+  <div id="status" class="rx-status"></div>
+  <div class="rx-bar">
+    <button class="rx-btn primary" id="new">New game</button>
+    <button class="rx-btn" id="truce" title="Offer a draw">Offer a truce</button>
+    <button class="rx-btn danger" id="resign" title="Resign">Strike your colours</button>
+  </div>
+  <details class="log rx-panel" id="log"><summary>Ship's log</summary><ol id="moves"></ol></details>
+  <p class="rx-hint legend">
+    <b>Crab</b> pawn · <b>Seahorse</b> knight · <b>Parrot</b> bishop · <b>Lighthouse</b> rook ·
+    <b>Kraken</b> queen · <b>Captain</b> king. Nobody knows what the Captain looks like, so the Captain is a hat.
+  </p>
+</main>
+<div class="promo" id="promo" hidden>
+  <div class="card">
+    <h3>Your crab reached the far shore!</h3>
+    <p>What does it grow up to be?</p>
+    <div class="opts" id="promo-opts"></div>
+  </div>
+</div>
+<script src="../lib/neuro.js"></script>
+<script src="../lib/juice.js"></script>
+<script src="../lib/music.js"></script>
+<script src="../lib/scenes.js"></script>
+<script src="../lib/crew.js"></script>
+<script src="../lib/lines.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/pieces.js"></script>
+<script>
+"use strict";
+const { sfx, fx } = RexGame;
+const C = RexChess, P = RexChessPieces;
+const MODES = {
+  classic: { odds: false, clock: 0, bonus: 0 },
+  odds: { odds: true, clock: 0, bonus: 120 },
+  fuse: { odds: false, clock: 30, bonus: 40 },
+};
+const MODE_TABS = [
+  { id: "classic", label: "Classic", hint: "the full rules" },
+  { id: "odds", label: "Kraken's Day Off", hint: "you play without a queen" },
+  { id: "fuse", label: "Lit Fuse", hint: "30 s a move for you" },
+];
+const SIDE = { w: "White", b: "Black" };
+// What a capture sounds like, by what was taken.
+const CAPTURED = {
+  p: ["Pinched!", "Crab cakes!", "Snip snip."],
+  n: ["Seahorse down!", "Neigh-ver again.", "Off to the stables."],
+  b: ["Squawk!", "Polly's gone.", "Feathers everywhere!"],
+  r: ["Lights out!", "Lighthouse toppled!", "Mind the rocks."],
+  q: ["Calamari!", "The Kraken falls!", "Release the... oh."],
+};
+const DRAWN = {
+  stalemate: { title: "STALEMATE", why: "Stalemate: the side to move has no legal move but is not in check.",
+    detail: "No legal moves, and not in check. Both crews sulk." },
+  fifty: { title: "FIFTY-MOVE RULE", why: "Fifty moves each without a capture or a pawn move.",
+    detail: "Fifty moves without a capture or a crab stepping forward. The crew went to lunch." },
+  repetition: { title: "THREEFOLD REPETITION", why: "The same position came up three times.",
+    detail: "The same position, three times. We're stuck in rehearsal." },
+  material: { title: "DEAD POSITION", why: "Neither side has enough left to checkmate.",
+    detail: "Not enough on the board for anyone to mate. Sal checked the maths." },
+  truce: { title: "TRUCE", why: "Both sides agreed a draw.", detail: "A draw, agreed over rum." },
+};
+
+let M = MODES.classic;
+let state, keys, log, over, selected, last, truce, lost, krakenTakes = 0, userColor = "w", nextColor = "w";
+let ready = true;          // set up, waiting for Start game
+let modeId = "classic";    // the mode of the game on the board (the tab may already show the next one)
+let clockTimer = null, clockEnds = 0, resignArmed = null, note = "";
+const score = { you: 0, them: 0 };
+const $ = (id) => document.getElementById(id);
+const pick = (list) => list[(Math.random() * list.length) | 0];
+const themColor = () => C.other(userColor);
+const theirTurn = () => !ready && !over && state.turn === themColor();
+const yourTurn = () => !ready && !over && state.turn === userColor;
+const half = (n) => (n % 1 ? `${Math.floor(n) || ""}½` : String(n));
+
+const game = RexGame.create({
+  name: "Chess",
+  modes: MODE_TABS,
+  onMode: (id, byUser) => pickMode(id, byUser),
+  music: ["captains-gambit", "endgame-fog", "calm-before", "candlelight-bluff"],
+  scenes: ["tavern", "night", "dawn", "storm"],
+  rules: "You are playing chess against the user, with the full standard rules: castling, en passant, promotion, "
+    + "check and checkmate, stalemate, threefold repetition, the fifty-move rule. On this board the pieces wear "
+    + "Rexmaw costumes: pawns are crabs, knights seahorses, bishops parrots, rooks lighthouses, the queen is the "
+    + "Kraken and the king is the Captain. Moves are still written in normal chess notation (K Q R B N, no letter "
+    + "for pawns). Every game message carries the whole current board, so only the newest one counts: never play "
+    + "from an older board, and only ever move your own pieces. On your turn you also get what's going on (check, "
+    + "mate threats, loose pieces) and every legal move you have: pick one of those. Piece values: pawn 1, knight 3, "
+    + "bishop 3, rook 5, queen 9. A queen or rook that takes a defended pawn is usually just lost, so a big piece for "
+    + "a small one needs a reason (a sacrifice that wins more). Moves marked ? in your list are a hint: on a quick "
+    + "one-exchange check they lose material. They're still legal; play one if you see further than the check does.",
+  actions: [
+    { name: "move_piece",
+      description: "Make your chess move, written as in the legal-moves list (Nf3, exd5, O-O, e8=Q) or as from-to squares (g1f3).",
+      schema: { type: "object", properties: { move: { type: "string" } }, required: ["move"] } },
+    { name: "answer_truce",
+      description: "Answer the user's offer of a truce (a draw): accept true ends the game drawn, false plays on.",
+      schema: { type: "object", properties: { accept: { type: "boolean" } }, required: ["accept"] } },
+  ],
+  onAction(name, data) {
+    if (name === "answer_truce") return answerTruce(data.accept);
+    if (over) throw new RexGame.Refuse("The game is over. Wait for the user to start a new one.");
+    if (!theirTurn()) throw new RexGame.Refuse("It is not your turn yet: the user is still thinking.");
+    const moves = C.legalSan(state);
+    const read = C.parseMove(data.move, moves);
+    if (read.error) {
+      throw new RexGame.Refuse(`${read.error} ${C.inCheck(state) ? "You are in check. " : ""}`
+        + `Your legal moves: ${moves.map((m) => m.san).join(", ")}.`);
+    }
+    return play(read.move, "them");
+  },
+  onCompanion: () => render(),
+  onConnect: () => { if (theirTurn() && !game.waiting()) askMove(false); },
+  onAgain: () => newGame(true),
+  onLoad: (saved) => resume(saved.current),
+});
+
+// ---- The game ------------------------------------------------------------------
+
+function setup(color) {
+  userColor = color;
+  state = C.initial({ noQueen: M.odds ? userColor : null });
+  keys = [C.key(state)]; log = []; over = null; selected = -1; last = null; truce = false; note = "";
+  lost = { w: [], b: [] };   // pieces of each colour that were taken
+  krakenTakes = 0;           // the user's queen's captures this game (a rampage at 3)
+}
+
+/** A mode tab only sets the board up for that mode: nothing starts (no
+ *  fuse, no companion move) until Start game. A game in progress plays
+ *  on, and the mode is for the next one. */
+function pickMode(id, byUser) {
+  if (!ready && !over && log.length) { render(); return; }
+  M = MODES[id]; modeId = id;
+  if (byUser && id === "odds") game.react("odds");
+  game.cancelForce();
+  stopClock(); closePromo();
+  setup(nextColor);
+  ready = true;
+  render(true);
+}
+
+function newGame(byUser = true) {
+  game.cancelForce();
+  stopClock(); closePromo();
+  modeId = game.mode || "classic";
+  M = MODES[modeId];
+  setup(nextColor);
+  ready = false;
+  nextColor = C.other(nextColor);
+  if (byUser) game.save({ current: null });
+  render(true);
+  sfx.whoosh();
+  game.tell(`A new game of chess started${M.odds ? ", at Kraken odds: the user plays without their queen" : ""}`
+    + `${M.clock ? `, and the user has ${M.clock} seconds a move` : ""}. You play ${SIDE[themColor()]}, `
+    + `the user plays ${SIDE[userColor]}. ${userColor === "w" ? "The user moves" : "You move"} first.`);
+  if (theirTurn()) askMove(); else startClock();
+}
+
+/** Pick up a game left half-played (the page reloaded, the app restarted). */
+function resume(cur) {
+  if (!cur || !MODES[cur.mode] || !Array.isArray(cur.moves) || !cur.moves.length || !ready) return;
+  game.cancelForce();
+  stopClock();
+  modeId = cur.mode;
+  M = MODES[modeId];
+  setup(cur.userColor === "b" ? "b" : "w");
+  ready = false;
+  nextColor = C.other(userColor);
+  for (const text of cur.moves) {
+    const read = C.parseMove(text, C.legalSan(state));
+    if (read.error) break;
+    record(read.move, state.turn === userColor ? "you" : "them");
+  }
+  render(true);
+  game.tell(`Picking up a saved game of chess, ${log.length} moves in. You play ${SIDE[themColor()]}.`);
+  if (theirTurn()) askMove(false); else startClock();
+}
+
+/** Apply a move to the position and the bookkeeping, without fanfare. */
+function record(m, who) {
+  const mover = state.board[m.from];
+  m.san = m.san || C.san(state, m);
+  state = C.make(state, m);
+  keys.push(C.key(state));
+  log.push(m.san);
+  if (m.captured) lost[C.other(mover.c)].push(m.captured);
+  last = { m, who };
+}
+
+function describe(m, who) {
+  const mine = who === "them" ? "your" : "their", yours = who === "them" ? "the user's" : "your";
+  if (m.castle) return `${m.san} (castled ${m.castle === "k" ? "kingside" : "queenside"})`;
+  return `${m.san} (${mine} ${P.NAME[m.piece]} from ${C.sqName(m.from)} to ${C.sqName(m.to)}`
+    + `${m.captured ? `, taking ${yours} ${P.NAME[m.captured]}${m.ep ? " en passant" : ""}` : ""}`
+    + `${m.promo ? `, promoted to a ${P.NAME[m.promo]} (${P.CHESS[m.promo]})` : ""})`;
+}
+
+/** afterUser: false on a reconnect or a resumed game, which answer nothing
+ *  (see game.force: the kit picks the priority from it). */
+function askMove(afterUser = null) {
+  game.force({
+    state: stateText(),
+    query: (last?.who === "you" ? `The user played ${describe(last.m, "you")}. ` : "You have the first move. ")
+      + "Your turn: move_piece.",
+    actions: ["move_piece"],
+    afterUser,
+  });
+}
+
+/** The whole position in a few lines, the same on every message: each
+ *  side's pieces by square (a text grid makes the model count columns,
+ *  which it does badly), whose move it is, and material. Complete on its
+ *  own, so nothing from an earlier message is needed - and it says so,
+ *  because the older boards are still in the call's history. */
+function position() {
+  const me = themColor(), mat = C.material(state.board), diff = mat[me] - mat[userColor];
+  const side = (c) => {
+    const pieces = [], pawns = [];
+    state.board.forEach((p, sq) => {
+      if (p?.c !== c) return;
+      if (p.t === "p") pawns.push(C.sqName(sq)); else pieces.push([p.t, C.sqName(sq)]);
+    });
+    pieces.sort((a, b) => "kqrbn".indexOf(a[0]) - "kqrbn".indexOf(b[0]));
+    return pieces.map(([t, sq]) => t.toUpperCase() + sq).join(" ") + (pawns.length ? `, pawns ${pawns.sort().join(" ")}` : "");
+  };
+  return [
+    `## Chess board NOW (move ${state.full}, ${over ? "game over" : state.turn === me ? "your move" : "the user's move"}). Older boards are out of date.`,
+    `${SIDE[me]} (YOU): ${side(me)}.`,
+    `${SIDE[userColor]} (the user): ${side(userColor)}.`,
+    `Material: you ${mat[me]}, the user ${mat[userColor]}`
+      + (diff ? ` (you are ${Math.abs(diff)} ${diff > 0 ? "ahead" : "behind"})` : " (level)") + ".",
+  ].join("\n");
+}
+
+/** The companion's move: the position, the facts at a glance, every legal move. */
+function stateText() {
+  const a = C.analyse(state);
+  const name = (t) => `${P.CHESS[t]} (${P.NAME[t]})`;
+  const facts = [];
+  if (a.check) facts.push("You are in CHECK: your move must get your Captain (king) out of it.");
+  if (a.mates.length) facts.push(`You can CHECKMATE right now with ${a.mates.join(" or ")}. Play it!`);
+  if (a.threats.length) facts.push(`The user threatens checkmate next move with ${a.threats.slice(0, 2).join(" or ")}: stop it.`);
+  if (a.danger.length) {
+    facts.push("Under attack: " + a.danger.slice(0, 4).map((d) => `your ${name(d.t)} on ${C.sqName(d.sq)} `
+      + `(${d.defended ? `by a ${P.CHESS[d.by]}, worth less` : "undefended"})`).join(", ") + ".");
+  }
+  if (a.captures.length) {
+    facts.push("Hint, captures that look like they win material on the spot (check the position yourself): "
+      + a.captures.slice(0, 3).map((c) => `${c.san} takes a ${P.CHESS[c.captured]} (+${c.net})`).join(", ") + ".");
+  }
+  if (!facts.length) {
+    facts.push(state.full <= 8 ? "Opening: control the centre, bring out knights and bishops, castle early."
+      : "No immediate tactics. Improve your worst piece, or push a pawn nobody can stop.");
+  }
+  // A fast model grabs any capture; spell out which moves hand material over.
+  if (a.losing.length) {
+    facts.push("Hint, moves marked ? look like they lose material on the spot (unless it's a sacrifice you've "
+      + "worked out): " + a.losing.slice(0, 4).map((l) => l.captured
+      ? `${l.san} gives up your ${P.CHESS[l.piece]} for a ${P.CHESS[l.captured]} (-${l.loss})`
+      : `${l.san} leaves your ${P.CHESS[l.piece]} to be taken (-${l.loss})`).join(", ") + ".");
+  }
+  const groups = ["k", "q", "r", "b", "n", "p"].map((t) => {
+    const list = a.moves.filter((m) => m.piece === t).map((m) => m.san + (m.trade.net < 0 && !m.san.endsWith("#") ? "?" : ""));
+    return list.length ? `${P.CHESS[t][0].toUpperCase() + P.CHESS[t].slice(1)}: ${list.join(" ")}` : null;
+  }).filter(Boolean);
+  return `${position()}\n${facts.join("\n")}\nYour legal moves (${a.moves.length}): ${groups.join(". ")}.`;
+}
+
+function play(m, who) {
+  const before = state, mover = before.board[m.from];
+  const threatened = C.analyse(before);   // was a mate threat on? (did this move stop it)
+  record(m, who);
+  if (who === "you") { truce = false; note = ""; }
+  selected = -1;
+  const st = C.status(state, keys);
+  const sqEl = squareEl(m.to);
+  render(false, mover.id);
+  moveSound(m);
+  if (st.over) return finish(st, who, m);
+  game.save({ current: { mode: modeId, userColor, moves: log } });
+  flair(m, who, st, sqEl, threatened);
+  if (theirTurn()) { stopClock(); askMove(); } else startClock();
+  return who === "them" ? `You played ${describe(m, "them")}.${st.check ? " Check!" : ""} Now it's the user's move.\n${position()}` : "";
+}
+
+/** The fun bits of a move that doesn't end the game: doubloons, quips,
+ *  the companion's lines and the gallery. Biggest news first: a reaction
+ *  line only plays every few seconds. */
+function flair(m, who, st, at, before) {
+  const you = who === "you";
+  if (m.captured) {
+    sfx.chomp();
+    if (m.captured === "q") { sfx.roar(); fx.shake(); }
+    if (you) game.award(C.VALUE[m.captured] * 5, pick(CAPTURED[m.captured]), at);
+    else fx.float(pick(CAPTURED[m.captured]), { at, color: "#f87171" });
+  }
+  if (m.captured === "q") { game.react(you ? "lost_kraken" : "took_kraken"); if (you) game.heckle("kraken_taken", { chance: 0.7 }); }
+  if (m.promo) {
+    sfx.sparkle();
+    if (you) game.award(25, `A ${P.NAME[m.promo]}!`, at);
+    else fx.float(`Their crab grew into a ${P.NAME[m.promo]}!`, { at, color: "#f87171" });
+    if (you) game.heckle("promote", { chance: 0.7 }); else game.react("promote");
+  }
+  if (m.ep) {
+    if (you) { game.award(20, "En passant!", at); game.heckle("en_passant", { chance: 0.8 }); }
+    else { fx.float("En passant! Sideways, like a proper crab.", { at, color: "#f87171" }); game.react("en_passant"); }
+  }
+  if (m.castle) {
+    sfx.creak();
+    if (you) { game.award(10, "Castled!", at); game.heckle("castle", { chance: 0.3 }); }
+    else fx.float("Castled!", { at, color: "#cbd5e1" });
+  }
+  if (st.check) {
+    sfx.bell();
+    fx.float("Check!", { at: squareEl(kingOf(state.turn)), color: "#fca5a5", big: true });
+    game.react(you ? "checked" : "check");
+    game.heckle("check", { chance: 0.3 });
+  }
+  // The companion now threatens mate: they gloat, the gallery gasps.
+  if (!you && !st.check && C.analyse({ ...state, turn: themColor(), ep: -1 }).mates.length) {
+    game.react("threat");
+    game.heckle("close_call", { chance: 0.35 });
+  }
+  // Their move hands over material (a "?" in their list): the gallery gasps.
+  if (!you && (before.moves.find((x) => x.san === m.san)?.trade?.net ?? 0) < 0) {
+    fx.float("?!", { at, color: "#fca5a5", big: true });
+    game.heckle("blunder", { chance: 0.7 });
+    game.react("own_blunder");
+  }
+  // Your Kraken on a rampage: its third capture this game.
+  if (you && m.piece === "q" && m.captured && ++krakenTakes === 3) {
+    game.award(30, "Kraken rampage!", at);
+    fx.flash("rgba(124,58,237,.35)");
+    sfx.roar();
+    game.heckle("rampage", { minGap: 0 });
+  }
+  // The user had a mate hanging over them and dealt with it.
+  if (you && before.threats.length && !C.analyse({ ...state, turn: themColor(), ep: -1 }).mates.length) {
+    game.award(15, "Phew!", at);
+  }
+}
+
+function moveSound(m) {
+  ({ p: () => sfx.pop(), n: () => sfx.bubble(), b: () => (Math.random() < 0.6 ? sfx.parrot() : sfx.pop()),
+     r: () => sfx.drop(), q: () => sfx.whoosh(), k: () => sfx.clink() })[m.piece]();
+}
+
+/** The game ended on this move. */
+function finish(st, who, m) {
+  over = st;
+  stopClock();
+  game.save({ current: null });
+  render();
+  const name = game.companion;
+  if (st.over === "checkmate") {
+    const userWon = st.winner === userColor;
+    score[userWon ? "you" : "them"]++;
+    sfx.bell();
+    render();
+    if (userWon) {
+      const pts = Math.round((150 + M.bonus + Math.max(0, 60 - state.full) * 2) * (M.clock ? 1.5 : 1));
+      game.tell(`Checkmate: the user won with ${m.san}. Score this session: you ${half(score.them)}, the user ${half(score.you)}.`, false);
+      setTimeout(() => game.end({ outcome: "win", title: "CHECKMATE!", points: pts,
+        detail: `${m.san}: ${name}'s Captain walks the plank after ${Math.ceil(log.length / 2)} moves.` }), 900);
+      return "";
+    }
+    setTimeout(() => game.end({ outcome: "loss", title: "CHECKMATED",
+      detail: `${name}'s ${P.NAME[m.piece]} cornered your Captain with ${m.san}.` }), 900);
+    return `Checkmate! You won with ${m.san}. Score this session: you ${half(score.them)}, the user ${half(score.you)}.`;
+  }
+  return drawn(st.over, who);
+}
+
+function drawn(reason, who) {
+  const why = DRAWN[reason];
+  score.you += 0.5; score.them += 0.5;
+  render();
+  if (who === "you") game.tell(`Game over, a draw. ${why.why} Score this session: you ${half(score.them)}, the user ${half(score.you)}.`, false);
+  setTimeout(() => game.end({ outcome: "draw", points: 40, title: why.title, detail: why.detail }), 800);
+  return `It's a draw. ${why.why}`;
+}
+
+// ---- Truce and surrender ----------------------------------------------------
+
+function offerTruce() {
+  if (!yourTurn() || truce || !game.connected) return;
+  truce = true; note = "";
+  sfx.click();
+  game.force({
+    state: position(),
+    query: "The user offers a truce: a draw that ends this game now. Answer with answer_truce (accept true or false).",
+    actions: ["answer_truce"],
+  });
+  render();
+}
+
+function answerTruce(accept) {
+  if (!truce || over) throw new RexGame.Refuse("No truce is on offer.");
+  truce = false;
+  const yes = accept === true || /^(true|yes|y|accept|ok|okay|sure|aye)$/i.test(String(accept).trim());
+  if (yes) {
+    over = { over: "truce" };
+    stopClock();
+    game.save({ current: null });
+    sfx.bell();
+    return drawn("truce", "them");
+  }
+  note = `${RexGame.escape(game.companion)} refuses the truce!`;
+  sfx.error();
+  fx.float("Truce refused!", { at: $("board"), color: "#f87171" });
+  render();
+  return "You refused the truce. The game goes on: it's still the user's move.";
+}
+
+function resign() {
+  if (over) return;
+  if (!resignArmed) {
+    sfx.click();
+    $("resign").textContent = "Really? Click again";
+    resignArmed = setTimeout(disarm, 3000);
+    return;
+  }
+  disarm();
+  game.cancelForce();
+  stopClock(); closePromo();
+  over = { over: "resign", winner: themColor() };
+  truce = false;
+  score.them++;
+  game.save({ current: null });
+  render();
+  game.tell(`The user struck their colours: they resigned, so you win. Score this session: you ${half(score.them)}, the user ${half(score.you)}.`, false);
+  game.end({ outcome: "loss", title: "COLOURS STRUCK", detail: "You surrendered. The Captain will hear of this. (You are the Captain.)" });
+}
+function disarm() { clearTimeout(resignArmed); resignArmed = null; $("resign").textContent = "Strike your colours"; }
+
+// ---- The user's moves ---------------------------------------------------------
+
+function userMove(from, to) {
+  const options = C.legal(state).filter((m) => m.from === from && m.to === to);
+  if (!options.length || !yourTurn()) return false;
+  if (options[0].promo) { openPromo(options); return true; }
+  commit(options[0]);
+  return true;
+}
+
+function commit(m) {
+  game.cancelForce();   // a truce on offer is withdrawn by moving
+  play(m, "you");
+}
+
+function openPromo(options) {
+  const box = $("promo-opts");
+  box.innerHTML = "";
+  for (const t of ["q", "r", "b", "n"]) {
+    const b = document.createElement("button");
+    b.className = `${userColor}-side`;
+    b.innerHTML = `${P.svg(t)}${P.NAME[t]}`;
+    b.onclick = () => { closePromo(); commit(options.find((m) => m.promo === t)); };
+    box.appendChild(b);
+  }
+  const crab = document.createElement("button");
+  crab.className = `${userColor}-side`;
+  crab.disabled = true;
+  crab.title = "Against the rules. Sadly.";
+  crab.innerHTML = `${P.svg("p")}stay a crab`;
+  box.appendChild(crab);
+  $("promo").hidden = false;
+  sfx.sparkle();
+}
+function closePromo() { $("promo").hidden = true; }
+// Clicking beside the picker takes the move back.
+$("promo").onclick = (ev) => { if (ev.target.id === "promo") { closePromo(); render(); } };
+
+// Click a piece then a square, or drag it.
+let drag = null;
+const boardEl = $("board");
+function squareAt(ev) {
+  const r = boardEl.getBoundingClientRect();
+  const x = Math.floor(((ev.clientX - r.left) / r.width) * 8), y = Math.floor(((ev.clientY - r.top) / r.height) * 8);
+  if (x < 0 || x > 7 || y < 0 || y > 7) return -1;
+  return userColor === "w" ? (7 - y) * 8 + x : y * 8 + (7 - x);
+}
+boardEl.addEventListener("pointerdown", (ev) => {
+  const sq = squareAt(ev);
+  if (sq < 0 || !yourTurn()) return;
+  if (selected >= 0 && selected !== sq && userMove(selected, sq)) return;
+  const pc = state.board[sq];
+  if (pc && pc.c === userColor) {
+    if (selected !== sq) sfx.hover();
+    selected = sq;
+    drag = { sq, x: ev.clientX, y: ev.clientY, el: pieceEls.get(pc.id), moved: false };
+    boardEl.setPointerCapture(ev.pointerId);
+  } else selected = -1;
+  render();
+});
+boardEl.addEventListener("pointermove", (ev) => {
+  if (!drag?.el) return;
+  const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+  if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+  drag.moved = true;
+  drag.el.classList.add("drag");
+  drag.el.style.transform = `translate(${dx}px, ${dy}px)`;
+});
+boardEl.addEventListener("pointerup", (ev) => {
+  if (!drag) return;
+  const { el, moved, sq: from } = drag;
+  drag = null;
+  if (!el || !moved) return;
+  const to = squareAt(ev);
+  // Land where it was dropped, without sliding back first.
+  el.style.transform = "";
+  if (to >= 0 && to !== from && C.legal(state).some((m) => m.from === from && m.to === to)) {
+    placeAt(el, to);
+    void el.offsetWidth;
+    el.classList.remove("drag");
+    userMove(from, to);
+  } else el.classList.remove("drag");
+});
+
+// ---- The fuse (Lit Fuse mode): run out and a random piece panics --------------
+
+function startClock() {
+  stopClock();
+  if (!M.clock || over) return;
+  clockEnds = Date.now() + M.clock * 1000;
+  $("timer").classList.add("on");
+  let lastSec = M.clock;
+  clockTimer = setInterval(() => {
+    const left = clockEnds - Date.now();
+    $("timer-bar").style.transform = `scaleX(${Math.max(0, left / (M.clock * 1000))})`;
+    const sec = Math.ceil(left / 1000);
+    if (sec < lastSec && sec <= 5 && sec > 0) sfx.tick();
+    lastSec = sec;
+    if (left <= 0) {
+      stopClock();
+      closePromo();
+      sfx.boom();
+      fx.float("The fuse burnt out!", { at: boardEl, color: "#f87171", big: true });
+      game.react("timeout");
+      const moves = C.legal(state).filter((m) => !m.promo || m.promo === "q");
+      game.tell("The user's fuse burnt out, so one of their pieces panicked and made a random move.");
+      commit(pick(moves));
+    }
+  }, 100);
+}
+function stopClock() { clearInterval(clockTimer); clockTimer = null; $("timer").classList.remove("on"); }
+
+// ---- Drawing -------------------------------------------------------------------
+
+const pieceEls = new Map();   // piece id → element
+let builtFor = null;
+
+function squareEl(sq) {
+  return $("squares").querySelector(`[data-sq="${sq}"]`);
+}
+function kingOf(c) { return state.board.findIndex((p) => p && p.t === "k" && p.c === c); }
+function placeAt(el, sq) {
+  const x = userColor === "w" ? sq & 7 : 7 - (sq & 7), y = userColor === "w" ? 7 - (sq >> 3) : sq >> 3;
+  el.style.left = `${x * 12.5}%`;
+  el.style.top = `${y * 12.5}%`;
+}
+
+function render(fresh = false, movedId = null) {
+  // The squares, built once per side (the user's pieces at the bottom).
+  if (fresh || builtFor !== userColor) {
+    builtFor = userColor;
+    const box = $("squares");
+    box.innerHTML = "";
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        const sq = userColor === "w" ? (7 - y) * 8 + x : y * 8 + (7 - x);
+        const el = document.createElement("div");
+        el.className = `sq${((sq & 7) + (sq >> 3)) % 2 ? " l" : ""}`;
+        el.dataset.sq = sq;
+        if (y === 7) el.insertAdjacentHTML("beforeend", `<span class="co f">${C.FILES[sq & 7]}</span>`);
+        if (x === 0) el.insertAdjacentHTML("beforeend", `<span class="co r">${(sq >> 3) + 1}</span>`);
+        box.appendChild(el);
+      }
+    }
+    for (const el of pieceEls.values()) el.remove();
+    pieceEls.clear();
+  }
+  const targets = selected >= 0 ? C.legal(state).filter((m) => m.from === selected) : [];
+  const checked = !over || over.over === "checkmate" ? (C.inCheck(state) ? kingOf(state.turn) : -1) : -1;
+  for (const el of $("squares").children) {
+    const sq = Number(el.dataset.sq);
+    el.classList.toggle("sel", sq === selected);
+    el.classList.toggle("last", !!last && (sq === last.m.from || sq === last.m.to));
+    el.classList.toggle("check", sq === checked);
+    el.classList.toggle("to", targets.some((m) => m.to === sq));
+    el.classList.toggle("cap", targets.some((m) => m.to === sq && m.captured));
+    el.classList.toggle("mine", state.board[sq]?.c === userColor);
+  }
+  boardEl.classList.toggle("can", yourTurn());
+
+  // The pieces: one element each, kept by id so moves slide.
+  const seen = new Set();
+  state.board.forEach((p, sq) => {
+    if (!p) return;
+    seen.add(p.id);
+    let el = pieceEls.get(p.id);
+    if (!el) {
+      el = document.createElement("div");
+      $("pieces").appendChild(el);
+      pieceEls.set(p.id, el);
+    }
+    if (el.dataset.t !== p.t) {
+      if (el.dataset.t) { el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop"); }
+      el.dataset.t = p.t;
+      el.innerHTML = P.svg(p.t);
+    }
+    el.className = `pc ${p.c}-side${el.classList.contains("pop") ? " pop" : ""}${el.classList.contains("drag") ? " drag" : ""}`;
+    el.title = `${p.c === userColor ? "Your" : `${game.companion}'s`} ${P.NAME[p.t]} (${P.CHESS[p.t]})`;
+    placeAt(el, sq);
+    if (p.id === movedId) el.style.zIndex = 2; else el.style.zIndex = "";
+  });
+  for (const [id, el] of pieceEls) {
+    if (seen.has(id)) continue;
+    pieceEls.delete(id);
+    el.classList.add("gone");
+    setTimeout(() => el.remove(), 400);
+  }
+
+  // Players, material, the lockers (what each side has taken).
+  const mat = C.material(state.board), diff = mat[userColor] - mat[themColor()];
+  $("you-side").className = `side ${userColor}`;
+  $("them-side").className = `side ${themColor()}`;
+  $("score-you").textContent = half(score.you);
+  $("score-them").textContent = half(score.them);
+  $("adv-you").textContent = diff > 0 ? `+${diff}` : "";
+  $("adv-them").textContent = diff < 0 ? `+${-diff}` : "";
+  $("you").classList.toggle("turn", yourTurn());
+  $("them").classList.toggle("turn", theirTurn());
+  const locker = (el, color, label) => {
+    const list = [...lost[color]].sort((a, b) => C.VALUE[b] - C.VALUE[a]);
+    el.className = `lk ${color}-side`;
+    el.innerHTML = list.length ? `<span class="lbl">${label}</span>` + list.map((t) => P.svg(t)).join("") : "";
+  };
+  locker($("lk-you"), themColor(), "Your haul");
+  locker($("lk-them"), userColor, `${RexGame.escape(game.companion)}'s haul`);
+
+  // The ship's log.
+  const ol = $("moves");
+  ol.innerHTML = "";
+  for (let i = 0; i < log.length; i += 2) {
+    const li = document.createElement("li");
+    li.innerHTML = [log[i], log[i + 1]].filter(Boolean).map((san, j) =>
+      `<span class="${(j === 0 ? "w" : "b") === userColor ? "you" : ""}">${RexGame.escape(san)}</span>`).join("");
+    ol.appendChild(li);
+  }
+  ol.scrollTop = ol.scrollHeight;
+
+  // Status and buttons.
+  const name = RexGame.escape(game.companion);
+  const modeName = (id) => RexGame.escape(MODE_TABS.find((m) => m.id === id)?.label || id);
+  let text;
+  if (ready) text = `<b>${modeName(modeId)}</b>: you play ${SIDE[userColor]}. Press <b>Start game</b> when you're ready.`;
+  else if (over) {
+    text = over.over === "checkmate" ? (over.winner === userColor ? "<b>Checkmate! You win!</b>" : `<b>Checkmate. ${name} wins.</b>`)
+      : over.over === "resign" ? `<b>You struck your colours.</b> ${name} wins.`
+      : `<b>Draw:</b> ${RexGame.escape(DRAWN[over.over].detail)}`;
+  } else if (truce) text = `<b>Truce offered.</b> ${name} is considering it…`;
+  else if (yourTurn()) {
+    text = `<b>Your move</b> (${SIDE[userColor]})${C.inCheck(state) ? " - <b>you're in check!</b>" : ""}${M.clock ? " The fuse is lit!" : ""}`;
+    if (note) text = `${note} ${text}`;
+  } else text = `<b>${name}</b> is thinking…`;
+  // A mode picked mid-game is for the next one.
+  if (!ready && !over && game.mode && game.mode !== modeId) text += ` <i>${modeName(game.mode)} starts with your next game.</i>`;
+  $("status").innerHTML = text;
+  $("new").textContent = ready ? "Start game" : "New game";
+  $("truce").disabled = !yourTurn() || truce || !game.connected || log.length < 2;
+  $("resign").disabled = !!over || ready;
+}
+
+$("new").onclick = () => { sfx.click(); newGame(true); };
+$("truce").onclick = offerTruce;
+$("resign").onclick = resign;
+setup("w");
+render(true);
+</script>
+</body>
+</html>

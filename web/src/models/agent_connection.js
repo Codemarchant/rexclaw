@@ -80,6 +80,14 @@ const COMPACTION_TOOL_WAIT_MS = 60 * 60 * 1000;
 // How long an assistant line is held back for the user's transcript (see
 // _deferOrAppendAssistantFinal). The swap waits out the same hold.
 const AWAIT_USER_TRANSCRIPT_MS = 5000;
+// After a response.cancel, the longest a new response.create waits for the
+// cancelled reply's response.done (see _settleCancel).
+const CANCEL_SETTLE_MS = 3000;
+// Games, rapid play: the user answering the companion's moves this quickly,
+// twice running, is rapid play; while it lasts, the companion's line on its
+// own move waits this long and a quicker next move drops it. A design
+// choice, not a sourced figure: tune by feel.
+export const GAME_RAPID_MS = 5000;
 // Ceiling on how long a user row waits for the rest of its sentence (see
 // _openUserRow), however long the user keeps talking after the pause.
 const USER_ROW_MAX_OPEN_MS = 60000;
@@ -1060,6 +1068,14 @@ export class AgentConnection {
                     && !this._responseIsToolReply) {
                     this._pendingToolReply = true;
                 }
+                // The user cut off a move note's reply before it moved (they
+                // spoke): their turn is answered now, so ask for the move
+                // again rather than leave the game waiting on a reminder.
+                if (this._gameNoteInterrupted && !this._pendingToolReply) {
+                    this._gameNoteInterrupted = false;
+                    this._nextResponseIsGameNote = true;
+                    this._owedContextResponse = true;
+                }
                 // Gate for the post-tool follow-up reply — see
                 // _maybeCreateToolReply.
                 this._maybeCreateToolReply();
@@ -1068,10 +1084,15 @@ export class AgentConnection {
                 // Cancelled (barge-in / abort): abandon any owed tool reply.
                 this._pendingToolReply = false;
                 this._owedContextResponse = false;
+                // A move note's reply cut off before its move (see above).
+                if (this._responseFromGame && !this._responseIsGameReply && !this._gameMovedInResponse) {
+                    this._gameNoteInterrupted = true;
+                }
             }
             if (status === "failed" && msg.response?.status_details?.error?.code === "rate_limit_exceeded") {
                 this._retryAfterRateLimit(msg.response.status_details.error.message || "");
             }
+            if (this._cancelPendingSince) this._settleCancel();
             // If a /append earlier flagged needs_compaction during this
             // response, restart now that the model is idle.
             this._maybeRunCompaction();
@@ -1176,6 +1197,18 @@ export class AgentConnection {
             this._endTurnInResponse = false;
             this._responseIsToolReply = !!this._nextResponseIsToolReply;
             this._nextResponseIsToolReply = false;
+            // Any new reply settles a game move's owed commentary: this one
+            // is it, or (the user spoke first) it no longer applies. A reply
+            // is the game's own when a game note asked for it, or it follows
+            // up a move made in one: only those may be cut or held for a
+            // game (cutGameReply, rapid play). A turn the user started,
+            // follow-ups included, is theirs.
+            this._responseIsGameReply = this._responseIsToolReply && !!this._gameReplyOwed;
+            this._responseFromGame = !!this._nextResponseIsGameNote || this._responseIsGameReply;
+            this._nextResponseIsGameNote = false;
+            this._gameReplyOwed = false;
+            this._gameHoldUntil = 0;
+            this._gameMovedInResponse = false;
             // Motion director: a reply is being composed — not idle; a fresh
             // transcript starts for the speech gesture selector.
             this.avatarApi?.setConversationState?.({ listening: false, thinking: true, responseStarted: true });
@@ -1323,6 +1356,9 @@ export class AgentConnection {
             this._pendingToolReply = false;
             this._nextResponseIsToolReply = false;
             this._owedContextResponse = false;
+            // The next reply is the user's, not a game note's (cutGameReply).
+            this._nextResponseIsGameNote = false;
+            this._gameReplyOwed = false;
             this._continueStreak = 0;   // the user took a turn (see continue_after_beat)
             // Idle events hold off while the user has the floor — a long
             // utterance must not outlast the quiet timer (lib/idle_events.js).
@@ -1554,6 +1590,8 @@ export class AgentConnection {
                 message: errMsg,
                 param: err.param,
                 causedByClientEventId,
+                // What we sent just before, newest last (ms before the error).
+                lastSent: (this._sentLog || []).map(({ at, ...e }) => ({ msAgo: Date.now() - at, ...e })),
                 full: msg,
             });
             // max_duration is the one terminal error type — the server is
@@ -1672,6 +1710,18 @@ export class AgentConnection {
 
     _sendWs(msg) {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        // The last few events sent (not mic audio), printed with an xAI
+        // error: its "caused by" id is xAI's own, so this is the only way
+        // to tell which of ours it was answering. replyOpen: whether a reply
+        // was still in progress when it went out.
+        if (msg.type !== "input_audio_buffer.append") {
+            const c = msg.item?.content?.[0];
+            this._sentLog = this._sentLog || [];
+            this._sentLog.push({ at: Date.now(), type: msg.type, event_id: msg.event_id, item: msg.item?.type,
+                                 replyOpen: !!this._responseInFlight,
+                                 text: (c?.text || msg.item?.output || "").slice(0, 160) || undefined });
+            if (this._sentLog.length > 10) this._sentLog.shift();
+        }
         this.ws.send(JSON.stringify(msg));
     }
 
@@ -1824,6 +1874,12 @@ export class AgentConnection {
     _maybeCreateResponse({ preserveVoiceLatency = false } = {}) {
         if (this._responseInFlight || this.state.compacting ||
             !this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+        // A reply just cancelled is still winding down: ask once it has
+        // (cancelActiveResponse / _settleCancel).
+        if (this._cancelPendingSince) {
+            this._replyAfterCancel = true;
+            return false;
+        }
         // While a lookup is running on the user's partial speech, leave the
         // reply to server VAD rather than racing it and cancelling that lookup.
         // With no lookup to protect, a reply owed mid-speech still goes out.
@@ -1896,6 +1952,48 @@ export class AgentConnection {
         this.avatarApi?.setConversationState?.({ thinking: false });
         // Suppress stragglers until the next response.created.
         this._bargedIn = true;
+        // The provider still has that reply until its response.done: a new
+        // response.create before then is refused ("already has an active
+        // response") and the note it was for goes unanswered. Hold it.
+        if (hadResponse) {
+            const since = this._cancelPendingSince = Date.now();
+            setTimeout(() => { if (this._cancelPendingSince === since) this._settleCancel(); }, CANCEL_SETTLE_MS);
+        }
+    }
+
+    /** The cancelled reply is over: send the reply held back meanwhile. */
+    _settleCancel() {
+        this._cancelPendingSince = 0;
+        if (!this._replyAfterCancel) return;
+        this._replyAfterCancel = false;
+        this._maybeCreateResponse();
+    }
+
+    /** A game wants the next move now (Neuro "high" priority): the line this
+     *  leg owes or is saying about its LAST game move is stale, so drop it
+     *  before it starts, or cut it (its playing tail included). midSpeech
+     *  false ("medium") only drops it. Anything else - an answer to the user
+     *  above all - is left alone. Returns whether it dropped or cut something. */
+    cutGameReply(reason = "game: next move", { midSpeech = true } = {}) {
+        if (this._pendingToolReply && this._gameReplyOwed) {
+            this._pendingToolReply = false;
+            this._gameReplyOwed = false;
+            this._gameHoldUntil = 0;
+            console.debug(`[voice:${this.connId}] game commentary dropped before it started (${reason})`);
+            return true;
+        }
+        if (midSpeech && this._responseIsGameReply && (this._responseInFlight || this._assistantAudioActive())) {
+            this.cancelActiveResponse(reason);
+            return true;
+        }
+        return false;
+    }
+
+    /** The next reply is asked for by a game's move note (voice_service):
+     *  game commentary, unless the user takes the turn first. */
+    markNextReplyFromGame() {
+        this._nextResponseIsGameNote = true;
+        this._gameNoteInterrupted = false;   // this note asks for the move itself
     }
 
     /** React to a context note that landed mid-reply. Deferred rather than
@@ -1964,6 +2062,16 @@ export class AgentConnection {
         if (this._userSpeaking) return;
         if (this._responseInFlight) return;             // originating response still streaming
         if (this.toolDispatcher?.hasPending()) return;  // tool outputs still in flight
+        // Rapid play (voice_service): the line on the companion's own move
+        // waits a moment; a quick next move drops it (cutGameReply), a pause
+        // lets it out.
+        if (this._gameReplyOwed && this.manager?.gamesRapid) {
+            if (!this._gameHoldUntil) {
+                this._gameHoldUntil = Date.now() + GAME_RAPID_MS;
+                setTimeout(() => this._maybeCreateToolReply(), GAME_RAPID_MS);
+            }
+            if (Date.now() < this._gameHoldUntil) return;
+        }
         this._pendingToolReply = false;                 // claim it (idempotent vs. the racing caller)
         // Bridge flag: from the claim until response.create fires (or we
         // bail), this leg still "owes speech". Without it there's a silent
@@ -2045,6 +2153,12 @@ export class AgentConnection {
         const repeatEndCall = name === "end_call" && !!this.manager?.endingCall;
         if (endTurn) this._endTurnInResponse = true;   // checked at response.done
         else if (!repeatEndCall) this._pendingToolReply = true;
+        // The follow-up a move earns in a game-asked reply is commentary on
+        // that move: a game asking for the next one with "high" priority may
+        // cut it (cutGameReply). In a turn the user started it may be their
+        // answer, so it stays theirs.
+        if (name === "game_action" && !endTurn && this._responseFromGame) this._gameReplyOwed = true;
+        if (name === "game_action") { this._gameMovedInResponse = true; this._gameNoteInterrupted = false; }
         const responseAtCall = this._currentResponseId;
         const speechAtCall = this._speechTurnRevision;
         const dispatcherAtCall = this.toolDispatcher;   // a new call gets a new one
@@ -2053,6 +2167,12 @@ export class AgentConnection {
             .then((result) => {
                 try {
                     console.debug(`[voice:${this.connId}] tool result`, name, "→", result);
+                    // When the companion's move landed: rapid play is timed
+                    // from here to the user's answer (voice_service). A
+                    // refused move's follow-up is the retry, not commentary:
+                    // never held or cut.
+                    if (name === "game_action" && result?.ok) this._lastGameMoveAt = Date.now();
+                    else if (name === "game_action") this._gameReplyOwed = false;
                     if (!SILENT_BROWSER_TOOLS.has(name)) {
                         this._appendMessage({
                             role: "tool_result",
@@ -2728,6 +2848,7 @@ export class AgentConnection {
         text = (text || "").trim();
         if (!text) return false;
         this._continueStreak = 0;   // the user took a turn (see continue_after_beat)
+        this._nextResponseIsGameNote = false;   // and the reply is theirs (cutGameReply)
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
             this.env.services.notification?.add?.(
                 _t("Connect first before sending a typed message."),

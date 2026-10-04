@@ -109,8 +109,8 @@
       </select></div>
     <div class="voice">
       <label style="display:inline-flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:.85rem;color:var(--text)">
-        <input type="checkbox" id="voiceon"> Voice lines</label>
-      <span id="voicehint">Off a call, they react in their own voice.</span>
+        <input type="checkbox" id="voiceon"> Speak their reactions</label>
+      <span id="voicehint">Off a call, game reactions play in their voice, not just as text.</span>
       <button class="rx-btn" id="record">Record their lines</button>
       <span id="recstate"></span>
     </div>
@@ -225,34 +225,60 @@ function renderBoard(rows) {
 function showPlayer() {
   const p = players.find((x) => x.id === playerId());
   $("pic").innerHTML = picture(p);
-  $("record").textContent = `Record ${p ? p.name : "their"}'s lines`;
   $("record").disabled = !p;
+  showRecorded();
   post("/api/games/saves", { agent_id: playerId() }).then((s) => { saves = s || {}; render(); }).catch(() => render());
 }
 
-/** Record every reaction line in this companion's voice, one by one. */
+/** How many of the reaction lines this companion has recorded (in their
+ *  current voice), and a button for the rest. New games bring new lines;
+ *  a changed voice starts afresh. */
+let missingLines = null;
+async function showRecorded() {
+  const p = players.find((x) => x.id === playerId());
+  const lines = RexGame.allLines();
+  missingLines = null;
+  if (!p) return;
+  const res = await post("/api/games/voicelines/missing", { agent_id: p.id, texts: lines }).catch(() => null);
+  if (recording || p.id !== playerId()) return;
+  if (!res || res.missing === null) {
+    $("record").textContent = `Record ${p.name}'s lines`;
+    $("recstate").textContent = "";
+    return;
+  }
+  missingLines = res.missing.map((i) => lines[i]);
+  const done = lines.length - missingLines.length;
+  $("recstate").textContent = `${p.name}: ${done} of ${lines.length} recorded.`;
+  $("record").textContent = !missingLines.length ? "All recorded"
+    : done ? `Record the ${missingLines.length} new` : `Record ${p.name}'s ${lines.length} lines`;
+  $("record").disabled = !missingLines.length;
+}
+
+/** Record the lines this companion doesn't have yet, one by one: one voice
+ *  render each, kept, so a line is never paid for twice. */
 async function recordLines() {
   if (recording || !playerId()) return;
+  const lines = missingLines ?? RexGame.allLines();
+  if (!lines.length) return;
   recording = true;
-  const lines = RexGame.allLines();
   $("record").disabled = true;
-  let done = 0;
+  let done = 0, stopped = "";
   for (const text of lines) {
     $("recstate").textContent = `Recording ${done + 1} of ${lines.length}…`;
     try {
       const res = await post("/api/games/voiceline", { agent_id: playerId(), text, record: true });
-      if (res.on_call) { $("recstate").textContent = "They're on a call right now: try again after it."; break; }
-      if (res.error) { $("recstate").textContent = `Stopped: ${res.error}`; break; }
-    } catch { $("recstate").textContent = "Stopped: the server didn't answer."; break; }
+      if (res.on_call) { stopped = "They're on a call right now: try again after it."; break; }
+      if (res.error) { stopped = `Stopped: ${res.error}`; break; }
+    } catch { stopped = "Stopped: the server didn't answer."; break; }
     done++;
   }
-  if (done === lines.length) {
-    $("recstate").textContent = `All ${lines.length} lines recorded.`;
+  recording = false;
+  if (!stopped) {
     $("voiceon").checked = true; remember("voice", "1");
     sfx.win();
   }
-  recording = false;
-  $("record").disabled = false;
+  await showRecorded();   // the new count (and a button for whatever is left)
+  if (stopped) $("recstate").textContent += ` ${stopped}`;
 }
 
 function paintMute() {
@@ -276,7 +302,10 @@ $("voiceon").checked = recall("voice") === "1";
 $("voiceon").onchange = () => { remember("voice", $("voiceon").checked ? "1" : "0"); sfx.click(); };
 $("record").onclick = recordLines;
 $("mute").onclick = () => { sfx.setMuted(!sfx.muted()); paintMute(); sfx.click(); };
-$("voicehint").textContent = `Off a call, they react in their own voice. ${RexGame.allLines().length} short lines, recorded once and kept.`;
+$("voicehint").textContent = `Off a call, game reactions play in their voice, not just as text (on a call they react live). `
+  + `${RexGame.allLines().length} short lines, each recorded once and kept, by their voice's text-to-speech `
+  + "service: paid per line, unless it's a local engine.";
+$("record").title = "One text-to-speech call per line, in the voice they use on calls";
 paintMute();
 
 post("/api/games/players").then((res) => {

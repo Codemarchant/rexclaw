@@ -387,7 +387,11 @@ def _on_force(game, data):
     game.actions_changed_at = None
     game.noted_actions = frozenset(game.actions)
     _log(game, 'force', game.force['query'] or 'waiting on a move')
-    _emit(game, 'force', _force_text(game), prompt=True, priority=priority)
+    # rexclaw_after_user (our games' kit, not Neuro's spec): the user's own
+    # move set this force off, so a call times it for rapid play. Only the
+    # first emit carries it; reminders and retries answer nothing.
+    _emit(game, 'force', _force_text(game), prompt=True, priority=priority,
+          after_user=bool(data.get('rexclaw_after_user')))
 
 
 # ---------------------------------------------------------------------------
@@ -637,12 +641,12 @@ def _check_data(schema, data):
 # Notes for a live call
 # ---------------------------------------------------------------------------
 
-def _emit(game, kind, text, *, prompt=False, priority='low'):
+def _emit(game, kind, text, *, prompt=False, priority='low', after_user=False):
     global _cursor
     event_id = next(_event_ids)
     _cursor = event_id
     _events.append({'id': event_id, 'game': game.name, 'agent_id': game.agent_id, 'kind': kind,
-                    'text': text, 'prompt': prompt, 'priority': priority})
+                    'text': text, 'prompt': prompt, 'priority': priority, 'after_user': after_user})
 
 
 def _log(game, kind, text):

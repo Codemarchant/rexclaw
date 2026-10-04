@@ -27,11 +27,23 @@ def _key(agent, voice, text):
     return hashlib.sha1(raw.encode('utf-8')).hexdigest()[:24]
 
 
+def _clean(text):
+    return ' '.join((text or '').split())[:MAX_LINE_CHARS]
+
+
+def missing(con, agent, texts):
+    """Indexes of `texts` not yet recorded in the companion's current voice
+    (the library's "N of M recorded"). Looks in the cache only."""
+    voice, _speaker = voicemail_tools.call_voice(con, agent, get_config(con))
+    return [i for i, text in enumerate(texts)
+            if _clean(text) and not (VOICE_DIR / f'{_key(agent, voice, _clean(text))}.mp3').is_file()]
+
+
 def line(con, agent, text, *, record=False):
     """{'url'} of `text` in the companion's voice: the cached recording, a
     fresh one when `record`, else {'url': None}. Raises UserError when it
     can't be rendered (no key, no voice)."""
-    text = ' '.join((text or '').split())[:MAX_LINE_CHARS]
+    text = _clean(text)
     if not text:
         return {'url': None}
     config = get_config(con)

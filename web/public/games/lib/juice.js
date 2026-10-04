@@ -114,6 +114,11 @@
     cash: () => { notes([1568, 2093], { step: 0.07, vol: 0.08, type: "triangle", dur: 0.12 }); tone({ freq: 3136, dur: 0.6, vol: 0.05, delay: 0.14 }); },
     rimshot: () => { noise({ dur: 0.08, vol: 0.25, freq: 2500, q: 2 }); tone({ freq: 330, dur: 0.06, vol: 0.12, delay: 0.25, type: "triangle" }); noise({ dur: 0.5, vol: 0.12, type: "highpass", freq: 6000, delay: 0.45 }); },
     sparkle: () => notes([1568, 1976, 2349, 3136], { type: "sine", step: 0.05, vol: 0.06, dur: 0.25 }),
+    // The visitors: a cork, a cat, a tentacle.
+    cork: () => { tone({ freq: 420, slide: 12, dur: 0.06, vol: 0.18 }); noise({ dur: 0.05, vol: 0.15, freq: 3000, delay: 0.02 }); },
+    purr: () => { for (let i = 0; i < 7; i++) noise({ dur: 0.12, vol: 0.14, type: "lowpass", freq: 240, q: 3, delay: i * 0.13 }); },
+    meow: () => { tone({ freq: 620, slide: 5, dur: 0.16, type: "triangle", vol: 0.07, attack: 0.03 }); tone({ freq: 830, slide: -9, dur: 0.38, type: "triangle", vol: 0.06, delay: 0.14 }); },
+    squelch: () => { noise({ dur: 0.4, vol: 0.25, type: "lowpass", freq: 420, q: 5, sweep: 12 }); tone({ freq: 85, slide: 7, dur: 0.35, type: "sawtooth", vol: 0.06 }); },
   };
 
   sfx.muted = () => muted;
@@ -200,5 +205,93 @@
     setTimeout(() => el.remove(), 9500);
   }
 
-  window.RexGame = Object.assign(window.RexGame || {}, { sfx, fx: { confetti, float, shake, flash, seagull } });
+  // ---- Visitors: rarer than the gulls (neuro.js picks one now and then) --------
+
+  /** Put a visitor on screen; it leaves by itself after `life` ms. */
+  function visitor(className, svg, title, life) {
+    const el = document.createElement("div");
+    el.className = className;
+    el.title = title;
+    el.innerHTML = svg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), life);
+    return el;
+  }
+
+  /** A message in a bottle bobs past. Open it for `onOpen` (it reads out
+   *  with scroll()). */
+  function bottle(onOpen) {
+    const el = visitor("rxk-bottle", '<svg viewBox="0 0 80 34">'
+      + '<path d="M6 9h38a11 11 0 0 1 11 8 11 11 0 0 1-11 8H6a5 5 0 0 1-5-5v-6a5 5 0 0 1 5-5z" fill="#86efac44" stroke="#bbf7d0" stroke-width="2"/>'
+      + '<path d="M55 13h12v8H55z" fill="#86efac44" stroke="#bbf7d0" stroke-width="2"/><rect x="67" y="12" width="9" height="10" rx="2" fill="#b45309"/>'
+      + '<rect x="11" y="13" width="31" height="8" rx="4" fill="#fef3c7" stroke="#d6b77a"/></svg>', "A message in a bottle", 16000);
+    el.onclick = () => {
+      if (el.classList.contains("hit")) return;
+      el.classList.add("hit");
+      sfx.cork(); sfx.splash();
+      onOpen?.(el);
+    };
+    sfx.splash();
+  }
+
+  /** A note on parchment, unrolled mid-screen for a few seconds. */
+  function scroll(text, signed = "- the Captain") {
+    document.querySelector(".rxk-scroll")?.remove();
+    const el = document.createElement("div");
+    el.className = "rxk-scroll";
+    el.innerHTML = `<p></p><small></small>`;
+    el.querySelector("p").textContent = text;
+    el.querySelector("small").textContent = signed;
+    el.onclick = () => el.remove();
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 4500 + text.length * 45);
+  }
+
+  /** Evie the cat strolls along the bottom of the screen. Pet her for `onPet`. */
+  function cat(onPet) {
+    const el = visitor("rxk-cat", '<svg viewBox="0 0 80 50">'
+      + '<path class="tail" d="M14 31 Q3 24 7 10" fill="none" stroke="#475569" stroke-width="4" stroke-linecap="round"/>'
+      + '<path d="M20 40v8M28 41v7M42 41v7M50 40v8" stroke="#475569" stroke-width="4" stroke-linecap="round"/>'
+      + '<ellipse cx="34" cy="32" rx="22" ry="10" fill="#475569"/><circle cx="60" cy="24" r="10" fill="#475569"/>'
+      + '<path d="M53 17 L55 6 L60 15 Z M62 15 L67 6 L68 18 Z" fill="#475569"/>'
+      + '<circle cx="57" cy="23" r="1.7" fill="#facc15"/><circle cx="64" cy="23" r="1.7" fill="#facc15"/>'
+      + '<path d="M60 28 l-1.5 1.5 M60 28 l1.5 1.5" stroke="#cbd5e1" stroke-width="1"/></svg>', "Evie the cat", 14000);
+    // Petted: she stops for a purr, then strolls on (once per visit).
+    el.onclick = () => {
+      if (el.classList.contains("petted")) return;
+      el.classList.add("pet", "petted");
+      sfx.purr(); setTimeout(() => sfx.meow(), 900);
+      setTimeout(() => el.classList.remove("pet"), 1800);
+      onPet?.(el);
+    };
+    setTimeout(() => sfx.meow(), 1200);
+  }
+
+  /** The Kraken's tentacle creeps up a corner. Shoo it (click) within
+   *  `wait` ms for `onShoo`; otherwise it takes something (`onTake`). */
+  function tentacle(onShoo, onTake, wait = 4500) {
+    const el = visitor("rxk-tentacle", '<svg viewBox="0 0 60 160">'
+      + '<path d="M22 160 C8 120 38 100 24 70 C12 44 34 26 28 8 C27 2 35 1 36 8 C41 30 23 46 35 70 C49 98 21 122 40 160Z" fill="#7c3aed" stroke="#4c1d95" stroke-width="2"/>'
+      + '<g fill="#ddd6fe"><circle cx="27" cy="120" r="3"/><circle cx="29" cy="96" r="2.6"/><circle cx="28" cy="72" r="2.3"/>'
+      + '<circle cx="30" cy="50" r="2"/><circle cx="31" cy="30" r="1.6"/></g></svg>', "The Kraken! Shoo it!", wait + 2500);
+    let done = false;
+    sfx.squelch();
+    el.onclick = () => {
+      if (done) return;
+      done = true;
+      el.classList.add("shooed");
+      sfx.clang(); sfx.splash();
+      float("Shoo!", { at: el, color: "#ddd6fe", big: true });
+      onShoo?.(el);
+    };
+    setTimeout(() => {
+      if (done) return;
+      done = true;
+      el.classList.add("grab");
+      sfx.chomp(); sfx.splash();
+      onTake?.(el);
+    }, wait);
+  }
+
+  window.RexGame = Object.assign(window.RexGame || {}, { sfx, fx: { confetti, float, shake, flash, seagull, bottle, scroll, cat, tentacle } });
 })();

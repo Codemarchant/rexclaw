@@ -1,0 +1,8 @@
+{
+  "title": "Hold'em",
+  "description": "Heads-up no-limit Texas Hold'em in the Brine & Barnacle's back room. Bluff, talk them out of a pot, and watch the parrot: Polly squawks at bluffs. Mostly.",
+  "tags": ["cards", "bluffing", "talky", "3 modes"],
+  "cover": "cover.svg",
+  "background": "linear-gradient(135deg,#1f7a4d,#0f2a1c)",
+  "order": 18
+}

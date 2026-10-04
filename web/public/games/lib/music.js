@@ -168,6 +168,29 @@
         { inst: "bass", rhythm: "x...............", seq: [0], oct: 2 },
         { drum: "waves" },
       ] },
+    "captains-gambit": { name: "The Captain's Gambit", bpm: 112, beat: 2, steps: 6, key: "D", scale: "major", seed: 61,
+      chords: ["D", "A", "Bm", "F#m", "G", "D", "G", "A7"],
+      parts: [
+        { inst: "harpsichord", rhythm: "xxxxxx", arp: "updown", oct: 4, vol: 0.4 },
+        { inst: "bass", rhythm: "x.x.x.", seq: [0, 2, 3], oct: 2, vol: 0.8 },
+        { inst: "flute", melody: "x.x.xx", oct: 5, vol: 0.7 },
+      ] },
+    "river-noir": { name: "River Noir", bpm: 84, beat: 2, steps: 8, swing: 0.33, key: "A", scale: "dorian", seed: 71,
+      chords: ["Am7", "Am7", "D7", "D7", "Am7", "F7", "E7", "E7"],
+      parts: [
+        { inst: "bass", rhythm: "x.x.x.x.", walk: true, oct: 2 },
+        { inst: "rhodes", rhythm: "...x...x", chordStab: true, oct: 4, vol: 0.4 },
+        { inst: "trumpet", melody: "x..x..x.", oct: 4, vol: 0.85, echo: true },
+        { drum: "brush", rhythm: "x.x.x.x." }, { drum: "rim", rhythm: "..x...x.", vol: 0.5 }, { drum: "vinyl" },
+      ] },
+    "endgame-fog": { name: "Endgame in the Fog", bpm: 66, beat: 4, steps: 16, key: "C", scale: "harmonic", seed: 67,
+      chords: ["Cm", "Ab", "Fm", "G7"],
+      parts: [
+        { inst: "pad", rhythm: "x...............", chordHold: 16, oct: 3, vol: 0.4 },
+        { inst: "harpsichord", melody: "x...x.x.....x...", oct: 4, vol: 0.9, echo: true },
+        { inst: "bass", rhythm: "x.......x.......", seq: [0, 2], oct: 2 },
+        { drum: "tick", rhythm: "x.......x.......", vol: 0.6 }, { drum: "tock", rhythm: "....x.......x...", vol: 0.6 },
+      ] },
   };
 
   // ---- Melody: a phrase per bar, composed once per track ----------------------
@@ -282,6 +305,9 @@
         lp.frequency.setValueAtTime(lp.frequency.value * 2, t); lp.frequency.exponentialRampToValueAtTime(400, t + 0.4);
         osc("triangle", f, t, end, lp); osc("sawtooth", f, t, end, lp, 4); env(g, t, 0.003, V(0.13), 0.02, 0.5); break; }
       case "marimba": osc("sine", f, t, end, g); osc("sine", f * 4, t, end, g); env(g, t, 0.002, V(0.17), 0.01, 0.35); break;
+      case "harpsichord": { const lp = filt("lowpass", 6000, 0.8); lp.connect(g);
+        lp.frequency.setValueAtTime(6000, t); lp.frequency.exponentialRampToValueAtTime(1400, t + 0.5);
+        osc("sawtooth", f, t, end, lp); osc("square", f * 2, t, end, lp, 6); env(g, t, 0.002, V(0.055), 0.01, 0.6); break; }
       case "bell": case "musicbox": osc("sine", f, t, end, g); osc("sine", f * 2.76, t, end, g); osc("sine", f * 5.4, t, end, g);
         env(g, t, 0.002, V(inst === "bell" ? 0.09 : 0.07), 0.01, inst === "bell" ? 1.4 : 0.6); break;
       case "rhodes": { osc("sine", f, t, end, g); osc("triangle", f * 2, t, end, g, 3);

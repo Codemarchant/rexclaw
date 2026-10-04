@@ -2581,8 +2581,8 @@ export const JA = {
     "「ゲーム」をオンにしたコンパニオンがまだいません。コンパニオンタブのツールでオンにしてください。",
   "Connected games": "接続中のゲーム",
   "Mini-games": "ミニゲーム",
-  "The Rexmaw games deck: Broadside! (a 3D cannon duel), Connect Four, Liar's Dice, Blackjack, Crazy Eights, Walk the Plank, Rock Paper Scissors and Tic-Tac-Toe, each with its own modes, music, sound effects, backdrops, doubloons and streaks, and the crew chiming in. In the library you pick who you play with and what happens off a call, see the crew's standings, and record each companion's reaction lines in their own voice. Every game has a chat box and a speech bubble for talking while you play.":
-    "レックスモー号のゲームデッキ：ブロードサイド！（3D の海戦）、四目並べ、ライアーズダイス、ブラックジャック、クレイジーエイト、板歩き（ハングマン）、じゃんけん、三目並べ。どれもモード、音楽、効果音、背景、ダブロン金貨、連勝記録付きで、クルーも茶々を入れます。一覧で対戦相手と通話外の動作を選び、クルーの順位を見て、コンパニオンのリアクションを本人の声で録音できます。各ゲームにはプレイ中に話せるチャット欄と吹き出しがあります。",
+  "The Rexmaw games deck: Broadside! (a 3D cannon duel), chess, heads-up Hold'em, Connect Four, Liar's Dice, Blackjack, Crazy Eights, Walk the Plank, Rock Paper Scissors and Tic-Tac-Toe, each with its own modes, music, sound effects, backdrops, doubloons and streaks, and the crew chiming in. In the library you pick who you play with and what happens off a call, see the crew's standings, and record each companion's reaction lines in their own voice. Every game has a chat box and a speech bubble for talking while you play.":
+    "レックスモー号のゲームデッキ：ブロードサイド！（3D の海戦）、チェス、ヘッズアップのホールデム、四目並べ、ライアーズダイス、ブラックジャック、クレイジーエイト、板歩き（ハングマン）、じゃんけん、三目並べ。どれもモード、音楽、効果音、背景、ダブロン金貨、連勝記録付きで、クルーも茶々を入れます。一覧で対戦相手と通話外の動作を選び、クルーの順位を見て、コンパニオンのリアクションを本人の声で録音できます。各ゲームにはプレイ中に話せるチャット欄と吹き出しがあります。",
   "Open the mini-games library": "ミニゲーム一覧を開く",
   "Add your own games": "自作ゲームを追加する",
   "Every game is a folder with a game.json (title, description, tags, cover) beside its pages and assets, so a game can be as big as you like: scripts, sounds, three.js scenes. To add your own outside the app (in a private folder), make it an extension: a folder with plugin.json and __init__.py, placed in data/plugins/ or listed under Settings → Extensions, whose static folder holds the game folders.":

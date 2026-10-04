@@ -9,7 +9,9 @@
  *
  * Events: start, user_win, user_loss, draw, seagull, close_call, plus each
  * game's own (deal, bust, blackjack, reveal, splash, kraken, block, shoot,
- * fire, hit, miss, hurt, sink).
+ * fire, hit, miss, hurt, sink, check, castle, kraken_taken, promote, en_passant,
+ * all_in, showdown, river, bad_beat, bluff_shown, hero_call, polly, blunder,
+ * rampage) and the visitors' (bottle, cat, tentacle, kraken_tax).
  */
 (function () {
   "use strict";
@@ -18,7 +20,7 @@
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
   };
-  let data = null, lastAt = 0, lastId = null, playingAudio = null;
+  let data = null, lastAt = 0, lastId = null;
   const loaded = fetch(`${here}crew/lines.json`).then((r) => r.json()).then((d) => { data = d; }).catch(() => {});
 
   const enabled = () => store.get("rx-games-crew") !== "0";
@@ -33,12 +35,9 @@
     if (!pool.length) return false;
     const line = pool[(Math.random() * pool.length) | 0];
     lastAt = Date.now(); lastId = line.id;
-    toast(line);
-    const audio = new Audio(`${here}crew/${line.id}.mp3`);
-    audio.volume = 0.9;
-    playingAudio?.pause();
-    playingAudio = audio;
-    audio.play().then(() => window.RexGame.music?.duck?.(Math.max(2, (audio.duration || 2.5) + 0.5))).catch(() => {});
+    // The kit's one voice channel: waits for a line already playing (the
+    // companion's reaction, another cameo); the toast shows as it speaks.
+    window.RexGame.voice.play(`${here}crew/${line.id}.mp3`, { volume: 0.9, onStart: () => toast(line) });
     return true;
   }
 

@@ -45,6 +45,31 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
   };
   const voiceOn = () => local.get("rx-games-voice") === "1";
+
+  // One voice at a time: the companion's recorded reactions and the crew's
+  // cameos (crew.js) queue behind each other instead of talking over each
+  // other. A line that waited too long is dropped: a late reaction is stale.
+  const voiceQueue = [];
+  let voicePlaying = null;
+  function playVoice(url, { onStart = null, volume = 1, maxWait = 4000 } = {}) {
+    voiceQueue.push({ url, onStart, volume, until: Date.now() + maxWait });
+    if (!voicePlaying) nextVoice();
+  }
+  function nextVoice() {
+    voicePlaying = null;
+    let item = voiceQueue.shift();
+    while (item && Date.now() > item.until) item = voiceQueue.shift();
+    if (!item) return;
+    const a = new Audio(item.url);
+    a.volume = item.volume;
+    voicePlaying = a;
+    const done = () => { if (voicePlaying === a) nextVoice(); };
+    a.onended = done; a.onerror = done;
+    a.play().then(() => {
+      item.onStart?.(a);
+      window.RexGame.music?.duck?.(Math.max(2, (a.duration || 2.5) + 0.4));
+    }).catch(done);
+  }
   const sfx = (name, ...args) => window.RexGame.sfx?.[name]?.(...args);
   const fx = (name, ...args) => window.RexGame.fx?.[name]?.(...args);
 
@@ -101,9 +126,66 @@
       const gull = () => {
         setTimeout(gull, 70000 + Math.random() * 90000);
         if (document.hidden) return;
-        fx("seagull", (el) => { game.award(5, "", el, { quiet: true }); game.heckle("seagull", { chance: 0.5 }); });
+        // A bonk is rare and on purpose: someone always notices. The gallery
+        // (never your opponent) and your opponent, live when on a call.
+        fx("seagull", (el) => {
+          game.award(5, "", el, { quiet: true });
+          game.heckle("seagull");
+          game.react("seagull", { onCall: "The user just bonked a seagull out of the sky with a well-aimed click." });
+        });
       };
       setTimeout(gull, 25000 + Math.random() * 40000);
+      // Rarer visitors, one every few minutes: a bottle with the Captain's
+      // orders, Evie the cat, the Kraken after your doubloons.
+      const visit = () => {
+        setTimeout(visit, 110000 + Math.random() * 130000);
+        if (document.hidden || document.querySelector(".rx-end")) return;
+        const roll = Math.random();
+        if (roll < 0.4) visitBottle(); else if (roll < 0.75) visitCat(); else visitKraken();
+      };
+      setTimeout(visit, 60000 + Math.random() * 60000);
+    }
+
+    // The Captain's orders, as they come by bottle (the crew's lore: nobody
+    // has met the Captain; the orders just wash in).
+    const ORDERS = [
+      "Feed the parrot. Not the cards.",
+      "Whoever reads this: you're doing great. Also, swab the deck.",
+      "Rex: stop naming things after yourself.",
+      "The Kraken is NOT to be fed after midnight.",
+      "Chum Crunch is not a currency. This means you, Sal.",
+      "Eve, the evidence file is getting heavy. Proud of you.",
+      "Lights out at eight bells. Leo, that includes the theatre.",
+      "Play fair. Win anyway.",
+      "Do not bonk the seagulls. (I know it was you.)",
+      "Ara's tea is not optional.",
+      "Evie the cat outranks the parrot. Effective immediately.",
+      "If found, return to the Captain. You'll know where.",
+    ];
+    function visitBottle() {
+      fx("bottle", (el) => {
+        const order = ORDERS[(Math.random() * ORDERS.length) | 0];
+        fx("scroll", order);
+        game.award(15, "", el, { quiet: true });
+        game.heckle("bottle", { minGap: 0 });
+        game.react("bottle", { onCall: `The user fished a message in a bottle out of the sea, in the Captain's hand: "${order}"` });
+      });
+    }
+    function visitCat() {
+      fx("cat", (el) => {
+        game.award(5, "Purr...", el);
+        game.heckle("cat", { minGap: 0 });
+        game.react("cat", { onCall: "Evie the cat just strolled across the game, and the user stopped to pet her." });
+      });
+    }
+    function visitKraken() {
+      game.heckle("tentacle", { minGap: 0 });
+      fx("tentacle", (el) => game.award(10, "Shooed!", el),
+        (el) => {
+          game.award(-10, "Kraken tax", el);
+          game.heckle("kraken_tax", { minGap: 0 });
+          game.react("kraken_tax", { onCall: "A Kraken tentacle crept up and stole 10 of the user's doubloons while they weren't looking." });
+        });
     }
 
     /** A Rexmaw crew member chimes in (crew.js). Your opponent never does. */
@@ -295,8 +377,10 @@
 
     /** The companion reacts to `event` with one of its recorded lines (see
      *  lines.js): text in the bubble, and their voice when voice lines are
-     *  on and recorded. Not on a call - they react live there. */
-    game.react = (event) => {
+     *  on and recorded. Not on a call - they react live there; `onCall`
+     *  tells them what happened so they can, for an event the game doesn't
+     *  report to them anyway (a bonked seagull). */
+    game.react = (event, { onCall = null } = {}) => {
       const now = Date.now();
       if (now - lastReact < 3500 || !game.companionId) return;
       const text = RexGame.pickLine?.(name, event);
@@ -304,13 +388,10 @@
       lastReact = now;
       api("/api/games/voiceline", { agent_id: game.companionId, text, record: false })
         .then((res) => {
-          if (res.on_call) return;
+          if (res.on_call) { if (onCall) game.tell(onCall, false); return; }
           dock?.say(text, { quip: true });
           if (!voiceOn()) return;
-          if (res.url) {
-            const a = new Audio(res.url);
-            a.play().then(() => window.RexGame.music?.duck?.(Math.max(2, (a.duration || 2.5) + 0.4))).catch(() => {});
-          }
+          if (res.url) playVoice(res.url);
           // Not recorded yet: record it now for next time.
           else if (!res.error) api("/api/games/voiceline", { agent_id: game.companionId, text, record: true }).catch(() => {});
         })
@@ -328,9 +409,17 @@
     game.tell = (message, silent = true) => send("context", { message, silent });
 
     /** Ask the companion for one of `actions` now. The state is resent with
-     *  every force, so it is ephemeral (the docs' advice for repeated state). */
-    game.force = ({ state, query, actions: names, priority = "low" }) => {
-      force = { state, query, action_names: names, ephemeral_context: true, priority };
+     *  every force, so it is ephemeral (the docs' advice for repeated state).
+     *  afterUser: the user's input (a move, a deal) set this off. By default,
+     *  a force made while answering the companion's own move (in onAction)
+     *  is not, and anything else is. That picks the default priority, Neuro's:
+     *  "low" lets them finish talking about their move first; "high" cuts that
+     *  talk short when the user plays on. A call also times the user's
+     *  answers on afterUser forces to spot rapid play (Rexclaw only). */
+    game.force = ({ state, query, actions: names, priority = null, afterUser = null }) => {
+      const user = afterUser ?? held === null;
+      force = { state, query, action_names: names, ephemeral_context: true, priority: priority || (user ? "high" : "low") };
+      if (user) force.rexclaw_after_user = true;
       send("actions/force", force);
     };
 
@@ -385,7 +474,9 @@
         send("startup");
         if (rules) send("context", { message: rules, silent: true });
         send("actions/register", { actions });
-        if (force) send("actions/force", force);   // a move still owed when the link dropped
+        // A move still owed when the link dropped: asked again, but it answers
+        // nothing new, so it isn't timed as the user's.
+        if (force) send("actions/force", { ...force, rexclaw_after_user: undefined });
         onConnect?.();
       };
       ws.onmessage = (ev) => {
@@ -622,6 +713,7 @@
 
   window.RexGame = Object.assign(window.RexGame || {}, {
     create, Refuse, toInt, shuffle, escape,
+    voice: { play: playVoice },   // the one voice channel (crew.js uses it too)
     SUITS, SUIT_SYMBOL, RANKS, deck, cardText, cardName, parseCard, cardElement,
     dieElement,
   });

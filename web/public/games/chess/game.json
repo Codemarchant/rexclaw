@@ -1,0 +1,8 @@
+{
+  "title": "Chess",
+  "description": "The full rules, in costume: crab pawns, seahorse knights, parrot bishops, lighthouse rooks and a Kraken queen in a tiara. Classic, queen odds, or Lit Fuse with 30 seconds a move.",
+  "tags": ["strategy", "board", "3 modes"],
+  "cover": "cover.svg",
+  "background": "linear-gradient(135deg,#3f7f7b,#1c2a3a)",
+  "order": 15
+}

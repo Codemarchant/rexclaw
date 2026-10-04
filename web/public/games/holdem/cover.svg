@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80">
+  <!-- two hole cards, fanned: the Ace and King of spades -->
+  <g transform="rotate(-12 44 46)">
+    <rect x="26" y="18" width="34" height="48" rx="4" fill="#fff" stroke="#0f172a" stroke-opacity=".2"/>
+    <text x="31" y="31" font-family="Georgia,serif" font-weight="700" font-size="11" fill="#0f172a">A</text>
+    <path d="M43 36c-5 6-10 9-10 13a4 4 0 0 0 8 1l-2 6h8l-2-6a4 4 0 0 0 8-1c0-4-5-7-10-13z" fill="#0f172a"/>
+  </g>
+  <g transform="rotate(10 70 46)">
+    <rect x="52" y="18" width="34" height="48" rx="4" fill="#fff" stroke="#0f172a" stroke-opacity=".2"/>
+    <text x="57" y="31" font-family="Georgia,serif" font-weight="700" font-size="11" fill="#dc2626">K</text>
+    <path d="M69 56c-8-6-12-10-12-14a5 5 0 0 1 12-2 5 5 0 0 1 12 2c0 4-4 8-12 14z" fill="#dc2626"/>
+  </g>
+  <!-- a stack of doubloons -->
+  <g stroke="#78350f" stroke-width="1">
+    <ellipse cx="96" cy="66" rx="10" ry="4" fill="#d97706"/><ellipse cx="96" cy="61" rx="10" ry="4" fill="#f59e0b"/>
+    <ellipse cx="96" cy="56" rx="10" ry="4" fill="#d97706"/><ellipse cx="96" cy="51" rx="10" ry="4" fill="#fbbf24"/>
+  </g>
+  <!-- Polly, judging -->
+  <g transform="translate(6 34) scale(.42)">
+    <path d="M22 40c-6 12-4 26 8 30 12 2 18-8 16-22-1-8-6-12-12-12z" fill="#16a34a"/>
+    <circle cx="34" cy="28" r="13" fill="#dc2626"/><path d="M28 16l-4-12 8 9 2-11 4 12z" fill="#dc2626"/>
+    <path d="M44 22c9 0 12 10 5 15 0-4-3-6-7-6z" fill="#fbbf24"/>
+    <circle cx="37" cy="25" r="4" fill="#fff"/><circle cx="38" cy="25" r="2" fill="#0f172a"/>
+  </g>
+</svg>
