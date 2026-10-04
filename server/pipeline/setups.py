@@ -444,6 +444,25 @@ def default_choice(con, ids, value):
 # never released) into a connection + setup.
 # ---------------------------------------------------------------------------
 
+def seed_grok_pipeline(con):
+    """Add the all-xAI pipeline (xAI speech to text → Grok brain → Grok
+    voice, every field at its default) once, as an ordinary editable
+    setup next to built-in Grok Realtime: speech-to-text bills per hour of
+    audio ($0.20/hr) where Realtime bills ~$3-4.80 per connected hour. Not
+    again once deleted, nor when an all-xAI pipeline setup already exists."""
+    if con.execute('SELECT seeded_grok_pipeline FROM config WHERE id = 1').fetchone()[0]:
+        return
+    connections = _connections(con)
+    has_one = any(
+        not setup.realtime and all(cls.id == XAI for cls, _ in setup.stages.values())
+        for setup in (_resolve_row(con, r, connections) for r in con.execute('SELECT * FROM voice_setups')))
+    if not has_one:
+        con.execute('INSERT INTO voice_setups (name, stages) VALUES (?, ?)', (
+            'Grok TTS pipeline (cheaper)',
+            json.dumps({stage: {'connection': XAI} for stage in E.STAGES})))
+    con.execute('UPDATE config SET seeded_grok_pipeline = 1 WHERE id = 1')
+
+
 def migrate_single_pipeline(con):
     cols = {r[1] for r in con.execute('PRAGMA table_info(config)')}
     if 'voice_pipeline' not in cols:

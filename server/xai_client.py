@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 
 import requests
 
+from . import xai_oauth
 from .errors import UserError
 
 _logger = logging.getLogger(__name__)
@@ -30,6 +31,16 @@ DEFAULT_TIMEOUT = 30
 RETRY_BACKOFF = (0.5, 1.0)  # seconds — one attempt per entry
 
 NO_KEY_MSG = "xAI API key is not configured. Set it in Settings."
+
+
+def _note_auth(headers, resp):
+    """A refused Grok subscription token switches calls to the API key,
+    and this call fails with a message saying so."""
+    if resp.status_code in (401, 403, 429):
+        message = xai_oauth.note_refusal(headers.get('Authorization', '')[len('Bearer '):],
+                                         resp.status_code, resp.text)
+        if message:
+            raise UserError(message)
 
 
 def _post_with_retry(url, headers, payload, timeout=DEFAULT_TIMEOUT):
@@ -44,6 +55,7 @@ def _post_with_retry(url, headers, payload, timeout=DEFAULT_TIMEOUT):
             time.sleep(backoff)
             continue
         if resp.status_code < 500:
+            _note_auth(headers, resp)
             return resp
         _logger.warning('xAI returned %s, retrying...', resp.status_code)
         time.sleep(backoff)
@@ -97,6 +109,7 @@ def _post_stream(url, headers, payload, timeout, max_search_calls=None):
                          stream=True, timeout=(30, timeout))
     if resp.status_code >= 400:
         resp.content  # drain so .text works for the error message
+        _note_auth(headers, resp)
         return resp
     body = None
     deltas = []
@@ -177,6 +190,7 @@ def _post_multipart_with_retry(url, headers, files, data, timeout=DEFAULT_TIMEOU
             time.sleep(backoff)
             continue
         if resp.status_code < 500:
+            _note_auth(headers, resp)
             return resp
         _logger.warning('xAI upload returned %s, retrying...', resp.status_code)
         time.sleep(backoff)
@@ -1357,6 +1371,7 @@ def list_models(*, xai_api_key, base_url, kind, timeout=DEFAULT_TIMEOUT):
     except requests.RequestException as e:
         raise UserError(f"Could not reach xAI: {e}")
     if resp.status_code >= 400:
+        _note_auth(headers, resp)
         raise UserError(f"Model list failed ({resp.status_code}): {resp.text[:300]}")
     try:
         body = resp.json()

@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, plugins, song_tools, store, text_to_vrma, turn_director, voicemail_tools
+from . import xai_client, affection_tools, browser_tools, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, plugins, song_tools, store, text_to_vrma, turn_director, voicemail_tools, xai_oauth
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 from .pipeline import session as pipeline_session, setups as voice_setups
@@ -4471,12 +4471,12 @@ def upload_text_attachment(con, *, session, filename, content_bytes, mimetype):
             """INSERT INTO imagine_images
                    (name, agent_id, session_id, kind, prompt, image_path,
                     mimetype, xai_model, created_at, xai_file_id,
-                    xai_file_expires_at)
-               VALUES (?, ?, ?, 'upload', ?, ?, ?, NULL, ?, ?, ?)""",
+                    xai_file_expires_at, xai_file_account)
+               VALUES (?, ?, ?, 'upload', ?, ?, ?, NULL, ?, ?, ?, ?)""",
             (name or fallback, agent['id'], session['id'],
              name or fallback, image_path, mimetype, utcnow(),
-             *((None, None) if result['file_id'].startswith(LOCAL_FILE_PREFIX)
-               else (result.get('file_id'), result.get('expires_at')))),
+             *((None, None, None) if result['file_id'].startswith(LOCAL_FILE_PREFIX)
+               else (result.get('file_id'), result.get('expires_at'), xai_oauth.account(config)))),
         )
         result = dict(result, imagine_image_id=cur.lastrowid,
                       image_url=image_path)

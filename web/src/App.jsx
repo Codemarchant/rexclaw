@@ -150,7 +150,7 @@ export default function App() {
                 const local = (cfg.voice_setups || []).some((s) => (s.stages?.realtime ? ["realtime", "llm"]
                     : ["stt", "llm", "tts"]).every(
                     (stage) => s.stages?.[stage]?.connection && s.stages[stage].connection !== "xai"));
-                if (!cancelled) setNeedsKey(!cfg.has_api_key && !local);
+                if (!cancelled) setNeedsKey(!cfg.has_api_key && !cfg.xai_oauth?.signed_in && !local);
             })
             .catch(() => { /* server unreachable; the views report that themselves */ });
         return () => { cancelled = true; };

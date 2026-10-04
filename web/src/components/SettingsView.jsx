@@ -14,6 +14,7 @@ import CreditsDialog from "./CreditsDialog.jsx";
 import VoiceLabSettings from "./VoiceLabSettings.jsx";
 import VoiceSetupsSettings from "./VoiceSetupsSettings.jsx";
 import ExtensionsSettings from "./ExtensionsSettings.jsx";
+import GrokSignIn from "./GrokSignIn.jsx";
 
 // Languages the server can fetch a Vosk wake-word model for (keep in sync
 // with WAKE_MODELS in server/routes/misc.py).
@@ -278,11 +279,13 @@ export default function SettingsView({ active }) {
             const payload = { ...config };
             delete payload.has_api_key;
             delete payload.api_key_hint;
+            delete payload.xai_oauth;
             delete payload.voice_catalog;
             delete payload.spend_today_usd;
             delete payload.spend_lifetime_usd;
             payload.hotkeys_json = JSON.stringify(hotkeys);
-            if (apiKeyDraft.trim()) payload.xai_api_key = apiKeyDraft.trim();
+            if (apiKeyDraft?.trim()) payload.xai_api_key = apiKeyDraft.trim();
+            else if (apiKeyDraft === null) payload.xai_api_key = null;
             delete payload.has_local_gen_auth;
             if (authDraft.trim()) payload.local_gen_auth_header = authDraft.trim();
             else if (authDraft === null) payload.local_gen_auth_header = null;
@@ -329,8 +332,16 @@ export default function SettingsView({ active }) {
         }
     };
 
-    // Discarding the draft = re-fetch the saved config.
-    const discard = () => load();
+    // Discarding the draft = re-fetch the saved config, and drop typed or
+    // removed keys (a removal left pending would clear the key on a later Save).
+    const discard = () => {
+        setApiKeyDraft("");
+        setAuthDraft("");
+        setYtKeyDraft("");
+        setVrmaTokenDraft("");
+        setTypesafeKeyDraft("");
+        load();
+    };
 
     // Publish unsaved state to the app-level leave guard while this is the
     // active tab. Must run before the early return so hook order stays stable.
@@ -694,13 +705,20 @@ export default function SettingsView({ active }) {
                             + "billed differently, by the number of tokens, at the rates of "
                             + "the model used.")}
                     </p>
-                    <label>{_t("API key")} {config.has_api_key && <span className="text-muted">({_t("saved")} {config.api_key_hint || ""})</span>}</label>
+                    <label>{_t("API key")} {config.has_api_key && apiKeyDraft !== null && (
+                        <span className="text-muted">({_t("saved")} {config.api_key_hint || ""}{" "}
+                            <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setApiKeyDraft(null); }}>{_t("remove")}</a>)
+                        </span>
+                    )}</label>
                     <input
                         type="password"
-                        placeholder={config.has_api_key ? _t("•••••••• (leave blank to keep current key)") : "xai-…"}
-                        value={apiKeyDraft}
+                        placeholder={config.has_api_key && apiKeyDraft !== null
+                            ? _t("•••••••• (leave blank to keep current key)") : "xai-…"}
+                        value={apiKeyDraft || ""}
                         onChange={(ev) => { markDirty(true); setApiKeyDraft(ev.target.value); }}
                     />
+                    <GrokSignIn status={config.xai_oauth} hasApiKey={config.has_api_key}
+                                onStatus={(xai_oauth) => setConfig((c) => ({ ...c, xai_oauth }))} />
                     <div className="rx_row">
                         <div>
                             <label>{_t("Voice model")}</label>

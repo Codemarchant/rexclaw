@@ -1011,7 +1011,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
                     {(callsGrokVoice || (voiceSetups?.has_xai_key
                         && (!!editingAgent.enable_grok_imagine_tools || !!editingAgent.enable_songs))) && (
                         <div>
-                            <label title={_t("Built-in xAI voice names such as ara work as-is. For a custom voice, create or clone one in the xAI console (console.x.ai) and paste its voice id here.")}>
+                            <label title={_t("Built-in xAI voice names such as ara work as-is. For a custom voice, create or clone one in the xAI console (console.x.ai) and paste its voice id here. Custom voices only work on an xAI API key, not while signed in with Grok.")}>
                                 {callsGrokVoice
                                     ? _t("Voice (built-in name or custom xAI voice id)")
                                     : _t("Grok voice for videos and songs (built-in name or custom xAI voice id)")}

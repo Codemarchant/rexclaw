@@ -266,6 +266,17 @@ CREATE TABLE IF NOT EXISTS config (
     games_neuro_port INTEGER NOT NULL DEFAULT 0,
     games_default_agent_id INTEGER NOT NULL DEFAULT 0,
     games_offcall_mode TEXT NOT NULL DEFAULT 'wait',
+    -- Sign in with Grok (xai_oauth.py): a SuperGrok / X Premium
+    -- subscription's OAuth tokens, used in place of xai_api_key while
+    -- signed in. refresh_after is epoch seconds; account is the email
+    -- shown in Settings.
+    xai_oauth_access_token TEXT,
+    xai_oauth_refresh_token TEXT,
+    xai_oauth_refresh_after REAL NOT NULL DEFAULT 0,
+    xai_oauth_account TEXT NOT NULL DEFAULT '',
+    -- 1 once the "Grok TTS pipeline" voice setup has been added
+    -- (setups.seed_grok_pipeline), so deleting it is final.
+    seeded_grok_pipeline INTEGER NOT NULL DEFAULT 0,
     -- Live-stream chat for companions' idle events (see live_chat.py): the
     -- Twitch channel is read anonymously over IRC; a YouTube live stream
     -- (its link or video id) through the Data API with the user's own key,
@@ -924,7 +935,10 @@ CREATE TABLE IF NOT EXISTS imagine_images (
     -- can reuse it without re-uploading; may be expired — ensure_xai_file
     -- checks and refreshes from the local bytes.
     xai_file_id TEXT,
-    xai_file_expires_at TEXT
+    xai_file_expires_at TEXT,
+    -- Whose upload it is (xai_oauth.account): files belong to an xAI team,
+    -- and the Grok subscription's team is not the API key's. NULL = the key.
+    xai_file_account TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_imagine_agent ON imagine_images (agent_id, kind, created_at DESC);
 
@@ -1426,6 +1440,13 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN games_neuro_port INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE config ADD COLUMN games_default_agent_id INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE config ADD COLUMN games_offcall_mode TEXT NOT NULL DEFAULT 'wait'",
+    # Sign in with Grok (xai_oauth.py).
+    "ALTER TABLE config ADD COLUMN xai_oauth_access_token TEXT",
+    "ALTER TABLE config ADD COLUMN xai_oauth_refresh_token TEXT",
+    "ALTER TABLE config ADD COLUMN xai_oauth_refresh_after REAL NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN xai_oauth_account TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN seeded_grok_pipeline INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE imagine_images ADD COLUMN xai_file_account TEXT",
 )
 
 
@@ -1443,8 +1464,9 @@ def init_db():
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_avatars_pack ON avatars (pack_key)")
         con.execute("INSERT OR IGNORE INTO config (id) VALUES (1)")
         # The single pipeline of the first voice-engine build → a setup.
-        from .pipeline.setups import migrate_single_pipeline
+        from .pipeline.setups import migrate_single_pipeline, seed_grok_pipeline
         migrate_single_pipeline(con)
+        seed_grok_pipeline(con)
         from .memory_index import initialize
         initialize(con)
         con.commit()
@@ -1480,4 +1502,10 @@ def shipped_column_defaults(table, fields):
 
 
 def get_config(con):
-    return con.execute("SELECT * FROM config WHERE id = 1").fetchone()
+    """The config row. Signed in with Grok, its xai_api_key reads as the
+    subscription's access token instead (xai_oauth.with_credentials)."""
+    row = con.execute("SELECT * FROM config WHERE id = 1").fetchone()
+    if row["xai_oauth_refresh_token"]:
+        from . import xai_oauth
+        return xai_oauth.with_credentials(row)
+    return row

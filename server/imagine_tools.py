@@ -49,7 +49,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from textwrap import dedent
 
-from . import local_gen, xai_client, store
+from . import local_gen, xai_client, xai_oauth, store
 from .db import FILES_DIR, get_config, utcnow
 from .errors import UserError
 
@@ -790,7 +790,7 @@ def execute_imagine_tool(con, session, tool_name, arguments):
         return {'error': 'prompt is required.'}
     prompt = prompt.strip()
 
-    config = con.execute("SELECT * FROM config WHERE id = 1").fetchone()
+    config = get_config(con)
     arguments = arguments or {}
     if backend_for(config, tool_name) == 'local':
         return _execute_local_tool(con, session, agent, config, tool_name, prompt, arguments)
@@ -1145,7 +1145,10 @@ def ensure_xai_file(con, row):
     keys = row.keys()
     file_id = row['xai_file_id'] if 'xai_file_id' in keys else None
     expires = row['xai_file_expires_at'] if 'xai_file_expires_at' in keys else None
-    if file_id:
+    config = get_config(con)
+    account = xai_oauth.account(config)
+    # Another team's upload (Grok subscription vs API key) is "File not found".
+    if file_id and ((row['xai_file_account'] if 'xai_file_account' in keys else None) or 'key') == account:
         margin = (datetime.now(timezone.utc).replace(tzinfo=None)
                   + timedelta(minutes=5)).isoformat(timespec='seconds')
         if not expires or expires > margin:
@@ -1157,7 +1160,6 @@ def ensure_xai_file(con, row):
         data = path.read_bytes()
     except OSError:
         raise UserError(f'Library entry {row["id"]} file is missing on disk.')
-    config = get_config(con)
     xai_key = config['xai_api_key']
     if not xai_key:
         raise UserError("xAI API key is not configured.")
@@ -1170,8 +1172,8 @@ def ensure_xai_file(con, row):
         expires_after_seconds=config['file_default_expiry_seconds'] or 0,
     )
     con.execute(
-        "UPDATE imagine_images SET xai_file_id = ?, xai_file_expires_at = ? WHERE id = ?",
-        (result['file_id'], result.get('expires_at'), row['id']),
+        "UPDATE imagine_images SET xai_file_id = ?, xai_file_expires_at = ?, xai_file_account = ? WHERE id = ?",
+        (result['file_id'], result.get('expires_at'), account, row['id']),
     )
     return result['file_id']
 

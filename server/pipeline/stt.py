@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 import httpx
 import numpy as np
 
+from .. import xai_oauth
 from .audio import VAD_RATE, float_to_wav_bytes
 from .engines import API_KEY, OPENAI_CLOUD_KEY, OPENAI_CLOUD_URL, OPENAI_URL, SERVES, Field, SttEngine, SttStream
 from .text import CJK_CHARS
@@ -80,7 +81,7 @@ class XaiStt(SttEngine):
             params += [('smart_turn', threshold),
                        ('smart_turn_timeout', max(1, min(5000, int(self.get('smart_turn_timeout') or 3000))))]
         params += [('keyterm', t) for t in keyterms]
-        stream = _XaiSttStream(f'{base}/v1/stt?{urlencode(params)}', self.config['xai_api_key'])
+        stream = _XaiSttStream(f'{base}/v1/stt?{urlencode(params)}', self.config)
         await stream.connect()
         return stream
 
@@ -93,8 +94,8 @@ class _XaiSttStream(SttStream):
     # (Pipecat's WebsocketService: 3 tries with backoff).
     RECONNECT_TRIES = 3
 
-    def __init__(self, url, api_key):
-        self.url, self.api_key = url, api_key
+    def __init__(self, url, config):
+        self.url, self.config = url, config
         self.ws = None
         self._queue = asyncio.Queue()
         self._reader = None
@@ -105,8 +106,17 @@ class _XaiSttStream(SttStream):
 
     async def connect(self):
         import websockets
-        ws = await websockets.connect(self.url, additional_headers={
-            'Authorization': f'Bearer {self.api_key}'}, max_size=None)
+        # Read on every (re)connect: a Grok subscription token renews mid-call.
+        bearer = xai_oauth.current_key(self.config)
+        try:
+            ws = await websockets.connect(self.url, additional_headers={
+                'Authorization': f'Bearer {bearer}'}, max_size=None)
+        except websockets.InvalidStatus as e:
+            refused = xai_oauth.note_refusal(bearer, e.response.status_code,
+                                             e.response.body.decode('utf-8', 'replace'))
+            if refused:
+                raise RuntimeError(refused) from e
+            raise
         try:
             first = json.loads(await asyncio.wait_for(ws.recv(), 15))
             if first.get('type') != 'transcript.created':

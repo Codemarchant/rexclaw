@@ -479,6 +479,26 @@ export const JA = {
   "saved": "保存済み",
   "•••••••• (leave blank to keep current key)": "••••••••（空欄のままなら現在のキーを維持）",
   "Voice model": "音声モデル",
+  "Grok subscription": "Grok サブスクリプション",
+  "Sign in with Grok": "Grok でサインイン",
+  "Signed in": "サインイン済み",
+  "Signed in as": "サインイン中：",
+  "Sign out": "サインアウト",
+  "%s of this week's allowance used": "今週の利用枠を %s 使用",
+  "%s of this month's allowance used": "今月の利用枠を %s 使用",
+  "%s of the allowance used": "利用枠を %s 使用",
+  "resets %s": "%s にリセット",
+  "%s extra usage credits": "追加利用クレジット %s",
+  "auto top-up %s of %s": "自動チャージ %s / %s",
+  "Could not start the sign-in": "サインインを開始できませんでした",
+  "Something went wrong": "問題が発生しました",
+  "Approve the sign-in in your browser. If it asks for a code, enter": "ブラウザでサインインを承認してください。コードを求められたら次を入力：",
+  "Waiting for approval…": "承認を待っています…",
+  "Open the page again": "ページをもう一度開く",
+  "Using your API key until you try again.": "再試行するまで API キーを使用します。",
+  "Save an API key above to keep working until then.": "それまで使い続けるには、上に API キーを保存してください。",
+  "Try again": "再試行",
+  "Use a SuperGrok or X Premium subscription instead of paying per use: calls come out of its weekly allowance, which Grok chat shares. xAI decides which accounts and features it covers. While signed in it replaces the API key. If the allowance runs out or xAI refuses the subscription, calls switch to the API key (billed per use) when one is saved, until you press Try again. Custom voices from the xAI console only work on the API key, so sign out here to use them.":"従量課金の代わりに SuperGrok または X Premium のサブスクリプションを使います。利用分は Grok チャットと共有の週ごとの利用枠から差し引かれます。対象となるアカウントや機能は xAI が決めます。サインイン中は API キーの代わりに使われます。利用枠を使い切ったり xAI がサブスクリプションを拒否したりした場合は、API キーが保存されていれば「再試行」を押すまで API キー（従量課金）に切り替わります。xAI コンソールのカスタムボイスは API キーでのみ使えるため、使う場合はここでサインアウトしてください。",
 
   // ── Settings → Models & providers ─────────────────────────────────────
   "Models & providers": "モデルとプロバイダー",
@@ -1345,8 +1365,8 @@ export const JA = {
   "Lore stories (recall_stories)": "ロアストーリー（recall_stories）",
   "Lets the companion look up its lore stories on demand (recall_stories). Only offered when at least one story below is tagged with the companion's name.":
     "コンパニオンが必要に応じてロアストーリーを参照できるようにします（recall_stories）。下のストーリーにコンパニオンの名前がタグ付けされている場合にのみ提供されます。",
-  "Built-in xAI voice names such as ara work as-is. For a custom voice, create or clone one in the xAI console (console.x.ai) and paste its voice id here.":
-    "ara などの xAI 組み込みボイス名はそのまま使えます。カスタムボイスは xAI コンソール（console.x.ai）で作成またはクローンし、そのボイス ID をここに貼り付けてください。",
+  "Built-in xAI voice names such as ara work as-is. For a custom voice, create or clone one in the xAI console (console.x.ai) and paste its voice id here. Custom voices only work on an xAI API key, not while signed in with Grok.":
+    "ara などの xAI 組み込みボイス名はそのまま使えます。カスタムボイスは xAI コンソール（console.x.ai）で作成またはクローンし、そのボイス ID をここに貼り付けてください。カスタムボイスは xAI API キーでのみ使え、Grok でサインイン中は使えません。",
   "Fast text model (delegate tool)":
     "高速テキストモデル（委任ツール）",
   "Quicker, shallower text model that delegate_task can pick with model='fast' for looking at images, screenshots and clips or reading short documents. Empty = same as the Text model.":

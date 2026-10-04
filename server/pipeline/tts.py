@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 import httpx
 import numpy as np
 
+from .. import xai_oauth
 from .engines import API_KEY, OPENAI_CLOUD_KEY, OPENAI_CLOUD_URL, OPENAI_URL, SERVES, Field, TtsEngine, json_field
 
 _logger = logging.getLogger(__name__)
@@ -141,9 +142,17 @@ class XaiTts(TtsEngine):
                   'sample_rate': rate, 'optimize_streaming_latency': self.get('optimize_latency') or '1'}
         if speed and speed != 1.0:
             params['speed'] = speed
-        self._ws = await websockets.connect(
-            f'{base}/v1/tts?{urlencode(params)}', max_size=None,
-            additional_headers={'Authorization': f"Bearer {self.config['xai_api_key']}"})
+        bearer = xai_oauth.current_key(self.config)
+        try:
+            self._ws = await websockets.connect(
+                f'{base}/v1/tts?{urlencode(params)}', max_size=None,
+                additional_headers={'Authorization': f"Bearer {bearer}"})
+        except websockets.InvalidStatus as e:
+            refused = xai_oauth.note_refusal(bearer, e.response.status_code,
+                                             e.response.body.decode('utf-8', 'replace'))
+            if refused:
+                raise RuntimeError(refused) from e
+            raise
         self._key = key
         self._reader = asyncio.create_task(self._read(self._ws))
         return self._ws

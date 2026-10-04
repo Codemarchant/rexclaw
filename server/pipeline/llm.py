@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .. import xai_oauth
 from .engines import (API_KEY, OPENAI_CLOUD_KEY, OPENAI_CLOUD_URL, OPENAI_URL, SERVES, Field, LlmEngine,
                       conversation_fields, json_field)
 
@@ -193,7 +194,9 @@ async def _responses_events(http, url, headers, payload, max_searches, who, sand
     async with http.stream('POST', url, json=payload, headers=headers) as resp:
         if resp.status_code >= 400:
             body = (await resp.aread()).decode('utf-8', 'replace')
-            raise _Refused(f'{who} {resp.status_code}: {body[:400]}', body)
+            refused = xai_oauth.note_refusal(headers.get('Authorization', '')[len('Bearer '):],
+                                             resp.status_code, body)
+            raise _Refused(refused or f'{who} {resp.status_code}: {body[:400]}', body)
         async for ev in _sse_events(resp.aiter_lines()):
             etype = ev.get('type') or ''
             if etype == 'response.output_text.delta':
@@ -293,7 +296,7 @@ class XaiLlm(LlmEngine):
             payload['tools'] = tools
             if self.config['xai_max_turns']:
                 payload['max_turns'] = int(self.config['xai_max_turns'])
-        headers = {'Authorization': f"Bearer {self.config['xai_api_key']}"}
+        headers = {'Authorization': f"Bearer {xai_oauth.current_key(self.config)}"}
         try:
             async for ev in _responses_events(self._http, self.config['xai_responses_url'], headers,
                                               payload, max_searches, 'xAI'):

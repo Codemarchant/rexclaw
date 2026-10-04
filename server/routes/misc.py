@@ -17,8 +17,8 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client
-from ..db import ASSETS_DIR, FILES_DIR, shipped_column_defaults, utcnow
+from .. import avatar_packs, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client, xai_oauth
+from ..db import ASSETS_DIR, FILES_DIR, get_config, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
 from ..errors import UserError
@@ -99,6 +99,7 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     out["api_key_hint"] = (
         f"…{row['xai_api_key'][-4:]}" if row["xai_api_key"] and len(row["xai_api_key"]) > 8 else None
     )
+    out["xai_oauth"] = xai_oauth.status(row)
     # The ComfyUI auth header is a pod password / API key: write-only from
     # the UI, same as the xAI key.
     out["has_local_gen_auth"] = bool(row["local_gen_auth_header"])
@@ -432,7 +433,7 @@ def xai_models(payload: dict = Body(default={}), con=Depends(db_con)):
     for the Settings "See all models" dialog (not every listed model suits
     every field). Uses the stored key, or `api_key` from the payload so it
     works on a key that isn't saved yet."""
-    row = con.execute("SELECT xai_api_key, xai_responses_url FROM config WHERE id = 1").fetchone()
+    row = get_config(con)
     key = payload.get("api_key")
     key = key.strip() if isinstance(key, str) and key.strip() else row["xai_api_key"]
     if not key:
@@ -447,6 +448,44 @@ def xai_models(payload: dict = Body(default={}), con=Depends(db_con)):
         except UserError as e:
             groups.append({"kind": kind, "models": [], "error": str(e)})
     return {"groups": groups}
+
+
+# Sign in with Grok (xai_oauth.py): Settings starts the device sign-in,
+# shows the code and polls until it is approved.
+@router.post("/xai/oauth/start")
+def xai_oauth_start():
+    return xai_oauth.start()
+
+
+@router.post("/xai/oauth/poll")
+def xai_oauth_poll(con=Depends(db_con)):
+    return xai_oauth.poll(con)
+
+
+@router.post("/xai/oauth/cancel")
+def xai_oauth_cancel():
+    xai_oauth.cancel()
+    return {}
+
+
+@router.post("/xai/oauth/sign_out")
+def xai_oauth_sign_out(con=Depends(db_con)):
+    xai_oauth.sign_out(con)
+    return {}
+
+
+@router.post("/xai/oauth/usage")
+def xai_oauth_usage(con=Depends(db_con)):
+    row = con.execute("SELECT * FROM config WHERE id = 1").fetchone()
+    if not row["xai_oauth_refresh_token"]:
+        return {"error": "Not signed in."}
+    return xai_oauth.usage(row)
+
+
+@router.post("/xai/oauth/retry")
+def xai_oauth_retry():
+    xai_oauth.retry()
+    return {}
 
 
 @router.post("/agents/list")

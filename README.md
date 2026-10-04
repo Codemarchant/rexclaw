@@ -128,7 +128,8 @@ details in [Using VR](#-using-vr).
 Companions need somewhere to think and speak. Pick one:
 
 - **Grok Realtime (the default, quickest):** **Settings → xAI connection**,
-  paste your xAI API key (grab one at [x.ai/api](https://x.ai/api)), then
+  **Sign in with Grok** to use a SuperGrok or X Premium subscription, or
+  paste an xAI API key (grab one at [x.ai/api](https://x.ai/api)), then
   **Voice** → pick a companion → **Start**.
 - **Another provider, or local models:** **Settings → Models & providers →
   Add connection**, build a voice setup from it and make it the default.
@@ -143,7 +144,10 @@ Companions need somewhere to think and speak. Pick one:
 ## 🧠 Models & providers
 
 **Grok Realtime** is built in: one xAI model hears you and answers, with the
-most natural timing. Everything else is a **voice setup** you build in
+most natural timing. A ready-made **Grok TTS pipeline (cheaper)** setup runs
+xAI speech to text → Grok → Grok voice instead: listening costs ~$0.20 an
+hour against Realtime's ~$3-4.80, plus the brain's tokens and the voice's
+characters as they're used. Everything else is a **voice setup** you build in
 **Settings → Models & providers**:
 
 1. **Add connection**: a provider key or a local server, entered once.
@@ -494,7 +498,12 @@ computer cost nothing.
 **Voice setups** bill per use, at each provider's rates: transcription
 time, tokens, characters spoken. A quiet call costs little or nothing.
 
-**Grok Realtime** bills by connection time, which is worth knowing:
+**Signed in with Grok**, xAI calls come out of your SuperGrok or X Premium
+subscription's weekly allowance instead of API credits. xAI decides which
+plans and features it covers; if it refuses the subscription, calls switch
+to your API key when one is saved.
+
+**Grok Realtime** on an API key bills by connection time, which is worth knowing:
 
 - **Voice is billed per minute the call is open, not per minute you talk**:
   ~$0.05/min on `grok-voice-think-fast-1.0`, ~$0.08/min on 2.0. **Every
