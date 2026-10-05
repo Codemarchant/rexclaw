@@ -28,6 +28,8 @@ export default function GrokSignIn({ status, hasApiKey, onStatus }) {
     const [code, setCode] = useState(null);   // {user_code, url} while waiting for approval
     const [busy, setBusy] = useState(false);
     const [usage, setUsage] = useState(null);   // the subscription's allowance, while signed in
+    const [usageBusy, setUsageBusy] = useState(false);
+    const [showAccount, setShowAccount] = useState(false);   // hidden by default, for demos and screenshots
     const timer = useRef(null);
     const stopPolling = () => { clearTimeout(timer.current); timer.current = null; };
     useEffect(() => stopPolling, []);
@@ -40,6 +42,19 @@ export default function GrokSignIn({ status, hasApiKey, onStatus }) {
             .catch(() => { /* the line just stays hidden */ });
         return () => { cancelled = true; };
     }, [status?.signed_in]);
+    // xAI's billing endpoint is read live; the line only fetches when Settings opens.
+    const refreshUsage = async () => {
+        setUsageBusy(true);
+        try {
+            const res = await rpc("/api/xai/oauth/usage", {});
+            if (res.error) notification.add(res.error, { type: "danger" });
+            else setUsage(res);
+        } catch (e) {
+            notification.add(e?.message || _t("Something went wrong"), { type: "danger" });
+        } finally {
+            setUsageBusy(false);
+        }
+    };
 
     const poll = (interval) => {
         timer.current = setTimeout(async () => {
@@ -100,14 +115,28 @@ export default function GrokSignIn({ status, hasApiKey, onStatus }) {
             {status?.signed_in ? (
                 <>
                     <div>
-                        <i className="fa fa-check" /> {status.account
+                        <i className="fa fa-check" /> {status.account && showAccount
                             ? `${_t("Signed in as")} ${status.account}` : _t("Signed in")}
+                        {status.account && (
+                            <button className="btn btn-link btn-sm" onClick={() => setShowAccount(!showAccount)}
+                                    title={showAccount ? _t("Hide account") : _t("Show account")}>
+                                <i className={showAccount ? "fa fa-eye-slash" : "fa fa-eye"} />
+                            </button>
+                        )}
                         <button className="btn btn-light btn-sm" style={{ marginLeft: "0.5rem" }} disabled={busy}
                                 onClick={() => act("/api/xai/oauth/sign_out", { signed_in: false, account: "", refused: null })}>
                             {_t("Sign out")}
                         </button>
                     </div>
-                    {usage && <p className="text-muted small" style={{ margin: "0.25rem 0 0" }}>{usageLine(usage)}</p>}
+                    {usage && (
+                        <p className="text-muted small" style={{ margin: "0.25rem 0 0" }}>
+                            {usageLine(usage)}
+                            <button className="btn btn-link btn-sm" onClick={refreshUsage} disabled={usageBusy}
+                                    title={_t("Refresh usage")}>
+                                <i className={usageBusy ? "fa fa-refresh fa-spin" : "fa fa-refresh"} />
+                            </button>
+                        </p>
+                    )}
                     {status.refused && (
                         <p className="small text-danger" style={{ margin: "0.25rem 0 0" }}>
                             {status.refused}{" "}
