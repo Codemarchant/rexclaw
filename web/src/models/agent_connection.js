@@ -347,7 +347,7 @@ export class AgentConnection {
         this._wsReady = false;
     }
 
-    async start(agentId = null, resumeSessionId = null, isCompactionRestart = false, { speaksFirst = true } = {}) {
+    async start(agentId = null, resumeSessionId = null, isCompactionRestart = false, { speaksFirst = true, contextSwap = false } = {}) {
         if (this.state.status !== "idle" && this.state.status !== "ended" && this.state.status !== "error") {
             // Already running. Surface a notification so the user understands
             // why nothing happened.
@@ -435,6 +435,9 @@ export class AgentConnection {
             payload = await rpc("/api/voice/session/start", {
                 agent_id: agentId,
                 resume_session_id: resumeSessionId,
+                // A compaction swap mid-call, not the user coming back: the
+                // server dates it with its own resume note.
+                context_swap: contextSwap,
                 audio_sample_rate: this._sampleRate,
                 ...this.manager.getGroupCallParams(this),
             });
@@ -2665,9 +2668,11 @@ export class AgentConnection {
             if (c._userSpeaking && !c.state.muted) return "user speaking";
             if (c._userTranscriptPending()) return "user transcript pending";
             // _owedContextResponse: a reaction is about to be asked for
-            // (_flushOwedContextResponse's timer).
+            // (_flushOwedContextResponse's timer). _replyAfterCancel: a reply
+            // waits for a cancel to settle (a live memory refresh) - swapping
+            // then drops it with the old socket and the user goes unanswered.
             if (c._responseInFlight || c._assistantAudioActive() || c._toolReplyStarting
-                || c._owedContextResponse) {
+                || c._owedContextResponse || c._replyAfterCancel) {
                 return "companion speaking";
             }
         }
@@ -2710,7 +2715,7 @@ export class AgentConnection {
         const savedMuted = this.state.muted;
 
         await this._closeWsOnly();
-        await this.start(agentId, sessionId, true);
+        await this.start(agentId, sessionId, true, { contextSwap: true });
         this.state.muted = savedMuted;
     }
 

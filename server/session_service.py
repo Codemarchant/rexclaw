@@ -134,7 +134,7 @@ def preview_token_counts(con, agent_row, voice_prompt):
 RESUME_NOTE_PREFIX = '[Conversation resumed '
 
 
-def _note_resume_gap(con, session, agent):
+def _note_resume_gap(con, session, agent, context_swap=False):
     """Time-aware resume (opt-in per companion): persist a dated system row
     saying when the conversation was last active and how long ago that was,
     so a companion picking a thread back up after hours or days knows it.
@@ -143,8 +143,19 @@ def _note_resume_gap(con, session, agent):
     transcript as a note. Must run BEFORE last_active_at is bumped for the
     new surface. Anchored on the user's last real message: the companion's
     own lines (diary entries, an unanswered greeting) and scheduled
-    heartbeat turns don't count as the user being here."""
+    heartbeat turns don't count as the user being here. A mid-call summary
+    swap (context_swap) gets its own wording: nobody left, nothing was
+    written in between."""
     if not agent['time_aware_resume']:
+        return
+    if context_swap:
+        now_local = datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')
+        _persist_text_message(con, session, role='system', content=(
+            f'{RESUME_NOTE_PREFIX}{now_local}, same call: the earlier part '
+            f'of this conversation was condensed into the summary above to '
+            f'keep the context small. The call never stopped and the user '
+            f'is still here.]'
+        ))
         return
     from . import heartbeat
     last = con.execute(
@@ -1213,7 +1224,8 @@ def _voice_tools(con, agent, config, *, group_peers=None):
 
 
 def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
-                  manual_turn=False, call_parent_session=None, group_peers=None):
+                  manual_turn=False, call_parent_session=None, group_peers=None,
+                  context_swap=False):
     """Mint an ephemeral xAI session and assemble the realtime tools list.
 
     :param agent: agents row
@@ -1228,6 +1240,9 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     :param group_peers: list of other participant names in the group call,
         injected into the instructions so the agent knows it's in a
         multi-party conversation and how relayed speaker labels work.
+    :param context_swap: True when the browser reconnects mid-call to swap
+        in a fresh summary - the resume note then says so instead of
+        treating it as the user coming back.
     :return: dict ready to JSON-serialize for the browser (same shape the
         Odoo module returned, so the ported voice_service.js consumes it
         unchanged).
@@ -1388,7 +1403,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
                                                     keyterms=keyterms, manual_turn=manual_turn)
 
     if resume_session and not call_parent_session:
-        _note_resume_gap(con, session, agent)
+        _note_resume_gap(con, session, agent, context_swap=context_swap)
     if resume_session:
         _note_resume_affection(con, session, agent)
 

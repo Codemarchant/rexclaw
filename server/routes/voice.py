@@ -87,6 +87,7 @@ def session_start(payload: dict = Body(default={}), con=Depends(db_con)):
         manual_turn=bool(payload.get("manual_turn")),
         call_parent_session=call_parent_session,
         group_peers=group_peers,
+        context_swap=bool(payload.get("context_swap")),
     )
 
 
