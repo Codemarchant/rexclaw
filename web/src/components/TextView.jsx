@@ -291,7 +291,9 @@ export default function TextView({ active = true }) {
     };
 
     const onTextKeydown = (ev) => {
-        if (ev.key === "Enter" && !ev.shiftKey) {
+        // isComposing: Enter that confirms an IME conversion (Japanese on
+        // macOS arrives as a real "Enter") must not send the half-typed line.
+        if (ev.key === "Enter" && !ev.shiftKey && !ev.nativeEvent.isComposing) {
             ev.preventDefault();
             sendMessage();
         }

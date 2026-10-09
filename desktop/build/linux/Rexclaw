@@ -1,0 +1,15 @@
+#!/bin/sh
+# Starts Rexclaw from the unpacked Linux build.
+#
+# Chromium's sandbox needs unprivileged user namespaces. Ubuntu 24.04+ (and
+# other AppArmor setups) only allow them for apps an AppArmor profile names,
+# and some kernels switch them off entirely; a downloaded folder has no
+# profile, so Electron would abort at launch. Fall back to --no-sandbox
+# there — the same default electron-builder gives AppImages. The windows
+# only ever load the app's own local server.
+here="$(dirname "$(readlink -f "$0")")"
+if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = "1" ] \
+    || [ "$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null)" = "0" ]; then
+    exec "$here/rexclaw-bin" --no-sandbox "$@"
+fi
+exec "$here/rexclaw-bin" "$@"

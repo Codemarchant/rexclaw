@@ -971,7 +971,9 @@ export default function VoiceView({ active = true }) {
     };
 
     const onTextKeydown = (ev) => {
-        if (ev.key === "Enter" && !ev.shiftKey) {
+        // isComposing: Enter that confirms an IME conversion (Japanese on
+        // macOS arrives as a real "Enter") must not send the half-typed line.
+        if (ev.key === "Enter" && !ev.shiftKey && !ev.nativeEvent.isComposing) {
             ev.preventDefault();
             sendTextMessage();
         }
@@ -1319,7 +1321,7 @@ export default function VoiceView({ active = true }) {
                         )}
                         <button className={"btn btn-light" + (fullBody ? " active" : "")}
                                 onClick={toggleFullBody}
-                                title={fullBody ? _t("Switch to face view") : _t("Switch to full body (drag to rotate, scroll to zoom, Ctrl + drag to move)")}>
+                                title={fullBody ? _t("Switch to face view") : _t("Switch to full body (drag to rotate, scroll to zoom, Shift + drag to move)")}>
                             <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
                         </button>
                         {canMoveMode && (
@@ -1775,7 +1777,7 @@ export default function VoiceView({ active = true }) {
                         <button className={fullBody ? "is-active" : ""} onClick={toggleFullBody}
                                 title={fullBody
                                     ? _t("Switch to face view")
-                                    : _t("Switch to full body (drag to rotate, scroll to zoom, Ctrl + drag to move)")}>
+                                    : _t("Switch to full body (drag to rotate, scroll to zoom, Shift + drag to move)")}>
                             <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
                         </button>
                         <button onClick={openTranscriptWindow}

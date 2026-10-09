@@ -36,7 +36,24 @@
       { "from": "runtime/python", "to": "python" }
     ],
     "win": { "target": "dir", "icon": "build/icon.ico" },
-    "linux": { "target": "AppImage", "icon": "build/icon.png" },
-    "mac": { "target": "zip" }
+    "linux": {
+      "target": "dir",
+      "icon": "build/icon.png",
+      "executableName": "rexclaw-bin",
+      "extraFiles": [{ "from": "build/linux/Rexclaw", "to": "Rexclaw" }]
+    },
+    "mac": {
+      "target": [{ "target": "dir", "arch": ["arm64"] }],
+      "icon": "build/icon.png",
+      "category": "public.app-category.entertainment",
+      "minimumSystemVersion": "14.0",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Rexclaw listens to your microphone during voice calls and for the wake word.",
+        "NSCameraUsageDescription": "Rexclaw uses your camera only while you share it with your companion."
+      }
+    }
   }
 }

@@ -659,11 +659,12 @@ export default function SettingsView({ active }) {
                                 + "when they run, even while Rexclaw sits in the tray or behind "
                                 + "other windows. Clicking it opens the chat with that companion. "
                                 + "Only heartbeats with 'Notify me when it runs' ticked take part, "
-                                + "so a diary stays quiet. Requires notifications to be on in "
-                                + "Windows Settings › System › Notifications (and off Do Not Disturb).")}
+                                + "so a diary stays quiet. Requires notifications to be on for "
+                                + "Rexclaw (Windows: Settings › System › Notifications; macOS: "
+                                + "System Settings › Notifications) and Do Not Disturb off.")}
                         </p>
                         <button className="btn btn-secondary" style={{ marginBottom: "0.5rem" }}
-                                title={_t("Raises a sample notification right now, so you can check that Windows shows them for this app.")}
+                                title={_t("Raises a sample notification right now, so you can check that your system shows them for this app.")}
                                 onClick={() => window.rexclawDesktop.notify?.({
                                     title: "Rexclaw",
                                     body: _t("Notifications are working. A companion's message will look like this."),
@@ -1150,8 +1151,8 @@ export default function SettingsView({ active }) {
                                 + "in VR from a headset's browser (Quest, Pico), or on a phone "
                                 + "or tablet (iPhone, iPad, Android), where you can also add it "
                                 + "to the home screen. Open the URL shown here on the device "
-                                + "and accept its one-time certificate warning. If Windows "
-                                + "Firewall asks, allow access. Switching it on restarts the "
+                                + "and accept its one-time certificate warning. If the system "
+                                + "firewall asks, allow access. Switching it on restarts the "
                                 + "app's server in HTTPS mode and reloads this window.")}
                         </p>
                     </section>

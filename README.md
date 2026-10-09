@@ -10,7 +10,7 @@
 
 **Living anime voice companions on your own machine. Bring your own models: Grok, OpenAI, Claude, or fully local.**
 
-**[⬇ Download for Windows](https://github.com/Codemarchant/rexclaw/releases/latest)** · [From source](#-from-source) · [Docker](#-docker)
+**[⬇ Windows](https://github.com/Codemarchant/rexclaw/releases/latest)** · **[⬇ macOS](https://github.com/Codemarchant/rexclaw/releases/latest)** · **[⬇ Linux](https://github.com/Codemarchant/rexclaw/releases/latest)** · [From source](#-from-source) · [Docker](#-docker)
 
 Talk to a 3D VRM avatar that lip-syncs, emotes and gestures as they answer
 you, in 3D scenes you can walk them through. Memory grows across sessions,
@@ -48,8 +48,8 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 | 🧍 **Living 3D avatars** | VRM characters with lip-sync from the live audio, idle breathing, blinking and eye contact, plus emotions, gestures and outfit changes the model triggers itself. Orbit, move and zoom freely; hair and clothes react to your cursor. |
 | 🎨 **Look** | Lighting presets from golden hour to stage spotlight, effects, and ambience (rain, snow, cherry petals, fireflies) that can follow their mood. **Art styles** repaint the live scene as oil, watercolour, manga ink, risograph or pixel art. |
 | 🚶 **Walkable 3D scenes** | GLB environments with WASD walk mode and a trailing camera. **Camera - auto follow** directs itself between face, waist-up and full-body shots, and with the opt-in **Locomotion tools** (`move_around`) your companion walks up to you, steps back, wanders or follows your view. |
-| 🖥️ **Desktop mascot** | In the Windows app, pop the avatar out as a frameless, always-on-top overlay that floats on your desktop, live call and all. Drag it, resize it, snap it to a corner or another monitor. **Ghost mode** lets clicks pass through and fades the avatar out of your cursor's way. |
-| ⌨️ **Hotkeys** | Rebindable shortcuts for calls, mute, screen share and every mascot control, system-wide in the Windows app (Settings → Hotkeys). |
+| 🖥️ **Desktop mascot** | In the desktop app, pop the avatar out as a frameless, always-on-top overlay that floats on your desktop, live call and all. Drag it, resize it, snap it to a corner or another monitor. **Ghost mode** lets clicks pass through and fades the avatar out of your cursor's way. |
+| ⌨️ **Hotkeys** | Rebindable shortcuts for calls, mute, screen share and every mascot control, system-wide in the desktop app (Settings → Hotkeys). |
 | 🥽 **VR & mixed reality** | WebXR on headset browsers: stand with your companion in VR, or in your own room via passthrough, with spatial audio, controller haptics, an in-headset panel, hand-to-hair and clothing contact, and an opt-in ragdoll you can grab. |
 | 🤝 **Combo gestures** | Two-character animations (dancing together, hugs) where a partner joins the scene in sync. In a group call, the other companion plays the partner. |
 | 🕺 **Gesture generation** | Opt-in (`generate_gesture`): ask for a move that isn't in their list ("do a curtsy") and they invent it on the spot, made by the free [Text-To-VRMA](https://github.com/Kirakun0328/text-to-vrma/releases) app on your computer (Settings → Gesture generation). Motions are saved to the shared library, so good ones can become regular gestures. |
@@ -81,7 +81,7 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 
 ## 🚀 Quick start
 
-### 💻 Windows app — recommended
+### 💻 Desktop app — recommended
 
 Grab `Rexclaw-<version>-win.zip` from the
 [latest release](https://github.com/Codemarchant/rexclaw/releases/latest),
@@ -94,6 +94,9 @@ system-wide hotkeys and one-click VR / HTTPS device access.
   warning: **More info → Run anyway**.
 - Your data lives in `%APPDATA%\Rexclaw\data\`, not in the unzipped folder.
   To update, download the new zip and replace the folder; nothing is lost.
+- **macOS 14+ (Apple Silicon):** `-mac-arm64.zip`, open `Rexclaw.app`, then
+  **System Settings → Privacy & Security → Open Anyway** once.
+- **Linux (x64):** `-linux-x64.tar.gz`, run `./Rexclaw`.
 
 ### 🛠 From source
 
@@ -359,11 +362,11 @@ HTTPS the microphone works there — full voice calls from your phone, plus
 installing it as an app (Add to Home Screen). Over plain HTTP another
 device could only browse and text-chat.
 
-**Windows app (recommended):**
+**Desktop app (recommended):**
 
 1. Turn on **Settings → VR headset & other devices (HTTPS)**. The app
-   restarts its server in HTTPS mode and reloads; allow access if Windows
-   Firewall asks.
+   restarts its server in HTTPS mode and reloads; allow access if the
+   firewall asks (Windows Firewall, or macOS's incoming-connections prompt).
 2. The setting now shows an address like `https://192.168.1.42:8990/` —
    open it in the headset's browser and accept the one-time certificate
    warning (Advanced → proceed).
@@ -377,8 +380,8 @@ device could only browse and text-chat.
    - Windows: `set REXCLAW_SSL=1`, then `set REXCLAW_HOST=0.0.0.0`, then
      `run.bat` — on native Windows, not WSL (LAN devices can't reach a
      server inside WSL's virtual network).
-2. Find the PC's LAN address (`ipconfig` on Windows, `ip addr` on Linux)
-   and open `https://<pc-ip>:8990` in the headset's browser; accept the
+2. Find the PC's LAN address (`ipconfig` on Windows, `ip addr` on Linux,
+   `ipconfig getifaddr en0` on macOS) and open `https://<pc-ip>:8990` in the headset's browser; accept the
    certificate warning.
 3. Press the cube button.
 
@@ -416,7 +419,7 @@ Groq, OpenRouter, DeepSeek) have no MCP tools.
 Your companion can join your Minecraft (Java Edition) world as its own
 player: you direct them by voice, they play for real, and they react aloud
 to what happens. The bot runs as a sidecar process next to the game. It
-isn't part of the Windows zip, so run it from a source checkout (Node 18+):
+isn't part of the desktop app download, so run it from a source checkout (Node 18+):
 
 ```bash
 cd game_integrations/minecraft
@@ -540,7 +543,7 @@ background summarisation bill on top. Real xAI spend:
 ```
 server/   FastAPI + SQLite backend       → edit, restart (or uvicorn --reload)
 web/src/  React + Vite frontend          → edit, then npm run build
-desktop/  Electron shell (Windows app)   → npm start; packaging in desktop/README.md
+desktop/  Electron shell (desktop app)   → npm start; packaging in desktop/README.md
 data/     your DB, images, avatar packs  → just data, nothing to build
 ```
 

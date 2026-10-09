@@ -44,8 +44,8 @@ export const JA = {
 
   // ── Settings: HTTPS / LAN access ──────────────────────────────────────
   "VR headset & other devices (HTTPS)": "VR ヘッドセット・他のデバイス（HTTPS）",
-  "Turn this on to use Rexclaw on other devices on your WiFi: in VR from a headset's browser (Quest, Pico), or on a phone or tablet (iPhone, iPad, Android), where you can also add it to the home screen. Open the URL shown here on the device and accept its one-time certificate warning. If Windows Firewall asks, allow access. Switching it on restarts the app's server in HTTPS mode and reloads this window.":
-    "オンにすると、同じ WiFi 上の他のデバイスで Rexclaw を使えます。ヘッドセットのブラウザ（Quest、Pico）から VR で、またはスマートフォンやタブレット（iPhone、iPad、Android）で利用でき、ホーム画面に追加することもできます。ここに表示される URL をデバイスで開き、初回のみ表示される証明書の警告を承認してください。Windows ファイアウォールに確認されたら、アクセスを許可してください。オンにするとアプリのサーバーが HTTPS モードで再起動し、このウィンドウが再読み込みされます。",
+  "Turn this on to use Rexclaw on other devices on your WiFi: in VR from a headset's browser (Quest, Pico), or on a phone or tablet (iPhone, iPad, Android), where you can also add it to the home screen. Open the URL shown here on the device and accept its one-time certificate warning. If the system firewall asks, allow access. Switching it on restarts the app's server in HTTPS mode and reloads this window.":
+    "オンにすると、同じ WiFi 上の他のデバイスで Rexclaw を使えます。ヘッドセットのブラウザ（Quest、Pico）から VR で、またはスマートフォンやタブレット（iPhone、iPad、Android）で利用でき、ホーム画面に追加することもできます。ここに表示される URL をデバイスで開き、初回のみ表示される証明書の警告を承認してください。システムのファイアウォールに確認されたら、アクセスを許可してください。オンにするとアプリのサーバーが HTTPS モードで再起動し、このウィンドウが再読み込みされます。",
   "Serve over HTTPS on WiFi": "WiFi 上で HTTPS 配信",
   "Open this URL on the device (headset, phone, tablet)":
     "この URL をデバイス（ヘッドセット・スマホ・タブレット）で開く",
@@ -104,8 +104,8 @@ export const JA = {
   "Could not refresh the prompt": "プロンプトを更新できませんでした",
   "Show history": "履歴を表示",
   "Switch to face view": "顔アップ表示に切り替え",
-  "Switch to full body (drag to rotate, scroll to zoom, Ctrl + drag to move)":
-    "全身表示に切り替え（ドラッグで回転、スクロールでズーム、Ctrl＋ドラッグで移動）",
+  "Switch to full body (drag to rotate, scroll to zoom, Shift + drag to move)":
+    "全身表示に切り替え（ドラッグで回転、スクロールでズーム、Shift＋ドラッグで移動）",
   "Disable walk mode": "歩行モードを無効化",
   "Enable walk mode (WASD / arrow keys — number keys pick which character to move in a group call)":
     "歩行モードを有効化（WASD／矢印キー — グループ通話中は数字キーで操作キャラを選択）",
@@ -1049,8 +1049,8 @@ export const JA = {
     "アバターを常に他のすべてのウィンドウの前面に表示します。",
   "Full body view": "全身ビュー",
   "Fade to": "フェード時の不透明度",
-  "Whole character instead of the face. Drag to rotate, scroll to zoom, Ctrl + drag to move.":
-    "顔のアップではなく全身を表示。ドラッグで回転、スクロールでズーム、Ctrl＋ドラッグで移動。",
+  "Whole character instead of the face. Drag to rotate, scroll to zoom, Shift + drag to move.":
+    "顔のアップではなく全身を表示。ドラッグで回転、スクロールでズーム、Shift＋ドラッグで移動。",
   "Look": "見た目",
   "Show a background": "背景を表示",
   "Lighting": "ライティング",
@@ -1883,13 +1883,13 @@ export const JA = {
     "このハートビートのサイレント実行が何かを書き込んだときにデスクトップ通知を出します。クリックするとチャットが開きます。設定の「ハートビートのデスクトップ通知」とデスクトップアプリが必要です。日記ではなく、あなた宛てに書くハートビート向けです。",
   "Desktop notifications for heartbeats": "ハートビートのデスクトップ通知",
   "Send a test notification": "テスト通知を送る",
-  "Raises a sample notification right now, so you can check that Windows shows them for this app.":
-    "今すぐサンプル通知を出して、Windows がこのアプリの通知を表示するか確認できます。",
+  "Raises a sample notification right now, so you can check that your system shows them for this app.":
+    "今すぐサンプル通知を出して、システムがこのアプリの通知を表示するか確認できます。",
   "Notifications are working. A companion's message will look like this.":
     "通知は動作しています。コンパニオンからのメッセージはこのように表示されます。",
   "This system reports no notification support.": "このシステムは通知に対応していないと報告しています。",
-  "Heartbeats that write to you can raise a system notification when they run, even while Rexclaw sits in the tray or behind other windows. Clicking it opens the chat with that companion. Only heartbeats with 'Notify me when it runs' ticked take part, so a diary stays quiet. Requires notifications to be on in Windows Settings › System › Notifications (and off Do Not Disturb).":
-    "あなた宛てに書くハートビートは、Rexclaw がトレイや他のウィンドウの後ろにあっても、実行時にシステム通知を出せます。クリックするとそのコンパニオンとのチャットが開きます。「実行時に通知する」にチェックしたハートビートだけが対象なので、日記は静かなままです。Windows の設定 › システム › 通知で通知がオンになっている必要があります（応答不可はオフに）。",
+  "Heartbeats that write to you can raise a system notification when they run, even while Rexclaw sits in the tray or behind other windows. Clicking it opens the chat with that companion. Only heartbeats with 'Notify me when it runs' ticked take part, so a diary stays quiet. Requires notifications to be on for Rexclaw (Windows: Settings › System › Notifications; macOS: System Settings › Notifications) and Do Not Disturb off.":
+    "あなた宛てに書くハートビートは、Rexclaw がトレイや他のウィンドウの後ろにあっても、実行時にシステム通知を出せます。クリックするとそのコンパニオンとのチャットが開きます。「実行時に通知する」にチェックしたハートビートだけが対象なので、日記は静かなままです。Rexclaw の通知がオンになっている必要があります（Windows: 設定 › システム › 通知、macOS: システム設定 › 通知）。応答不可（集中モード）はオフにしてください。",
   "Heartbeats": "ハートビート",
   "Heartbeats can be added after the companion is saved.":
     "ハートビートはコンパニオンを保存した後に追加できます。",
@@ -2383,6 +2383,8 @@ export const JA = {
   "An optional engine for the karaoke stage. It trains a singing voice from recordings you upload, so a companion sings in that voice, and it turns songs from links or videos into karaoke: the music, the original singer's vocal (which the voice re-sings) and the lyrics. It runs on your own computer; an NVIDIA graphics card makes it fast.":
     "カラオケステージ用のオプションのエンジンです。アップロードした録音から歌声を学習し、コンパニオンがその声で歌えるようにします。また、リンクや動画の曲を、伴奏・元の歌手のボーカル（学習した声で歌い直します）・歌詞に分けてカラオケにします。お使いのコンピューター上で動き、NVIDIA のグラフィックカードがあると高速です。",
   "Install the Voice Lab": "ボイスラボをインストール",
+  "The Voice Lab is not available on macOS: its voice engine has no Mac version. The built-in singing still works.":
+    "ボイスラボは macOS では利用できません（音声エンジンに Mac 版がないため）。内蔵の歌声はそのまま使えます。",
   "About %s GB download and disk space, kept in the app's data folder.": "約 %s GB のダウンロードとディスク容量が必要です（アプリのデータフォルダーに保存）。",
   "NVIDIA graphics card found: it installs the fast (CUDA) version.": "NVIDIA のグラフィックカードが見つかりました。高速な CUDA 版をインストールします。",
   "No NVIDIA graphics card found: it installs the CPU version, which works but trains voices very slowly.": "NVIDIA のグラフィックカードが見つかりません。CPU 版をインストールします。動作はしますが、声の学習はとても遅くなります。",

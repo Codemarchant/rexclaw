@@ -1,10 +1,10 @@
-# Builds the standalone Windows desktop app and attaches the zip to the
-# GitHub release that triggered it. Fires when a release is published (the
-# `gh release create vX.Y.Z` flow), so one release action produces both the
-# Docker image (docker.yml, tag-triggered) and this artifact.
+# Builds the standalone desktop app for Windows, macOS and Linux and attaches
+# the archives to the GitHub release that triggered it. Fires when a release
+# is published (the `gh release create vX.Y.Z` flow), so one release action
+# produces both the Docker image (docker.yml, tag-triggered) and these.
 #
-# workflow_dispatch runs the same build without a release and stores the zip
-# as a CI artifact — for testing pipeline changes.
+# workflow_dispatch runs the same builds without a release and stores the
+# archives as CI artifacts — for testing pipeline changes.
 name: desktop
 
 on:
@@ -91,3 +91,166 @@ jobs:
         with:
           name: rexclaw-windows
           path: desktop/dist/Rexclaw-*-win.zip
+
+  # macOS (Apple Silicon) and Linux (x64): the same pipeline with
+  # build-runtime.sh (python-build-standalone) in place of the .ps1, plus a
+  # smoke test that launches the packaged app and waits for its server — a
+  # build that can't start never reaches the release.
+  #
+  # macOS is arm64-only with a macOS 14 floor: onnxruntime's current wheels
+  # need macOS 14 on arm64 and no longer ship for Intel Macs. Linux builds
+  # on the oldest supported runner so the bundled wheels' glibc floor stays
+  # low. No Apple Developer ID yet, so the .app is ad-hoc signed (downloaders
+  # click "Open Anyway" once in System Settings).
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: mac
+            os: macos-15
+            unpacked: mac-arm64
+            butler: darwin-arm64
+          - platform: linux
+            os: ubuntu-22.04
+            unpacked: linux-unpacked
+            butler: linux-amd64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write   # gh release upload
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Version from pyproject
+        run: echo "VERSION=$(sed -nE 's/^version = "(.*)"/\1/p' pyproject.toml)" >> "$GITHUB_ENV"
+
+      - name: Build frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      - name: Build embedded Python runtime
+        run: bash desktop/build-runtime.sh
+
+      # Same bundled models as the Windows job, fetched with the runtime
+      # just built (the runner's own python3 varies by image).
+      - name: Bundle wake-word + camera-awareness models
+        run: |
+          desktop/runtime/python/bin/python3 scripts/fetch_wake_model.py en
+          desktop/runtime/python/bin/python3 scripts/fetch_vision_model.py
+
+      # extraMetadata.version: the bundle version (CFBundleShortVersionString
+      # on macOS) follows pyproject, not desktop/package.json.
+      - name: Package desktop app
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # ad-hoc signed below
+        run: |
+          cd desktop
+          npm ci
+          npx electron-builder --${{ matrix.platform }} -c.extraMetadata.version=$VERSION
+
+      # electron-builder's edits (Info.plist, renamed executable) invalidate
+      # Electron's own signature, and Apple Silicon refuses to run a bundle
+      # with a broken one ("is damaged"). An ad-hoc signature makes it
+      # valid again; verify it the way Gatekeeper reads it.
+      - name: Ad-hoc sign (macOS)
+        if: matrix.platform == 'mac'
+        run: |
+          APP=desktop/dist/mac-arm64/Rexclaw.app
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Linux launcher permissions
+        if: matrix.platform == 'linux'
+        run: chmod +x desktop/dist/linux-unpacked/Rexclaw
+
+      # Launch the packaged app exactly as a user would, against a throwaway
+      # data folder, and wait for the server it spawns to answer. The
+      # screenshot is uploaded either way for a look at the first screen.
+      - name: Smoke test
+        run: |
+          export REXCLAW_DATA_DIR="$RUNNER_TEMP/rexclaw-data"
+          if [ "${{ matrix.platform }}" = mac ]; then
+            desktop/dist/mac-arm64/Rexclaw.app/Contents/MacOS/Rexclaw > "$RUNNER_TEMP/app.log" 2>&1 &
+          else
+            sudo apt-get install -y -q xvfb > /dev/null
+            Xvfb :99 -screen 0 1400x900x24 & export DISPLAY=:99
+            sleep 2
+            desktop/dist/linux-unpacked/Rexclaw > "$RUNNER_TEMP/app.log" 2>&1 &
+          fi
+          APP_PID=$!
+          up=""
+          for i in $(seq 90); do
+            if curl -sf http://127.0.0.1:8990/ | grep -qi rexclaw; then up=1; break; fi
+            sleep 2
+          done
+          sleep 10   # let the window paint before the screenshot
+          if [ "${{ matrix.platform }}" = mac ]; then screencapture -x screenshot.png || true
+          else import -display :99 -window root screenshot.png || true; fi
+          kill $APP_PID || true
+          cat "$RUNNER_TEMP/app.log"
+          if [ -z "$up" ]; then echo "::error::packaged app never served on :8990"; exit 1; fi
+
+      - name: Store smoke-test screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rexclaw-${{ matrix.platform }}-screenshot
+          path: screenshot.png
+          if-no-files-found: ignore
+
+      # macOS: ditto keeps the bundle's framework symlinks (plain zip
+      # flattens them). Linux: one top-level Rexclaw-<version>-linux/ folder,
+      # like the Windows zip.
+      - name: Archive
+        run: |
+          cd desktop/dist
+          if [ "${{ matrix.platform }}" = mac ]; then
+            ditto -c -k --keepParent mac-arm64/Rexclaw.app "Rexclaw-$VERSION-mac-arm64.zip"
+          else
+            tar -czf "Rexclaw-$VERSION-linux-x64.tar.gz" \
+              --transform "s,^linux-unpacked,Rexclaw-$VERSION-linux," linux-unpacked
+          fi
+
+      - name: Attach archive to release
+        if: github.event_name == 'release'
+        run: gh release upload ${{ github.event.release.tag_name }} desktop/dist/Rexclaw-$VERSION-* --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # Same constant-wrapper idea as the Windows push. macOS: the channel
+      # holds Rexclaw.app itself (the only Mac layout itch supports; ditto
+      # keeps its symlinks). Linux: Rexclaw/ wrapper plus an .itch.toml so
+      # the itch app starts the sandbox-aware launcher, not the raw binary.
+      - name: Push to itch.io
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.push_itch)
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          if [ -z "$BUTLER_API_KEY" ]; then
+            echo "BUTLER_API_KEY secret not set - skipping itch.io push"
+            exit 0
+          fi
+          curl -sL -o butler.zip https://broth.itch.zone/butler/${{ matrix.butler }}/LATEST/archive/default
+          unzip -q butler.zip -d butler
+          chmod +x butler/butler
+          mkdir itch-staging
+          if [ "${{ matrix.platform }}" = mac ]; then
+            ditto desktop/dist/mac-arm64/Rexclaw.app itch-staging/Rexclaw.app
+          else
+            cp -a desktop/dist/linux-unpacked itch-staging/Rexclaw
+            printf '[[actions]]\nname = "play"\npath = "Rexclaw/Rexclaw"\n' > itch-staging/.itch.toml
+          fi
+          ./butler/butler push itch-staging codemarchant/rexclaw:${{ matrix.platform }} --userversion $VERSION
+
+      - name: Store archive as CI artifact (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rexclaw-${{ matrix.platform }}
+          path: desktop/dist/Rexclaw-*-${{ matrix.platform }}-*

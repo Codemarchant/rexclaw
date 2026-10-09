@@ -61,9 +61,40 @@ so first launch shows a SmartScreen warning ("More info → Run anyway") until
 there's a signing certificate.
 
 The app icon (`build/icon.ico` / `icon.png`) is generated from the PWA icon
-(`web/public/icons/icon-512.png`). macOS/Linux packaging is future work —
-swap the embeddable package for python-build-standalone in the runtime
-script and add per-OS CI jobs.
+(`web/public/icons/icon-512.png`).
+
+## Packaging (macOS / Linux)
+
+Same two steps, on the platform being packaged (CI: the `unix` job in
+`.github/workflows/desktop.yml`, `macos-15` and `ubuntu-22.04`):
+
+```bash
+bash build-runtime.sh                     # python-build-standalone + deps → runtime/python
+npx electron-builder --mac                # → dist/mac-arm64/Rexclaw.app
+npx electron-builder --linux              # → dist/linux-unpacked/
+```
+
+`build-runtime.sh` fetches the relocatable python-build-standalone build of
+the same CPython as the Windows runtime; no `._pth` is needed because the
+server runs with `cwd = app-server`. Its smoke test also does a real TLS
+handshake with the interpreter's default SSL context (websockets and the
+Twitch client rely on it rather than certifi).
+
+- **macOS** is arm64-only with a macOS 14 floor (current onnxruntime wheels
+  need it and dropped Intel). Without an Apple Developer ID the bundle is
+  ad-hoc signed in CI (`codesign --force --deep --sign -`); downloaders
+  approve the first launch under Privacy & Security → Open Anyway.
+  `build/entitlements.mac.plist` + `hardenedRuntime` only apply once a
+  real certificate signs it. `extendInfo` carries the mic/camera usage
+  strings macOS shows in its permission prompts.
+- **Linux** ships the unpacked folder: `rexclaw-bin` is Electron, and the
+  `Rexclaw` launcher (`build/linux/Rexclaw`) adds `--no-sandbox` where
+  AppArmor (Ubuntu 24.04+) blocks the user namespaces Chromium's sandbox
+  needs. No AppImage: electron-builder 25's needs libfuse2, which recent
+  distros no longer install.
+
+`scripts/make-zip.js` (`npm run dist`) is the Windows zip step only; CI
+archives the macOS/Linux builds itself (`ditto` keeps the .app's symlinks).
 
 ## Where the packaged app stores data
 
@@ -77,6 +108,9 @@ packaged app keeps all state under:
 ├── files\            # generated/uploaded images
 └── avatars\          # custom avatar packs — drop pack folders here
 ```
+
+On macOS the same tree lives in `~/Library/Application Support/Rexclaw/data/`,
+on Linux in `~/.config/Rexclaw/data/` (Electron's `userData` + `data`).
 
 Custom avatar packs go in `%APPDATA%\Rexclaw\data\avatars\<PackName>\`
 (same pack format as always); packs created in the app's Avatars tab are

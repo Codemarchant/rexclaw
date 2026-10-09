@@ -92,6 +92,12 @@ def has_nvidia():
         return False
 
 
+def supported():
+    # ultimate-rvc pins onnxruntime-gpu, which has no macOS wheels (and
+    # Intel Macs also lack its torch), so the install can't resolve there.
+    return sys.platform != 'darwin'
+
+
 def installed():
     return MARKER.is_file() and venv_python().is_file()
 
@@ -100,6 +106,7 @@ def status():
     inst = _state['install']
     running = _running()
     return {
+        'supported': supported(),
         'installed': installed(),
         'install': dict(inst) if inst else None,
         'running': running,
@@ -128,6 +135,8 @@ def _run(cmd, **kw):
 
 def start_install():
     """Install on a background thread; progress in status()['install']."""
+    if not supported():
+        raise UserError('The Voice Lab is not available on macOS.')
     with _lock:
         if _state['install'] and _state['install'].get('state') == 'running':
             return

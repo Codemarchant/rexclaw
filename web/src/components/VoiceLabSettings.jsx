@@ -77,7 +77,12 @@ export default function VoiceLabSettings() {
             <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
                 {_t("An optional engine for the karaoke stage. It trains a singing voice from recordings you upload, so a companion sings in that voice, and it turns songs from links or videos into karaoke: the music, the original singer's vocal (which the voice re-sings) and the lyrics. It runs on your own computer; an NVIDIA graphics card makes it fast.")}
             </p>
-            {!st.installed && (
+            {!st.installed && !st.supported && (
+                <p className="text-muted small">
+                    {_t("The Voice Lab is not available on macOS: its voice engine has no Mac version. The built-in singing still works.")}
+                </p>
+            )}
+            {!st.installed && st.supported && (
                 <div className="rx_row">
                     <div>
                         <button className="btn btn-primary" disabled={inst?.state === "running" || !!busy}

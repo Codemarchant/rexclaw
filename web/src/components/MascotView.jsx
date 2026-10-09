@@ -471,7 +471,9 @@ export default function MascotView() {
 
     // ---- scroll-to-resize ---------------------------------------------------
     // Face view only: full-body view gives the wheel to OrbitControls
-    // (camera zoom). Continuous window scaling: 5% per notch, uniform so
+    // (camera zoom). Continuous window scaling, proportional to the scroll
+    // distance: 5% per mouse notch (deltaY 100), while a trackpad's stream of
+    // small deltas scales smoothly instead of 5% per event. Uniform so
     // the aspect ratio holds, clamped to the shell's bounds. `pending` chains rapid
     // notches without re-reading innerWidth mid-flight (the IPC resize is
     // async), and expires so a stale size never seeds the next gesture.
@@ -484,11 +486,12 @@ export default function MascotView() {
         let lastTs = 0;
         const onWheel = (ev) => {
             ev.preventDefault();
+            if (!ev.deltaY) return;   // sideways trackpad swipe
             const now = performance.now();
             if (now - lastTs > 500) pending = null;
             lastTs = now;
             const base = pending || { width: window.innerWidth, height: window.innerHeight };
-            const wanted = ev.deltaY < 0 ? 1.05 : 1 / 1.05;
+            const wanted = Math.pow(1.05, -ev.deltaY / 100);
             // Ceiling: the display's work area, the shell's own bound, which
             // the whole-screen preset sits exactly at. A fixed ceiling below
             // it snapped that preset to half size on the first notch.
@@ -1095,7 +1098,7 @@ export default function MascotView() {
                 <button className={fullBody ? "is-active" : ""} onClick={toggleFullBody}
                         title={fullBody
                             ? _t("Switch to face view")
-                            : _t("Switch to full body (drag to rotate, scroll to zoom, Ctrl + drag to move)")}>
+                            : _t("Switch to full body (drag to rotate, scroll to zoom, Shift + drag to move)")}>
                     <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
                 </button>
                 <button className={pinned ? "is-active" : ""} onClick={togglePin}

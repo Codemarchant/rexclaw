@@ -218,7 +218,8 @@ class ScreenCapture {
             if (e?.name === "NotReadableError" || /could not start video source/i.test(e?.message || "")) {
                 throw new Error("The camera could not be started — it may be in use by another app, "
                     + "or camera access is switched off in the system privacy settings "
-                    + "(Windows: Settings → Privacy → Camera → allow desktop apps).");
+                    + "(Windows: Settings → Privacy → Camera → allow desktop apps; "
+                    + "macOS: System Settings → Privacy & Security → Camera).");
             }
             if (e?.name === "NotFoundError" || e?.name === "OverconstrainedError") {
                 throw new Error("No usable camera was found on this device.");

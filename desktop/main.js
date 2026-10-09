@@ -13,8 +13,8 @@
 // Docker), the shell attaches to it instead of spawning a second one — handy
 // for developing the wrapper against a live session.
 const { app, BrowserWindow, Menu, Notification, Tray, dialog, globalShortcut, ipcMain,
-        nativeImage, session, shell } = require("electron");
-const { execFile, spawn } = require("child_process");
+        nativeImage, session, shell, systemPreferences } = require("electron");
+const { execFile, execFileSync, spawn } = require("child_process");
 const http = require("http");
 const https = require("https");
 const net = require("net");
@@ -106,6 +106,26 @@ function resolvePython() {
     }
     // Last resort: whatever `python` is on PATH. spawn() will surface ENOENT.
     return process.platform === "win32" ? "python" : "python3";
+}
+
+/** macOS apps started from Finder or the Dock inherit launchd's minimal PATH
+ *  (/usr/bin:/bin:/usr/sbin:/sbin), not the user's shell PATH — so the
+ *  server's tool lookups (the grok CLI for local tasks, Homebrew binaries)
+ *  would come up empty. Adopt the login shell's PATH once, before the server
+ *  spawns; a terminal launch (npm start) already has it and is left alone. */
+function adoptLoginShellPath() {
+    if (process.platform !== "darwin" || !app.isPackaged) return;
+    try {
+        const out = execFileSync(
+            process.env.SHELL || "/bin/zsh",
+            ["-ilc", 'printf "__REXCLAW_PATH__%s__REXCLAW_PATH__" "$PATH"'],
+            { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] },
+        );
+        const m = out.match(/__REXCLAW_PATH__(.*)__REXCLAW_PATH__/);
+        if (m && m[1]) process.env.PATH = m[1];
+    } catch (e) {
+        console.warn("[desktop] could not read the login shell PATH:", e.message);
+    }
 }
 
 /** Server working directory: the repo in dev, the bundled tree when packaged. */
@@ -471,8 +491,17 @@ function createWindow(port, { show = true } = {}) {
     // Everything else is denied — the app has no use for geolocation etc.
     const ses = mainWindow.webContents.session;
     const allowed = ["media", "fullscreen", "clipboard-sanitized-write", "pointerLock"];
-    ses.setPermissionRequestHandler((wc, permission, callback) => {
-        callback(allowed.includes(permission));
+    ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+        if (!allowed.includes(permission)) return callback(false);
+        // macOS gates the mic and camera per app on top of Chromium's own
+        // permission: settle the OS grant first (it prompts once, with the
+        // Info.plist usage strings), so a refusal reaches the page as its
+        // usual NotAllowedError.
+        if (permission === "media" && process.platform === "darwin") {
+            macMediaAccess(details && details.mediaTypes).then(callback, () => callback(false));
+            return;
+        }
+        callback(true);
     });
     ses.setPermissionCheckHandler((wc, permission) => {
         return allowed.includes(permission);
@@ -498,6 +527,16 @@ function createWindow(port, { show = true } = {}) {
     });
     mainWindow.on("closed", () => { mainWindow = null; mainUnsaved = false; mainCloseForced = false; });
     mainWindow.loadURL(`${serverScheme}://127.0.0.1:${port}/`);
+}
+
+/** macOS: ask the OS for each device a getUserMedia request wants. Resolves
+ *  without a prompt once the user has answered (either way). */
+async function macMediaAccess(mediaTypes) {
+    const devices = { audio: "microphone", video: "camera" };
+    for (const type of mediaTypes || []) {
+        if (devices[type] && !(await systemPreferences.askForMediaAccess(devices[type]))) return false;
+    }
+    return true;
 }
 
 // Unsaved-changes guard mirror for the close interception above.
@@ -722,7 +761,12 @@ function setMascotVisible(on) {
             if (mascotPinned) {
                 mascotWindow.setAlwaysOnTop(true, "screen-saver");
             }
-            mascotWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+            // macOS: the process-type switch this call does by default
+            // blinks the Dock icon and every window — the creation-time
+            // call already did it once, so skip it on each re-show.
+            mascotWindow.setVisibleOnAllWorkspaces(true, {
+                visibleOnFullScreen: true, skipTransformProcessType: true,
+            });
             mascotWindow.moveTop();
         }
     } else if (mascotWindow.isVisible()) {
@@ -882,6 +926,25 @@ async function showScreenSharePicker(request, callback) {
         // One request at a time — deny the newcomer rather than stacking
         // modals (the tools retry cleanly on NotAllowedError).
         callback(null);
+        return;
+    }
+    // macOS: without the Screen Recording grant every thumbnail comes back
+    // as bare wallpaper, and once refused the OS never prompts again — send
+    // the user to the setting instead of a picker full of blanks.
+    if (process.platform === "darwin"
+        && ["denied", "restricted"].includes(systemPreferences.getMediaAccessStatus("screen"))) {
+        callback(null);
+        const { response } = await dialog.showMessageBox({
+            type: "info",
+            message: "Rexclaw needs Screen Recording permission",
+            detail: "Turn on Rexclaw under Privacy & Security › Screen & System Audio Recording, then restart Rexclaw.",
+            buttons: ["Open System Settings", "Cancel"],
+            defaultId: 0,
+            cancelId: 1,
+        });
+        if (response === 0) {
+            shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture");
+        }
         return;
     }
     const sources = await desktopCapturer.getSources({
@@ -1159,6 +1222,23 @@ function trayIconPath() {
     return candidates.find((c) => fs.existsSync(c)) || null;
 }
 
+/** Bring the app's face forward: the mascot while popped out (a hide-idle
+ *  mascot may be invisible right now — an explicit show brings it back
+ *  until the next call ends, when the page re-hides it), else the main
+ *  window. Tray click, tray "Show Rexclaw" and the macOS Dock icon. */
+function showApp() {
+    if (mascotWindow && !mascotWindow.isDestroyed()) {
+        if (!mascotWindow.isVisible()) mascotWindow.show();
+        mascotWindow.focus();
+        return;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+    }
+}
+
 // Deliberately short: every mascot option lives in the settings window now,
 // so the tray keeps only the essentials — surface the app, swap between
 // mascot and app window, open the full settings, quit.
@@ -1169,24 +1249,7 @@ function trayIconPath() {
 function trayMenuTemplate() {
     const mascotOpen = !!(mascotWindow && !mascotWindow.isDestroyed());
     return [
-        {
-            label: "Show Rexclaw",
-            click: () => {
-                if (mascotOpen) {
-                    // A hide-idle mascot may be invisible right now — an
-                    // explicit "Show" brings it back until the next call
-                    // ends (the page re-hides on that transition).
-                    if (!mascotWindow.isVisible()) mascotWindow.show();
-                    mascotWindow.focus();
-                    return;
-                }
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                    if (mainWindow.isMinimized()) mainWindow.restore();
-                    mainWindow.show();
-                    mainWindow.focus();
-                }
-            },
-        },
+        { label: "Show Rexclaw", click: showApp },
         { label: "Transcript window", click: createTranscriptWindow },
         {
             // Same path as the Ctrl+Alt+S hotkey: the page owns the share
@@ -1238,25 +1301,23 @@ ipcMain.handle("mascot-menu", () => {
 function createTray() {
     const iconPath = trayIconPath();
     if (!iconPath) return;   // icon missing (very early dev tree) — skip the tray
+    let icon = nativeImage.createFromPath(iconPath);
+    if (process.platform === "darwin") {
+        // The menu bar draws tray images at their natural size — scale the
+        // 64px icon to the 18pt status-item height (plus a @2x
+        // representation for Retina).
+        const full = icon;
+        icon = full.resize({ height: 18 });
+        icon.addRepresentation({ scaleFactor: 2, buffer: full.resize({ height: 36 }).toPNG() });
+    }
     try {
-        tray = new Tray(nativeImage.createFromPath(iconPath));
+        tray = new Tray(icon);
     } catch (e) {
         console.warn("[desktop] tray unavailable:", e.message);
         return;
     }
     tray.setToolTip("Rexclaw Companions");
-    tray.on("click", () => {
-        if (mascotWindow && !mascotWindow.isDestroyed()) {
-            if (!mascotWindow.isVisible()) mascotWindow.show();
-            mascotWindow.focus();
-            return;
-        }
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.show();
-            mainWindow.focus();
-        }
-    });
+    tray.on("click", showApp);
     rebuildTrayMenu();
 }
 
@@ -1673,18 +1734,17 @@ if (!app.requestSingleInstanceLock()) {
             // Electron ships no screen-share picker: without this handler
             // every getDisplayMedia call (the Share-screen button /
             // take_screenshot / record_screen_clip) fails with "Not
-            // supported". useSystemPicker shows the native picker where the
-            // OS has one (macOS 15+, experimental); elsewhere we show our
-            // own thumbnail picker — the standard Electron pattern, since
-            // Windows/Linux get nothing built-in. Cancelling denies the
-            // request (NotAllowedError), which the web side already treats
-            // as a benign dismissal. 'loopback' system audio is
-            // Windows-only; other platforms record silent.
+            // supported". Our own thumbnail picker on every platform — the
+            // standard Electron pattern. (macOS 15's native picker,
+            // useSystemPicker, would bypass this handler and with it the
+            // remembered source the mascot pop-out handoff re-arms.)
+            // Cancelling denies the request (NotAllowedError), which the
+            // web side already treats as a benign dismissal. 'loopback'
+            // system audio is Windows-only; other platforms record silent.
             session.defaultSession.setDisplayMediaRequestHandler(
                 (request, callback) => {
                     showScreenSharePicker(request, callback).catch(() => callback(null));
                 },
-                { useSystemPicker: true },
             );
             // Downloads (the audio player's ⋮ → Download, download links,
             // "Save image as…"): ask for the path ourselves and hand it to
@@ -1711,13 +1771,17 @@ if (!app.requestSingleInstanceLock()) {
             // The app window is still created (hidden) — it is where "pop
             // back in" lands, and window-all-closed quits the app.
             const startInMascot = !!loadSettings().startInMascot;
+            adoptLoginShellPath();
             const port = await ensureServer();
             serverPort = port;
             createWindow(port, { show: !startInMascot });
             createTray();
             if (startInMascot) createMascotWindow(false);
-            app.on("activate", () => {   // macOS dock re-activation
-                if (BrowserWindow.getAllWindows().length === 0) createWindow(port);
+            // macOS Dock click. The main window exists until quit (only
+            // hidden behind the mascot), so this is "show", not "create".
+            app.on("activate", () => {
+                if (mainWindow && !mainWindow.isDestroyed()) showApp();
+                else createWindow(port);
             });
         } catch (err) {
             dialog.showErrorBox(

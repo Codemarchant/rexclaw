@@ -227,7 +227,8 @@ export default function TranscriptWindowView() {
                           disabled={!isLive}
                           onChange={(ev) => setDraft(ev.target.value)}
                           onKeyDown={(ev) => {
-                              if (ev.key === "Enter" && !ev.shiftKey) {
+                              // Not while an IME conversion is being confirmed.
+                              if (ev.key === "Enter" && !ev.shiftKey && !ev.nativeEvent.isComposing) {
                                   ev.preventDefault();
                                   send();
                               }
