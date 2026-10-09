@@ -471,7 +471,11 @@ function createWindow(port, { show = true } = {}) {
             preload: path.join(__dirname, "preload.js"),
             contextIsolation: true,
             nodeIntegration: false,
-            spellcheck: false,
+            // Chromium's spellchecker: native on macOS, Hunspell for the OS
+            // language on Windows/Linux (dictionary fetched once from
+            // Google's CDN; no typed text leaves the machine). Suggestions
+            // live in the right-click menu below.
+            spellcheck: true,
             // Keep the render loop (and a live voice call) at full rate even
             // when the window loses focus.
             backgroundThrottling: false,
@@ -1082,7 +1086,7 @@ function createTranscriptWindow() {
             preload: path.join(__dirname, "preload.js"),
             contextIsolation: true,
             nodeIntegration: false,
-            spellcheck: false,
+            spellcheck: true,   // its message box, same as the main window
             backgroundThrottling: false,
         },
     });
@@ -1692,18 +1696,79 @@ app.on("certificate-error", (event, webContents, url, error, certificate, callba
 // viewer windows have no menu of their own, so this is the save path.
 // downloadURL goes through Electron's default will-download flow, which shows
 // the native save dialog.
+// Text fields and selections get the usual Cut / Copy / Paste too: Electron
+// ships no context menu at all, so right-click → Paste (the natural way to
+// drop in an API key, especially on macOS) did nothing. A misspelled word
+// leads with the spellchecker's suggestions and "Add to dictionary".
 app.on("web-contents-created", (event, wc) => {
     wc.on("context-menu", (e, params) => {
-        if (!params.srcURL) return;
         const items = [];
-        if (params.mediaType === "image") {
+        if (params.misspelledWord) {
+            for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
+                items.push({ label: suggestion, click: () => wc.replaceMisspelling(suggestion) });
+            }
+            if (!items.length) items.push({ label: "No suggestions", enabled: false });
+            items.push(
+                { label: "Add to dictionary",
+                  click: () => wc.session.addWordToSpellCheckerDictionary(params.misspelledWord) },
+                { type: "separator" },
+            );
+        }
+        if (params.srcURL && params.mediaType === "image") {
             items.push({ label: "Save image as…", click: () => wc.downloadURL(params.srcURL) });
             items.push({ label: "Copy image", click: () => wc.copyImageAt(params.x, params.y) });
-        } else if (params.mediaType === "video") {
+        } else if (params.srcURL && params.mediaType === "video") {
             items.push({ label: "Save video as…", click: () => wc.downloadURL(params.srcURL) });
+        }
+        if (params.isEditable) {
+            if (items.length && items[items.length - 1].type !== "separator") items.push({ type: "separator" });
+            const f = params.editFlags;
+            items.push(
+                { role: "cut", enabled: f.canCut },
+                { role: "copy", enabled: f.canCopy },
+                { role: "paste", enabled: f.canPaste },
+                { type: "separator" },
+                { role: "selectAll", enabled: f.canSelectAll },
+            );
+        } else if (params.selectionText && params.selectionText.trim()) {
+            if (items.length) items.push({ type: "separator" });
+            items.push({ role: "copy" });
         }
         if (items.length) Menu.buildFromTemplate(items).popup();
     });
+    // Navigation guard: the windows only ever show the app's own loopback
+    // server. A file dropped outside a drop zone (or a plain link) would
+    // otherwise navigate the whole window away — the app vanishes behind a
+    // bare image with no way back. Web links go to the system browser like
+    // target=_blank ones do; anything else (file://…) is simply dropped.
+    wc.on("will-navigate", (e, url) => {
+        if (/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(url)) return;
+        e.preventDefault();
+        if (/^https?:\/\//.test(url)) shell.openExternal(url);
+    });
+});
+
+// A renderer that dies (GPU driver reset, out of memory) leaves its window
+// blank — Electron has no "Aw, Snap!" page. Say so and offer the reload a
+// browser would. destroy() rather than close(): the unsaved-changes guard
+// would wait on a page that no longer exists.
+app.on("render-process-gone", async (event, wc, details) => {
+    if (quitting || details.reason === "clean-exit") return;
+    console.error("[desktop] renderer gone:", details.reason, details.exitCode);
+    const win = BrowserWindow.fromWebContents(wc);
+    if (!win || win.isDestroyed()) return;
+    const { response } = await dialog.showMessageBox(win, {
+        type: "warning",
+        message: "This Rexclaw window stopped unexpectedly",
+        detail: `Its page process ended (${details.reason}). Reload to carry on; `
+            + "a call running in this window was cut off.",
+        buttons: ["Reload", "Close window"],
+        defaultId: 0,
+        cancelId: 1,
+    });
+    if (win.isDestroyed()) return;
+    if (response === 0) wc.reload();
+    else win.destroy();
 });
 
 // ---------------------------------------------------------------------------
