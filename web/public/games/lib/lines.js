@@ -166,6 +166,38 @@
       hurt: ["Ow! My lovely ship!", "Hey! I just had that painted!", "Okay, now it's personal."],
       kraken: ["Is that a Kraken? Why is there always a Kraken?", "Kraken! Nobody panic! Okay, panic a bit."],
     },
+    // Missions aboard the Rexmaw: you captain, aim and fire; they're your
+    // gunnery partner and, in the dark, your navigator, acting on your
+    // orders. Off a call these are their voice for the big moments.
+    // "they_lose" holds the lines for a job done (the kit's win) and
+    // "they_win" for a mission lost (its loss), as the kit's game.end()
+    // picks them; "user_streak" / "their_streak" stand in for those after
+    // three of a kind in a row; "greet" is the kit's hello. (No "draw": a
+    // mission is always won or lost.)
+    "Rexmaw Raids": {
+      greet: ["Guns are loaded and I'm right here. Where to, Captain?", "You aim, I'll call the shots you can't see. Deal?", "Ready when you are, Captain. Just give the word."],
+      board: ["Grapples over! Boarding party, with me!", "Alongside! Over the rail, everyone!", "Boarding! Keep her steady, Captain."],
+      sink: ["She's going down! Beautiful shooting, Captain.", "That's one less ship on the water.", "Down she goes. Who's next?"],
+      surrender: ["White flag! She's striking her colours!", "They've given up. Bring us alongside, gently.", "She surrenders! Easiest prize all day."],
+      brace: ["Brace! Brace!", "Hold on to something, here it comes!", "Brace for it, Captain!"],
+      man_overboard: ["Someone's in the water! Get a line out!", "Man overboard! Slow her down, Captain!"],
+      bank: ["That's in the bank. Nobody can take it now.", "Banked! Rex is counting every coin twice.", "Safe in port. Let's go and get more."],
+      kraken: ["That's no reef. Kraken! Clear the rails!", "Tentacles on the deck! Shoot them off!", "Kraken! Of course it's a Kraken."],
+      legendary: ["That's the big one, Captain. Make every broadside count.", "A legend, hunting us. I'm honoured. And a bit scared.", "Here she comes. Stay with me, Captain."],
+      tower_down: ["Tower down! Three more to go... or fewer!", "That tower's rubble. Lovely aim.", "Got one! Line up the next tower."],
+      spotted: ["Lantern's on us! They've seen us!", "We're spotted, Captain. Run or fight?", "So much for sneaking. They know we're here."],
+      pickup_chest: ["A whole chest! Today's a good day.", "Treasure! Rex is going to be insufferable.", "Ooh, heavy. That one's worth the detour."],
+      mission_success: ["Job done, Captain! We make a very good pair.", "That's the mission. I knew you'd pull it off.", "Done and dusted. Same time tomorrow?"],
+      mission_fail: ["Not this time. We'll get it next run.", "That one got away from us. Again?", "We're all still here, Captain. That's what counts."],
+      they_lose: ["Job done! What a run, Captain.", "You aimed, I called it, and it worked. Again?", "Mission complete. I'm proud of us."],
+      they_win: ["Not our day. We'll be back out there soon.", "We lost this one, but not the crew. That's what matters.", "Next time we try it another way. I've got ideas."],
+      user_streak: ["Three in a row, Captain! The whole coast knows our flag now.", "Another one! We're getting scarily good at this.", "That's a streak. Rex wants it painted on the hull."],
+      their_streak: ["Rough few runs, Captain. We're still afloat, and still together.", "The sea's had a good week. Ours starts next run.", "Let's slow down and try it fresh. I'm still right here."],
+      whacky_captain: ["Is that their captain? Honestly? Okay. Okay, sure. Get them!", "Who keeps hiring these people? Doesn't matter. Over the rail!", "I'm not even surprised any more. Swords out, everyone.", "Right. That's a weird one. We hit it anyway."],
+      big_miss: ["The fish are very scared now. Mission accomplished?", "That was a warning shot. A very wet warning shot.", "We'll call that a test of the sea's reflexes. The sea passed."],
+      one_volley: ["One volley! Did you see that? Tell me you saw that!", "Gone in one. I'm framing that shot.", "That's the fastest sinking I've ever seen. Do it again!"],
+      silly_hit: ["Ow! Who put that there?", "That wasn't in the plan. Nothing's in the plan, but still."],
+    },
   };
 
   /** A line for `event` in `game` (falling back to the common ones), not

@@ -83,7 +83,7 @@ def main():
             continue
         voice = data['crew'][line['who']]['voice']
         try:
-            out.write_bytes(render(key, line['text'], voice))
+            out.write_bytes(render(key, line.get('say') or line['text'], voice))
             made += 1
             print(f'  {line["id"]} ({line["who"]})')
         except Exception as e:  # noqa: BLE001 - report and carry on

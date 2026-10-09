@@ -12,6 +12,16 @@
  *   RexGame.music.play("brine-barnacle")   RexGame.music.stop()
  *   RexGame.music.setVolume(0..1)          RexGame.music.TRACKS
  *
+ * For games that score their own scenes (all optional; a track that uses
+ * none of it sounds and routes exactly as it always did):
+ *   part.layer: "pad"          the part plays into a named layer that
+ *                              layers() fades in and out on bar lines
+ *   track.reverb: 0..1         a convolution hall send (0: none is built)
+ *   RexGame.music.layers(["pad", "bass"] | null, { fade })
+ *   RexGame.music.stinger({ inst, degrees, step, oct, vol, dur } | name)
+ *   RexGame.music.clock()      tempo, position, key and the sounding chord
+ *   RexGame.music.play(id, { fadeOut: 2 })     fade the last track out first
+ *
  * Needs juice.js (it plays through the same AudioContext).
  */
 (function () {
@@ -234,14 +244,14 @@
 
   // ---- Instruments -------------------------------------------------------------
 
-  let ctx = null, out = null, echo = null, noiseBuf = null;
+  let ctx = null, out = null, echo = null, noiseBuf = null, comp = null;
 
   function setup() {
     ctx = window.RexGame.sfx?.context?.();
     if (!ctx || out) return !!ctx;
     out = ctx.createGain();
     out.gain.value = volume();
-    const comp = ctx.createDynamicsCompressor();
+    comp = ctx.createDynamicsCompressor();
     out.connect(comp).connect(ctx.destination);
     // A soft echo send for whistles and bells.
     echo = ctx.createDelay(1);
@@ -254,6 +264,56 @@
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     return true;
+  }
+
+  // ---- The hall (built on first use only) ---------------------------------------
+
+  let verb = null, verbSend = null, sting = null;
+
+  /** A synthetic hall: decorrelated stereo noise under an exponential decay
+   *  (time constant `tau`), darkening as it fades (a one-pole lowpass falling
+   *  from 6 kHz to 1.2 kHz over the tail), after an 18 ms predelay. */
+  function impulse(seconds, tau, predelay = 0.018) {
+    const sr = ctx.sampleRate, pre = Math.round(predelay * sr), n = pre + Math.ceil(seconds * sr);
+    const buf = ctx.createBuffer(2, n, sr), fadeFrom = n - Math.round(0.05 * sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      let y = 0;
+      for (let i = pre; i < n; i++) {
+        const tt = (i - pre) / sr, fc = 6000 * (1200 / 6000) ** Math.min(1, tt / seconds);
+        y += (1 - Math.exp(-2 * Math.PI * fc / sr)) * (Math.random() * 2 - 1 - y);
+        d[i] = y * Math.exp(-tt / tau) * (i > fadeFrom ? (n - i) / (n - fadeFrom) : 1);
+      }
+    }
+    return buf;
+  }
+
+  /** The track's reverb send: built for the first track that asks for one,
+   *  then just turned up or down (to 0 for tracks without the field). */
+  function reverbFor(track) {
+    const wet = Math.max(0, Math.min(1, track.reverb || 0));
+    if (!wet && !verb) return;
+    if (!verb) {
+      verb = ctx.createConvolver();
+      verb.buffer = impulse(2.8, 0.6);
+      verbSend = ctx.createGain();
+      verbSend.gain.value = 0;
+      out.connect(verbSend).connect(verb).connect(comp);
+      if (sting) sting.connect(verbSend);
+    }
+    verbSend.gain.setTargetAtTime(wet, ctx.currentTime, 0.3);
+  }
+
+  /** Stingers' own output: beside the band (not under its fades), at the
+   *  music volume. */
+  function stingOut() {
+    if (!sting) {
+      sting = ctx.createGain();
+      sting.gain.value = volume();
+      sting.connect(comp);
+      if (verbSend) sting.connect(verbSend);
+    }
+    return sting;
   }
 
   function env(g, t, a, peak, hold, rel) {
@@ -274,11 +334,12 @@
     const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q; return f;
   }
 
-  /** One note: instrument `inst`, midi `m`, at `t` for `dur` seconds. */
-  function voice(inst, m, t, dur, vol = 1, toEcho = false) {
+  /** One note: instrument `inst`, midi `m`, at `t` for `dur` seconds, into
+   *  `dest` (the band's output, or a layer's gain). */
+  function voice(inst, m, t, dur, vol = 1, toEcho = false, dest = out) {
     const f = mtof(m), g = ctx.createGain();
-    g.connect(out);
-    if (toEcho) g.connect(echo);
+    g.connect(dest);
+    if (toEcho) g.connect(echoOf.get(dest) || echo);
     const end = t + dur + 1.2;
     const V = (x) => x * vol;
     switch (inst) {
@@ -324,54 +385,172 @@
         if (inst === "flute") { const n = ctx.createBufferSource(), nf = filt("bandpass", f * 2, 4), ng = ctx.createGain();
           n.buffer = noiseBuf; ng.gain.value = V(0.015); n.connect(nf).connect(ng).connect(g); n.start(t); n.stop(t + dur); }
         env(g, t, 0.06, V(0.1), dur * 0.7, 0.15); break; }
+      // The night orchestra (Night Raid's tracks and stingers).
+      case "celesta": {   // FM: modulator at 3.5f, its depth falling from 2.2f to nothing in 0.35 s
+        const stop = t + 1.2, c = osc("sine", f, t, stop, g), mod = ctx.createOscillator(), mg = ctx.createGain();
+        mod.frequency.value = f * 3.5;
+        mg.gain.setValueAtTime(2.2 * f, t); mg.gain.linearRampToValueAtTime(0, t + 0.35);
+        mod.connect(mg).connect(c.frequency); mod.start(t); mod.stop(stop);
+        env(g, t, 0.002, V(0.08), 0, 0.9); break; }
+      case "fmbell": {    // FM at ratio 1.4, index 5 → 0.5 over 3 s, ringing out with τ 1.6 s
+        const stop = t + 8.5, c = osc("sine", f, t, stop, g), mod = ctx.createOscillator(), mg = ctx.createGain();
+        mod.frequency.value = f * 1.4;
+        mg.gain.setValueAtTime(5 * f * 1.4, t); mg.gain.exponentialRampToValueAtTime(0.5 * f * 1.4, t + 3);
+        mod.connect(mg).connect(c.frequency); mod.start(t); mod.stop(stop);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(V(0.07), t + 0.003);
+        g.gain.setTargetAtTime(0.0001, t + 0.003, 1.6); break; }
+      case "supersaw": {  // five saws spread −14…+14 cents across the stereo field, under a 1.4 kHz lowpass
+        const lp = filt("lowpass", 1400); lp.connect(g);
+        const stop = t + 0.8 + dur * 0.7 + 1.4;
+        [-14, -7, 0, 7, 14].forEach((cents, i) => {
+          const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+          if (pan) { pan.pan.value = -0.6 + 0.3 * i; pan.connect(lp); }
+          // A few ms apart, so the saws don't all start in phase (the attack hides it).
+          osc("sawtooth", f, t + Math.random() * 0.012, stop, pan || lp, cents);
+        });
+        env(g, t, 0.8, V(0.025), dur * 0.7, 1.3); break; }
+      case "cello": {     // a bowed saw, 900 Hz lowpass, a 5 Hz vibrato that grows in after the bow bites
+        const lp = filt("lowpass", 900, 1); lp.connect(g);
+        const stop = t + 0.12 + dur * 0.85 + 0.5, o = osc("sawtooth", f, t, stop, lp);
+        const vib = ctx.createOscillator(), vg = ctx.createGain(); vib.frequency.value = 5;
+        vg.gain.setValueAtTime(0, t + 0.15); vg.gain.linearRampToValueAtTime(8, t + 0.45);
+        vib.connect(vg).connect(o.detune); vib.start(t); vib.stop(stop);
+        env(g, t, 0.12, V(0.07), dur * 0.85, 0.4); break; }
+      case "harp": {      // triangle plus an octave sine, its brightness closing 5 kHz → 1.2 kHz
+        const lp = filt("lowpass", 5000); lp.connect(g);
+        lp.frequency.setValueAtTime(5000, t); lp.frequency.exponentialRampToValueAtTime(1200, t + 0.6);
+        const stop = t + 1.35, h = ctx.createGain(); h.gain.value = 0.4; h.connect(lp);
+        osc("triangle", f, t, stop, lp); osc("sine", f * 2, t, stop, h);
+        env(g, t, 0.002, V(0.1), 0, 1.2); break; }
+      case "horn": {      // a saw whose lowpass opens 700 → 1200 Hz with the swell and settles back
+        const lp = filt("lowpass", 700, 1.5); lp.connect(g);
+        const hold = dur * 0.8, stop = t + 0.15 + hold + 0.5;
+        lp.frequency.setValueAtTime(700, t); lp.frequency.linearRampToValueAtTime(1200, t + 0.15 + hold * 0.5);
+        lp.frequency.linearRampToValueAtTime(800, t + 0.15 + hold + 0.35);
+        osc("sawtooth", f, t, stop, lp); osc("sawtooth", f, t, stop, lp, 4);
+        env(g, t, 0.15, V(0.06), hold, 0.35); break; }
+      case "choir": {     // two saws a hair apart through "oo/ah" formants at 350 Hz and 800 Hz
+        const mix = ctx.createGain(), hold = dur * 0.8, stop = t + 0.6 + hold + 1.1;
+        mix.gain.value = 3.2;   // the narrow formants pass little of a saw: make it up here
+        for (const [hz, w] of [[350, 1], [800, 0.6]]) {
+          const bp = filt("bandpass", hz, 6), bg = ctx.createGain(); bg.gain.value = w;
+          mix.connect(bp).connect(bg).connect(g);
+        }
+        const a = osc("sawtooth", f, t, stop, mix), b = osc("sawtooth", f, t, stop, mix, 5);
+        const vib = ctx.createOscillator(), vg = ctx.createGain(); vib.frequency.value = 4.6; vg.gain.value = 5;
+        vib.connect(vg); vg.connect(a.detune); vg.connect(b.detune); vib.start(t); vib.stop(stop);
+        env(g, t, 0.6, V(0.05), hold, 1.0); break; }
       default: osc("triangle", f, t, end, g); env(g, t, 0.01, V(0.1), dur * 0.5, 0.2);
     }
   }
 
-  function noise(t, dur, type, freq, vol, q = 1) {
+  function noise(t, dur, type, freq, vol, q = 1, dest = out) {
     const s = ctx.createBufferSource(), f = filt(type, freq, q), g = ctx.createGain();
-    s.buffer = noiseBuf; s.connect(f).connect(g).connect(out);
+    s.buffer = noiseBuf; s.connect(f).connect(g).connect(dest);
     g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     s.start(t, Math.random()); s.stop(t + dur + 0.05);
   }
 
-  function drum(kind, t, vol = 1, accent = false) {
+  function drum(kind, t, vol = 1, accent = false, dest = out) {
     const a = accent ? 1.3 : 1, V = (x) => x * vol * a;
     switch (kind) {
-      case "kick": case "softkick": case "stomp": { const g = ctx.createGain(); g.connect(out);
+      case "kick": case "softkick": case "stomp": { const g = ctx.createGain(); g.connect(dest);
         const o = osc("sine", kind === "stomp" ? 110 : 150, t, t + 0.4, g);
         o.frequency.exponentialRampToValueAtTime(kind === "stomp" ? 55 : 45, t + 0.12);
         env(g, t, 0.002, V(kind === "softkick" ? 0.35 : 0.6), 0.02, 0.25);
-        if (kind === "stomp") noise(t, 0.08, "lowpass", 800, V(0.25)); break; }
-      case "snare": noise(t, 0.18, "bandpass", 2200, V(0.3), 0.8); voice("default", 55, t, 0.05, vol * 0.6); break;
-      case "noisesnare": noise(t, 0.12, "highpass", 1500, V(0.22)); break;
-      case "snareroll": noise(t, 0.06, "bandpass", 2500, V(0.15), 1); break;
-      case "clap": [0, 0.012, 0.024].forEach((d) => noise(t + d, 0.09, "bandpass", 1600, V(0.2), 1.2)); break;
-      case "hat": noise(t, 0.04, "highpass", 7000, V(0.12)); break;
-      case "ride": noise(t, 0.3, "highpass", 5000, V(0.06)); voice("bell", 98, t, 0.05, vol * 0.25); break;
-      case "brush": noise(t, 0.25, "bandpass", 3000, V(0.07), 0.4); break;
-      case "shaker": noise(t, 0.05, "bandpass", 6500, V(0.06), 1.5); break;
-      case "rim": noise(t, 0.03, "bandpass", 1800, V(0.25), 6); voice("default", 79, t, 0.02, vol * 0.4); break;
-      case "tick": noise(t, 0.02, "bandpass", 3500, V(0.25), 8); break;
-      case "tock": noise(t, 0.03, "bandpass", 1200, V(0.25), 8); break;
-      case "tom": { const g = ctx.createGain(); g.connect(out); const o = osc("sine", 140, t, t + 0.5, g);
+        if (kind === "stomp") noise(t, 0.08, "lowpass", 800, V(0.25), 1, dest); break; }
+      case "snare": noise(t, 0.18, "bandpass", 2200, V(0.3), 0.8, dest); voice("default", 55, t, 0.05, vol * 0.6, false, dest); break;
+      case "noisesnare": noise(t, 0.12, "highpass", 1500, V(0.22), 1, dest); break;
+      case "snareroll": noise(t, 0.06, "bandpass", 2500, V(0.15), 1, dest); break;
+      case "clap": [0, 0.012, 0.024].forEach((d) => noise(t + d, 0.09, "bandpass", 1600, V(0.2), 1.2, dest)); break;
+      case "hat": noise(t, 0.04, "highpass", 7000, V(0.12), 1, dest); break;
+      case "ride": noise(t, 0.3, "highpass", 5000, V(0.06), 1, dest); voice("bell", 98, t, 0.05, vol * 0.25, false, dest); break;
+      case "brush": noise(t, 0.25, "bandpass", 3000, V(0.07), 0.4, dest); break;
+      case "shaker": noise(t, 0.05, "bandpass", 6500, V(0.06), 1.5, dest); break;
+      case "rim": noise(t, 0.03, "bandpass", 1800, V(0.25), 6, dest); voice("default", 79, t, 0.02, vol * 0.4, false, dest); break;
+      case "tick": noise(t, 0.02, "bandpass", 3500, V(0.25), 8, dest); break;
+      case "tock": noise(t, 0.03, "bandpass", 1200, V(0.25), 8, dest); break;
+      case "tom": { const g = ctx.createGain(); g.connect(dest); const o = osc("sine", 140, t, t + 0.5, g);
         o.frequency.exponentialRampToValueAtTime(70, t + 0.3); env(g, t, 0.002, V(0.4), 0.02, 0.35); break; }
+      case "timpani": { const g = ctx.createGain(); g.connect(dest); const o = osc("sine", 90, t, t + 1.6, g);
+        o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.6);
+        env(g, t, 0.004, V(0.5), 0.02, 1.2);
+        noise(t, 0.7, "lowpass", 300, V(0.18), 0.7, dest); break; }
     }
+  }
+
+  // ---- Layers: parts a game fades in and out on bar lines ------------------------
+
+  let layerNodes = {};          // layer name → { gain, echo, on, offAt } for the playing track
+  let layerWant = null;         // the layers asked for (null: all of them)
+  const echoOf = new WeakMap(); // a layer's gain → its own gated send into the echo
+
+  /** The gain a layer's voices play into (and a twin gate for its echo), made on play. */
+  function layerNode(name) {
+    let L = layerNodes[name];
+    if (!L) {
+      const on = !layerWant || layerWant.includes(name) ? 1 : 0;
+      const gain = ctx.createGain(), e = ctx.createGain();
+      gain.gain.value = on; e.gain.value = on;
+      gain.connect(out); e.connect(echo);
+      echoOf.set(gain, e);
+      L = layerNodes[name] = { gain, echo: e, on, offAt: on ? Infinity : -Infinity };
+    }
+    return L;
+  }
+
+  /** The time of the next bar line (or beat, with `unit` "beat") at or after the next step to schedule. */
+  function boundary(unit = "bar") {
+    const track = TRACKS[playing], stepDur = 60 / track.bpm / track.beat;
+    const per = unit === "bar" ? track.steps : unit === "beat" ? track.beat : 1;
+    return nextAt + ((per - (step % per)) % per) * stepDur;
+  }
+
+  /**
+   * Fade layers of the playing track in (listed) or out (the rest); null
+   * sounds them all. Changes start on the next bar line and settle over
+   * about `fade` seconds. Asked before a track plays, it is how that track
+   * starts — and so is one asked during a play(…, { fadeOut }) switch, which
+   * leaves the outgoing track's layers as they are. Returns when the change
+   * starts (ctx time), or null.
+   */
+  function layers(names, { fade = 1.5 } = {}) {
+    layerWant = names ? [...names] : null;
+    if (!playing || !ctx || switchTimer) return null;
+    const at = boundary("bar");
+    for (const [name, L] of Object.entries(layerNodes)) {
+      const on = !layerWant || layerWant.includes(name) ? 1 : 0;
+      if (on === L.on) continue;
+      L.on = on;
+      for (const p of [L.gain.gain, L.echo.gain]) {
+        p.cancelScheduledValues(at);
+        p.setTargetAtTime(on, at, Math.max(0.01, fade / 3));
+      }
+      // Once a layer has faded out, its notes aren't even scheduled.
+      L.offAt = on ? Infinity : at + fade * 2;
+    }
+    return at;
   }
 
   // ---- The sequencer -------------------------------------------------------------
 
-  let playing = null, timer = null, step = 0, nextAt = 0, tunes = null, beds = [];
+  let playing = null, timer = null, step = 0, nextAt = 0, tunes = null, beds = [], switchTimer = null;
 
   function scheduleStep(track, s, t, stepDur) {
     const bar = Math.floor(s / track.steps) % track.chords.length, pos = s % track.steps;
     const c = chord(track.chords[bar]);
     const key = chord(track.key).root;
     track.parts.forEach((part, pi) => {
+      let dest = out;
+      if (part.layer) {
+        const L = layerNode(part.layer);
+        if (!L.on && t > L.offAt) return;
+        dest = L.gain;
+      }
       if (part.drum) {
         if (!part.rhythm) return;
         const ch = part.rhythm[pos % part.rhythm.length];
-        if (ch !== ".") drum(part.drum, t, part.vol ?? 1, ch === "X");
+        if (ch !== ".") drum(part.drum, t, part.vol ?? 1, ch === "X", dest);
         return;
       }
       const vol = part.vol ?? 1;
@@ -380,7 +559,7 @@
         if (idx >= 0) {
           const n = tune.bars[bar][idx];
           const next = tune.hits[idx + 1] ?? track.steps;
-          if (n != null) voice(part.inst, n, t, stepDur * (next - tune.hits[idx]) * 0.9, vol, !!part.echo);
+          if (n != null) voice(part.inst, n, t, stepDur * (next - tune.hits[idx]) * 0.9, vol, !!part.echo, dest);
         }
         return;
       }
@@ -390,23 +569,23 @@
       const tones = c.tones.map((x) => root + x);
       if (part.chordHold || part.chordStab) {
         const len = part.chordHold ? stepDur * part.chordHold : stepDur * 1.6;
-        tones.slice(0, 4).forEach((n) => voice(part.inst, n, t, len, vol * 0.8));
+        tones.slice(0, 4).forEach((n) => voice(part.inst, n, t, len, vol * 0.8, false, dest));
       } else if (part.arp) {
         const seq = part.arp === "updown" ? [...tones, ...tones.slice(1, -1).reverse()] : tones;
-        voice(part.inst, seq[pos % seq.length] + (pos >= track.steps / 2 && part.arp === "up" ? 12 : 0), t, stepDur * 0.9, vol);
+        voice(part.inst, seq[pos % seq.length] + (pos >= track.steps / 2 && part.arp === "up" ? 12 : 0), t, stepDur * 0.9, vol, false, dest);
       } else if (part.walk) {
         // Walking bass: root, third, fifth, a chromatic step into the next chord.
         const nextC = chord(track.chords[(bar + 1) % track.chords.length]);
         const nextRoot = 12 * (part.oct + 1) + nextC.root;
         const beatIdx = Math.floor(pos / (track.steps / 4));
         const walk = [root, root + c.tones[1], root + c.tones[2], nextRoot + (nextRoot > root ? -1 : 1)];
-        voice(part.inst, walk[beatIdx % 4], t, stepDur * 1.8, vol);
+        voice(part.inst, walk[beatIdx % 4], t, stepDur * 1.8, vol, false, dest);
       } else {
         const seq = part.seq || [0];
         const hitIdx = [...part.rhythm.slice(0, pos + 1)].filter((x) => x !== ".").length - 1;
         const deg = seq[hitIdx % seq.length];
         const n = deg === 3 ? root + 12 : root + (c.tones[deg] ?? 0);
-        voice(part.inst, n, t, stepDur * 1.5, vol * (ch === "X" ? 1.25 : 1));
+        voice(part.inst, n, t, stepDur * 1.5, vol * (ch === "X" ? 1.25 : 1), false, dest);
       }
     });
   }
@@ -437,7 +616,22 @@
     }
   }
 
-  function play(id) {
+  /** Play a track (stopping the last). With `fadeOut` (seconds) and a track
+   *  already playing, that one fades out first and the new one starts after. */
+  function play(id, { fadeOut = 0 } = {}) {
+    clearTimeout(switchTimer); switchTimer = null;
+    if (fadeOut > 0 && playing && out && TRACKS[id]) {
+      const t = ctx.currentTime;
+      out.gain.cancelScheduledValues(t);
+      out.gain.setValueAtTime(Math.max(0.0001, out.gain.value), t);
+      out.gain.exponentialRampToValueAtTime(0.0001, t + fadeOut);
+      switchTimer = setTimeout(() => { switchTimer = null; start(id); }, fadeOut * 1000);
+      return true;
+    }
+    return start(id);
+  }
+
+  function start(id) {
     stop();
     if (!TRACKS[id] || !setup()) return false;
     playing = id;
@@ -448,6 +642,8 @@
     out.gain.cancelScheduledValues(ctx.currentTime);
     out.gain.setValueAtTime(0.0001, ctx.currentTime);
     out.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume()), ctx.currentTime + 1.5);
+    reverbFor(track);
+    for (const p of track.parts) if (p.layer) layerNode(p.layer);
     startBeds(track);
     timer = setInterval(tick, 25);
     tick();
@@ -455,20 +651,76 @@
   }
 
   function stop() {
+    clearTimeout(switchTimer); switchTimer = null;
     clearInterval(timer); timer = null;
     beds.forEach((b) => { try { b.stop(); } catch { /* already */ } });
     beds = [];
+    // The last track's layers: let their tails ring, then let go of them.
+    const old = Object.values(layerNodes);
+    layerNodes = {};
+    if (old.length) setTimeout(() => old.forEach((L) => { L.gain.disconnect(); L.echo.disconnect(); }), 9000);
     playing = null;
   }
 
   function volume() { const v = parseFloat(store.get("rx-music-vol")); return Number.isFinite(v) ? v : 0.35; }
   function setVolume(v) {
     store.set("rx-music-vol", String(v));
-    if (out) out.gain.setTargetAtTime(Math.max(0.0001, v), ctx.currentTime, 0.1);
+    // Mid-switch the outgoing track keeps fading; start() brings the next one in at the new volume.
+    if (out && !switchTimer) out.gain.setTargetAtTime(Math.max(0.0001, v), ctx.currentTime, 0.1);
+    if (sting) sting.gain.setTargetAtTime(Math.max(0.0001, v), ctx.currentTime, 0.1);
   }
+
+  // ---- Scoring helpers: stingers, the clock, the lowpass ---------------------------
+
+  /** Named stingers a game registers, for stinger("name"). */
+  const STINGERS = {};
+
+  /**
+   * A short phrase in the playing track's key and scale (D dorian when
+   * nothing plays): `degrees` are scale steps from the key note (7 = the
+   * octave in a seven-note scale; negatives go below), `step` seconds apart
+   * (0 = a chord), at octave `oct`. It lands on the track's next beat
+   * (`quantize`: "beat", "bar", "step" or "none"; or an exact ctx time in
+   * `at`). Plays beside the band, so its fades don't touch it.
+   * Returns the start time (ctx seconds), or null.
+   */
+  function stinger(spec) {
+    if (typeof spec === "string") spec = STINGERS[spec];
+    if (!spec?.inst || !Array.isArray(spec.degrees) || !setup()) return null;
+    const track = playing ? TRACKS[playing] : null;
+    const keyPc = chord(track?.key || "D").root, scale = SCALES[track?.scale] || SCALES.dorian;
+    const q = spec.quantize || "beat";
+    let t0 = ctx.currentTime + 0.02;
+    if (Number.isFinite(spec.at)) t0 = Math.max(ctx.currentTime, spec.at);
+    else if (track && q !== "none") t0 = Math.max(t0, boundary(q));
+    const base = 12 * ((spec.oct ?? 5) + 1) + keyPc, step = spec.step ?? 0.1, dest = stingOut();
+    spec.degrees.forEach((d, i) => {
+      const n = scale.length, o = Math.floor(d / n), m = base + 12 * o + scale[((d % n) + n) % n];
+      voice(spec.inst, m, t0 + i * step, spec.dur ?? Math.max(0.4, step * 1.5), spec.vol ?? 1, false, dest);
+    });
+    return t0;
+  }
+
+  /** Where the band is: tempo, metre, the step now sounding, the next step's
+   *  index (`nextStep`) and time, the key and the chord under it. With
+   *  nothing playing: D dorian. */
+  function clock() {
+    const now = ctx ? ctx.currentTime : 0;
+    if (!playing) {
+      return { playing: null, bpm: 0, beat: 0, steps: 0, stepDur: 0, step: 0, nextStep: 0, bar: 0, nextAt: now, now,
+        key: "D", scale: "dorian", chord: { ...chord("Dm7"), name: "Dm7" } };
+    }
+    const track = TRACKS[playing], stepDur = 60 / track.bpm / track.beat;
+    const cur = Math.max(0, step - Math.ceil((nextAt - now) / stepDur));
+    const bar = Math.floor(cur / track.steps) % track.chords.length;
+    return { playing, bpm: track.bpm, beat: track.beat, steps: track.steps, stepDur, step: cur, nextStep: step, bar, nextAt, now,
+      key: track.key, scale: track.scale, chord: { ...chord(track.chords[bar]), name: track.chords[bar] } };
+  }
+
   /** Duck the music under a voice line, then bring it back. */
   function duck(seconds = 2.5) {
-    if (!out || !playing) return;
+    // Mid-switch the outgoing track is fading out: ducking would cancel the fade.
+    if (!out || !playing || switchTimer) return;
     const t = ctx.currentTime, v = volume();
     out.gain.cancelScheduledValues(t);
     out.gain.setTargetAtTime(v * 0.35, t, 0.08);
@@ -476,6 +728,7 @@
   }
 
   window.RexGame = Object.assign(window.RexGame || {}, {
-    music: { TRACKS, play, stop, playing: () => playing, volume, setVolume, duck },
+    music: { TRACKS, play, stop, playing: () => playing, volume, setVolume, duck,
+      layers, stinger, STINGERS, clock },
   });
 })();

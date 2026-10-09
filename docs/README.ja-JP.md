@@ -69,7 +69,7 @@ SQLite ファイルに保存され、API キーとサインイン情報はあな
 | 🛠️ **ローカルコンピュータタスク** | オプトイン（`local_task`）：[Grok Build CLI](https://docs.x.ai/build) を通じて、あなたのマシン上でファイル・コード・シェルを実際に操作します。作業は指定した作業フォルダー内に限定されます（設定 → ローカルコンピュータタスク）。そのフォルダー内では確認プロンプトなしで動くため、**デフォルトはオフ** です。Docker では提供されません。 |
 | ⛏️ **Minecraft ボット** | オプトイン：コンパニオンが本物のプレイヤーとしてあなたの Minecraft ワールドに参加し、音声の指示でプレイして、ワールドの出来事に声で反応します（「ダイヤ見つけた！」）。モデルが書いたスクリプトをワールド内で実行するため **デフォルトはオフ** です。自分のサーバーか信頼できるサーバーでのみ使ってください。 |
 | 🔌 **リモート MCP ツール** | コンパニオンごとにリモート MCP サーバーを接続できます。Bearer 認証とツール単位のホワイトリストに対応し、すべて UI から設定できます。 |
-| 🎮 **ゲーム（Neuro API）** | Neuro-sama のオープンなゲーム API 向けのゲーム（Slay the Spire 2、Inscryption、Buckshot Roulette、多数のコミュニティ MOD）をコンパニオンがプレイし、あなたと話しながら遊びます。チェスからヘッズアップポーカーまで、10 のミニゲームを内蔵。 |
+| 🎮 **ゲーム（Neuro API）** | Neuro-sama のオープンなゲーム API 向けのゲーム（Slay the Spire 2、Inscryption、Buckshot Roulette、多数のコミュニティ MOD）をコンパニオンがプレイし、あなたと話しながら遊びます。チェスからヘッズアップポーカーまで、11 のミニゲームを内蔵。 |
 | 🧩 **拡張機能** | フォルダを置くだけで、独自のコンパニオン用ツール、ページ、音声エンジン、ゲームを追加できます。 |
 
 ### あなたのもの
@@ -466,9 +466,10 @@ Rexclaw は、Neuro-sama のゲーム連携が使うオープンなプロトコ�
 3. そのコンパニオンと通話を始めて遊びます。通話していないとき MOD は
    あなたを待ちますが、ゲームタブでチャットでのプレイ継続も選べます。
 
-**内蔵ゲーム：** ブロードサイド！（3D の海戦）、チェス、ヘッズアップのホールデム、四目並べ、ライアーズダイス、
-ブラックジャック、クレイジーエイト、板歩き、じゃんけん、三目並べ。ゲームタブの
-一覧から開け、クルーが本人の声で茶々を入れます。
+**内蔵ゲーム：** レックスモー・レイド（昼と夜の 3D ミッション。レックスモー号の大砲はあなたが狙って撃ち、コンパニオンはあなたの命令を受けて闇の中の航路を導く）、ブロードサイド！（3D の海戦）、
+チェス、ヘッズアップのホールデム、四目並べ、ライアーズダイス、ブラックジャック、
+クレイジーエイト、板歩き、じゃんけん、三目並べ。ゲームタブの一覧から開け、
+クルーが本人の声で茶々を入れます。
 
 **自作ゲーム：** ゲームは `game.json` を置いたフォルダです。拡張機能も
 自分のゲームを追加したり、`api.connect_game()` でつないだりできます。詳しくは
@@ -622,6 +623,13 @@ def setup(api):
   bassimat の `heartbeat-drone` と `void-drone`、PhonZz の `relaxation-pads` と
   `angelic-pad`、Kronek9 の `emanation`、Andrewkn の `space-pad` と
   `cosmic-glow`。出典は `assets/audio/beds/CREDITS.md` に記載。
+- Rexmaw Raids の音楽 — **[OpenGameArt](https://opengameart.org)** から：
+  Dizzy Crow の "Pirate's Orchestra"、RandomMind の "Fantasy: Rising Moon" と
+  "Medieval: Victory Theme"（CC0）、Matthew Pablo の "Blackmoor Tides" と
+  "Blackmoor Colossus"（CC-BY 3.0）。Kevin MacLeod の "Greta Sting"、
+  **[incompetech.com](https://incompetech.com)**（CC-BY 4.0）。ゲーム用に
+  トリミング・ループ加工しています。出典は
+  `web/public/games/night-raid/assets/CREDITS.txt` に記載。
 - **[WORLD](https://github.com/mmorise/World)**（修正 BSD、森勢将雅）と
   **[pyworld](https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder)**
   （MIT）：カラオケステージでコンパニオンの声を歌声に変えるボコーダー。

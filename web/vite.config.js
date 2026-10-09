@@ -9,7 +9,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 // The mini-games (public/games/) load three.js as a plain module, not through
 // the app's bundle: copy the app's own build and its addons next to them, so a
 // 3D game works offline and on the same version. The addons' libs/ (Draco,
-// Basis and other decoders, 9 MB) stay out.
+// Basis and other decoders, 9 MB) stay out. three-vrm and its animation
+// plugin come too (ES builds that import only "three", MIT, banner kept),
+// for games that put the companion's own VRM on stage (Night Raid).
 function gamesVendor() {
   return {
     name: "rexclaw-games-vendor",
@@ -25,6 +27,11 @@ function gamesVendor() {
         recursive: true,
         filter: (src) => !/[\\/]jsm[\\/]libs([\\/]|$)/.test(src),
       });
+      const vrmOut = join(here, "dist", "games", "lib", "vendor", "three-vrm");
+      mkdirSync(vrmOut, { recursive: true });
+      cpSync(join(here, "node_modules", "@pixiv", "three-vrm", "lib", "three-vrm.module.min.js"), join(vrmOut, "three-vrm.module.min.js"));
+      cpSync(join(here, "node_modules", "@pixiv", "three-vrm-animation", "lib", "three-vrm-animation.module.min.js"), join(vrmOut, "three-vrm-animation.module.min.js"));
+      cpSync(join(here, "node_modules", "@pixiv", "three-vrm", "LICENSE"), join(vrmOut, "LICENSE"));
     },
   };
 }

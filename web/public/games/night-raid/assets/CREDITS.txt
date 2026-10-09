@@ -1,0 +1,108 @@
+Rexmaw Raids — credits
+======================
+
+Images (made for Rexclaw)
+-------------------------
+Every image in this folder was generated in-house for Rexclaw with OpenAI
+image generation, driven through the Codex CLI, then trimmed, resized and
+converted to WebP by hand. No third-party image files are used.
+
+  cover.webp                        library tile and title backdrop (the
+                                    Rexmaw firing a full broadside across a
+                                    split day/night sea: a sunlit merchant
+                                    under fire on the left, moonlit fog and a
+                                    ghostly ship on the right)
+  assets/img/logo.webp              the REXMAW RAIDS logotype
+  assets/img/parchment.webp         tileable parchment for the panels, the
+                                    bay chart and the ship's log (from Night Helm)
+  assets/img/moon.webp              the moon sprite (from Night Helm)
+  assets/img/kraken_eye.webp        the Kraken's eye (from Night Helm)
+
+  Ship textures (Rexmaw Raids), generated the same way (OpenAI image
+  generation through the Codex CLI), made seamless by an offset-and-feather
+  blend, resized and packed into small WebP atlases with Pillow:
+  assets/tex/hull.webp              dark weathered oak hull planking | pale
+                                    painted planks (tinted per ship in the
+                                    shader for the gun-port strakes)
+  assets/tex/deck.webp              sun-bleached deck planks
+  assets/tex/sails.webp             clean sailcloth | weathered, patched
+                                    canvas with torn holes in its alpha
+  assets/tex/flags.webp             four invented flags: a navy ensign (a
+                                    saltire and an anchor), a merchant
+                                    company's stripes, a pirate's black flag,
+                                    the Gloam's eye
+
+Music (assets/music/)
+---------------------
+Six third-party recordings, each licence checked on the track's own page
+(2026-10-08). All were trimmed, made to loop seamlessly (the stings cut to
+their opening phrase or natural end), loudness-normalised (beds -16 LUFS,
+stings -14 LUFS) and re-encoded as Ogg Vorbis 112 kbps for the game.
+
+  assets/music/day.ogg       "Pirate's Orchestra" by Dizzy Crow
+                             https://opengameart.org/content/pirates-orchestra-208
+                             CC0 1.0 (public domain dedication)
+                             https://creativecommons.org/publicdomain/zero/1.0/
+                             Looped 0:00.3-1:47.0 (2.5 s crossfade).
+
+  assets/music/night.ogg     "Fantasy: Rising Moon" by RandomMind
+                             https://opengameart.org/content/fantasy-rising-moon
+                             CC0 1.0 (public domain dedication)
+                             https://creativecommons.org/publicdomain/zero/1.0/
+                             Looped 0:09.0-3:25.0 (3 s crossfade).
+
+  assets/music/combat.ogg    "Blackmoor Tides (Epic Pirate Battle Theme)",
+                             "Blackmoor Tides Loop (No Chants)", by Matthew Pablo
+                             (http://www.matthewpablo.com)
+                             https://opengameart.org/content/blackmoor-tides-epic-pirate-battle-theme
+                             CC BY 3.0
+                             https://creativecommons.org/licenses/by/3.0/
+                             The composer's loop, with a 10 ms seam crossfade.
+
+  assets/music/boss.ogg      "Colossal Boss Battle Theme" ("Blackmoor Colossus
+                             Loop") by Matthew Pablo (http://www.matthewpablo.com)
+                             https://opengameart.org/content/colossal-boss-battle-theme
+                             CC BY 3.0
+                             https://creativecommons.org/licenses/by/3.0/
+                             The composer's loop, with a 10 ms seam crossfade.
+
+  assets/music/victory.ogg   "Medieval: Victory Theme" by RandomMind
+                             https://opengameart.org/content/medieval-victory-theme
+                             CC0 1.0 (public domain dedication)
+                             https://creativecommons.org/publicdomain/zero/1.0/
+                             The opening fanfare only (0:00-0:06.9, faded).
+
+  assets/music/defeat.ogg    "Greta Sting" by Kevin MacLeod (incompetech.com)
+                             https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100530
+                             Licensed under Creative Commons: By Attribution 4.0
+                             https://creativecommons.org/licenses/by/4.0/
+                             Trimmed to its natural end (0:15).
+
+The CC0 tracks need no credit; it is given anyway. When the files can't be
+loaded the game falls back to its own synthesised score (below).
+
+Sound
+-----
+All of Night Raid's sound effects (the layered cannons near and far, near
+misses, splinters, fire, rain and thunder, the maelstrom, the Kraken, the
+ship's bell and the rest), the bay's ambience, the short musical stingers
+(a ship sunk, a chest, an objective...) and the fallback music (the four
+tracks in js/audio/tracks.js) are procedural: synthesised in the browser with
+the Web Audio API (pre-rendered with OfflineAudioContext) by the game's own
+code and the games kit's music.js. The
+crew's cameo lines and the companion's reaction lines are Rexclaw's own
+text-to-speech recordings.
+
+Motion
+------
+The crew's and the companion's gestures come from the clips already bundled
+with Rexclaw and credited in its README:
+  - VRoid Project Motion Pack (pixiv Inc.; commercial use permitted with
+    credit): https://vroid.pixiv.help/hc/en-us/articles/4402394424089
+  - Digital Life Project (MIT; S-Lab, Nanyang Technological University),
+    assets/motion/dlp3d-ani: https://github.com/dlp3d-ai/dlp3d.ai
+
+Runtime
+-------
+three.js (MIT) and @pixiv/three-vrm / three-vrm-animation (MIT), served
+from the app's own vendored copies.

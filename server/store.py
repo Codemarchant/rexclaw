@@ -160,6 +160,7 @@ def avatar_payload(con, avatar_id):
         'vrm_url': av['vrm_path'],
         'is_default': True,
         'portrait_url': portraits.portrait_url(av['vrm_path']),
+        'fullbody_url': portraits.fullbody_url(av['vrm_path']),
         'face_tuning': face_tuning(av),
     }]
     for o in outfit_rows:
@@ -171,6 +172,7 @@ def avatar_payload(con, avatar_id):
             'vrm_url': o['vrm_path'],
             'is_default': False,
             'portrait_url': portraits.portrait_url(o['vrm_path']),
+            'fullbody_url': portraits.fullbody_url(o['vrm_path']),
             'face_tuning': face_tuning(o),
         })
     backgrounds = [background_payload(b) for b in bg_rows]

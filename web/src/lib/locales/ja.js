@@ -2101,6 +2101,19 @@ export const JA = {
     "Apache-2.0。ウェイクフレーズを聞き取るオフライン音声モデル。",
   "CC0. The recorded beds heartbeat-drone, void-drone (bassimat), relaxation-pads, angelic-pad (PhonZz) and emanation (Kronek9), and the music space-pad and cosmic-glow (Andrewkn). Sources in assets/audio/beds/CREDITS.md.":
     "CC0。録音ベッドの heartbeat-drone、void-drone（bassimat）、relaxation-pads、angelic-pad（PhonZz）、emanation（Kronek9）と、音楽の space-pad、cosmic-glow（Andrewkn）。出典は assets/audio/beds/CREDITS.md に記載。",
+  "Rexmaw Raids music": "Rexmaw Raids の音楽",
+  "CC0. The day sailing music, looped.":
+    "CC0。昼の航海の音楽（ループ）。",
+  "CC0. The night sailing music, looped.":
+    "CC0。夜の航海の音楽（ループ）。",
+  "CC BY 3.0, Matthew Pablo (matthewpablo.com). The battle music (the composer's loop).":
+    "CC BY 3.0、Matthew Pablo（matthewpablo.com）。戦闘の音楽（作曲者によるループ版）。",
+  "CC BY 3.0, Matthew Pablo (matthewpablo.com). The boss music (the Blackmoor Colossus loop).":
+    "CC BY 3.0、Matthew Pablo（matthewpablo.com）。ボス戦の音楽（Blackmoor Colossus のループ版）。",
+  "CC0. The victory sting (its opening fanfare).":
+    "CC0。勝利のジングル（冒頭のファンファーレ）。",
+  "CC BY 4.0. The defeat sting.":
+    "CC BY 4.0。敗北のジングル。",
   "Camera awareness": "カメラ認識",
   "Apache-2.0, Google. The on-device face and hand models that notice presence and gestures on the shared camera — nothing leaves the device.":
     "Apache-2.0、Google。共有カメラ上で在席とジェスチャーに気づく端末内の顔・手モデル — 端末の外には何も出ません。",

@@ -68,7 +68,7 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 | 🛠️ **Local computer tasks** | Opt-in (`local_task`): real files, code and shell on your machine through the [Grok Build CLI](https://docs.x.ai/build), confined to a working folder you choose (Settings → Local computer tasks). It runs without confirmation prompts inside that folder, so it's **off by default**. Never offered in Docker. |
 | ⛏️ **Minecraft bot** | Opt-in: your companion joins your Minecraft world as a real player, plays on your spoken directions and reacts aloud to what happens ("found diamonds!"). **Off by default**: it runs model-written scripts in your world, so use your own or trusted servers. |
 | 🔌 **Remote MCP tools** | Attach remote MCP servers per companion, with bearer auth and per-tool whitelists, all from the UI. |
-| 🎮 **Games (Neuro API)** | Your companion plays games built for Neuro-sama's open game API (Slay the Spire 2, Inscryption, Buckshot Roulette and many community mods) and talks it through with you. Ten built-in mini-games, from chess to heads-up poker. |
+| 🎮 **Games (Neuro API)** | Your companion plays games built for Neuro-sama's open game API (Slay the Spire 2, Inscryption, Buckshot Roulette and many community mods) and talks it through with you. Eleven built-in mini-games, from chess to heads-up poker. |
 | 🧩 **Extensions** | Drop-in folders that add your own companion tools, pages, voice engines and games. |
 
 ### Yours
@@ -456,10 +456,11 @@ Community mods are listed in the
 3. Start a call with that companion and play. Off a call, the mod waits for
    you, unless the Games tab lets the companion play on in a chat.
 
-**Built in:** Broadside! (a 3D cannon duel), chess, heads-up Hold'em,
-Connect Four, Liar's Dice, Blackjack, Crazy Eights, Walk the Plank, Rock Paper Scissors and
-Tic-Tac-Toe, in the Games tab library, with the crew chiming in in their own
-voices.
+**Built in:** Rexmaw Raids (3D day and night missions: you aim the Rexmaw's
+guns, your companion takes your orders and navigates the dark), Broadside! (a 3D cannon
+duel), chess, heads-up Hold'em, Connect Four, Liar's Dice, Blackjack, Crazy
+Eights, Walk the Plank, Rock Paper Scissors and Tic-Tac-Toe, in the Games tab
+library, with the crew chiming in in their own voices.
 
 **Your own games:** a game is a folder with a `game.json`; extensions can
 add their own or connect one with `api.connect_game()`. See
@@ -608,6 +609,13 @@ each project.
   `relaxation-pads` and `angelic-pad` by PhonZz, `emanation` by Kronek9,
   `space-pad` and `cosmic-glow` by Andrewkn. Sources in
   `assets/audio/beds/CREDITS.md`.
+- Rexmaw Raids music — from **[OpenGameArt](https://opengameart.org)**:
+  "Pirate's Orchestra" by Dizzy Crow, "Fantasy: Rising Moon" and "Medieval:
+  Victory Theme" by RandomMind (CC0), "Blackmoor Tides" and "Blackmoor
+  Colossus" by Matthew Pablo (CC-BY 3.0); "Greta Sting" by Kevin MacLeod,
+  **[incompetech.com](https://incompetech.com)** (CC-BY 4.0). Trimmed and
+  looped for the game; sources in
+  `web/public/games/night-raid/assets/CREDITS.txt`.
 - **[WORLD](https://github.com/mmorise/World)** (modified BSD, Masanori
   Morise) via **[pyworld](https://github.com/JeremyCCHsu/Python-Wrapper-for-World-Vocoder)**
   (MIT): the vocoder the karaoke stage re-sings companions' voices with.

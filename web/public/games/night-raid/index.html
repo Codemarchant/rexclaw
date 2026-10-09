@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Rexmaw Raids · Rexclaw</title>
+<!--
+  Rexmaw Raids: the Captain (the user) sails the Rexmaw on day and night
+  missions, aiming and firing the guns themselves; their companion takes the
+  Captain's orders (a gun crew, repairs, the pumps), and in the dark they
+  navigate: headings and the reefs the Captain's chart can't show. Rex, Eve,
+  Ara, Sal and Leo work the deck as their own VRMs. Free Roam keeps the open
+  bay. three.js (WebGL2); a look of its own (no games.css); the kit
+  brings its chat dock, settings cog and music. three.js and three-vrm are the
+  app's own copies, served from /games/lib/vendor/ (copied in at build time).
+-->
+<script type="importmap">
+{ "imports": {
+  "three": "/games/lib/vendor/three/three.module.min.js",
+  "three/addons/": "/games/lib/vendor/three/addons/",
+  "@pixiv/three-vrm": "/games/lib/vendor/three-vrm/three-vrm.module.min.js",
+  "@pixiv/three-vrm-animation": "/games/lib/vendor/three-vrm/three-vrm-animation.module.min.js" } }
+</script>
+<link rel="stylesheet" href="css/night-raid.css">
+<style>
+  /* The loading veil: the wheel turns while the bay is built and the crew come
+     aboard behind it (the tokens come from css/night-raid.css). */
+  #loading { position: fixed; inset: 0; z-index: var(--z-loading, 90); display: grid; place-items: center; padding: 16px;
+    background: radial-gradient(110% 80% at 50% 110%, #2a1830 0%, var(--nr-night-2, #0b1424) 38%, var(--nr-night, #04070d) 78%);
+    color: var(--nr-cream, #f3e6c8); transition: opacity .8s cubic-bezier(.22, 1, .36, 1), visibility 0s linear .8s; }
+  #loading.done { opacity: 0; visibility: hidden; pointer-events: none; }
+  #loading .mark { display: grid; justify-items: center; gap: 6px; width: min(480px, 100%); text-align: center; }
+  #loading svg { width: 92px; height: 92px; color: var(--nr-gilt, #ffcf6b); filter: drop-shadow(0 0 10px rgba(255, 207, 107, .35));
+    animation: nr-veil-turn 6s cubic-bezier(.45, 0, .55, 1) infinite alternate; }
+  @keyframes nr-veil-turn { from { transform: rotate(-35deg); } to { transform: rotate(35deg); } }
+  #loading h1 { margin: 10px 0 0; font-size: clamp(2.4rem, 10vw, 4rem); line-height: 1; letter-spacing: .03em; }
+  #loading .sub { font: italic 600 .88rem Georgia, serif; letter-spacing: .3em; text-transform: uppercase; color: var(--nr-moon, #9fb4ff); }
+  #loading .bar { position: relative; width: min(240px, 60vw); height: 1px; margin-top: 18px; background: rgba(255, 207, 107, .18); }
+  #loading .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--p, 0) * 100%);
+    background: linear-gradient(90deg, rgba(255, 207, 107, .2), var(--nr-gilt, #ffcf6b)); box-shadow: 0 0 8px var(--nr-gilt, #ffcf6b);
+    transition: width .45s cubic-bezier(.22, 1, .36, 1); }
+  #loading .status { margin-top: 10px; min-height: 1.3em; font: italic .88rem Georgia, serif; color: rgba(243, 230, 200, .72); }
+  #loading .crew { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px; min-height: 1.4em; margin-top: 4px;
+    font: 600 .78rem system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; }
+  #loading .crew span { color: rgba(243, 230, 200, .3); transition: color .4s; }
+  #loading .crew span::before { content: "○ "; }
+  #loading .crew span.loading { color: rgba(243, 230, 200, .7); }
+  #loading .crew span.ok, #loading .crew span.paper { color: var(--nr-gilt, #ffcf6b); }
+  #loading .crew span.ok::before, #loading .crew span.paper::before { content: "● "; }
+  #loading.failed .status { color: #f0a070; }
+  @media (prefers-reduced-motion: reduce) { #loading svg { animation: none; } }
+</style>
+</head>
+<body data-view="boot">
+<div id="stage"><div id="labels"></div></div>
+
+<div id="hud" hidden></div>
+
+<div id="title" hidden>
+  <div class="card">
+    <h1 class="gilt">Rexmaw Raids</h1>
+    <p>Day and night missions. You aim the guns; <b data-companion>your companion</b> takes your orders and navigates the dark.</p>
+    <div id="title-record"></div>
+    <div id="title-modes"></div>
+    <div class="row"><button id="title-start" type="button" disabled>Cast off</button></div>
+    <div id="title-status" role="status" aria-live="polite"></div>
+  </div>
+</div>
+
+<div id="overlay">
+  <div id="coach" aria-live="polite"></div>
+  <div id="settings" hidden></div>
+  <div id="results" hidden></div>
+</div>
+
+<div id="loading" role="status" aria-busy="true" aria-label="Loading Rexmaw Raids" style="--p: 0">
+  <div class="mark">
+    <svg viewBox="-50 -50 100 100" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round">
+      <circle r="27" stroke-width="5"/>
+      <circle r="7" stroke-width="4"/>
+      <g stroke-width="4">
+        <path d="M0-7V-44M0 7V44M-7 0H-44M7 0H44M-5-5-31-31M5 5 31 31M5-5 31-31M-5 5-31 31"/>
+      </g>
+      <g fill="currentColor" stroke="none">
+        <circle cy="-45" r="4.5"/><circle cy="45" r="4.5"/><circle cx="-45" r="4.5"/><circle cx="45" r="4.5"/>
+        <circle cx="-32" cy="-32" r="4"/><circle cx="32" cy="32" r="4"/><circle cx="32" cy="-32" r="4"/><circle cx="-32" cy="32" r="4"/>
+      </g>
+    </svg>
+    <h1 class="gilt">Rexmaw Raids</h1>
+    <div class="sub">Day and night missions</div>
+    <div class="bar"><i></i></div>
+    <div class="status">Unrolling the chart…</div>
+    <div class="crew" aria-label="The crew coming aboard"></div>
+  </div>
+</div>
+
+<a class="back" href="../index.html">← Games deck</a>
+
+<script src="../lib/neuro.js"></script>
+<script src="../lib/juice.js"></script>
+<script src="../lib/music.js"></script>
+<script src="../lib/crew.js"></script>
+<script src="../lib/lines.js"></script>
+<script type="module" src="js/audio/tracks.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

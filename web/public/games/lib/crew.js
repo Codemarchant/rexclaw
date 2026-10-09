@@ -11,7 +11,19 @@
  * game's own (deal, bust, blackjack, reveal, splash, kraken, block, shoot,
  * fire, hit, miss, hurt, sink, check, castle, kraken_taken, promote, en_passant,
  * all_in, showdown, river, bad_beat, bluff_shown, hero_call, polly, blunder,
- * rampage) and the visitors' (bottle, cat, tentacle, kraken_tax).
+ * rampage; Rexmaw Raids' cast_off, contact, board, won, lost, striking, sink,
+ * brace, bank, dawn, caught_dawn, we_sink, man_overboard, overboard_rescued,
+ * fire_aboard, fire_out, leak_patched, pumps_holding, hazard_wave, hazard_shoal,
+ * hazard_maelstrom, kraken, legendary, fort, ack_round, ack_chain, ack_grape,
+ * ack_heavy, fire_bears, order_mark, order_hold, order_raking, volley_mark,
+ * moment_shanty, moment_tea, moment_banter, moment_rally, moment_joke,
+ * mission_day, mission_night, mission_success, mission_fail, day_ending,
+ * fort, tower_down, iron_duke, chain_hit, sprint, pickup, pickup_chest, cove,
+ * reef_near, fog_heading, danger_marked, lantern, spotted, kraken_arm_off, and
+ * per-speaker "<who>:<event>" forms such as leo:ack_man_guns_port or
+ * ara:repair_done) and the visitors' (bottle, cat, tentacle, kraken_tax). A
+ * line's optional `say` is what its voice was recorded from (with speech
+ * tags); the toast shows `text`.
  */
 (function () {
   "use strict";

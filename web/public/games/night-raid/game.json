@@ -1,0 +1,9 @@
+{
+  "title": "Rexmaw Raids",
+  "description": "Day and night missions aboard the Rexmaw: aim and fire the broadsides yourself, Black Flag style, chain-shot the rigging and shell the forts. Your companion takes your orders on the guns and the pumps and navigates the dark, calling headings and marking the reefs.",
+  "tags": ["3D", "naval", "action", "co-op", "talky"],
+  "cover": "cover.webp",
+  "background": "linear-gradient(160deg,#2b3550 0%,#141b2e 45%,#05070d 100%)",
+  "save_key": "Rexmaw Raids",
+  "order": 0
+}

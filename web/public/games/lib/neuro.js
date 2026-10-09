@@ -24,6 +24,19 @@
  * - modes (a bar under the header, remembered in the save);
  * - a speech bubble and a chat box (Rexclaw's rexclaw/say and rexclaw/chat),
  *   and off a call, the companion's recorded reaction lines (game.react).
+ *
+ * Optional hooks for a game that listens to the companion as well as
+ * asking them (all off by default):
+ * - onSay(text): what the companion said (spoken on a call, typed off one);
+ * - onThinking(on): an off-call turn started or ended;
+ * - onSpeechEnd(): the companion finished a reply (Neuro's speech_finished);
+ * - onVoiceLine(audio, {text, event}): one of their recorded reaction lines
+ *   started playing (an <audio> element, for lip-sync).
+ * game.end({ quip }) replaces the result screen's small print.
+ *
+ * RexGame.sfxVolume (get / set / on) is the Effects volume the ⚙ menu's
+ * slider moves for every game (juice.js honours it; a game with its own
+ * sound bus multiplies by get() and follows on()).
  */
 (function () {
   "use strict";
@@ -45,6 +58,30 @@
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
   };
   const voiceOn = () => local.get("rx-games-voice") === "1";
+
+  // The Effects volume every game shares (the ⚙ menu's slider): 0..1, kept
+  // per browser. juice.js scales its sounds by it; a game with sounds of its
+  // own reads it (get) and follows it (on). 1 = as loud as the games always were.
+  const SFX_VOL_KEY = "rx-games-sfx-vol";
+  const clampVol = (v) => Math.min(1, Math.max(0, Number(v)));
+  const sfxVolSubs = new Set();
+  let sfxVol = (() => { const n = parseFloat(local.get(SFX_VOL_KEY)); return Number.isFinite(n) ? clampVol(n) : 1; })();
+  function setSfxVol(v, persist) {
+    const n = clampVol(v);
+    if (!Number.isFinite(n) || n === sfxVol) return sfxVol;
+    sfxVol = n;
+    if (persist) local.set(SFX_VOL_KEY, String(n));
+    for (const fn of sfxVolSubs) { try { fn(n); } catch (e) { console.error(e); } }
+    return sfxVol;
+  }
+  const sfxVolume = {
+    get: () => sfxVol,
+    set: (v) => setSfxVol(v, true),
+    /** Hear changes: fn(volume) → off(). */
+    on(fn) { if (typeof fn === "function") sfxVolSubs.add(fn); return () => sfxVolSubs.delete(fn); },
+  };
+  // Another tab moved it: follow (without writing it back).
+  addEventListener("storage", (e) => { if (e.key === SFX_VOL_KEY && e.newValue != null) setSfxVol(parseFloat(e.newValue), false); });
 
   // One voice at a time: the companion's recorded reactions and the crew's
   // cameos (crew.js) queue behind each other instead of talking over each
@@ -91,7 +128,8 @@
    * through them now and then.
    */
   function create({ name, rules, actions, onAction, onCompanion, onConnect, onLoad, onAgain,
-                    modes = null, onMode = null, chat = true, ui = {}, music = [], scenes = [], seagulls = null }) {
+                    modes = null, onMode = null, chat = true, ui = {}, music = [], scenes = [], seagulls = null,
+                    onSay = null, onThinking = null, onSpeechEnd = null, onVoiceLine = null }) {
     const game = { name, companion: "Your companion", companionId: 0, connected: false, saved: {},
                    mode: modes?.[0]?.id || null, sessionPoints: 0 };
     let ws = null;
@@ -227,6 +265,7 @@
       const tracks = music.filter((id) => R.music?.TRACKS[id]);
       m.innerHTML = "<h4>Ship's settings</h4>"
         + `<label>Sound effects <input type="checkbox" data-k="sfx" ${R.sfx?.muted() ? "" : "checked"}></label>`
+        + `<label title="Effects volume, for every game">Effects <input type="range" min="0" max="1" step="0.05" value="${sfxVolume.get()}" data-k="sfxvol" aria-label="Effects volume"></label>`
         + (tracks.length ? `<label>Music <select data-k="music"><option value="off">Off</option>${tracks.map((id) =>
           `<option value="${id}" ${musicPick() === id ? "selected" : ""}>${R.escape(R.music.TRACKS[id].name)}</option>`).join("")}</select></label>`
           + `<label>Volume <input type="range" min="0" max="1" step="0.05" value="${R.music.volume()}" data-k="vol"></label>` : "")
@@ -238,6 +277,9 @@
         + '<div class="rxk-sub">Rex and the crew chime in from the gallery.</div>';
       m.onclick = (ev) => ev.stopPropagation();
       m.querySelector('[data-k="sfx"]').onchange = (ev) => { R.sfx?.setMuted(!ev.target.checked); sfx("click"); };
+      const sv = m.querySelector('[data-k="sfxvol"]');
+      sv.oninput = () => sfxVolume.set(Number(sv.value));
+      sv.onchange = () => sfx("click");   // a tick at the new level once the slider lets go
       m.querySelector('[data-k="voice"]').onchange = (ev) => { local.set("rx-games-voice", ev.target.checked ? "1" : "0"); sfx("click"); };
       m.querySelector('[data-k="crew"]').onchange = (ev) => { R.crew?.setEnabled(ev.target.checked); sfx("click"); };
       const mus = m.querySelector('[data-k="music"]');
@@ -319,7 +361,7 @@
     /** The end of a game: record, doubloons, sound, confetti or a shake,
      *  the companion's reaction and the result screen.
      *  outcome is the USER's: "win", "loss" or "draw". */
-    game.end = ({ outcome, points = 0, title = null, detail = "", jackpot = false }) => {
+    game.end = ({ outcome, points = 0, title = null, detail = "", jackpot = false, quip = null }) => {
       const rec = game.record(outcome);
       if (points) game.award(points, "", null, { quiet: true });
       const streak = game.saved.streak || 0;
@@ -331,7 +373,8 @@
       // The gallery has opinions too, a beat after your opponent's.
       setTimeout(() => game.heckle(outcome === "win" ? "user_win" : outcome === "loss" ? "user_loss" : "draw",
         { chance: 0.7, minGap: 0 }), 2600);
-      showEnd({ outcome, points, title, detail, rec, streak, quip: END_QUIPS[outcome][(Math.random() * END_QUIPS[outcome].length) | 0] });
+      showEnd({ outcome, points, title, detail, rec, streak,
+                quip: quip ?? END_QUIPS[outcome][(Math.random() * END_QUIPS[outcome].length) | 0] });
     };
 
     function showRecord() {
@@ -391,7 +434,7 @@
           if (res.on_call) { if (onCall) game.tell(onCall, false); return; }
           dock?.say(text, { quip: true });
           if (!voiceOn()) return;
-          if (res.url) playVoice(res.url);
+          if (res.url) playVoice(res.url, { onStart: (a) => { try { onVoiceLine?.(a, { text, event }); } catch { /* lip-sync is a nicety */ } } });
           // Not recorded yet: record it now for next time.
           else if (!res.error) api("/api/games/voiceline", { agent_id: game.companionId, text, record: true }).catch(() => {});
         })
@@ -407,6 +450,10 @@
 
     /** Tell the companion something. silent: know it, don't react now. */
     game.tell = (message, silent = true) => send("context", { message, silent });
+
+    /** Say something to the companion as the user (what the chat box sends):
+     *  a call hears it as a prompt; off a call it wakes a text turn. */
+    game.chat = (text) => { const line = String(text ?? "").trim(); if (line) send("rexclaw/chat", { text: line.slice(0, 500) }); };
 
     /** Ask the companion for one of `actions` now. The state is resent with
      *  every force, so it is ephemeral (the docs' advice for repeated state).
@@ -500,9 +547,14 @@
         } else if (msg.command === "action") {
           onActionMessage(msg.data || {});
         } else if (msg.command === "rexclaw/say") {
-          dock?.say(msg.data?.text || "");
+          const text = msg.data?.text || "";
+          dock?.say(text);
+          try { onSay?.(text); } catch (e) { console.error(e); }
         } else if (msg.command === "rexclaw/thinking") {
           dock?.thinking(!!msg.data?.on);
+          try { onThinking?.(!!msg.data?.on); } catch (e) { console.error(e); }
+        } else if (msg.command === "speech_finished") {
+          try { onSpeechEnd?.(); } catch (e) { console.error(e); }
         }
       };
       ws.onclose = () => {
@@ -714,6 +766,7 @@
   window.RexGame = Object.assign(window.RexGame || {}, {
     create, Refuse, toInt, shuffle, escape,
     voice: { play: playVoice },   // the one voice channel (crew.js uses it too)
+    sfxVolume,                    // the shared Effects volume: get() / set(v) / on(fn) → off
     SUITS, SUIT_SYMBOL, RANKS, deck, cardText, cardName, parseCard, cardElement,
     dieElement,
   });

@@ -15,6 +15,10 @@
 
   let ctx = null, master = null;
   let muted = store.get("rx-games-mute") === "1";
+  // The kit's Effects volume (neuro.js, the ⚙ menu's slider) scales the bus; 1 = the games' old level.
+  const LEVEL = 0.55;
+  const volume = () => { const v = Number(window.RexGame?.sfxVolume?.get?.()); return Number.isFinite(v) ? v : 1; };
+  window.RexGame?.sfxVolume?.on?.((v) => { if (master && ctx) master.gain.setTargetAtTime(LEVEL * v, ctx.currentTime, 0.03); });
 
   function ac() {
     if (!ctx) {
@@ -22,7 +26,7 @@
       if (!C) return null;
       ctx = new C();
       master = ctx.createGain();
-      master.gain.value = 0.55;
+      master.gain.value = LEVEL * volume();
       master.connect(ctx.destination);
     }
     if (ctx.state === "suspended") ctx.resume().catch(() => {});

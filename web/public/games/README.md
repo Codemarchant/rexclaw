@@ -17,7 +17,9 @@ games/
     lines.js            the companions' reaction lines (recorded per companion)
     games.css           OPTIONAL: the Rexmaw table theme (header, panels, felt)
     vendor/three/       three.js, copied in at build time (see below)
+    vendor/three-vrm/   three-vrm + its VRMA plugin, likewise
   broadside/            a 3D game with a look of its own: js/ modules, no games.css
+  night-raid/           Rexmaw Raids: 3D day/night missions, the companion and the crew as VRMs on deck taking the Captain's orders
   connect-four/
     game.json           what the library shows
     cover.svg           the tile's art
@@ -78,6 +80,11 @@ const game = RexGame.create({
   ui: { recordInto: el, modesInto: el },          // place the kit's furniture yourself
   onAgain() { /* the result screen's Play again */ },
   onLoad(saved) { /* the save arrived: restore anything you keep */ },
+  // Optional, for a game that listens as well as asks (all off by default):
+  onSay(text) { /* what the companion said: spoken on a call, typed off one */ },
+  onThinking(on) { /* an off-call turn started or ended */ },
+  onSpeechEnd() { /* they finished a reply (Neuro's speech_finished) */ },
+  onVoiceLine(audio, { text, event }) { /* one of their recorded lines started: an <audio>, for lip-sync */ },
 });
 game.force({ state, query, actions: ["make_move"] });   // the companion's turn
 // priority (Neuro's): "low" waits for them to finish talking, "medium" skips
@@ -89,6 +96,7 @@ game.force({ state, query, actions: ["make_move"] });   // the companion's turn
 game.tell("Something happened.", /* silent */ true);
 game.award(20, "Nice!", element);                        // doubloons, with a pop
 game.end({ outcome: "win", points: 100, detail: "..." }); // record, sound, confetti, result screen
+// (quip: "..." replaces the result screen's small print)
 game.react("they_win");                                  // the companion's line (lines.js)
 game.heckle("splash");                                   // a crew cameo (crew/lines.json)
 game.save({ anything: "you like" });                     // per companion, up to 64 KB
@@ -124,6 +132,15 @@ the app's version:
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 </script>
+```
+
+three-vrm and its animation plugin are copied too (`lib/vendor/three-vrm/`),
+for a game that puts the companion's own VRM on stage (Rexmaw Raids does). Map
+them next to three:
+
+```html
+"@pixiv/three-vrm": "/games/lib/vendor/three-vrm/three-vrm.module.min.js",
+"@pixiv/three-vrm-animation": "/games/lib/vendor/three-vrm/three-vrm-animation.module.min.js"
 ```
 
 Plain ES modules work as they are (`<script type="module" src="js/main.js">`).

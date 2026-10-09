@@ -466,14 +466,16 @@ function createWindow(port, { show = true } = {}) {
         gpuWin.loadURL("chrome://gpu");
     }
 
-    // Voice mode needs the microphone; fullscreen is used by immersive view.
+    // Voice mode needs the microphone; fullscreen is used by immersive view;
+    // pointer lock is the mini-games' free-look mouse.
     // Everything else is denied — the app has no use for geolocation etc.
     const ses = mainWindow.webContents.session;
+    const allowed = ["media", "fullscreen", "clipboard-sanitized-write", "pointerLock"];
     ses.setPermissionRequestHandler((wc, permission, callback) => {
-        callback(["media", "fullscreen", "clipboard-sanitized-write"].includes(permission));
+        callback(allowed.includes(permission));
     });
     ses.setPermissionCheckHandler((wc, permission) => {
-        return ["media", "fullscreen", "clipboard-sanitized-write"].includes(permission);
+        return allowed.includes(permission);
     });
 
     // target=_blank / external links (x.ai, GitHub, …) → system browser.
