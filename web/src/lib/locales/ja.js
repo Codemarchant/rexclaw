@@ -1633,6 +1633,8 @@ export const JA = {
   "Delete session": "セッションを削除",
   "Delete session \"%s\"? Its messages are removed permanently.":
     "セッション「%s」を削除しますか？ メッセージは完全に削除されます。",
+  "It is still marked active: if a call or chat is still open on it, nothing more from it is saved.":
+    "このセッションはまだアクティブになっています。通話やチャットがまだ開いている場合、それ以降の内容は保存されません。",
   "Delete session \"%s\"? Its messages are removed permanently. The linked group-call sessions of other companions are kept (they become top-level).":
     "セッション「%s」を削除しますか？ メッセージは完全に削除されます。リンクされた他コンパニオンのグループ通話セッションは残ります（トップレベルに移動します）。",
   "This session has no messages.": "このセッションにはメッセージがありません。",

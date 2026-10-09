@@ -103,9 +103,13 @@ export default function SessionsView({ active }) {
         const msg = hasPeers
             ? _t("Delete session \"%s\"? Its messages are removed permanently. The linked group-call sessions of other companions are kept (they become top-level).", s.name)
             : _t("Delete session \"%s\"? Its messages are removed permanently.", s.name);
-        if (!(await confirmAsk(msg))) return;
+        const active = s.state === "active";
+        const warning = active
+            ? " " + _t("It is still marked active: if a call or chat is still open on it, nothing more from it is saved.")
+            : "";
+        if (!(await confirmAsk(msg + warning))) return;
         try {
-            await rpc("/api/sessions/delete", { id: s.id });
+            await rpc("/api/sessions/delete", { id: s.id, force: active });
             load();
         } catch (e) {
             notification.add(e?.message || _t("Delete failed"), { type: "danger" });
@@ -375,7 +379,6 @@ export default function SessionsView({ active }) {
                                             <i className="fa fa-pencil" />
                                         </button>
                                         <button className="btn btn-sm btn-link p-0" title={_t("Delete session")}
-                                                disabled={s.state === "active"}
                                                 onClick={() => deleteSession(s, hasPeers)}>
                                             <i className="fa fa-trash-o" />
                                         </button>

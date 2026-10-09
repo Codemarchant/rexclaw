@@ -1050,11 +1050,13 @@ def sessions_delete(payload: dict = Body(default={}), con=Depends(db_con)):
     """Delete a session and its messages (FK cascade). Linked rows survive
     sanely: memory episodes and imagine images keep their content
     (session_id → NULL), and group-call peer sessions become top-level
-    (call_parent_session_id → NULL). Active sessions are refused — end the
-    call/chat first rather than yanking rows out from under it."""
+    (call_parent_session_id → NULL). Active sessions need `force` — the
+    Sessions tab sends it after warning that a call or chat still open on
+    the session saves nothing more: sessions can linger as active after a
+    window closed mid-call, and those had no way out."""
     from .common import resolve_session
     session = resolve_session(con, payload.get("id"))
-    if session["state"] == "active":
+    if session["state"] == "active" and not payload.get("force"):
         raise UserError("This session is active — end it before deleting.")
     con.execute("DELETE FROM sessions WHERE id = ?", (session["id"],))
     con.commit()
