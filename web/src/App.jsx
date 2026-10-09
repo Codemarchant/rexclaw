@@ -227,8 +227,8 @@ export default function App() {
                 <div className="rx_key_banner" role="status">
                     <i className="fa fa-key" />
                     <span>
-                        {_t("Companions talk through your own xAI (Grok) account, which bills you directly for usage.")}{" "}
-                        {_t("Add your API key in Settings to get started - or run them on another provider or models on this computer (Settings → Models & providers).")}{" "}
+                        {_t("Companions talk through your own xAI (Grok) account: an API key billed by usage, or your SuperGrok or X Premium subscription.")}{" "}
+                        {_t("Add a key or sign in with Grok in Settings to get started - or run them on another provider or models on this computer (Settings → Models & providers).")}{" "}
                         <a href="https://console.x.ai" target="_blank" rel="noreferrer">{_t("Get a key")}</a>
                     </span>
                     {tab !== "settings" && (

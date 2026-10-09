@@ -947,13 +947,26 @@ async function showScreenSharePicker(request, callback) {
         }
         return;
     }
+    // Linux Wayland session: WebRTC picks the capturer from the session env
+    // (not our XWayland windows), so getSources opens the desktop's own
+    // portal dialog and returns just the one source chosen there. Grant it
+    // directly rather than asking twice; no thumbnail lets it resolve as
+    // soon as the user picks. (One source only — the X11-capturer fallback
+    // without libpipewire still gets our picker.)
+    const waylandPortal = process.platform === "linux"
+        && /^wayland/.test(process.env.XDG_SESSION_TYPE || "") && !!process.env.WAYLAND_DISPLAY;
     const sources = await desktopCapturer.getSources({
         types: ["screen", "window"],
-        thumbnailSize: { width: 320, height: 180 },
+        thumbnailSize: waylandPortal ? { width: 0, height: 0 } : { width: 320, height: 180 },
         fetchWindowIcons: false,
     });
     if (!sources.length) {
         callback(null);
+        return;
+    }
+    if (waylandPortal && sources.length === 1) {
+        lastShareSource = { id: sources[0].id, audio: false };
+        callback({ video: sources[0] });
         return;
     }
     // Screens first — they're what "share your screen" usually means.

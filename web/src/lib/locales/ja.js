@@ -11,10 +11,10 @@ export const JA = {
   "Memories": "メモリ",
   "Settings": "設定",
   // First-run "no API key" banner
-  "Companions talk through your own xAI (Grok) account, which bills you directly for usage.":
-    "コンパニオンとの会話にはご自身の xAI（Grok）アカウントを使用し、利用料金は xAI から直接請求されます。",
-  "Add your API key in Settings to get started - or run them on another provider or models on this computer (Settings → Models & providers).":
-    "設定で API キーを追加すると使い始められます。ほかのプロバイダーやこのコンピューター上のモデルで動かすこともできます（設定 → モデルとプロバイダー）。",
+  "Companions talk through your own xAI (Grok) account: an API key billed by usage, or your SuperGrok or X Premium subscription.":
+    "コンパニオンとの会話にはご自身の xAI（Grok）アカウントを使用します。利用量に応じて課金される API キーか、SuperGrok または X Premium のサブスクリプションを使えます。",
+  "Add a key or sign in with Grok in Settings to get started - or run them on another provider or models on this computer (Settings → Models & providers).":
+    "設定でキーを追加するか、Grok でサインインすると使い始められます。ほかのプロバイダーやこのコンピューター上のモデルで動かすこともできます（設定 → モデルとプロバイダー）。",
   "Get a key": "キーを取得",
   "Open Settings": "設定を開く",
   "Immersive": "没入モード",
