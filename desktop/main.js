@@ -924,6 +924,27 @@ function _escapeHtml(s) {
     ));
 }
 
+/** macOS: Screen Recording isn't granted — say where to turn it on and
+ *  offer the settings pane. Run from Applications: an app opened straight
+ *  from Downloads runs from a hidden temporary copy, which is what the
+ *  permission would attach to. "+" covers a list that doesn't show it. */
+async function showMacScreenAccessHelp() {
+    const { response } = await dialog.showMessageBox({
+        type: "info",
+        message: "Rexclaw needs Screen Recording permission",
+        detail: "Open Privacy & Security › Screen & System Audio Recording and turn on Rexclaw. "
+            + "If it isn't listed, click + and choose Rexclaw from your Applications folder "
+            + "(run Rexclaw from there, not from Downloads). Then quit Rexclaw (⌘Q) and open it "
+            + "again: macOS only applies the permission after a restart.",
+        buttons: ["Open System Settings", "Cancel"],
+        defaultId: 0,
+        cancelId: 1,
+    });
+    if (response === 0) {
+        shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture");
+    }
+}
+
 async function showScreenSharePicker(request, callback) {
     const { desktopCapturer } = require("electron");
     if (pickerWindow && !pickerWindow.isDestroyed()) {
@@ -932,25 +953,12 @@ async function showScreenSharePicker(request, callback) {
         callback(null);
         return;
     }
-    // macOS: without the Screen Recording grant every thumbnail comes back
-    // as bare wallpaper, and once refused the OS never prompts again — send
-    // the user to the setting instead of a picker full of blanks.
-    if (process.platform === "darwin"
-        && ["denied", "restricted"].includes(systemPreferences.getMediaAccessStatus("screen"))) {
-        callback(null);
-        const { response } = await dialog.showMessageBox({
-            type: "info",
-            message: "Rexclaw needs Screen Recording permission",
-            detail: "Turn on Rexclaw under Privacy & Security › Screen & System Audio Recording, then restart Rexclaw.",
-            buttons: ["Open System Settings", "Cancel"],
-            defaultId: 0,
-            cancelId: 1,
-        });
-        if (response === 0) {
-            shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture");
-        }
-        return;
-    }
+    // macOS Screen Recording status is only ever "granted" or "denied" —
+    // Chromium's check (CheckSystemScreenCapturePermission) has no
+    // "not asked yet" — so it can't gate the capture attempt below: that
+    // attempt is what lists Rexclaw in the setting and raises the prompt.
+    const macScreen = process.platform === "darwin"
+        ? () => systemPreferences.getMediaAccessStatus("screen") : null;
     // Linux Wayland session: WebRTC picks the capturer from the session env
     // (not our XWayland windows), so getSources opens the desktop's own
     // portal dialog and returns just the one source chosen there. Grant it
@@ -964,6 +972,15 @@ async function showScreenSharePicker(request, callback) {
         thumbnailSize: waylandPortal ? { width: 0, height: 0 } : { width: 320, height: 180 },
         fetchWindowIcons: false,
     });
+    // macOS, not granted (yet): the attempt above has now listed Rexclaw in
+    // Screen Recording and raised the system prompt, the sources are bare
+    // wallpaper, and a grant only applies after a restart — so explain the
+    // steps rather than show a picker of blanks.
+    if (macScreen && macScreen() !== "granted") {
+        callback(null);
+        await showMacScreenAccessHelp();
+        return;
+    }
     if (!sources.length) {
         callback(null);
         return;
