@@ -14,11 +14,14 @@ transcription-mangled names), substring bonus, and tag matching. Same OR
 semantics, no extensions needed.
 """
 import logging
+import math
 import re
+from collections import Counter
 from datetime import datetime, timedelta
 from functools import lru_cache
 
 from .db import utcnow, parse_dt
+from .memory_index import CJK_CHARS, cjk_pieces, word_runs
 from . import store
 
 _logger = logging.getLogger(__name__)
@@ -43,14 +46,24 @@ DEFAULT_CORE_CAP = 100
 # only re-ranks query matches whose scores are already close — it never filters
 # out untagged matches nor surfaces a memory the query didn't otherwise hit.
 _PASSED_TAG_BONUS = 0.3
+# BM25 term saturation and length normalisation: the Lucene/Elasticsearch
+# defaults (Robertson & Zaragoza, "The Probabilistic Relevance Framework:
+# BM25 and Beyond", 2009).
+_BM25_K1 = 1.2
+_BM25_B = 0.75
 
-_TOKEN_SPLIT = re.compile(r'[^a-zA-Z0-9]+')
+# Kanji, katakana and hiragana: unspaced, so cut out of a token and searched
+# as memory_index.cjk_pieces instead.
+_CJK_OR_KANA = re.compile(f'[{CJK_CHARS}ぁ-ゟ]+')
 _DROP = {'and', 'or', 'not', 'the', 'is', 'of', 'a', 'to', 'in'}
 
 
 def _tokenize(text):
-    return [t.lower() for t in _TOKEN_SPLIT.split(text or '')
-            if len(t) >= 2 and t.lower() not in _DROP]
+    tokens = []
+    for t in word_runs((text or '').lower()):
+        tokens += cjk_pieces(t)
+        tokens += [w for w in _CJK_OR_KANA.split(t) if len(w) >= 2 and w not in _DROP]
+    return tokens
 
 
 def _normalize_tags(raw):
@@ -95,9 +108,18 @@ def core_for(con, agent_id):
     return rows
 
 
-def known_tags(con):
-    """Sorted unique tag tokens stored across all memories (both scopes)."""
-    rows = con.execute("SELECT tags FROM memories WHERE tags IS NOT NULL").fetchall()
+def known_tags(con, agent_id):
+    """Sorted unique tag tokens on this agent's memories and the global ones
+    (both scopes)."""
+    if agent_id:
+        rows = con.execute(
+            "SELECT tags FROM memories WHERE tags IS NOT NULL AND (agent_id = ? OR agent_id IS NULL)",
+            (agent_id,),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            "SELECT tags FROM memories WHERE tags IS NOT NULL AND agent_id IS NULL",
+        ).fetchall()
     seen = set()
     for r in rows:
         for token in (r['tags'] or '').split(','):
@@ -157,10 +179,12 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None,
                   newer_than_days=None, older_than_days=None):
     """Score recall memories in Python. Signals (weighted sum, mirroring the
     original's FTS-dominant weighting):
-      * distinct query tokens matched in search-text (x10; a token with no
-        exact/prefix match falls back to its best trigram similarity >= 0.3
-        against any search-text token, contributing similarity x10 — so a
-        fuzzy hit always scores below an exact one)
+      * distinct query tokens matched in search-text, weighted by BM25: a
+        word in most memories counts for little, a rare one for the most,
+        scaled so a word unique to one average-length memory scores 10. A
+        token with no exact/prefix match falls back to its best trigram
+        similarity >= 0.3 against any search-text token and counts that
+        fraction of an exact match.
       * literal query substring in search-text (+50)
       * query substring in tags (+0.3 — tag bonus)
       * overlap with a passed `tags` token (+_PASSED_TAG_BONUS — re-rank only)
@@ -200,7 +224,7 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None,
             return False
         return True
     q_lower = query.lower()
-    q_tokens = _tokenize(query)
+    q_tokens = list(dict.fromkeys(_tokenize(query)))
 
     clean_tags = {
         t.strip().lower() for t in (tags or [])
@@ -242,22 +266,40 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None,
             )
         return hits, len(pool) > limit
 
-    scored = []
+    # Word rarity is a fact about the whole archive, so BM25's collection
+    # statistics count every memory of the requested type, not just the
+    # date window.
+    docs = []
+    df = Counter()
     for r in rows:
         if memory_type in ('fact', 'episode') and r['memory_type'] != memory_type:
             continue
+        content_lower = _search_text(r).lower()
+        counts = Counter(_tokenize(content_lower))
+        found = {}  # query token -> (occurrences, match strength)
+        for qt in q_tokens:
+            tf = sum(n for ht, n in counts.items() if _token_match(ht, qt))
+            if tf:
+                found[qt] = (tf, 1.0)
+                continue
+            best = max((_trigram_sim(ht, qt) for ht in counts), default=0.0)
+            if best >= _TRGM_THRESHOLD:
+                found[qt] = (1, best)
+        df.update(found.keys())
+        docs.append((r, content_lower, sum(counts.values()), found))
+    n_docs = len(docs)
+    avgdl = (sum(d[2] for d in docs) / n_docs if n_docs else 0) or 1.0
+    unique_idf = math.log(1 + (n_docs - 0.5) / 1.5)
+
+    scored = []
+    for r, content_lower, dl, found in docs:
         if not _in_window(r):
             continue
-        content_lower = _search_text(r).lower()
-        h_tokens = list(dict.fromkeys(_tokenize(content_lower)))
         score = 0.0
-        for qt in q_tokens:
-            if any(_token_match(ht, qt) for ht in h_tokens):
-                score += 10.0
-                continue
-            best = max((_trigram_sim(ht, qt) for ht in h_tokens), default=0.0)
-            if best >= _TRGM_THRESHOLD:
-                score += best * 10.0
+        for qt, (tf, strength) in found.items():
+            idf = math.log(1 + (n_docs - df[qt] + 0.5) / (df[qt] + 0.5))
+            saturation = tf * (_BM25_K1 + 1) / (tf + _BM25_K1 * (1 - _BM25_B + _BM25_B * dl / avgdl))
+            score += 10.0 * strength * saturation * idf / unique_idf
         if q_lower in content_lower:
             score += 50.0
         if r['tags'] and q_lower in r['tags'].lower():
@@ -390,11 +432,13 @@ def apply_extraction_ops(con, agent_id, ops, episode, transcript=None, session_i
             if not isinstance(target_id, int) or target_id <= 0:
                 counts['skipped'] += 1
                 continue
-            # Restrict supersede/retire to core facts so a hallucinated id can
-            # never touch recall episodes.
+            # Restrict supersede/retire to this agent's own core facts so a
+            # hallucinated id can never touch recall episodes, another
+            # companion's memories or the shared ones.
             row = con.execute(
-                "SELECT id FROM memories WHERE id = ? AND scope = 'core' AND memory_type = 'fact'",
-                (target_id,),
+                "SELECT id FROM memories WHERE id = ? AND scope = 'core' AND memory_type = 'fact' "
+                "AND agent_id IS ?",
+                (target_id, agent_id),
             ).fetchone()
             if not row:
                 counts['skipped'] += 1
@@ -407,13 +451,16 @@ def apply_extraction_ops(con, agent_id, ops, episode, transcript=None, session_i
                 if not content:
                     counts['skipped'] += 1
                     continue
+                # Re-dated: the core list shows when each entry was
+                # remembered and reads the most recent as current, and this
+                # content was learned now.
                 new_tags = _normalize_tags(op.get('tags'))
                 if new_tags:
-                    con.execute("UPDATE memories SET content = ?, tags = ? WHERE id = ?",
-                                (content, new_tags, target_id))
+                    con.execute("UPDATE memories SET content = ?, tags = ?, created_at = ? WHERE id = ?",
+                                (content, new_tags, utcnow(), target_id))
                 else:
-                    con.execute("UPDATE memories SET content = ? WHERE id = ?",
-                                (content, target_id))
+                    con.execute("UPDATE memories SET content = ?, created_at = ? WHERE id = ?",
+                                (content, utcnow(), target_id))
                 counts['updated'] += 1
         else:
             counts['skipped'] += 1
@@ -676,8 +723,8 @@ def _impl_recall(con, session, arguments):
                 'she', 'her', 'him', 'his', 'they', 'them', 'their', 'for',
                 'not', 'are', 'but', 'our', 'out', 'all', 'can', 'get', 'got',
                 'said', 'told', 'thing', 'things', 'time', 'user', 'remember'}
-        tokens = [t for t in re.findall(r'\w+', query.lower())
-                  if len(t) >= 3 and t not in stop]
+        tokens = [t for t in _tokenize(query)
+                  if (len(t) >= 3 or cjk_pieces(t)) and t not in stop]
         if tokens:
             seen_ids = {r['id'] for r in records}
             like_sql = ' OR '.join(['transcript LIKE ?'] * len(tokens))
@@ -793,10 +840,16 @@ def _impl_forget(con, session, arguments):
     if not isinstance(memory_id, int) or memory_id <= 0:
         return {'ok': False, 'reason': 'invalid_id',
                 'message': "memory_id must be a positive integer."}
-    row = con.execute("SELECT id FROM memories WHERE id = ?", (memory_id,)).fetchone()
-    if not row:
+    agent_id = session['agent_id'] if session else None
+    row = con.execute("SELECT agent_id FROM memories WHERE id = ?", (memory_id,)).fetchone()
+    # Another companion's memory reads as missing — this one never saw it.
+    if not row or (row['agent_id'] is not None and row['agent_id'] != agent_id):
         return {'ok': False, 'reason': 'not_found',
                 'message': f'Memory {memory_id} does not exist.'}
+    if row['agent_id'] != agent_id:
+        return {'ok': False, 'reason': 'shared',
+                'message': f'Memory {memory_id} is shared with every companion; '
+                           'only the user can remove it, from the Memories view.'}
     con.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
     return {'ok': True, 'id': memory_id}
 

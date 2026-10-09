@@ -4,6 +4,7 @@
 Deliberate recall keeps its existing ranking. This index serves speculative
 recall without updating last_used_at or loading whole transcripts into Python.
 """
+import itertools
 import logging
 import re
 import sqlite3
@@ -100,8 +101,16 @@ def character_terms(text):
     Only non-ASCII runs use this path, leaving ordinary English retrieval
     unchanged. This is lexical overlap, not translation or fuzzy matching.
     """
+    grams = list(dict.fromkeys(run[i:i + 3] for run in word_runs(text.lower()) if not run.isascii()
+                               for i in range(len(run) - 2)))
+    return _bounded(grams)
+
+
+def word_runs(text):
+    """Runs of letters, digits and combining marks. Marks count as part of a
+    word, so Hindi or Thai vowel signs never split one."""
     runs, run = [], ''
-    for char in text.lower():
+    for char in text:
         if unicodedata.category(char)[0] in 'LNM':
             run += char
         elif run:
@@ -109,10 +118,36 @@ def character_terms(text):
             run = ''
     if run:
         runs.append(run)
-    grams = list(dict.fromkeys(run[i:i + 3] for run in runs if not run.isascii()
-                               for i in range(len(run) - 2)))
+    return runs
+
+
+TERMS_MAX = 96
+
+
+def _bounded(terms):
     # Cover both early cues and later continuations in a long utterance.
-    return grams if len(grams) <= 96 else grams[:48] + grams[-48:]
+    half = TERMS_MAX // 2
+    return terms if len(terms) <= TERMS_MAX else terms[:half] + terms[-half:]
+
+
+# Kanji and katakana (with 々 and the long-vowel mark). Japanese and Chinese
+# are written without spaces, so search splits a run into overlapping
+# two-character pieces — the dictionary-free cjk_bigram approach of Lucene and
+# Elasticsearch. Most Japanese nouns are two kanji (大阪, 旅行). Hiragana is
+# left out: it mostly carries particles and verb endings, which would match
+# nearly everything.
+CJK_CHARS = ('々㐀-䶿一-鿿豈-﫿'
+             'ァ-ヺー-ヿㇰ-ㇿｦ-ﾟ')
+_CJK_RUN = re.compile(f'[{CJK_CHARS}]+')
+
+
+def cjk_pieces(text):
+    """Search pieces for the kanji/katakana in `text`: a lone character stays
+    whole (犬, 猫), a longer run becomes overlapping pairs."""
+    pieces = []
+    for run in _CJK_RUN.findall(text):
+        pieces += [run] if len(run) == 1 else [run[i:i + 2] for i in range(len(run) - 1)]
+    return pieces
 
 
 def _character_passage(text, snippet, cap):
@@ -148,6 +183,20 @@ def search(con, agent_id, text, *, session_id=None, exclude=(), limit=3, budget_
             counts = dict(con.execute('SELECT term,doc FROM memory_recall_char_vocab WHERE term IN (' +
                                       ','.join('?' for _ in grams) + ')', grams).fetchall())
             indexed = [g for g in grams if g in counts]
+            # A kanji/katakana piece is shorter than a trigram, so it reaches
+            # the index as the indexed trigrams it begins (大阪 → 大阪旅, 大阪に).
+            # A piece that only ends a field begins none and stays out of
+            # reach. Taking each piece's commonest continuation before any
+            # piece's second keeps every piece in within the same bound.
+            continuations = []
+            for piece in _bounded(list(dict.fromkeys(cjk_pieces(text)))):
+                rows = con.execute('SELECT term,doc FROM memory_recall_char_vocab '
+                                   'WHERE term >= ? AND term < ? ORDER BY doc DESC',
+                                   (piece, piece + '\U0010ffff')).fetchall()
+                counts.update(rows)
+                continuations.append([term for term, _ in rows])
+            ranked = [t for tier in itertools.zip_longest(*continuations) for t in tier if t]
+            indexed = list(dict.fromkeys(indexed + list(dict.fromkeys(ranked))[:TERMS_MAX]))
             rare = sorted(indexed, key=lambda g: counts[g])[:4]
             if rare:
                 sources.append(('memory_recall_chars', rare))

@@ -912,7 +912,7 @@ def _memory_section(con, agent_row):
     data-last on purpose - core memories sit immediately before the
     conversation history for recency."""
     core = memory_tools.core_for(con, agent_row['id'])
-    tags = memory_tools.known_tags(con)
+    tags = memory_tools.known_tags(con, agent_row['id'])
 
     lines = ["## Memory"]
 
@@ -2125,7 +2125,7 @@ def _extract_and_store_memories(con, session, config, to_summarize, transcript):
         summary_model=config['summary_model'],
         transcript=transcript,
         existing_core=existing_core,
-        known_tags=memory_tools.known_tags(con),
+        known_tags=memory_tools.known_tags(con, agent_id),
         reasoning_effort=None,
         complete=_background_complete(con, session, config),
     )
