@@ -50,6 +50,11 @@ jobs:
       - name: Bundle camera-awareness models
         run: python scripts/fetch_vision_model.py
 
+      # And the memory-search embedding model (EmbeddingGemma 2, ~200 MB) —
+      # without it recall stays keyword-only.
+      - name: Bundle memory-search model
+        run: python scripts/fetch_embed_model.py
+
       - name: Package desktop app
         run: |
           cd desktop
@@ -139,10 +144,11 @@ jobs:
 
       # Same bundled models as the Windows job, fetched with the runtime
       # just built (the runner's own python3 varies by image).
-      - name: Bundle wake-word + camera-awareness models
+      - name: Bundle wake-word + camera-awareness + memory-search models
         run: |
           desktop/runtime/python/bin/python3 scripts/fetch_wake_model.py en
           desktop/runtime/python/bin/python3 scripts/fetch_vision_model.py
+          desktop/runtime/python/bin/python3 scripts/fetch_embed_model.py
 
       # extraMetadata.version: the bundle version (CFBundleShortVersionString
       # on macOS) follows pyproject, not desktop/package.json.

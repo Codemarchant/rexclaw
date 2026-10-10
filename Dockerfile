@@ -41,10 +41,12 @@ COPY --from=web /build/dist web/dist
 
 # Bake the default wake-word model so voice activation works without a
 # post-install download (source checkouts keep the runtime download path),
-# and the camera-awareness models (face + hand gestures) likewise.
-COPY scripts/fetch_wake_model.py scripts/fetch_vision_model.py scripts/
+# and the camera-awareness models (face + hand gestures) and memory-search
+# embedding model likewise.
+COPY scripts/fetch_wake_model.py scripts/fetch_vision_model.py scripts/fetch_embed_model.py scripts/
 RUN python scripts/fetch_wake_model.py en \
     && python scripts/fetch_vision_model.py \
+    && python scripts/fetch_embed_model.py \
     && rm -rf scripts
 
 ENV REXCLAW_DATA_DIR=/data \

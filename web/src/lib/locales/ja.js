@@ -2119,6 +2119,9 @@ export const JA = {
   "Camera awareness": "カメラ認識",
   "Apache-2.0, Google. The on-device face and hand models that notice presence and gestures on the shared camera — nothing leaves the device.":
     "Apache-2.0、Google。共有カメラ上で在席とジェスチャーに気づく端末内の顔・手モデル — 端末の外には何も出ません。",
+  "Memory search": "記憶検索",
+  "Apache-2.0, Google DeepMind. The on-device model behind meaning-based memory search.":
+    "Apache-2.0、Google DeepMind。意味による記憶検索を支える端末内モデル。",
   "MIT, Neko Ayaka and contributors. The bot's brain architecture and its pathfinder patches are ported from their Minecraft integration.":
     "MIT、Neko Ayaka および貢献者の皆さん。ボットのブレイン構成と pathfinder パッチは、その Minecraft 連携から移植しています。",
   "MIT, Kolby Nottingham. Where those pathfinder patches came from, plus the building designs the bot can construct.":

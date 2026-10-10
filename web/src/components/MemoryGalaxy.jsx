@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { _t } from "../lib/i18n";
-import { buildGalaxy } from "../lib/memory_galaxy";
+import { applyTopicTerms, buildGalaxy, NEIGHBOUR_COUNT } from "../lib/memory_galaxy";
+import { rpc } from "../lib/rpc";
 import { GalaxyRenderer } from "../services/galaxy_renderer";
 import { fmtLocal } from "./HeartbeatsPanel.jsx";
 
@@ -32,9 +33,31 @@ export default function MemoryGalaxy({ memories, query, active, onEdit, onForget
 
     // Re-lay out only when the set itself changes, not on every reload.
     const key = memories.map((m) => `${m.id}:${m.scope}:${(m.content || "").length}`).join(",");
-    const layout = useMemo(() => (memories.length ? buildGalaxy(memories) : null),
+    // The meaning-based graph for this set, then its re-ranked galaxy names;
+    // either answering null (not embedded yet, or the request failed) keeps
+    // the word-based version. Laid out once both answer, so the sky doesn't
+    // reshuffle or rename itself a moment after opening.
+    const [built, setBuilt] = useState({ key: null, layout: null });
+    useEffect(() => {
+        let live = true;
+        const orNull = (p, pick) => p.then((r) => pick(r) ?? null, () => null);
+        (async () => {
+            if (!memories.length) return setBuilt({ key, layout: null });
+            const neighbours = await orNull(
+                rpc("/api/memories/neighbours", { ids: memories.map((m) => m.id), k: NEIGHBOUR_COUNT }),
+                (r) => r?.neighbours);
+            const galaxy = buildGalaxy(memories, neighbours);
+            if (neighbours && galaxy.clusters.length) {
+                applyTopicTerms(galaxy, await orNull(rpc("/api/memories/topic-terms", {
+                    topics: galaxy.clusters.map((c) => ({ docs: c.representatives, words: c.candidates })),
+                }), (r) => r?.terms));
+            }
+            if (live) setBuilt({ key, layout: galaxy });
+        })();
+        return () => { live = false; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [key]);
+    }, [key]);
+    const layout = built.key === key ? built.layout : null;
 
     const q = (query || "").trim().toLowerCase();
     const matches = useMemo(() => {
@@ -130,7 +153,9 @@ export default function MemoryGalaxy({ memories, query, active, onEdit, onForget
         return (
             <div ref={wrapRef} className="rx_galaxy">
                 <div ref={hostRef} className="rx_galaxy_host" />
-                <div className="rx_galaxy_empty">{_t("No memories match your filters.")}</div>
+                <div className="rx_galaxy_empty">
+                    {memories.length ? _t("Loading…") : _t("No memories match your filters.")}
+                </div>
             </div>
         );
     }

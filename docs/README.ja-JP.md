@@ -654,6 +654,8 @@ def setup(api):
   用のオフライン音声モデル。
 - **[MediaPipe](https://github.com/google-ai-edge/mediapipe)**（Apache-2.0）—
   カメラ認識を支える端末内の顔・手モデル。
+- **[EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2)**
+  （Apache-2.0、Google DeepMind）— 記憶検索を支える端末内モデル。
 - Minecraft サイドカー — ブレインのアーキテクチャと pathfinder パッチは
   **[Project AIRI](https://github.com/moeru-ai/airi)**（MIT）、それらの
   パッチの出自と建築スキーマは

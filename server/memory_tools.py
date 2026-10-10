@@ -22,7 +22,7 @@ from functools import lru_cache
 
 from .db import utcnow, parse_dt
 from .memory_index import CJK_CHARS, cjk_pieces, word_runs
-from . import store
+from . import memory_vectors, store
 
 _logger = logging.getLogger(__name__)
 
@@ -316,14 +316,29 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None,
         scored.append((score, last_used, r['id'], r))
 
     scored.sort(key=lambda t: (-t[0], -t[1].timestamp() if t[1] != datetime.min else 0, -t[2]))
-    hits = [t[3] for t in scored[:limit]]
+    ranked = [t[3] for t in scored]
+    # Meaning search beside the words, merged by reciprocal rank (Cormack,
+    # Clarke & Buettcher 2009, k=60 — the merge live memory already runs):
+    # what both lists rank well rises, and a memory only meaning finds can
+    # still come in, flagged matched_by='meaning'.
+    meaning = memory_vectors.search(con, agent_id, query, limit=limit,
+                                    ids={r['id'] for r, *_ in docs if _in_window(r)})
+    if meaning:
+        by_id = {r['id']: r for r, *_ in docs}
+        word_ids = {r['id'] for r in ranked}
+        fused = {r['id']: 1 / (60 + rank + 1) for rank, r in enumerate(ranked)}
+        for rank, (memory_id, _) in enumerate(meaning):
+            fused[memory_id] = fused.get(memory_id, 0) + 1 / (60 + rank + 1)
+        ranked = [by_id[i] if i in word_ids else dict(by_id[i], matched_by='meaning')
+                  for i in sorted(fused, key=lambda i: -fused[i])]
+    hits = ranked[:limit]
     if hits:
         ids = [r['id'] for r in hits]
         con.execute(
             f"UPDATE memories SET last_used_at = ? WHERE id IN ({','.join('?' * len(ids))})",
             (utcnow(), *ids),
         )
-    return hits, len(scored) > limit
+    return hits, len(ranked) > limit
 
 
 def _find_duplicate(con, agent_id, content):
@@ -482,6 +497,7 @@ def apply_extraction_ops(con, agent_id, ops, episode, transcript=None, session_i
             )
             counts['episode'] += 1
 
+    memory_vectors.notify()
     return counts
 
 
@@ -707,6 +723,8 @@ def _impl_recall(con, session, arguments):
         # can re-call recall with this id to read the full conversation.
         if r['memory_type'] == 'episode':
             hit['expandable'] = True
+        if 'matched_by' in r.keys():
+            hit['matched_by'] = r['matched_by']
         hits.append(hit)
 
     # Deep mode: additionally scan the raw verbatim transcripts of archived
@@ -794,11 +812,21 @@ def _impl_recall(con, session, arguments):
         )
     if truncated and has_window:
         result['truncated'] = True
+        # Browsing a period: the busier-than-shown nudge is about the period.
+        if not query:
+            notes.append(
+                f'More memories exist in this window than the {len(hits)} '
+                'returned — this period was busier than it looks here. If the '
+                'user wants the full picture, narrow the date range, or re-call '
+                'with a higher limit (max 100).'
+            )
+    if has_window and query:
+        # A range carried over onto a timeless question hides everything older.
         notes.append(
-            f'More memories exist in this window than the {len(hits)} '
-            'returned — this period was busier than it looks here. If the '
-            'user wants the full picture, narrow the date range, or re-call '
-            'with a higher limit (max 100).'
+            'Only memories from this date range were searched; anything outside '
+            'it wasn\'t checked. If this is about a fact, name or preference rather '
+            'than a time, re-call without the range before telling the user they '
+            'never mentioned it.'
         )
     if window_browse:
         notes.append(
@@ -816,6 +844,16 @@ def _impl_recall(con, session, arguments):
             'age_days before presenting: human time estimates are fuzzy, so '
             'a near-miss may still be what the user means.'
         )
+    elif hits and all(h.get('matched_by') == 'meaning' for h in hits):
+        # Meaning search always offers its best, so a query nothing matches
+        # no longer comes back empty — keep the empty result's nudge.
+        result['note'] = ' '.join(notes + [
+            'No stored memory matched these words; hits marked matched_by="meaning" '
+            'are only the closest in meaning. Check each one is really what the user '
+            'means before treating it as the answer. Also re-read "What you remember '
+            'about this user" in your instructions — the answer may already be there, '
+            'possibly under different wording.'
+        ])
     elif not hits:
         # Models over-trust an empty tool result and deny knowledge that is
         # sitting in their own preamble — nudge them back to it before they
@@ -927,7 +965,9 @@ MEMORY_TOOLS = [
             'something past ("remember when…", "the thing I told you about X", '
             '"what did I say about Y"). Matching combines keyword search (with OR '
             'semantics across your query words), substring matching, and tag '
-            'matching, optionally bounded by a date range. For purely '
+            'matching, optionally bounded by a date range. With no range, the '
+            'whole archive is searched — the right default for facts, names '
+            'and preferences, which may date from months ago. For purely '
             'time-anchored questions ("what did we do last week?", "what '
             'happened a few weeks ago?") pass ONLY a date range and NO query '
             '— e.g. {"newer_than_days": 10} for last week — which returns '
@@ -968,7 +1008,10 @@ MEMORY_TOOLS = [
                 'newer_than_days': {
                     'type': 'integer',
                     'description': (
-                        'Only memories created within the last N days. Pairs '
+                        'Only memories created within the last N days. Set it '
+                        'when the user\'s words point at a time ("last week", '
+                        '"back in August"); for a fact, preference or name, '
+                        'leave it out so the whole archive is searched. Pairs '
                         'with older_than_days to form a window — e.g. "a few '
                         'weeks ago" → newer_than_days=45, older_than_days=10.'
                     ),

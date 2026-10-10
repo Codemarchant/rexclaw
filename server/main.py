@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import heartbeat, parent_watch, plugins
+from . import heartbeat, memory_vectors, parent_watch, plugins
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, get_config, init_db
 from .errors import UserError
@@ -64,6 +64,9 @@ def startup():
     # spins up when active heartbeats exist — activating one later starts
     # it lazily from the save route.
     heartbeat.start_scheduler_if_needed()
+    # Daemon thread embedding recall memories for meaning search (catches
+    # up on any without a current vector; no-op without the bundled model).
+    memory_vectors.start()
     plugins.emit('startup')
     _logger.info("Rexclaw Companions server ready.")
 

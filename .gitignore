@@ -14,6 +14,7 @@ data/
 # (scripts/fetch_wake_model.py).
 assets/wake_models/
 assets/vision_models/
+assets/models/embeddinggemma-2/
 web/node_modules/
 web/dist/
 # Local live-memory validation and research (not release inputs)

@@ -1733,10 +1733,12 @@ def _transcript_rows(con, session, limit=None):
         " AND NOT (role = 'system' AND content LIKE ?)"
         " AND NOT (role = 'system' AND content LIKE ?)"
         " AND NOT (role = 'system' AND content LIKE ?)"
+        " AND NOT (role = 'system' AND content LIKE ?)"
     )
+    # Live memory notes: the current header, and the one older rows carry.
     shown_params = (heartbeat.CONTEXT_PREFIX + '%', RESUME_NOTE_PREFIX + '%',
                     AFFECTION_NOTE_PREFIX + '%', idle_events.NOTE_PREFIX + '%',
-                    '[System] (live memory %')
+                    '[System] (Automatic memory recall %', '[System] (live memory %')
     if limit and limit > 0:
         recent = con.execute(
             f"SELECT * FROM messages WHERE session_id = ? {shown} "

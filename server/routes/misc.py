@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client, xai_oauth
+from .. import avatar_packs, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client, xai_oauth
 from ..db import ASSETS_DIR, FILES_DIR, get_config, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
@@ -1087,6 +1087,28 @@ def memories_list(payload: dict = Body(default={}), con=Depends(db_con)):
         }
         for r in rows
     ]
+
+
+@router.post("/memories/neighbours")
+def memories_neighbours(payload: dict = Body(default={}), con=Depends(db_con)):
+    """The Memory Galaxy's similarity graph by meaning, among the memories it
+    shows. `neighbours` is null until all of them are embedded — the map then
+    keeps its word-based graph."""
+    ids = [i for i in (payload.get("ids") or []) if isinstance(i, int)]
+    k = max(1, min(int(payload.get("k") or 8), 50))
+    return {"neighbours": memory_vectors.neighbours(con, ids, k)}
+
+
+@router.post("/memories/topic-terms")
+def memories_topic_terms(payload: dict = Body(default={}), con=Depends(db_con)):
+    """The Memory Galaxy's names re-ranked by meaning (BERTopic's
+    KeyBERTInspired): one word list per topic, or null without vectors."""
+    topics = []
+    for t in payload.get("topics") or []:
+        t = t if isinstance(t, dict) else {}
+        topics.append(([i for i in (t.get("docs") or []) if isinstance(i, int)],
+                       list(dict.fromkeys(w for w in (t.get("words") or []) if isinstance(w, str) and w))))
+    return {"terms": memory_vectors.topic_terms(con, topics)}
 
 
 @router.post("/memories/save")

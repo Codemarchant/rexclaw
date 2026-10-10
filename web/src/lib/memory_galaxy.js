@@ -9,9 +9,13 @@
 //                  inverted index.
 //   3. topics    — Louvain modularity clustering (Blondel et al. 2008) on the
 //                  k-nearest-neighbour similarity graph: memories that talk
-//                  about the same things form one galaxy.
+//                  about the same things form one galaxy. The graph comes
+//                  from the server's EmbeddingGemma 2 vectors when every
+//                  shown memory has one (meaning), else from step 2 (words).
 //   4. labels    — class-based TF-IDF (Grootendorst 2022, BERTopic):
-//                  W(t,c) = tf(t,c) · log(1 + A / f(t)).
+//                  W(t,c) = tf(t,c) · log(1 + A / f(t)); with meaning
+//                  vectors, its top words are re-ranked by BERTopic's
+//                  KeyBERTInspired (applyTopicTerms).
 //   5. placement — galaxies arranged by a small force simulation (similar
 //                  topics sit near each other); inside a galaxy the members
 //                  run along a two-armed logarithmic spiral in the order they
@@ -92,6 +96,13 @@ const MIN_SIM = 0.08;        // design: weaker links are noise between short fac
 const MIN_GALAXY = 3;        // design: smaller topic groups become stray stars
 const KEYWORD_WEIGHT = 2;    // episodes' curated recall keywords count double
 const RELATED = 6;
+/** Neighbours per memory to ask the server for (its meaning-based graph). */
+export const NEIGHBOUR_COUNT = Math.max(K_NEIGHBOURS, RELATED);
+const TOPIC_TERMS = 4;          // design: words shown per galaxy (two make its label)
+// KeyBERTInspired's defaults (BERTopic): candidate words per topic, and the
+// representative documents whose mean embedding stands for the topic.
+const CANDIDATE_WORDS = 100;
+const REPRESENTATIVE_DOCS = 5;
 
 /** Sparse TF-IDF vectors (Map term → weight, L2-normalised). */
 function buildVectors(mems) {
@@ -203,8 +214,11 @@ function louvain(adj) {
     return members;
 }
 
-/** c-TF-IDF top terms of each topic, returned as display words. */
-function topicTerms(groups, mems, df, n) {
+/** Per topic: its c-TF-IDF top words (display form, best first) and its
+ *  representative memories — the members whose TF-IDF vector sits closest
+ *  to the topic's c-TF-IDF — the two inputs BERTopic's KeyBERTInspired
+ *  re-ranking takes (see applyTopicTerms). */
+function topicTerms(groups, mems, df, n, vectors) {
     const surface = new Map(); // stem → Map(surface → count)
     const classTf = groups.map((g) => {
         const tf = new Map();
@@ -225,13 +239,41 @@ function topicTerms(groups, mems, df, n) {
     for (const tf of classTf) for (const [t, c] of tf) { total.set(t, (total.get(t) || 0) + c); words += c; }
     const avg = words / Math.max(1, classTf.length);
     const display = (stem) => [...surface.get(stem)].sort((a, b) => b[1] - a[1])[0][0];
-    return classTf.map((tf) => [...tf]
-        // design: words in over a third of all memories (names, "love") label everything, so nothing
-        .filter(([t]) => (df.get(t) || 0) <= n / 3 && (df.get(t) || 0) >= 2)
-        .map(([t, c]) => [t, c * Math.log(1 + avg / total.get(t))])
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 4)
-        .map(([t]) => display(t)));
+    return classTf.map((tf, c) => {
+        const ranked = [...tf]
+            // design: words in over a third of all memories (names, "love") label everything, so nothing
+            .filter(([t]) => (df.get(t) || 0) <= n / 3 && (df.get(t) || 0) >= 2)
+            .map(([t, count]) => [t, count * Math.log(1 + avg / total.get(t))])
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, CANDIDATE_WORDS);
+        const topic = new Map(ranked);
+        const reps = groups[c]
+            .map((i) => [i, cosine(vectors[i], topic)])
+            .sort((a, b) => b[1] - a[1] || a[0] - b[0])
+            .slice(0, REPRESENTATIVE_DOCS)
+            .map(([i]) => mems[i].id);
+        return { words: ranked.map(([t]) => display(t)), reps };
+    });
+}
+
+/** BERTopic KeyBERTInspired (Grootendorst): re-rank each galaxy's c-TF-IDF
+ *  words by meaning — closeness to the mean embedding of its representative
+ *  memories — so a word merely frequent in the group ("stuff") gives way to
+ *  one that sums it up. `ranked` = /api/memories/topic-terms' answer, one
+ *  word list per cluster; null leaves the c-TF-IDF labels. */
+export function applyTopicTerms(layout, ranked) {
+    if (!ranked) return;
+    // Re-ranking by meaning can hand two galaxies the same theme words,
+    // which c-TF-IDF's distinctiveness used to prevent: a word already in a
+    // bigger galaxy's name (clusters run largest first) isn't reused.
+    const named = new Set();
+    layout.clusters.forEach((c, i) => {
+        if (!ranked[i]?.length) return;
+        const fresh = ranked[i].filter((w) => !named.has(w));
+        c.terms = (fresh.length >= 2 ? fresh : ranked[i]).slice(0, TOPIC_TERMS);
+        c.label = c.terms.slice(0, 2).join(" · ") || "…";
+        c.terms.slice(0, 2).forEach((w) => named.add(w));
+    });
 }
 
 function centroid(vectors, group) {
@@ -315,18 +357,26 @@ export function spiralPoint(g, t, arm, rand, spreadScale = 1) {
 const DAY = 86400000;
 const RECENT_RECALL_DAYS = 3; // design: "recently recalled" pulse window
 
-/** Build the whole map. `mems` = rows from /api/memories/list. */
-export function buildGalaxy(mems) {
+/** Build the whole map. `mems` = rows from /api/memories/list; `neighbours`
+ *  = /api/memories/neighbours' graph ({id: [[id, similarity], ...]}) or null. */
+export function buildGalaxy(mems, neighbours = null) {
     const list = [...mems].sort((a, b) =>
         (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0) || a.id - b.id);
     const n = list.length;
     const { vectors, df } = buildVectors(list);
-    const nn = nearestNeighbours(vectors);
+    // The server's embedding graph links memories by meaning, across
+    // paraphrase and languages; word overlap is the fallback while it isn't
+    // ready. MIN_SIM is a word-overlap scale, so it only gates the fallback.
+    const index = new Map(list.map((m, i) => [m.id, i]));
+    const nn = neighbours
+        ? list.map((m) => (neighbours[m.id] || []).filter(([id]) => index.has(id)).map(([id, s]) => [index.get(id), s]))
+        : nearestNeighbours(vectors);
+    const minSim = neighbours ? -Infinity : MIN_SIM;
 
     const adj = list.map(() => new Map());
     nn.forEach((row, i) => {
         for (const [j, s] of row.slice(0, K_NEIGHBOURS)) {
-            if (s < MIN_SIM) break;
+            if (s < minSim) break;
             adj[i].set(j, Math.max(adj[i].get(j) || 0, s));
             adj[j].set(i, Math.max(adj[j].get(i) || 0, s));
         }
@@ -338,7 +388,7 @@ export function buildGalaxy(mems) {
     const clusterOf = new Int32Array(n).fill(-1);
     groups.forEach((g, c) => g.forEach((i) => { clusterOf[i] = c; }));
 
-    const terms = topicTerms(groups, list, df, n);
+    const topics = topicTerms(groups, list, df, n, vectors);
     const cents = groups.map((g) => centroid(vectors, g));
     const sim = cents.map((a) => cents.map((b) => cosine(a, b)));
 
@@ -350,8 +400,10 @@ export function buildGalaxy(mems) {
         const v = cross(normal, u);
         return {
             id: c,
-            label: terms[c].slice(0, 2).join(" · ") || "…",
-            terms: terms[c],
+            label: topics[c].words.slice(0, 2).join(" · ") || "…",
+            terms: topics[c].words.slice(0, TOPIC_TERMS),
+            candidates: topics[c].words,
+            representatives: topics[c].reps,
             hue: (0.58 + c * 0.618034) % 1, // golden-angle hues stay distinct
             radius: 2.3 * Math.sqrt(g.length) + 2,
             size: g.length,
@@ -395,7 +447,7 @@ export function buildGalaxy(mems) {
         };
     });
     const related = nn.map((row) => row
-        .filter(([, s]) => s >= MIN_SIM)
+        .filter(([, s]) => s >= minSim)
         .slice(0, RELATED)
         .map(([j, s]) => ({ index: j, sim: s })));
     clusters.forEach((c) => { c.firstRank = c.members[0]; });

@@ -637,6 +637,8 @@ each project.
   models for wake phrases.
 - **[MediaPipe](https://github.com/google-ai-edge/mediapipe)** (Apache-2.0) —
   the on-device face and hand models behind camera awareness.
+- **[EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2)**
+  (Apache-2.0, Google DeepMind) — the on-device model behind memory search.
 - Minecraft sidecar — **[Project AIRI](https://github.com/moeru-ai/airi)**
   (MIT) for the brain architecture and pathfinder patches,
   **[Mindcraft](https://github.com/kolbytn/mindcraft)** (MIT) for those

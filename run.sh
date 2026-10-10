@@ -20,7 +20,7 @@ PY="$VENV/bin/python"
 # deps rather than just checking the folder exists. The list ends with the
 # newest dependencies, so an install from before they were added (a `git
 # pull` doesn't install anything) is set up again instead of failing at start.
-if ! "$PY" -c "import fastapi, uvicorn, requests, cryptography, soxr, httpx, websockets, onnxruntime" >/dev/null 2>&1; then
+if ! "$PY" -c "import fastapi, uvicorn, requests, cryptography, soxr, httpx, websockets, onnxruntime, tokenizers" >/dev/null 2>&1; then
     echo "[rexclaw] setting up Python environment…"
     rm -rf "$VENV"
     if command -v uv >/dev/null 2>&1; then
@@ -35,6 +35,12 @@ if ! "$PY" -c "import fastapi, uvicorn, requests, cryptography, soxr, httpx, web
         "$PY" -m pip install --quiet --upgrade pip
         "$PY" -m pip install --quiet -e .
     fi
+fi
+
+# ---- Memory-search model (once; release packages bundle it) -----------------
+if [ ! -f assets/models/embeddinggemma-2/tokenizer.json ]; then
+    echo "[rexclaw] fetching the memory-search model (~200 MB, once)…"
+    "$PY" scripts/fetch_embed_model.py || echo "[rexclaw] model fetch failed — memory search stays keyword-only" >&2
 fi
 
 # ---- Frontend build (missing OR stale web/dist) ------------------------------

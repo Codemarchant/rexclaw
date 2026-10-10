@@ -141,6 +141,14 @@ const CREDITS = [
         ],
     },
     {
+        title: "Memory search",
+        items: [
+            ["EmbeddingGemma 2",
+             "https://huggingface.co/google/embeddinggemma-2",
+             "Apache-2.0, Google DeepMind. The on-device model behind meaning-based memory search."],
+        ],
+    },
+    {
         title: "Minecraft sidecar",
         items: [
             ["Project AIRI",

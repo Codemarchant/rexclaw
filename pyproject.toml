@@ -21,6 +21,8 @@ dependencies = [
     "httpx>=0.27",
     "websockets>=14",
     "onnxruntime>=1.17",
+    # Meaning-based memory search (server/memory_vectors.py).
+    "tokenizers>=0.20",
     # Claude brains (server/pipeline/llm.py AnthropicLlm).
     "anthropic>=1.11",
 ]

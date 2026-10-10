@@ -17,7 +17,7 @@ rem ---- Python venv + backend deps ------------------------------------------
 rem The list ends with the newest dependencies, so an install from before
 rem they were added (a `git pull` doesn't install anything) is set up again
 rem instead of failing at start.
-"%PY%" -c "import fastapi, uvicorn, requests, cryptography, soxr, httpx, websockets, onnxruntime" >nul 2>&1
+"%PY%" -c "import fastapi, uvicorn, requests, cryptography, soxr, httpx, websockets, onnxruntime, tokenizers" >nul 2>&1
 if errorlevel 1 (
     echo [rexclaw] setting up Python environment...
     if exist .venv rmdir /s /q .venv
@@ -28,6 +28,12 @@ if errorlevel 1 (
     )
     "%PY%" -m pip install --quiet --upgrade pip
     "%PY%" -m pip install --quiet -e .
+)
+
+rem ---- Memory-search model (once; release packages bundle it) ---------------
+if not exist assets\models\embeddinggemma-2\tokenizer.json (
+    echo [rexclaw] fetching the memory-search model, about 200 MB, once...
+    "%PY%" scripts\fetch_embed_model.py || echo [rexclaw] model fetch failed - memory search stays keyword-only
 )
 
 rem ---- Frontend build (missing OR stale web\dist) -----------------------------

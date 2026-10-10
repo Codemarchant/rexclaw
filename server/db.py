@@ -1469,6 +1469,8 @@ def init_db():
         seed_grok_pipeline(con)
         from .memory_index import initialize
         initialize(con)
+        from . import memory_vectors
+        memory_vectors.initialize(con)
         con.commit()
     finally:
         con.close()

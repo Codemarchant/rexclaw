@@ -24,6 +24,8 @@ REPEAT_AFTER_DAYS = 14
 # does not move its answer within this span, and judging more of them costs
 # one question each.
 CANDIDATE_MAX = 8
+# The latest words of an utterance retrieval reads.
+WORDS_MAX = 32
 # Tags that put a memory out of reach of a spontaneous callback, whatever it
 # matches: a ritual the user ended, text they quoted rather than lived, and a
 # session spent operating the app rather than living a life. The last one earns
@@ -159,13 +161,38 @@ def _character_passage(text, snippet, cap):
     return ('… ' if start else '') + text[start:start + cap - 4] + (' …' if start + cap - 4 < len(text) else '')
 
 
-def search(con, agent_id, text, *, session_id=None, exclude=(), limit=3, budget_ms=40):
+def live_filter(agent_id, session_id):
+    """Which memories a spontaneous callback may use: SQL conditions on `m`
+    (memories) and their params, shared by keyword retrieval and the meaning
+    search shadow."""
+    sql = ("m.scope='recall' AND (m.agent_id=? OR m.agent_id IS NULL) "
+           # Resumed sessions can span months: only exclude fresh episodes
+           # from this session, not its whole historical archive.
+           "AND (m.session_id IS NULL OR m.session_id != ? OR m.created_at < "
+           "strftime('%Y-%m-%dT%H:%M:%f','now','-3 minutes')) "
+           # Wear-out, not a one-shot: this companion's own deliveries
+           # exclude a memory in any session, and only until they age out.
+           'AND NOT EXISTS (SELECT 1 FROM live_memory_deliveries d '
+           'JOIN sessions ds ON ds.id=d.session_id '
+           'WHERE d.memory_id=m.id AND ds.agent_id=? AND d.delivered_at > '
+           f"strftime('%Y-%m-%dT%H:%M:%f','now','-{REPEAT_AFTER_DAYS} days')) "
+           # A memory the user retired, or text they only quoted, is out
+           # of reach here however well it matches.
+           + ''.join(f" AND ','||REPLACE(LOWER(COALESCE(m.tags,'')),' ','')||',' NOT LIKE '%,{tag},%'"
+                     for tag in VETO_TAGS))
+    return sql, (agent_id, session_id or -1, agent_id)
+
+
+def search(con, agent_id, text, *, session_id=None, exclude=(), limit=3, budget_ms=40, meaning=()):
+    """Candidates for a spontaneous callback: the two keyword indexes plus
+    `meaning` — (memory_id, similarity) pairs from memory_vectors, best
+    first — merged by reciprocal rank, each path's leader kept."""
     cap = max(1, min(limit, CANDIDATE_MAX))
     text = text[-1200:]
     tokens = list(dict.fromkeys(t for t in re.findall(r'\w+', text.lower())
-                                if len(t) >= 2 and t not in STOP))[-32:]
+                                if len(t) >= 2 and t not in STOP))[-WORDS_MAX:]
     grams = character_terms(text)
-    if not tokens and not grams:
+    if not tokens and not grams and not meaning:
         return []
     excluded = [int(i) for i in list(exclude)[:100] if isinstance(i, int) and i > 0]
     clause = (' AND m.id NOT IN (' + ','.join('?' for _ in excluded) + ')') if excluded else ''
@@ -211,28 +238,14 @@ def search(con, agent_id, text, *, session_id=None, exclude=(), limit=3, budget_
             if table == 'memory_recall_chars' and len(char_candidates) >= cap:
                 continue
             query = ' OR '.join('"' + t + '"' for t in terms)
+            where, where_params = live_filter(agent_id, session_id)
             rows = con.execute(
                 'SELECT m.id,m.content,m.transcript,m.keywords,m.memory_type,m.created_at,m.agent_id,'
                 'm.session_id,m.recall_revision '
                 f'FROM {table} CROSS JOIN memories m ON m.id={table}.rowid '
-                f"WHERE {table} MATCH ? AND m.scope='recall' "
-                'AND (m.agent_id=? OR m.agent_id IS NULL) '
-                # Resumed sessions can span months: only exclude fresh episodes
-                # from this session, not its whole historical archive.
-                "AND (m.session_id IS NULL OR m.session_id != ? OR m.created_at < "
-                "strftime('%Y-%m-%dT%H:%M:%f','now','-3 minutes')) "
-                # Wear-out, not a one-shot: this companion's own deliveries
-                # exclude a memory in any session, and only until they age out.
-                'AND NOT EXISTS (SELECT 1 FROM live_memory_deliveries d '
-                'JOIN sessions ds ON ds.id=d.session_id '
-                'WHERE d.memory_id=m.id AND ds.agent_id=? AND d.delivered_at > '
-                f"strftime('%Y-%m-%dT%H:%M:%f','now','-{REPEAT_AFTER_DAYS} days')) "
-                # A memory the user retired, or text they only quoted, is out
-                # of reach here however well it matches.
-                + ''.join(f" AND ','||REPLACE(LOWER(COALESCE(m.tags,'')),' ','')||',' NOT LIKE '%,{tag},%'"
-                          for tag in VETO_TAGS) + clause +
+                f'WHERE {table} MATCH ? AND {where}' + clause +
                 f' ORDER BY bm25({table},8.0,3.0,1.0),m.id LIMIT ?',
-                (query, agent_id, session_id or -1, agent_id, *excluded, cap)).fetchall()
+                (query, *where_params, *excluded, cap)).fetchall()
             for rank, row in enumerate(rows):
                 if table == 'memory_recall_chars':
                     char_candidates.add(row['id'])
@@ -245,6 +258,20 @@ def search(con, agent_id, text, *, session_id=None, exclude=(), limit=3, budget_
                     entry.update(row=row, table=table, query=query)
             if rows and table not in [t for t, _ in leaders]:
                 leaders.append((table, rows[0]['id']))
+        similarity = dict(meaning)
+        ids = [i for i in similarity if i not in excluded]
+        if ids:
+            where, where_params = live_filter(agent_id, session_id)
+            found = {r['id']: r for r in con.execute(
+                'SELECT m.id,m.content,m.transcript,m.keywords,m.memory_type,m.created_at,m.agent_id,'
+                'm.session_id,m.recall_revision FROM memories m '
+                f'WHERE m.id IN ({",".join("?" for _ in ids)}) AND {where}', (*ids, *where_params))}
+            rows = [found[i] for i in ids if i in found]
+            for rank, row in enumerate(rows):
+                entry = matches.setdefault(row['id'], {'score': 0, 'row': row, 'table': 'meaning', 'query': None})
+                entry['score'] += 1 / (60 + rank + 1)
+            if rows:
+                leaders.append(('meaning', rows[0]['id']))
         hits = []
         # Reserve the best candidate from each retrieval path. Otherwise
         # generic results present in both lists can crowd out a rare cue.
@@ -262,6 +289,15 @@ def search(con, agent_id, text, *, session_id=None, exclude=(), limit=3, budget_
             # one ranked is the cheapest signal for skipping a judgment
             # altogether, and its threshold has to come from real calls.
             hit['retrieval_score'] = round(entry['score'], 6)
+            if memory_id in similarity:
+                hit['similarity'] = round(similarity[memory_id], 4)
+            if table == 'meaning':
+                # No matched words to centre a window on: the summary the
+                # vector was made from stands in, the keyword index beside it.
+                hit['content'] = (hit['content'] or '')[:600]
+                hit['excerpt'] = ''
+                hits.append(hit)
+                continue
             # Select both passages around query matches, rather than giving
             # Jev the opening of a potentially unrelated episode summary.
             # FTS tokens are word-like units, not LLM tokens; 64 is SQLite's

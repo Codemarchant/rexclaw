@@ -1856,7 +1856,7 @@ export class AgentConnection {
         this.cancelActiveResponse('live-memory-context');
         // 32 characters at most: OpenAI Realtime caps client-chosen item ids.
         const itemId = `lm_${crypto.randomUUID().replace(/-/g, "").slice(0, 29)}`;
-        const note = `[System] (live memory ${memory.memory_id})\n${memory.note}`;
+        const note = `[System] (Automatic memory recall ${memory.memory_id})\n${memory.note}`;
         if (this.injectContextItem(note, { itemId, promptResponse: false })) {
             this._liveMemory.take();
             turn.memoryId = memory.memory_id;
