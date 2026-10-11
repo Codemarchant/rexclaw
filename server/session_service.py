@@ -1362,9 +1362,9 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     # where saving is strict, for the same imported-package reason.
     keyterms = [t for t in xai_client.parse_keyterms(agent['transcription_keyterms'])
                 if len(t) <= xai_client.KEYTERM_MAX_LEN][:xai_client.KEYTERMS_MAX]
-    # The face director drives the base avatar's face — the primary leg's.
-    # Peer legs: nothing reads their lines for a face.
-    face_on = bool(config['face_director']) and not manual_turn
+    # The face director drives every companion's face on a call, a group
+    # call's peer legs included (each has its own motion director).
+    face_on = bool(config['face_director'])
     tools, native_function_tools = _voice_tools(con, agent, config, group_peers=group_peers)
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='voice')
 
@@ -1392,7 +1392,9 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         enable_x_search=bool(agent['enable_x_search']),
         audio_sample_rate=audio_sample_rate,
         manual_turn=manual_turn,
-        stream_transcription=live_memory_mode == 'on' or (face_on and bool(config['typesafe_api_key'])),
+        # Peer legs never hear the mic: nothing for them to stream.
+        stream_transcription=live_memory_mode == 'on' or (
+            face_on and not manual_turn and bool(config['typesafe_api_key'])),
     )
     if pipeline and brain_runs_code(con, agent, config, 'voice'):
         # A setup brain with a code sandbox runs code on calls too; Grok

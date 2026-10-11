@@ -1553,8 +1553,8 @@ class AvatarRenderer {
         // talkative call, none of them ever reachable again.
         if (action.__rxDisposable) {
             try {
-                this.mixer.uncacheAction(action.getClip(), action.getRoot());
-                this.mixer.uncacheClip(action.getClip());
+                actor.mixer.uncacheAction(action.getClip(), action.getRoot());
+                actor.mixer.uncacheClip(action.getClip());
             } catch (e) { /* already gone */ }
         }
         const idle = actor.idleClipAction;
@@ -1679,11 +1679,14 @@ class AvatarRenderer {
      *  absolute `url` plus the manifest metadata. */
     setMotionLibrary(entries) {
         this._motionClips = Array.isArray(entries) ? entries.filter((e) => e && e.url) : [];
-        if (!this._motionClips.length) this._stopLayerClip({ resumeIdle: true });
+        if (!this._motionClips.length) {
+            this._stopLayerClip({ resumeIdle: true });
+            for (const peer of this._peers.values()) this._stopLayerClip({ resumeIdle: true }, peer);
+        }
     }
 
-    isLayerClipRunning() {
-        return !!(this._layerAction && this._layerAction.isRunning());
+    isLayerClipRunning(actor = this) {
+        return !!(actor._layerAction && actor._layerAction.isRunning());
     }
 
     /** Parsed VRMA for a library url — module-level cache, avatar-independent. */
@@ -1725,14 +1728,37 @@ class AvatarRenderer {
      *  tail after it is a static hold), else at its end; the return to idle
      *  is inertialized like a gesture's. Yields to a tool gesture, a combo
      *  or locomotion; returns false when it did not play. */
-    async playLibraryClip(entry, { cut = null, trimLeadIn = false } = {}) {
-        if (!this.vrm || !this.mixer || !entry?.url) return false;
-        const busy = () => this._moving || this._comboPartner || this._comboLivePeer
-            || (this._gestureAction && this._gestureAction.isRunning());
+    async playLibraryClip(entry, opts = {}) {
+        return this._playLibraryClip(this, entry, opts);
+    }
+
+    /** playLibraryClip on a peer (its motion director's fidgets and speech
+     *  gestures). */
+    async playPeerLibraryClip(peerId, entry, opts = {}) {
+        const peer = this._peers.get(peerId);
+        return peer ? this._playLibraryClip(peer, entry, opts) : false;
+    }
+
+    isPeerLayerClipRunning(peerId) {
+        const peer = this._peers.get(peerId);
+        return !!peer && this.isLayerClipRunning(peer);
+    }
+
+    stopPeerLayerClip(peerId) {
+        const peer = this._peers.get(peerId);
+        if (peer) this._stopLayerClip({ resumeIdle: true }, peer);
+    }
+
+    async _playLibraryClip(actor, entry, { cut = null, trimLeadIn = false } = {}) {
+        if (!actor.vrm || !actor.mixer || !entry?.url) return false;
+        const combo = actor === this ? this._comboPartner || this._comboLivePeer
+            : this._comboLivePeer?.peer === actor;
+        const busy = () => actor._moving || combo
+            || (actor._gestureAction && actor._gestureAction.isRunning());
         if (busy()) return false;
-        const vrmAtCall = this.vrm;
-        const full = await this._loadLibraryClip(this, entry);
-        if (!full || this.vrm !== vrmAtCall || !this.mixer || busy()) return false;
+        const vrmAtCall = actor.vrm;
+        const full = await this._loadLibraryClip(actor, entry);
+        if (!full || actor.vrm !== vrmAtCall || !actor.mixer || busy()) return false;
         const { THREE } = this.libs;
         let clip = full;
         let end = cut && cut > 0.5 ? cut : null;
@@ -1757,25 +1783,26 @@ class AvatarRenderer {
             }
         }
         // Replace a running layer clip without bouncing through the idle.
-        this._stopLayerClip({ resumeIdle: false });
-        const action = this.mixer.clipAction(clip);
+        this._stopLayerClip({ resumeIdle: false }, actor);
+        const mixer = actor.mixer;
+        const action = mixer.clipAction(clip);
         // Only the trimmed copy is throwaway — `full` is the cached clip
         // _loadLibraryClip hands back for every future play of this entry, so
         // it must survive. See the uncache in _releaseToIdle.
         action.__rxDisposable = clip !== full;
         action.setLoop(THREE.LoopOnce, 1);
         action.clampWhenFinished = true;   // hold the last frame until released
-        this._fadeIdleOut(this, LAYER_FADE_IN);
+        this._fadeIdleOut(actor, LAYER_FADE_IN);
         action.reset().fadeIn(LAYER_FADE_IN).play();
-        this._layerAction = action;
+        actor._layerAction = action;
         const onFinished = (ev) => {
             if (ev.action !== action) return;
-            this.mixer.removeEventListener("finished", onFinished);
-            if (this._layerAction !== action) return;
-            this._layerAction = null;
-            this._queueRelease(this, action);   // after the mixer's frame, see _flushReleases
+            mixer.removeEventListener("finished", onFinished);
+            if (actor._layerAction !== action) return;
+            actor._layerAction = null;
+            this._queueRelease(actor, action);   // after the mixer's frame, see _flushReleases
         };
-        this.mixer.addEventListener("finished", onFinished);
+        mixer.addEventListener("finished", onFinished);
         return true;
     }
 
@@ -1789,12 +1816,12 @@ class AvatarRenderer {
         this._stopLayerClip({ resumeIdle: true });
     }
 
-    _stopLayerClip({ resumeIdle }) {
-        const action = this._layerAction;
+    _stopLayerClip({ resumeIdle }, actor = this) {
+        const action = actor._layerAction;
         if (!action) return;
-        this._layerAction = null;
+        actor._layerAction = null;
         if (resumeIdle) {
-            this._queueRelease(this, action);
+            this._queueRelease(actor, action);
             return;
         }
         try { action.fadeOut(0.15); } catch (e) { /* */ }
@@ -2251,7 +2278,7 @@ class AvatarRenderer {
     // peers live until removePeer().
 
     _makePeerActor(peerId) {
-        return {
+        const peer = {
             id: peerId,
             vrm: null,
             mixer: null,
@@ -2281,7 +2308,37 @@ class AvatarRenderer {
             _headBaseY: 0,
             _idle: new IdleMotion(),
             _visemeMap: null,
+            // Fidgets and speech gestures (playPeerLibraryClip).
+            _layerAction: null,
+            _libraryClipCache: new Map(),
+            // Its own look-at point: the face director's glance is per face.
+            _lookAtTarget: null,
+            _moodMarks: null,
         };
+        peer._face = new FaceMotion(this._peerFaceHost(peer), EMOTION_STATES);
+        return peer;
+    }
+
+    /** A peer's own mood-mark sprites, made on first use while the pref is
+     *  on (the base avatar's exist exactly then), else null. */
+    _peerMoodMarks(peer) {
+        if (!this._moodMarks) return null;
+        return (peer._moodMarks ||= new MoodMarks(this.libs.THREE, this.scene));
+    }
+
+    /** What FaceMotion reads off its avatar, for a peer: the actor's own
+     *  state (through the prototype, so always current) and the renderer's
+     *  per-avatar helpers bound to it. FaceMotion only reads its host. */
+    _peerFaceHost(peer) {
+        const host = Object.create(peer, {
+            libs: { get: () => this.libs },
+            _moodMarks: { get: () => this._peerMoodMarks(peer) },
+        });
+        host.setEmotion = (name, opts) => this.setPeerEmotion(peer.id, name, opts);
+        host.faceTuning = (id) => this.faceTuning(id, peer);
+        host.eyeRange = () => this.eyeRange(peer);
+        host._clipExpressions = () => this._clipExpressions(peer);
+        return host;
     }
 
     /** Load (or swap) a peer's avatar from its server payload and stand it
@@ -2375,10 +2432,18 @@ class AvatarRenderer {
         peer._gestureAction = null;
         peer._currentGestureUrl = null;
         peer._gestureClips.clear();
+        peer._layerAction = null;
+        peer._libraryClipCache.clear();
 
-        // Shared look-at target: peers make eye contact with the camera too.
+        // Peers make eye contact with the camera too: their own target sits
+        // on the base avatar's point plus their own glance (_applyEyeSaccade).
         if (vrm.lookAt && this._lookAtTarget) {
-            vrm.lookAt.target = this._lookAtTarget;
+            if (!peer._lookAtTarget) {
+                peer._lookAtTarget = new THREE.Object3D();
+                peer._lookAtTarget.position.copy(this._lookAtTarget.position);
+                this.scene.add(peer._lookAtTarget);
+            }
+            vrm.lookAt.target = peer._lookAtTarget;
         }
         try {
             const head = vrm.humanoid?.getNormalizedBoneNode?.("head");
@@ -2458,6 +2523,10 @@ class AvatarRenderer {
         if (!peer) return;
         peer._loadGeneration++;   // cancel any in-flight load
         if (peer._emotionDecayTimer) clearTimeout(peer._emotionDecayTimer);
+        peer._face.setOn(false);
+        peer._moodMarks?.dispose();
+        peer._moodMarks = null;
+        if (peer._lookAtTarget) this.scene?.remove(peer._lookAtTarget);
         this._disposePeerModel(peer);
         this._peers.delete(peerId);
         this._layoutCallAvatars();
@@ -2477,9 +2546,12 @@ class AvatarRenderer {
         if (peer) peer._rawSpeakingIntensity = Math.max(0, Math.min(1, value || 0));
     }
 
-    setPeerEmotion(peerId, name) {
+    setPeerEmotion(peerId, name, { settle = false } = {}) {
         const peer = this._peers.get(peerId);
         if (!peer || !EMOTION_STATES[name]) return;
+        // Mood marks as on the base avatar (setEmotion): every deliberate
+        // change, not the automatic settle.
+        if (!settle) this._peerMoodMarks(peer)?.show(name);
         peer._currentEmotion = name;
         peer._emotionTransitionProgress = 0;
         peer._emotionTransitionStart = null;
@@ -2493,7 +2565,7 @@ class AvatarRenderer {
         if (settleTo && emotionDecayEnabled(peer.avatarPayload)) {
             peer._emotionDecayTimer = setTimeout(() => {
                 peer._emotionDecayTimer = null;
-                this.setPeerEmotion(peerId, settleTo);
+                this.setPeerEmotion(peerId, settleTo, { settle: true });
             }, EMOTION_DECAY_MS);
         }
     }
@@ -2539,6 +2611,8 @@ class AvatarRenderer {
             old.fadeOut(0.15);
             setTimeout(() => { try { old.stop(); } catch (e) { /* */ } }, 200);
         }
+        // A deliberate gesture takes the body from a fidget / speech gesture.
+        this._stopLayerClip({ resumeIdle: false }, peer);
         if (peer.idleClipAction) {
             peer.idleClipAction.fadeOut(FADE_IN);
         }
@@ -2955,7 +3029,7 @@ class AvatarRenderer {
         const action = await this._ensureWalkAction(actor);
         if (!action) return;             // load failed — slide without the clip
         if (!actor._moving) return;      // stopped while the clip downloaded
-        if (actor === this) this._stopLayerClip({ resumeIdle: false });
+        this._stopLayerClip({ resumeIdle: false }, actor);
         this._fadeIdleOut(actor, WALK_FADE_IN);
         action.reset().fadeIn(WALK_FADE_IN).play();
     }
@@ -5541,7 +5615,7 @@ class AvatarRenderer {
         // The base avatar's look may tune its own expressions down or up.
         if (state.name) {
             targets[state.name] = Math.min(1, state.cap
-                * (actor === this ? this.faceTuning(`emotion:${actor._currentEmotion}`) : 1));
+                * this.faceTuning(`emotion:${actor._currentEmotion}`, actor));
         }
 
         // Capture the starting weights once per transition so the ease runs
@@ -5629,13 +5703,32 @@ class AvatarRenderer {
         this._face.listening(on);
     }
 
+    // The same four for a peer's face (its own motion director drives it).
+
+    setPeerFaceDirector(peerId, on) {
+        this._peers.get(peerId)?._face.setOn(on);
+    }
+
+    setPeerFaceReaction(peerId, face, opts) {
+        this._peers.get(peerId)?._face.react(face, opts);
+    }
+
+    setPeerFaceTurnEnd(peerId, endMs) {
+        this._peers.get(peerId)?._face.turnEnd(endMs);
+    }
+
+    setPeerFaceListening(peerId, on) {
+        this._peers.get(peerId)?._face.listening(on);
+    }
+
     /** The loaded look's strength for a face channel or an own-emotion
      *  expression (`emotion:<state>`) — face_motion.js FACE_TUNING. The
      *  tuning dialog's live values win while it is open; otherwise the
      *  avatar payload's entry for the VRM on screen. 1 = as rigged. */
-    faceTuning(id) {
-        const t = this._faceTuningPreview
-            || this._currentAvatarPayload?.outfits?.find((o) => o.vrm_url === this._loadedVrmUrl)?.face_tuning;
+    faceTuning(id, actor = this) {
+        const payload = actor === this ? this._currentAvatarPayload : actor.avatarPayload;
+        const t = (actor === this && this._faceTuningPreview)
+            || payload?.outfits?.find((o) => o.vrm_url === actor._loadedVrmUrl)?.face_tuning;
         const v = t?.[id];
         return Number.isFinite(v) && v >= 0 ? v : 1;
     }
@@ -5668,8 +5761,8 @@ class AvatarRenderer {
 
     /** The look-at's four range maps (inner/outer/down/up): how far, in
      *  degrees, the model's author lets the eyes turn. [] without a look-at. */
-    _eyeRangeMaps() {
-        const a = this.vrm?.lookAt?.applier;
+    _eyeRangeMaps(actor = this) {
+        const a = actor.vrm?.lookAt?.applier;
         return a ? [a.rangeMapHorizontalInner, a.rangeMapHorizontalOuter,
             a.rangeMapVerticalDown, a.rangeMapVerticalUp].filter(Boolean) : [];
     }
@@ -5678,17 +5771,17 @@ class AvatarRenderer {
      *  eyes are usually flat, turned about a pivot near the face surface:
      *  one model allows 1° and another 12°, and at 12° the iris sinks into
      *  the socket and looks like it shrinks. */
-    _applyEyeRange() {
-        const k = this.faceTuning("gaze");
-        for (const m of this._eyeRangeMaps()) {
+    _applyEyeRange(actor = this) {
+        const k = this.faceTuning("gaze", actor);
+        for (const m of this._eyeRangeMaps(actor)) {
             m._rxAuthored ??= m.outputScale;
             m.outputScale = m._rxAuthored * k;
         }
     }
 
     /** The widest turn the author allows, in degrees, or null. */
-    eyeRange() {
-        const maps = this._eyeRangeMaps();
+    eyeRange(actor = this) {
+        const maps = this._eyeRangeMaps(actor);
         return maps.length ? Math.max(...maps.map((m) => m._rxAuthored ?? m.outputScale)) : null;
     }
 
@@ -5795,13 +5888,16 @@ class AvatarRenderer {
                 gz += (this._cursorGazePoint.z - gz) * cf.blend;
             }
         }
-        // The face director's glance rides on top, like the saccades.
+        // The face director's glance rides on top, like the saccades. Each
+        // peer looks at the same point with its own face's glance.
         const fg = this._face?.gaze;
-        this._lookAtTarget.position.set(
-            gx + (sig?.gazeX || 0) + (fg?.x || 0),
-            gy + (sig?.gazeY || 0) + (fg?.y || 0),
-            gz,
-        );
+        const x = gx + (sig?.gazeX || 0);
+        const y = gy + (sig?.gazeY || 0);
+        this._lookAtTarget.position.set(x + (fg?.x || 0), y + (fg?.y || 0), gz);
+        for (const peer of this._peers.values()) {
+            const pg = peer._face?.gaze;
+            peer._lookAtTarget?.position.set(x + (pg?.x || 0), y + (pg?.y || 0), gz);
+        }
     }
 
     _loop() {
@@ -5903,9 +5999,13 @@ class AvatarRenderer {
             for (const peer of this._peers.values()) {
                 if (!peer.vrm) continue;
                 if (peer.mixer) peer.mixer.update(delta);
+                this._flushReleases(peer);
                 this._applyIdle(peer, delta);
+                this._applyReturnBlend(peer, delta);
+                peer._face.update(delta);
                 this._applyBlink(peer);
                 this._applyBreath(peer);
+                this._applyEyeRange(peer);
                 this._applyVowels(peer);
                 this._applyEmotion(peer, delta);
                 this._applyIdleMouth(peer);
@@ -5938,8 +6038,11 @@ class AvatarRenderer {
             }
         }
 
-        this._moodMarks?.update(delta, this.getHeadWorldPosition(),
-            this._xrActive ? this.renderer.xr.getCamera() : this.camera);
+        const markCam = this._xrActive ? this.renderer.xr.getCamera() : this.camera;
+        this._moodMarks?.update(delta, this.getHeadWorldPosition(), markCam);
+        for (const peer of this._peers.values()) {
+            peer._moodMarks?.update(delta, this.getHeadWorldPosition(undefined, peer), markCam);
+        }
         if (this._ambience?.active) {
             // Camera + head for screen-anchored systems (the focus lines).
             const view = (this._ambienceView ||= { camera: null, head: null });
@@ -6233,8 +6336,8 @@ class AvatarRenderer {
     /** World-space position of the VRM head bone, for positioning a spatial
      *  audio PannerNode at the avatar's mouth. Returns a (reused) Vector3 or
      *  null if no VRM is loaded. Valid after the per-frame vrm.update(). */
-    getHeadWorldPosition(out) {
-        const head = this.vrm?.humanoid?.getNormalizedBoneNode?.("head");
+    getHeadWorldPosition(out, actor = this) {
+        const head = actor.vrm?.humanoid?.getNormalizedBoneNode?.("head");
         if (!head || !this.libs) return null;
         const v = out || (this._headWorldScratch ||= new this.libs.THREE.Vector3());
         return head.getWorldPosition(v);
@@ -6661,6 +6764,10 @@ class AvatarRenderer {
         } else if (this._moodMarks) {
             this._moodMarks.dispose();
             this._moodMarks = null;
+            for (const peer of this._peers.values()) {
+                peer._moodMarks?.dispose();
+                peer._moodMarks = null;
+            }
         }
     }
 

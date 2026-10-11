@@ -9,6 +9,7 @@ import {
     arrayBufferToBase64,
 } from "../models/agent_connection";
 import { IdleEventScheduler } from "../lib/idle_events";
+import { MotionDirector } from "../models/motion_director";
 
 /**
  * Voice CALL manager (the "voice_companion" registry service).
@@ -976,6 +977,8 @@ class VoiceCallService {
             this.env.services.notification?.add?.(msg, { type: "danger" });
             this.connections.delete(connId);
             this.state.peers = this.state.peers.filter((p) => p.connId !== connId);
+            conn._motion?.dispose();
+            conn._motion = null;
             return false;
         }
         // Update the roster entry with the server-confirmed name.
@@ -1185,6 +1188,8 @@ class VoiceCallService {
         if (conn.role === "peer") {
             this.connections.delete(conn.connId);
             this.state.peers = this.state.peers.filter((p) => p.connId !== conn.connId);
+            conn._motion?.dispose();
+            conn._motion = null;
             const renderer = this.env.services.voice_avatar_renderer;
             renderer?.removePeer?.(conn.connId);
             if (conn.lipsyncChannel) {
@@ -1261,6 +1266,10 @@ class VoiceCallService {
             };
         }
         const id = conn.connId;
+        // Kept across a compaction restart, which builds the adapter again.
+        conn._motion ||= new MotionDirector(this.env, {
+            peer: conn, shared: this.env.services.motion_director,
+        });
         return {
             setVowels: (v) => renderer()?.setPeerVowels?.(id, v),
             setSpeakingIntensity: (v) => renderer()?.setPeerSpeakingIntensity?.(id, v),
@@ -1334,6 +1343,12 @@ class VoiceCallService {
             setOutfit: (u, i) => renderer()?.setPeerOutfit?.(id, u, i),
             resetExpression: () => {},
             setBackground: (bg) => renderer()?.setBackground?.(bg),
+            // The peer's own motion director: face director, speech
+            // gestures and fidgets on its avatar, as the base avatar has.
+            setConversationState: (s) => conn._motion?.setConversationState(s),
+            onAssistantTranscript: (d, ahead) => conn._motion?.onAssistantTranscript(d, ahead),
+            noteExpressionTool: () => conn._motion?.noteExpressionTool(),
+            audioLookahead: () => conn._audioLookaheadSec?.() ?? 0,
         };
     }
 
@@ -1385,6 +1400,7 @@ class VoiceCallService {
                 renderer.setPeerAvatar?.(conn.connId, payload.avatar)
                     .catch?.((e) => console.error("[voice] peer avatar load failed", e));
             }
+            conn._motion?.setFaceDirector(!!payload.face_director);
             return;
         }
         // active_background is resolved server-side, but an explicit pick
@@ -1433,7 +1449,17 @@ class VoiceCallService {
     /** What the user has said so far, while they are still speaking
      *  (streaming transcription): the base avatar's listening face. */
     onUserPartial(conn, text) {
-        if (conn === this.primary) this.env.services.motion_director?.onUserPartial?.(text);
+        if (conn !== this.primary) return;
+        this.env.services.motion_director?.onUserPartial?.(text);
+        // Every companion on the call hears it, each with their own face.
+        for (const peer of this.activePeers()) peer._motion?.onUserPartial(text);
+    }
+
+    /** The user stopped speaking (primary leg's VAD): the peers stop
+     *  listening too. The primary's own director already heard it. */
+    onUserSpeechStopped(conn) {
+        if (conn !== this.primary) return;
+        for (const peer of this.activePeers()) peer._motion?.setConversationState({ listening: false });
     }
 
     /** The user's spoken words arrived (primary leg's transcription). Relay
@@ -1447,7 +1473,10 @@ class VoiceCallService {
         if (conn === this.primary) this._userVoiceAt = Date.now();
         this.idleEvents.noteUser();
         // The base avatar's listening face (face director, when on).
-        if (conn === this.primary) this.env.services.motion_director?.onUserLine?.(text);
+        if (conn === this.primary) {
+            this.env.services.motion_director?.onUserLine?.(text);
+            for (const peer of this.activePeers()) peer._motion?.onUserLine(text);
+        }
         if (conn !== this.primary || !this.hasPeers()) return;
         this._directorGeneration++;
         const generation = this._directorGeneration;
@@ -1532,6 +1561,8 @@ class VoiceCallService {
         this._userTurnNudgeSent = false;
         for (const peer of this.activePeers()) {
             peer.cancelActiveResponse("user-barge-in");
+            // What the primary's own speech_started tells its director.
+            peer._motion?.setConversationState({ listening: true, thinking: false, interrupted: true });
         }
     }
 

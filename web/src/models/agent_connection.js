@@ -240,6 +240,7 @@ export function base64ToArrayBuffer(b64) {
  *   manager.onUserTranscript(conn, text)
  *   manager.onUserPartial(conn, text)         — streaming hypothesis mid-utterance
  *   manager.onUserSpeechStarted(conn)
+ *   manager.onUserSpeechStopped(conn)
  *   manager.onConnectionEnded(conn)
  *
  * Roles:
@@ -1459,6 +1460,7 @@ export class AgentConnection {
             // Motion director: the user finished — server VAD will start a
             // reply, so the companion is busy until it does.
             this.avatarApi?.setConversationState?.({ listening: false, thinking: true });
+            try { this.manager.onUserSpeechStopped?.(this); } catch (e) { /* non-fatal */ }
             this._userSpeaking = false;
             if (msg.type === "input_audio_buffer.committed") {
                 // A user utterance is committed; its transcription arrives

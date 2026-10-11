@@ -55,6 +55,12 @@ export class FaceDirector {
         this._heard = this._newUtterance();   // the user's utterance, read as it comes in
     }
 
+    /** Log prefix: a peer's face says whose it is. */
+    get _tag() {
+        const who = this.md.peer?.agentName;
+        return who ? `[face:${who}]` : "[face]";
+    }
+
     _newUtterance() {
         return { text: "", read: "", reads: 0, shown: 0, lastAt: 0, pending: false, timer: null, acts: new Set() };
     }
@@ -65,9 +71,9 @@ export class FaceDirector {
         const next = !!on;
         if (next === this.enabled) return;
         this.enabled = next;
-        console.log(`[face] director: ${next ? "ON" : "off"}`);
+        console.log(`${this._tag} director: ${next ? "ON" : "off"}`);
         if (!next) this.clear();
-        this.md.renderer?.setFaceDirector?.(next);
+        this.md.avatar?.setFaceDirector?.(next);
     }
 
     newTurn() {
@@ -92,7 +98,7 @@ export class FaceDirector {
             this._heard = this._newUtterance();
             this._replyShown = false;
         }
-        this.md.renderer?.setFaceListening?.(!!on);
+        this.md.avatar?.setFaceListening?.(!!on);
     }
 
     /** What the user has said so far, while they are still speaking. */
@@ -128,7 +134,7 @@ export class FaceDirector {
 
     /** One read of the utterance `h` so far (`partial`) or finished. */
     _hear(h, text, partial) {
-        const sessionId = this.md.env.services.voice_companion?.primary?.state?.sessionId;
+        const sessionId = this.md.sessionId();
         if (!sessionId) return;
         const seq = ++this._seq;
         const started = Date.now();
@@ -141,17 +147,17 @@ export class FaceDirector {
             new Promise((resolve) => setTimeout(() => resolve(null), FACE_TIMEOUT_MS)),
         ]).then((res) => {
             const took = Date.now() - started;
-            const r = this.md.renderer;
+            const r = this.md.avatar;
             // Off, a newer utterance began, or a later read already showed.
             if (!this.enabled || h !== this._heard || seq < h.shown) return;
             if (!res?.face) {
-                console.log(`[face] #${seq} ${how}: no change — ${res ? res.reason : "timed out"}`);
+                console.log(`${this._tag} #${seq} ${how}: no change — ${res ? res.reason : "timed out"}`);
                 return;
             }
             // Only until they get their answer: once the reply's face is
             // up or its voice is audible, the moment has passed.
             if (this._replyShown || (r?._rawSpeakingIntensity || 0) > 0.05) {
-                console.log(`[face] #${seq} ${how}: too late (read ${took}ms)`);
+                console.log(`${this._tag} #${seq} ${how}: too late (read ${took}ms)`);
                 return;
             }
             // Everything said so far was read again: what a read already
@@ -162,7 +168,7 @@ export class FaceDirector {
             r?.setFaceReaction?.(face, { lineAt: Date.now(), first: !h.reads, listening: true });
             h.reads++;
             h.shown = seq;
-        }).catch((e) => console.warn("[face] listening read failed", e)).finally(() => {
+        }).catch((e) => console.warn(`${this._tag} listening read failed`, e)).finally(() => {
             h.pending = false;
             if (partial && h === this._heard) this._hearNext();
         });
@@ -171,7 +177,7 @@ export class FaceDirector {
     /** One line of the reply: { line, at, spokenAt }. */
     queue(item) {
         if (!this.enabled) return;
-        const sessionId = this.md.env.services.voice_companion?.primary?.state?.sessionId;
+        const sessionId = this.md.sessionId();
         if (!sessionId) return;
         const words = splitWords(item.line);
         const entry = { item, words, seq: ++this._seq, face: null, timer: null, took: 0, first: !this._said.length };
@@ -188,7 +194,7 @@ export class FaceDirector {
             if (!this._items.includes(entry)) return;   // cleared, or a later line showed
             if (!res?.face) {
                 this._drop(entry);
-                console.log(`[face] #${entry.seq} no change — ${res ? res.reason : "timed out"}`
+                console.log(`${this._tag} #${entry.seq} no change — ${res ? res.reason : "timed out"}`
                     + ` "${item.line.slice(0, 60)}"`);
                 return;
             }
@@ -196,7 +202,7 @@ export class FaceDirector {
             entry.took = Date.now() - started;
             this._schedule(entry);
         }).catch((e) => {
-            console.warn("[face] director call failed", e);
+            console.warn(`${this._tag} director call failed`, e);
             this._drop(entry);
         });
     }
@@ -210,7 +216,7 @@ export class FaceDirector {
             e.item.spokenAt = spokenAt(e.item.at);
             if (e.face) this._schedule(e);
         }
-        if (this.enabled) this.md.renderer?.setFaceTurnEnd?.(endMs);
+        if (this.enabled) this.md.avatar?.setFaceTurnEnd?.(endMs);
     }
 
     /** When the voice reaches character `i` of a line. */
@@ -242,7 +248,7 @@ export class FaceDirector {
             if (words[i]) wordAt[key] = this._timeOf(item, words[i].index);
         }
         this._log(entry.seq, "speaking", face, item.line, entry.took, words);
-        this.md.renderer?.setFaceReaction?.(face, {
+        this.md.avatar?.setFaceReaction?.(face, {
             lineAt: item.spokenAt, lineEnd: this._timeOf(item, item.line.length), first: entry.first, wordAt,
         });
     }
@@ -250,7 +256,7 @@ export class FaceDirector {
     _log(seq, how, f, line, took, words = []) {
         const feel = Object.entries(f.feelings || {}).map(([k, v]) => `${k}:${v}`).join(" ") || "calm";
         const on = Object.entries(f.words || {}).filter(([, i]) => words[i]).map(([k, i]) => `${k}→${words[i].text}`);
-        console.log(`[face] #${seq} ${how}: ${feel}${f.level ? ` (${f.level})` : ""}`
+        console.log(`${this._tag} #${seq} ${how}: ${feel}${f.level ? ` (${f.level})` : ""}`
             + `${f.acts?.length ? ` [${f.acts.join(" ")}]` : ""}${on.length ? ` {${on.join(" ")}}` : ""}`
             + ` "${line.slice(0, 60)}" (read ${took}ms)`);
     }

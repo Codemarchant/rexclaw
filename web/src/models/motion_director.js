@@ -204,8 +204,15 @@ function randomBetween(a, b) {
 }
 
 export class MotionDirector {
-    constructor(env) {
+    /** The base avatar's director is the motion_director service. In a
+     *  group call each peer leg gets its own (`peer`: its connection), which
+     *  reads the service's clip library and settings (`shared`) and drives
+     *  the peer's avatar and session instead. */
+    constructor(env, { peer = null, shared = null } = {}) {
         this.env = env;
+        this.peer = peer;
+        this.shared = shared;
+        this._peerAvatar = peer ? this._makePeerAvatar(peer.connId) : null;
         this.enabled = false;
         this.clips = [];
         this._byId = new Map();
@@ -241,14 +248,65 @@ export class MotionDirector {
         this._rate = { ...SPEECH_RATE_SEED };  // chars/sec of voice, per script
         this._face = new FaceDirector(this);
 
-        // Debug handle, mirroring window.__voiceRenderer / __voiceCall.
-        if (typeof window !== "undefined") {
+        if (peer) {
+            // The service's start() runs the base avatar's tick; a peer's
+            // runs from creation until dispose().
+            this._timer = setInterval(() => this._tick(), TICK_MS);
+        } else if (typeof window !== "undefined") {
+            // Debug handle, mirroring window.__voiceRenderer / __voiceCall.
             window.__motionDirector = this;
         }
     }
 
     get renderer() {
         return this.env.services.voice_avatar_renderer;
+    }
+
+    /** The avatar this director moves: the renderer itself for the base
+     *  avatar, an adapter onto the peer's slot otherwise — same names. */
+    get avatar() {
+        return this._peerAvatar || this.renderer;
+    }
+
+    /** The session its picks and face reads are made for. */
+    sessionId() {
+        const conn = this.peer || this.env.services.voice_companion?.primary;
+        return conn?.state?.sessionId || null;
+    }
+
+    /** Log prefix for a turn's lines: a peer's director says whose. */
+    get _tag() {
+        return this.peer?.agentName ? `[motion:${this.peer.agentName}]` : "[motion]";
+    }
+
+    /** Where the clip library and the motion settings live. */
+    _lib() {
+        return this.shared || this;
+    }
+
+    _makePeerAvatar(id) {
+        const r = () => this.renderer;
+        return {
+            get vrm() { return r()?._peers?.get(id)?.vrm || null; },
+            get _rawSpeakingIntensity() { return r()?._peers?.get(id)?._rawSpeakingIntensity || 0; },
+            isGestureBusy: () => !!r()?.isPeerGestureBusy?.(id),
+            isLayerClipRunning: () => !!r()?.isPeerLayerClipRunning?.(id),
+            playLibraryClip: (clip, opts) => r()?.playPeerLibraryClip?.(id, clip, opts) || Promise.resolve(false),
+            stopLayerClip: () => r()?.stopPeerLayerClip?.(id),
+            setFaceDirector: (on) => r()?.setPeerFaceDirector?.(id, on),
+            setFaceReaction: (face, opts) => r()?.setPeerFaceReaction?.(id, face, opts),
+            setFaceTurnEnd: (endMs) => r()?.setPeerFaceTurnEnd?.(id, endMs),
+            setFaceListening: (on) => r()?.setPeerFaceListening?.(id, on),
+        };
+    }
+
+    /** A peer's director when its leg leaves the call. */
+    dispose() {
+        if (this._timer) clearInterval(this._timer);
+        this._timer = null;
+        this._cancelStroke();
+        this._pending.length = 0;
+        this._face.setEnabled(false);
     }
 
     /** Fetch the libraries and start ticking. Safe to call repeatedly (each
@@ -316,10 +374,11 @@ export class MotionDirector {
      *  both are things you turn on and off by mood — so they live in
      *  Settings and in the mascot window, not per companion or per avatar. */
     _settings() {
+        const lib = this._lib();
         return {
-            fidgets: this._fidgets,
-            speech: this._speechGestures,
-            interval: this._fidgetInterval,
+            fidgets: lib._fidgets,
+            speech: lib._speechGestures,
+            interval: lib._fidgetInterval,
         };
     }
 
@@ -378,7 +437,7 @@ export class MotionDirector {
 
     /** Speech gestures can run: a library, and the switch on. */
     _speechOn() {
-        return this.enabled && this._settings().speech;
+        return this._lib().enabled && this._settings().speech;
     }
 
     // ── signals from the call ──────────────────────────────────────────
@@ -402,7 +461,7 @@ export class MotionDirector {
             this._turnActive = false;
             this._cancelStroke();
             this._face.clear();
-            this.renderer?.stopLayerClip?.();
+            this.avatar?.stopLayerClip?.();
         }
         if (partial.responseStarted) {
             this._buf = "";
@@ -466,8 +525,8 @@ export class MotionDirector {
     // ── idle fidgets ───────────────────────────────────────────────────
 
     _tick() {
-        const r = this.renderer;
-        if (!r || !this.enabled) return;
+        const r = this.avatar;
+        if (!r || !this._lib().enabled) return;
         const now = Date.now();
         if ((r._rawSpeakingIntensity || 0) > SPEAK_ON) {
             this._speakingUntil = now + SPEAK_RELEASE_MS;
@@ -493,11 +552,12 @@ export class MotionDirector {
     }
 
     _playFidget() {
-        const r = this.renderer;
+        const r = this.avatar;
         if (!r?.vrm || r.isGestureBusy?.() || r.isLayerClipRunning?.()) return;
         const now = Date.now();
-        let pool = this._pool.filter((c) => (now - (this._lastPlayed.get(c.id) || 0)) > NO_REPEAT_MS);
-        if (!pool.length) pool = this._pool;
+        const all = this._lib()._pool;
+        let pool = all.filter((c) => (now - (this._lastPlayed.get(c.id) || 0)) > NO_REPEAT_MS);
+        if (!pool.length) pool = all;
         const clip = pool[Math.floor(Math.random() * pool.length)];
         if (!clip) return;
         this._lastPlayed.set(clip.id, now);
@@ -558,7 +618,7 @@ export class MotionDirector {
         // down for the whole turn, not just while its clip runs.
         if (this._turnUsedExpressionTool || !this._speechOn()) return;
         if (!longEnough(line)) {
-            if (SPEECH_DEBUG) console.log(`[motion] — skipped (too short) "${line}"`);
+            if (SPEECH_DEBUG) console.log(`${this._tag} — skipped (too short) "${line}"`);
             return;
         }
         if (this._pending.length < SPEECH_QUEUE_MAX) {
@@ -571,7 +631,7 @@ export class MotionDirector {
             const words = splitWords(line);
             this._pending.push({ line, words, dueAt, spokenAt, msPerChar, at, seq, queuedAt: Date.now() });
             if (SPEECH_DEBUG) {
-                console.log(`[motion] #${seq} queued "${line.slice(0, 60)}" `
+                console.log(`${this._tag} #${seq} queued "${line.slice(0, 60)}" `
                     + `→ due in ${((dueAt - Date.now()) / 1000).toFixed(1)}s `
                     + `(${this._rate[this._turnScript].toFixed(1)} ch/s)`);
             }
@@ -604,14 +664,15 @@ export class MotionDirector {
         const k = this._turnScript;
         this._rate[k] = this._rate[k] * 0.6 + rate * 0.4;
         if (SPEECH_DEBUG) {
-            console.log(`[motion] rate ${k}: ${rate.toFixed(1)} ch/s this turn`
+            console.log(`${this._tag} rate ${k}: ${rate.toFixed(1)} ch/s this turn`
                 + ` → ${this._rate[k].toFixed(1)} ch/s`);
         }
     }
 
     /** Seconds of this turn's voice still queued to play. */
     _audioLeftSec() {
-        const left = this.env.services.voice_companion?.primary?.avatarApi?.audioLookahead?.();
+        const conn = this.peer || this.env.services.voice_companion?.primary;
+        const left = conn?._audioLookaheadSec?.();
         return Number.isFinite(left) ? left : 0;
     }
 
@@ -638,7 +699,7 @@ export class MotionDirector {
             item.spokenAt = startMs + item.at * item.msPerChar;
             item.dueAt = item.spokenAt - this._leadMs;
             if (SPEECH_DEBUG) {
-                console.log(`[motion] #${item.seq} retimed "${item.line.slice(0, 60)}" `
+                console.log(`${this._tag} #${item.seq} retimed "${item.line.slice(0, 60)}" `
                     + `${((was - now) / 1000).toFixed(1)}s → ${((item.dueAt - now) / 1000).toFixed(1)}s `
                     + `(turn ${totalSec.toFixed(1)}s)`);
             }
@@ -731,7 +792,7 @@ export class MotionDirector {
         if (late > SPEECH_LATE_MS) {
             this._pending.shift();
             if (SPEECH_DEBUG) {
-                console.log(`[motion] #${next.seq} dropped — ${(late / 1000).toFixed(1)}s`
+                console.log(`${this._tag} #${next.seq} dropped — ${(late / 1000).toFixed(1)}s`
                     + ` past its line "${next.line.slice(0, 60)}"`);
             }
             return;
@@ -743,7 +804,7 @@ export class MotionDirector {
         if (!this._turnActive && now > this._speakingUntil + SPEECH_TAIL_MS) {
             this._pending.shift();
             if (SPEECH_DEBUG) {
-                console.log(`[motion] #${next.seq} dropped — turn already over`
+                console.log(`${this._tag} #${next.seq} dropped — turn already over`
                     + ` "${next.line.slice(0, 60)}"`);
             }
             return;
@@ -752,9 +813,9 @@ export class MotionDirector {
         // is the one being spoken now, so its gesture replaces the old one
         // (playLibraryClip crossfades). Only a deliberate play_gesture or a
         // combo blocks. The cooldown above is what stops rapid-fire.
-        const r = this.renderer;
+        const r = this.avatar;
         if (!r?.vrm || r.isGestureBusy?.()) return;
-        const sessionId = this.env.services.voice_companion?.primary?.state?.sessionId;
+        const sessionId = this.sessionId();
         if (!sessionId) return;
         const item = this._pending.shift();
         const { line, seq } = item;
@@ -765,7 +826,7 @@ export class MotionDirector {
         // largest filter in the chain, and indistinguishable from a broken
         // pipeline unless it says so.
         const trace = (what) => {
-            if (SPEECH_DEBUG) console.log(`[motion] #${seq} ${what} "${line.slice(0, 60)}"`);
+            if (SPEECH_DEBUG) console.log(`${this._tag} #${seq} ${what} "${line.slice(0, 60)}"`);
         };
         Promise.race([
             rpc("/api/voice/speech_gesture", {
@@ -777,7 +838,7 @@ export class MotionDirector {
             const took = Date.now() - started;
             if (res !== null) this._notePick(took);   // null = our own timeout
             if (res === null) return trace(`no gesture — selector timed out (${SPEECH_TIMEOUT_MS}ms)`);
-            const clip = res.gesture ? this._byId.get(res.gesture) : null;
+            const clip = res.gesture ? this._lib()._byId.get(res.gesture) : null;
             if (!clip) return trace(`no gesture — ${res.reason || "declined"} (${took}ms)`);
             if (took > SPEECH_TIMEOUT_MS) return trace(`no gesture — pick too slow (${took}ms)`);
             const wait = this._strokeWaitMs(item, clip, res);
@@ -795,7 +856,7 @@ export class MotionDirector {
                 // reply — a gesture for the last sentence should fire with
                 // only a second or two left, not twenty. `held` is how long
                 // the clip waited for its word.
-                console.log(`[motion] #${seq} ▶ ${clip.en || clip.id} "${line.slice(0, 60)}"`
+                console.log(`${this._tag} #${seq} ▶ ${clip.en || clip.id} "${line.slice(0, 60)}"`
                     + (res.word ? ` on "${res.word}"` : "")
                     + ` (pick ${took}ms${wait > 0 ? `, held ${wait}ms` : ""}`
                     + `, lead now ${this._leadMs}ms`
@@ -809,7 +870,7 @@ export class MotionDirector {
             this._lastSpeechAt = Date.now() + wait;
             this._strokeTimer = setTimeout(play, wait);
         }).catch((e) => {
-            console.warn("[motion] speech gesture select failed", e);
+            console.warn(`${this._tag} speech gesture select failed`, e);
         }).finally(() => {
             this._inflight = false;
         });
