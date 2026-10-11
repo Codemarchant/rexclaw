@@ -89,22 +89,30 @@ WORD_QUESTIONS = {
 }
 
 
-def questions(name, listening=False, words=None):
+def heard_key(speaker=None):
+    """The state key a heard line goes under: the user's (`user_line`), or
+    another companion's on a group call (`heard_line`, with `heard_from`)."""
+    return 'heard_line' if speaker else 'user_line'
+
+
+def questions(name, listening=False, words=None, speaker=None):
     """The question set, for a line the companion says (`line`) or one they
-    hear (`user_line`). Choice criteria are {id: text}, Score criteria
-    [(id, level)] lowest first; the ids are for code, Jev sees only the
-    words. Each is one literal judgment about the line.
+    hear (`user_line`, or `heard_line` from another companion: `speaker`).
+    Choice criteria are {id: text}, Score criteria [(id, level)] lowest
+    first; the ids are for code, Jev sees only the words. Each is one
+    literal judgment about the line.
     `words` are the spoken line's words, in order, for the word Choices."""
     if listening:
+        key = heard_key(speaker)
         return {
             'feeling': {
                 'type': 'choice',
-                'instructions': f'Which feeling does hearing `user_line` stir in {name}?',
+                'instructions': f'Which feeling does hearing `{key}` stir in {name}?',
                 'criteria': {k: v for k, v in FEELINGS.items() if k != 'proud'},
             },
-            'shows': _shows(name, 'as they hear `user_line`'),
-            'asked': {'type': 'noul', 'instructions': f'Does `user_line` ask {name} a question?'},
-            'agrees': {'type': 'noul', 'instructions': f'Does {name} agree with or like what `user_line` says?'},
+            'shows': _shows(name, f'as they hear `{key}`'),
+            'asked': {'type': 'noul', 'instructions': f'Does `{key}` ask {name} a question?'},
+            'agrees': {'type': 'noul', 'instructions': f'Does {name} agree with or like what `{key}` says?'},
             # A listener's brow raise on being told something (Chovil 1991;
             # Dix & Groß 2023 — see face_motion.js for what the raise does
             # and why it is a flash rather than a hold).
@@ -127,7 +135,7 @@ def questions(name, listening=False, words=None):
             # 0.06) left alone. Wordings without "details of something
             # already said" receipt each half of one piece of news twice.
             'learns': {'type': 'noul',
-                       'instructions': (f'Does `user_line` bring {name} something new that matters'
+                       'instructions': (f'Does `{key}` bring {name} something new that matters'
                                         ' - news, a decision, a change of plan, something the person'
                                         ' reveals about themselves? Routine chat, questions, details'
                                         ' of something already said, and goodbyes are not this.')},
@@ -290,17 +298,20 @@ def persona_excerpt(prompt):
     return text.strip()
 
 
-def build_state(name, persona, conversation, line, listening=False, partial=False):
+def build_state(name, persona, conversation, line, listening=False, partial=False, speaker=None):
     """The one JSON state every question reads. `conversation` is
-    [(speaker, text)], oldest first. `partial`: the user is still speaking
-    and `user_line` is what they have said so far."""
+    [(speaker, text)], oldest first. `partial`: the user (or `speaker`) is
+    still speaking and the heard line is what they have said so far."""
     state = {
         'character': {'name': name, 'personality': persona},
         'conversation': [{'speaker': s, 'text': t} for s, t in conversation],
     }
-    state['user_line' if listening else 'line'] = line
+    key = heard_key(speaker) if listening else 'line'
+    state[key] = line
+    if listening and speaker:
+        state['heard_from'] = speaker
     if listening and partial:
-        state['user_line_status'] = 'still speaking - what they have said so far'
+        state[f'{key}_status'] = 'still speaking - what they have said so far'
     return state
 
 

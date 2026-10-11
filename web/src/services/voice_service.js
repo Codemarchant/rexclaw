@@ -775,6 +775,26 @@ class VoiceCallService {
         for (const conn of this.connections.values()) conn.closeUserRow();
     }
 
+    /** A leg's motion director: the service for the primary (base avatar),
+     *  the leg's own for a peer. */
+    _directorOf(conn) {
+        return conn === this.primary ? this.env.services.motion_director : conn._motion;
+    }
+
+    /** Group calls: the other companions hear `conn`'s lines as its voice
+     *  reaches each one, and stop listening when its turn is over — the
+     *  same listening face the user's words get. */
+    _relaySpokenLines(conn, director) {
+        const others = () => [...this.connections.values()].filter((c) => c !== conn && !c.isTerminal);
+        const name = () => conn.agentName || _t("Companion");
+        director.onLineSpoken = (line) => {
+            for (const other of others()) this._directorOf(other)?.hearCompanionLine?.(name(), line);
+        };
+        director.onTurnSpoken = (cut) => {
+            for (const other of others()) this._directorOf(other)?.hearCompanionEnd?.(name(), cut);
+        };
+    }
+
     activePeers() {
         return [...this.connections.values()].filter(
             (c) => c.role === "peer" && !c.isTerminal,
@@ -1267,9 +1287,12 @@ class VoiceCallService {
         }
         const id = conn.connId;
         // Kept across a compaction restart, which builds the adapter again.
-        conn._motion ||= new MotionDirector(this.env, {
-            peer: conn, shared: this.env.services.motion_director,
-        });
+        if (!conn._motion) {
+            conn._motion = new MotionDirector(this.env, {
+                peer: conn, shared: this.env.services.motion_director,
+            });
+            this._relaySpokenLines(conn, conn._motion);
+        }
         return {
             setVowels: (v) => renderer()?.setPeerVowels?.(id, v),
             setSpeakingIntensity: (v) => renderer()?.setPeerSpeakingIntensity?.(id, v),
@@ -1413,6 +1436,7 @@ class VoiceCallService {
         this.env.services.motion_director?.start?.().catch?.(() => {});
         this.env.services.motion_director?.setSpeechGestures?.(!!payload.speech_gestures);
         this.env.services.motion_director?.setFaceDirector?.(!!payload.face_director);
+        if (this.env.services.motion_director) this._relaySpokenLines(conn, this.env.services.motion_director);
         // Not in the main outfit as the call opens: one silent line so the
         // companion knows what they have on, whether it was switched by
         // hand mid-call last time (never recorded) or while idle. Deferred,

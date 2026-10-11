@@ -247,6 +247,14 @@ export class MotionDirector {
         this._leadMs = SPEECH_LEAD_SEED_MS;   // rolling selector round trip
         this._rate = { ...SPEECH_RATE_SEED };  // chars/sec of voice, per script
         this._face = new FaceDirector(this);
+        // Group calls: the others hear this companion's lines as the voice
+        // reaches them (set by the call manager), and this one hears theirs.
+        this.onLineSpoken = null;       // (line) — a line of this turn is heard now
+        this.onTurnSpoken = null;       // () — this turn's voice is over
+        this._spoken = [];              // [{ line, at, timer }] this turn's lines not yet heard
+        this._spokenEndTimer = null;
+        this._hearingFrom = null;       // the companion this one is listening to
+        this._hearingText = "";         // what they have said so far this turn
 
         if (peer) {
             // The service's start() runs the base avatar's tick; a peer's
@@ -306,7 +314,69 @@ export class MotionDirector {
         this._timer = null;
         this._cancelStroke();
         this._pending.length = 0;
+        this._endSpoken();
         this._face.setEnabled(false);
+    }
+
+    // ── group calls: the others hear what this one says ───────────────
+
+    /** Relay `line` (at character `at` of the turn) when the voice reaches
+     *  it — re-timed with the turn's real length in _retimeQueue. */
+    _scheduleSpoken(line, at) {
+        if (!this.onLineSpoken) return;
+        const entry = { line, at, timer: null };
+        this._spoken.push(entry);
+        this._timeSpoken(entry, this._voiceAt(at));
+    }
+
+    _timeSpoken(entry, atMs) {
+        clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => {
+            this._spoken = this._spoken.filter((e) => e !== entry);
+            this.onLineSpoken?.(entry.line);
+            // The reply never got its audio scheduled (no retime, so no end
+            // timer): its last line heard is the end of it.
+            if (!this._spoken.length && !this._turnActive && !this._spokenEndTimer) this._endSpoken();
+        }, Math.max(0, atMs - Date.now()));
+    }
+
+    /** This turn's voice is over, or was `cut` off: drop what was not heard
+     *  and tell the others (who ignore it when they were not listening). */
+    _endSpoken({ cut = false } = {}) {
+        clearTimeout(this._spokenEndTimer);
+        this._spokenEndTimer = null;
+        for (const e of this._spoken) clearTimeout(e.timer);
+        this._spoken = [];
+        this.onTurnSpoken?.(cut);
+    }
+
+    // ── group calls: this one hears another companion ─────────────────
+
+    /** `speaker` said `line`, heard now: listen to the whole of their turn
+     *  so far, as the user's words are listened to while they speak. A
+     *  turn of a few words gets no read (longEnough). */
+    hearCompanionLine(speaker, line) {
+        if (!this._face.enabled || !speaker || !line) return;
+        if (this._hearingFrom !== speaker || this._face.hearingFrom() !== speaker) {
+            this.setConversationState({ listening: true });
+            this._face.hearFrom(speaker);
+            this._hearingFrom = speaker;
+            this._hearingText = "";
+        }
+        this._hearingText = this._hearingText ? `${this._hearingText} ${line}` : line;
+        if (longEnough(this._hearingText)) this._face.listenPartial(this._hearingText);
+    }
+
+    /** `speaker`'s turn is over: a last read of all of it (not when it was
+     *  `cut` off), then stop listening. Ignored when this one has moved on
+     *  (the user spoke, or another companion did). */
+    hearCompanionEnd(speaker, cut = false) {
+        if (!speaker || this._hearingFrom !== speaker) return;
+        this._hearingFrom = null;
+        if (this._face.hearingFrom() !== speaker) return;
+        if (!cut && longEnough(this._hearingText)) this._face.listen(this._hearingText);
+        this._hearingText = "";
+        this.setConversationState({ listening: false });
     }
 
     /** Fetch the libraries and start ticking. Safe to call repeatedly (each
@@ -462,8 +532,12 @@ export class MotionDirector {
             this._cancelStroke();
             this._face.clear();
             this.avatar?.stopLayerClip?.();
+            // The rest of it was never said: the others stop listening.
+            this._endSpoken({ cut: true });
         }
         if (partial.responseStarted) {
+            // A new reply: whatever of the last one is still pending is over.
+            if (this._spoken.length || this._spokenEndTimer) this._endSpoken();
             this._buf = "";
             this._pending.length = 0;
             this._face.newTurn();
@@ -614,6 +688,7 @@ export class MotionDirector {
         // Every line gets a face, however short and whatever the body is
         // doing — the gesture picker below is the choosy one.
         this._face.queue({ line, at, spokenAt: this._voiceAt(at) });
+        this._scheduleSpoken(line, at);
         // The companion's own play_gesture / set_emotion stands the picker
         // down for the whole turn, not just while its clip runs.
         if (this._turnUsedExpressionTool || !this._speechOn()) return;
@@ -693,6 +768,11 @@ export class MotionDirector {
         const totalMs = totalSec * 1000;
         const startMs = endMs - totalMs;
         this._face.retime((at) => startMs + at * (totalMs / this._turnChars), endMs);
+        for (const e of this._spoken) this._timeSpoken(e, startMs + e.at * (totalMs / this._turnChars));
+        if (this.onTurnSpoken) {
+            clearTimeout(this._spokenEndTimer);
+            this._spokenEndTimer = setTimeout(() => this._endSpoken(), Math.max(0, endMs - now));
+        }
         for (const item of this._pending) {
             const was = item.dueAt;
             item.msPerChar = totalMs / this._turnChars;

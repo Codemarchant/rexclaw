@@ -2485,13 +2485,15 @@ def _gesture_pick_jev(con, config, *, session, line, candidates, recent, just_pl
 
 
 def face_director_select(con, *, session, line, context=(), listening=False, words=None,
-                         partial=False):
+                         partial=False, speaker=None):
     """Face director (face_director.py): what the companion's face does
     while they say one line, or — `listening` — as they hear the user's.
     One call per spoken sentence, made by the browser as the transcript
     streams in, plus the user's words as they are heard (`partial`: while
     they are still speaking); the renderer shows the answer when the voice
-    reaches the line (or at once, for a listening face).
+    reaches the line (or at once, for a listening face). `speaker`: a
+    listening read of another companion's line on a group call, not the
+    user's.
 
     Return contract: {'face': <face_director.normalize shape>} or
     {'face': None, 'reason': ...} — None means "leave the face as it is".
@@ -2521,12 +2523,13 @@ def face_director_select(con, *, session, line, context=(), listening=False, wor
         " ORDER BY sequence DESC, id DESC LIMIT 2", (session['id'],)).fetchall()
     conversation = [(user_label if r['role'] == 'user' else r['speaker'] or name, (r['content'] or '')[:400])
                     for r in reversed(rows) if (r['content'] or '').strip()]
-    if listening and conversation and conversation[-1] == (user_label, line[:400]):
+    if listening and conversation and conversation[-1] == (speaker or user_label, line[:400]):
         conversation.pop()
     conversation += [(name, str(c)[:400]) for c in list(context or [])[-2:] if c]
     state = face_director.build_state(name, persona, conversation, line[:400], listening=listening,
-                                      partial=partial)
-    qs = face_director.questions(name, listening=listening, words=None if listening else words)
+                                      partial=partial, speaker=speaker)
+    qs = face_director.questions(name, listening=listening, words=None if listening else words,
+                                 speaker=speaker)
     try:
         body = jev.ask(config['typesafe_api_key'], config['jev_model'], state, qs)
         answers = jev.answers(body, qs)

@@ -62,7 +62,20 @@ export class FaceDirector {
     }
 
     _newUtterance() {
-        return { text: "", read: "", reads: 0, shown: 0, lastAt: 0, pending: false, timer: null, acts: new Set() };
+        return { text: "", read: "", reads: 0, shown: 0, lastAt: 0, pending: false, timer: null, acts: new Set(),
+            speaker: null };
+    }
+
+    /** The utterance being heard is another companion's (a group call),
+     *  not the user's: its reads say who is speaking. */
+    hearFrom(speaker) {
+        this._heard.speaker = speaker || null;
+    }
+
+    /** Whose utterance is being heard: a companion's name, or null for the
+     *  user's. */
+    hearingFrom() {
+        return this._heard.speaker;
     }
 
     /** Per call: the session decided it (its prompt describes set_emotion
@@ -141,9 +154,12 @@ export class FaceDirector {
         h.pending = true;
         h.lastAt = started;
         h.read = text;
-        const how = partial ? "hearing" : "listening";
+        const how = h.speaker ? `${partial ? "hearing" : "heard"} ${h.speaker}` : partial ? "hearing" : "listening";
         Promise.race([
-            rpc("/api/voice/face_director", { session_id: sessionId, line: text, listening: true, partial }),
+            rpc("/api/voice/face_director", {
+                session_id: sessionId, line: text, listening: true, partial,
+                ...(h.speaker ? { speaker: h.speaker } : {}),
+            }),
             new Promise((resolve) => setTimeout(() => resolve(null), FACE_TIMEOUT_MS)),
         ]).then((res) => {
             const took = Date.now() - started;
