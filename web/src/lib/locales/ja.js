@@ -104,8 +104,8 @@ export const JA = {
   "Could not refresh the prompt": "プロンプトを更新できませんでした",
   "Show history": "履歴を表示",
   "Switch to face view": "顔アップ表示に切り替え",
-  "Switch to full body (drag to rotate, scroll to zoom, Shift + drag to move)":
-    "全身表示に切り替え（ドラッグで回転、スクロールでズーム、Shift＋ドラッグで移動）",
+  "Switch to full body (drag to rotate, scroll to zoom, Shift + drag to move; in a group call, Shift + drag a companion to move just them, right-drag to turn, scroll while holding to resize)":
+    "全身表示に切り替え（ドラッグで回転、スクロールでズーム、Shift＋ドラッグで移動。グループ通話ではコンパニオンを Shift＋ドラッグでそのコンパニオンだけ移動、右ドラッグで向きを変更、つかんだままスクロールでサイズ変更）",
   "Disable walk mode": "歩行モードを無効化",
   "Enable walk mode (WASD / arrow keys — number keys pick which character to move in a group call)":
     "歩行モードを有効化（WASD／矢印キー — グループ通話中は数字キーで操作キャラを選択）",
@@ -1049,8 +1049,8 @@ export const JA = {
     "アバターを常に他のすべてのウィンドウの前面に表示します。",
   "Full body view": "全身ビュー",
   "Fade to": "フェード時の不透明度",
-  "Whole character instead of the face. Drag to rotate, scroll to zoom, Shift + drag to move.":
-    "顔のアップではなく全身を表示。ドラッグで回転、スクロールでズーム、Shift＋ドラッグで移動。",
+  "Whole character instead of the face. Drag to rotate, scroll to zoom, Shift + drag to move. In a group call, Shift + drag a companion to move just them, Shift + right-drag to turn them, and scroll while holding to resize them.":
+    "顔のアップではなく全身を表示。ドラッグで回転、スクロールでズーム、Shift＋ドラッグで移動。グループ通話ではコンパニオンを Shift＋ドラッグでそのコンパニオンだけ移動、Shift＋右ドラッグで向きを変更、つかんだままスクロールでサイズ変更できます。",
   "Look": "見た目",
   "Show a background": "背景を表示",
   "Lighting": "ライティング",

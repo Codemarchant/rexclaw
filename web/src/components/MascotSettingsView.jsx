@@ -300,7 +300,7 @@ export default function MascotSettingsView() {
                                 </div>
                             )}
                             {check("rx_ms_fullbody", _t("Full body view"),
-                                _t("Whole character instead of the face. Drag to rotate, scroll to zoom, Shift + drag to move."),
+                                _t("Whole character instead of the face. Drag to rotate, scroll to zoom, Shift + drag to move. In a group call, Shift + drag a companion to move just them, Shift + right-drag to turn them, and scroll while holding to resize them."),
                                 mascot?.fullBody,
                                 (v) => send({ type: "set", key: "fullBody", value: v }))}
                             {check("rx_ms_ghost", _t("Ghost mode"),

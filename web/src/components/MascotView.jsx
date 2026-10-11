@@ -1098,7 +1098,7 @@ export default function MascotView() {
                 <button className={fullBody ? "is-active" : ""} onClick={toggleFullBody}
                         title={fullBody
                             ? _t("Switch to face view")
-                            : _t("Switch to full body (drag to rotate, scroll to zoom, Shift + drag to move)")}>
+                            : _t("Switch to full body (drag to rotate, scroll to zoom, Shift + drag to move; in a group call, Shift + drag a companion to move just them, right-drag to turn, scroll while holding to resize)")}>
                     <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
                 </button>
                 <button className={pinned ? "is-active" : ""} onClick={togglePin}

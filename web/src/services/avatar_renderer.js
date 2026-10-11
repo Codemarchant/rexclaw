@@ -655,7 +655,19 @@ const IDLE_NEUTRAL_BONES = ["neck", "leftToes", "rightToes"];
 // police lineup. The camera preset widens automatically to fit the row.
 const CALL_SPACING_X = 1.1;          // metres between adjacent characters
 const CALL_INWARD_YAW = 12 * Math.PI / 180;
+// Ctrl + drag a character (_bindCtrlDrag): the wheel resizes them down to
+// this, never through zero.
+const GRAB_SCALE_MIN = 0.1;
 const CALL_FRAME_SIDE_MARGIN = 0.6;  // metres of breathing room past the outermost head
+
+/** How far the orbit camera may pull back: 10 m, or further when the shot
+ *  itself starts further out (a wide row, or characters made bigger with
+ *  Ctrl + drag) — the controls would otherwise drag it in on update. */
+function orbitMaxDistance(preset) {
+    const [px, py, pz] = preset.position;
+    const [tx, ty, tz] = preset.target;
+    return Math.max(10.0, Math.hypot(px - tx, py - ty, pz - tz));
+}
 
 // ── WebXR constants ─────────────────────────────────────────────────────
 const XR_DOLLY_DISTANCE = 0.8;   // metres in front of the avatar for the VR camera rig
@@ -746,6 +758,8 @@ class AvatarRenderer {
         // addRoomLoadedCallback / addBasePlacementSettledCallback.
         this._roomLoadedCallbacks = new Set();
         this._placementSettledCallbacks = new Set();
+        this._placed = false;             // the base was Ctrl-dragged this call (_layoutCallAvatars keeps it)
+        this._grab = null;                // the Ctrl-drag in progress: { actor, obj, pointerId, offset, turn } (_bindCtrlDrag)
         this._moving = false;             // walk clip + slide currently active
         this._walkAction = null;          // looping walk action, bound to the current VRM's mixer
         this._baseQuat = null;            // vrm.scene orientation as normalised at load (see _setMoveYaw)
@@ -842,6 +856,7 @@ class AvatarRenderer {
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         this.renderer.setPixelRatio(window.devicePixelRatio || 1);
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        this._bindCtrlDrag(this.renderer.domElement);
 
         this.scene = new THREE.Scene();
         this._buildLightRig();
@@ -941,6 +956,7 @@ class AvatarRenderer {
         // _gestureAction.isRunning() stays true on the dead action so
         // _applyIdle bails and the new avatar is stuck in T-pose.
         if (this.vrm) {
+            this._placed = false;   // back in the row (as a peer's outfit swap)
             this.scene.remove(this.vrm.scene);
             VRMUtils.deepDispose(this.vrm.scene);
             this.vrm = null;
@@ -2482,6 +2498,7 @@ class AvatarRenderer {
 
     _disposePeerModel(peer) {
         if (!peer.vrm) return;
+        peer._placed = false;   // an outfit swap's new model takes the peer's place in the row
         // If this peer is currently borrowed as a combo partner, retire the
         // whole combo first — otherwise the base avatar keeps performing a
         // two-character clip alone in combo placement. Covers both peer
@@ -2689,12 +2706,17 @@ class AvatarRenderer {
 
     /** Arrange base + peers in a horizontal row, each turned slightly
      *  toward the group centre, then re-frame the camera. Solo layout
-     *  (base at origin, facing camera) is restored when no peers remain. */
+     *  (base at origin, facing camera) is restored when no peers remain.
+     *  A character the user moved (`_placed`, see _bindCtrlDrag) keeps
+     *  where they put it while the call is a group; going solo puts the
+     *  base back at its own size, which the camera framing assumes. */
     _layoutCallAvatars() {
         const peers = [...this._peers.values()].filter((p) => p.vrm);
         const n = 1 + peers.length;
         if (n === 1) {
+            this._placed = false;
             if (this.vrm) {
+                this.vrm.scene.scale.setScalar(1);
                 this.vrm.scene.position.set(0, 0, 0);
                 this._setMoveYaw(this, 0);
                 this.vrm.scene.updateMatrixWorld(true);
@@ -2708,13 +2730,14 @@ class AvatarRenderer {
         // group centre by -sign(x) * inward yaw.
         const yawFor = (x) => (Math.abs(x) < 1e-6 ? 0 : -Math.sign(x) * CALL_INWARD_YAW);
 
-        if (this.vrm) {
+        if (this.vrm && !this._placed) {
             const x = xFor(0);
             this.vrm.scene.position.set(x, 0, 0);
             this._setMoveYaw(this, yawFor(x));
             this.vrm.scene.updateMatrixWorld(true);
         }
         peers.forEach((peer, idx) => {
+            if (peer._placed) return;
             const x = xFor(idx + 1);
             peer.vrm.scene.position.set(x, 0, 0);
             // Track the layout yaw so a later manual walk turn interpolates
@@ -2729,6 +2752,120 @@ class AvatarRenderer {
             try { peer.vrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
         });
         this._applyCameraPreset();
+    }
+
+    // ------------------------------------------------------------------
+    // Ctrl / Shift (Cmd on a Mac) + drag (group calls): grab a character and
+    // put them anywhere, or turn them with the right button; the wheel,
+    // while held, resizes them
+    // ------------------------------------------------------------------
+
+    /** Listeners on the renderer's canvas, bound once at init. They run in
+     *  the capture phase, before OrbitControls' and the host's own (pats,
+     *  the mascot's window drag and menu), and a grab keeps the gesture
+     *  from them. The left button moves the character in the plane facing
+     *  the camera through the point grabbed, so it follows the cursor up,
+     *  down and sideways; the right button turns it about the vertical.
+     *  Where they are put lasts for the call. */
+    _bindCtrlDrag(canvas) {
+        const { THREE } = this.libs;
+        const plane = new THREE.Plane();
+        const point = new THREE.Vector3();
+        const swallow = (ev) => { ev.preventDefault(); ev.stopImmediatePropagation(); };
+        const held = (ev) => this._grab && ev.pointerId === this._grab.pointerId;
+        // The right-click menu a grab's press or release would open (on
+        // press on macOS/Linux, on release on Windows; Ctrl + click is a
+        // right-click on a Mac) is eaten once.
+        let eatMenu = false;
+        const end = (ev) => {
+            if (!held(ev)) return;
+            swallow(ev);
+            try { canvas.releasePointerCapture(ev.pointerId); } catch (e) { /* non-fatal */ }
+            canvas.style.cursor = "";
+            this._grab = null;
+        };
+        canvas.addEventListener("pointerdown", (ev) => {
+            eatMenu = false;
+            if (!(ev.ctrlKey || ev.metaKey || ev.shiftKey) || (ev.button !== 0 && ev.button !== 2)
+                || !this._peers.size || this._xrActive) return;
+            const hit = this._actorAt(ev);
+            if (!hit) return;
+            swallow(ev);
+            eatMenu = true;
+            hit.actor._returnFacingY = null;   // a walk's ease back to the camera would undo a turn
+            const obj = hit.actor.vrm.scene;
+            plane.setFromNormalAndCoplanarPoint(this.camera.getWorldDirection(point), hit.point);
+            this._grab = { actor: hit.actor, obj, pointerId: ev.pointerId,
+                offset: obj.position.clone().sub(hit.point),
+                turn: ev.button === 2 ? { x: ev.clientX, yaw: hit.actor._moveYaw || 0 } : null };
+            try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* non-fatal */ }
+            canvas.style.cursor = "grabbing";
+        }, { capture: true });
+        canvas.addEventListener("pointermove", (ev) => {
+            if (!held(ev)) return;
+            swallow(ev);
+            if (this._grab.actor.vrm?.scene !== this._grab.obj) return end(ev);   // the model went
+            const turn = this._grab.turn;
+            if (turn) {
+                // OrbitControls' rotate rate (2π per canvas height dragged), so
+                // turning a character feels like turning the camera.
+                const yaw = turn.yaw + (2 * Math.PI * (ev.clientX - turn.x)) / (canvas.clientHeight || 1);
+                this._setMoveYaw(this._grab.actor, yaw);
+                this._grab.actor._placed = true;
+            } else if (this._pointerRay(ev).ray.intersectPlane(plane, point)) {
+                this._grab.obj.position.copy(point).add(this._grab.offset);
+                this._grab.actor._placed = true;
+            }
+        }, { capture: true });
+        canvas.addEventListener("pointerup", end, { capture: true });
+        canvas.addEventListener("pointercancel", end, { capture: true });
+        canvas.addEventListener("contextmenu", (ev) => {
+            if (!eatMenu) return;
+            eatMenu = false;
+            swallow(ev);
+        }, { capture: true });
+        canvas.addEventListener("wheel", (ev) => {
+            if (!this._grab || this._grab.actor.vrm?.scene !== this._grab.obj) return;
+            swallow(ev);
+            // OrbitControls' own wheel step (_getZoomScale), so sizing feels
+            // like zooming; it scales about the grabbed point, which stays
+            // under the cursor (about the feet while turning — the point
+            // grabbed has turned away).
+            const step = Math.pow(0.95, Math.abs(ev.deltaY * 0.01));
+            const s = this._grab.obj.scale.x;
+            const k = Math.max(GRAB_SCALE_MIN, ev.deltaY < 0 ? s / step : s * step) / s;
+            this._grab.obj.scale.setScalar(s * k);
+            if (!this._grab.turn) {
+                this._grab.obj.position.sub(this._grab.offset);
+                this._grab.offset.multiplyScalar(k);
+                this._grab.obj.position.add(this._grab.offset);
+            }
+            this._grab.actor._placed = true;
+        }, { capture: true, passive: false });
+    }
+
+    /** A raycaster through a client-space point on the canvas. */
+    _pointerRay(ev) {
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        const { THREE } = this.libs;
+        const ndc = new THREE.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1,
+            -(((ev.clientY - rect.top) / rect.height) * 2 - 1));
+        const ray = (this._grabRaycaster ||= new THREE.Raycaster());
+        ray.setFromCamera(ndc, this.camera);
+        return ray;
+    }
+
+    /** The character under a client-space point, by its mesh:
+     *  { actor, point } or null. */
+    _actorAt(ev) {
+        const ray = this._pointerRay(ev);
+        let best = null;
+        for (const actor of [this, ...this._peers.values()]) {
+            if (!actor.vrm) continue;
+            const hit = ray.intersectObject(actor.vrm.scene, true)[0];
+            if (hit && (!best || hit.distance < best.distance)) best = { actor, point: hit.point, distance: hit.distance };
+        }
+        return best;
     }
 
     // ------------------------------------------------------------------
@@ -3243,11 +3380,13 @@ class AvatarRenderer {
         // Two cases where the dolly stands still and merely keeps its anchor
         // current, so it never lurches when it takes over again: the
         // companion is moving on its own (staging — the move has to read as
-        // the companion crossing the room, not the room sliding past), or
-        // the auto-follow director is placing the camera itself.
+        // the companion crossing the room, not the room sliding past), the
+        // user is dragging them (_bindCtrlDrag — same reason, and a camera
+        // chasing the drag would pull the cursor's spot out from under it),
+        // or the auto-follow director is placing the camera itself.
         const st = this._staging;
         const staged = st && (st.walk || st.queue.length || st.close || this._followCam);
-        if (!this._camFollowPos || staged || this._autoCamDriving()) {
+        if (!this._camFollowPos || staged || this._grab || this._autoCamDriving()) {
             // (Re-)anchor without moving the camera — also set by VRM load
             // and _applyCameraPreset, which place the camera absolutely.
             this._camFollowPos = new THREE.Vector3(p.x, 0, p.z);
@@ -3989,6 +4128,7 @@ class AvatarRenderer {
         this._camFollowPos = null;
         this._baseQuat = null;
         this._moveYaw = 0;
+        this._placed = false;   // as for a peer (_disposePeerModel): back in the row
         this._loadedVrmUrl = null;
         this._headBaseY = 0;
         this._headWorldY = null;
@@ -4812,11 +4952,23 @@ class AvatarRenderer {
      *  director asks for "face" or "full" by name (see _autoShotOrbit). */
     _cameraPreset(shot = null) {
         const wantFull = shot ? shot === "full" : this._fullBody;
-        const headY = this._headWorldY ?? FACE_FALLBACK_HEAD_Y;
+        // The heights were captured at load, standing on the floor at the
+        // model's own size; a group call's Ctrl + drag (_bindCtrlDrag) can
+        // raise and resize a character since, so they are carried along.
+        const lift = (actor, y) => {
+            const sc = actor?.vrm?.scene;
+            return sc ? sc.position.y + y * sc.scale.y : y;
+        };
+        const baseScale = this.vrm?.scene.scale.y ?? 1;
+        const capturedHeadY = this._headWorldY ?? FACE_FALLBACK_HEAD_Y;
+        const headY = lift(this, capturedHeadY);
         // Sensible fallbacks if the VRM hasn't loaded yet or the bounding
         // box capture failed — keeps the pre-load camera roughly framed.
-        const meshTopY = this._meshTopY ?? (headY + 0.20);
-        const meshBottomY = this._meshBottomY ?? 0;
+        const capturedTopY = this._meshTopY ?? (capturedHeadY + 0.20);
+        const capturedBottomY = this._meshBottomY ?? 0;
+        const baseTopY = lift(this, capturedTopY);   // the face shot's: the base alone
+        let meshTopY = baseTopY;                      // the full shot's: everyone in it
+        let meshBottomY = lift(this, capturedBottomY);
         // Frame around wherever the avatar currently STANDS — with locomotion
         // it's no longer pinned to the origin, and a preset re-apply (face ↔
         // full toggle) must not snap the camera back to an empty spawn point.
@@ -4846,22 +4998,28 @@ class AvatarRenderer {
             ax = 0;
             halfWidth = Math.max(...xs.map(Math.abs)) + CALL_FRAME_SIDE_MARGIN;
         } else if (this._peers.size) {
-            const xs = [ax];
+            // Each character's side margin and height (the base's captured
+            // stature — peers aren't measured) go with their own size.
+            const lefts = [ax - CALL_FRAME_SIDE_MARGIN * baseScale];
+            const rights = [ax + CALL_FRAME_SIDE_MARGIN * baseScale];
             const zs = [az];
+            const add = (actor, scene) => {
+                const m = CALL_FRAME_SIDE_MARGIN * scene.scale.x;
+                lefts.push(scene.position.x - m);
+                rights.push(scene.position.x + m);
+                zs.push(scene.position.z);
+                meshTopY = Math.max(meshTopY, lift(actor, capturedTopY));
+                meshBottomY = Math.min(meshBottomY, lift(actor, capturedBottomY));
+            };
             for (const peer of this._peers.values()) {
-                if (!peer.vrm) continue;
-                xs.push(peer.vrm.scene.position.x);
-                zs.push(peer.vrm.scene.position.z);
+                if (peer.vrm) add(peer, peer.vrm.scene);
             }
-            if (comboPartnerVrm) {
-                xs.push(comboPartnerVrm.scene.position.x);
-                zs.push(comboPartnerVrm.scene.position.z);
-            }
-            const minX = Math.min(...xs);
-            const maxX = Math.max(...xs);
+            if (comboPartnerVrm) add(this._comboPartner, comboPartnerVrm.scene);
+            const minX = Math.min(...lefts);
+            const maxX = Math.max(...rights);
             ax = (minX + maxX) / 2;
             az = Math.max(...zs);
-            halfWidth = (maxX - minX) / 2 + CALL_FRAME_SIDE_MARGIN;
+            halfWidth = (maxX - minX) / 2;
         }
 
         // Horizontal fit: hFOV derives from vFOV via the aspect ratio; the
@@ -4900,12 +5058,13 @@ class AvatarRenderer {
         }
 
         // Face shot: from a bit below the head bone (so upper chest is
-        // visible, not a floating head) up to the top of the mesh.
-        const frameBottom = headY - FACE_LOWER_OFFSET;
+        // visible, not a floating head) up to the top of the mesh. Measures
+        // around the head go with the base's size.
+        const frameBottom = headY - FACE_LOWER_OFFSET * baseScale;
         // Guard against pathological VRMs where the bounding box happens to
         // sit below the head bone (no hair geometry, etc.) — give the head
         // at least some breathing room above the bone.
-        const frameTop = Math.max(meshTopY, headY + FACE_LOWER_OFFSET);
+        const frameTop = Math.max(baseTopY, headY + FACE_LOWER_OFFSET * baseScale);
         const center = (frameTop + frameBottom) / 2;
         let facePadding = FACE_FRAME_PADDING;
         if (WIDE_FACE_AVATAR_RE.test(this._currentAvatarPayload?.name || "")) {
@@ -4913,7 +5072,7 @@ class AvatarRenderer {
         }
         const height = (frameTop - frameBottom) * facePadding;
         const distance = fitWidth(FACE_FOV, Math.max(
-            FACE_MIN_DISTANCE,
+            FACE_MIN_DISTANCE * baseScale,
             height / (2 * Math.tan((FACE_FOV * Math.PI) / 360)),
         ));
         return {
@@ -4938,6 +5097,7 @@ class AvatarRenderer {
         }
         if (this._orbitControls) {
             this._orbitControls.target.set(...preset.target);
+            this._orbitControls.maxDistance = orbitMaxDistance(preset);
             this._orbitControls.update();
         }
         // The camera was just placed absolutely (already avatar-relative via
@@ -4966,7 +5126,7 @@ class AvatarRenderer {
         controls.enableDamping = true;
         controls.dampingFactor = 0.08;
         controls.minDistance = this._closeUp ? CLOSE_UP_MIN_DISTANCE : 1.2;
-        controls.maxDistance = 6.0;
+        controls.maxDistance = orbitMaxDistance(preset);
         // Don't let user flip below the floor or look straight up.
         controls.minPolarAngle = Math.PI * 0.1;
         controls.maxPolarAngle = Math.PI * 0.85;
