@@ -145,6 +145,43 @@ function restatesFragment(fragment, full) {
     return row[head.length] * 2 > frag.length;
 }
 
+/** Where the new speech starts in `full` (a raw word index) when it opens by
+ *  re-transcribing `prev`, else 0. xAI transcribes all the speech since the
+ *  leg last replied, so with no reply in between every final restates the
+ *  previous one — re-heard: a filler dropped or added ("Hm. How was it…" →
+ *  "How was it…"), punctuation moved ("now." → "now, mistress."), spelling
+ *  drift. Same measure as restatesFragment: more than half of `prev`'s
+ *  words in order within its length plus two; the restatement ends at the
+ *  first word that completes that match. */
+function restatedPrefixEnd(prev, full) {
+    const old = prev.split(/\s+/).map(normWord).filter(Boolean);
+    const rawWords = full.split(/\s+/).filter(Boolean);
+    const words = [];
+    const rawIdx = [];
+    rawWords.forEach((w, idx) => {
+        const n = normWord(w);
+        if (n) {
+            words.push(n);
+            rawIdx.push(idx);
+        }
+    });
+    const head = words.slice(0, old.length + 2);
+    if (!old.length || !head.length) return 0;
+    // Longest common subsequence of `old` against each prefix of `head`.
+    let row = new Array(head.length + 1).fill(0);
+    for (const word of old) {
+        const next = [0];
+        for (let j = 0; j < head.length; j++) {
+            next.push(wordsMatch(word, head[j]) ? row[j] + 1 : Math.max(row[j + 1], next[j]));
+        }
+        row = next;
+    }
+    const best = row[head.length];
+    if (best * 2 <= old.length) return 0;
+    const end = row.indexOf(best);
+    return end < words.length ? rawIdx[end] : rawWords.length;
+}
+
 // ---- PCM helpers (shared with the call manager for mic capture) ----
 
 export function floatToPcm16(float32) {
@@ -482,6 +519,10 @@ export class AgentConnection {
         // only: the mic-bearing leg reopens the shared capture at that rate
         // (its mic hasn't started yet); any leg plays its audio at it.
         this._protocol = payload.protocol || "xai";
+        // Each user final covers only its own turn — OpenAI transcribes every
+        // committed turn on its own, the voice pipeline every utterance —
+        // unlike xAI's, which restate all speech since the last reply.
+        this._perTurnTranscripts = this._protocol === "openai" || payload.xai_model === "pipeline";
         if (payload.audio_sample_rate && payload.audio_sample_rate !== this._sampleRate) {
             if (this.hearsMic) this.manager.useSampleRate(payload.audio_sample_rate);
             this._sampleRate = payload.audio_sample_rate;
@@ -970,6 +1011,9 @@ export class AgentConnection {
                 if (status === "completed") this._closeLiveMemoryAtOutput();
                 else this._liveMemory?.cancel();
             }
+            // A reply ran: xAI's next user final starts afresh, so a repeated
+            // phrase is new speech (see _extractNewUserSpeech).
+            if (status === "completed") this._lastUserTranscriptText = "";
             // Motion director: nothing more is being composed (audio may
             // still be playing out — the director watches playback itself);
             // any trailing transcript fragment is the last sentence.
@@ -1302,21 +1346,22 @@ export class AgentConnection {
             // peer's line closes it through the manager (closeUserRows).
             const open = this._openUserRow;
             const joinable = open?.fragment != null && this._pendingAppendQueue.includes(open.msg);
+            // The repeat-stripping is for xAI, whose finals restate all the
+            // speech since the leg last replied — earlier rows included, so
+            // it runs before the fragment check. Elsewhere each final is its
+            // own turn, so a repeated "Yes." is new speech.
+            const fresh = !full ? "" : this._perTurnTranscripts ? full : this._extractNewUserSpeech(full);
             let text;
             let joinedRow = null;
-            if (joinable && full && restatesFragment(open.fragment, full)) {
+            if (joinable && fresh === full && full && restatesFragment(open.fragment, full)) {
                 // The re-heard version replaces the fragment.
-                this._lastUserTranscriptText = full;
                 text = full;
                 open.msg.content = open.view.content = open.base ? `${open.base} ${full}` : full;
                 open.fragment = full;
                 open.until = Date.now() + AWAIT_USER_TRANSCRIPT_MS;
                 joinedRow = open.msg.content;
             } else {
-                // The repeat-stripping is for xAI, whose finals can re-emit
-                // earlier speech. OpenAI transcribes each committed turn on
-                // its own, so a repeated "Yes." is a new turn, not an echo.
-                text = !full ? "" : this._protocol === "openai" ? full : this._extractNewUserSpeech(full);
+                text = fresh;
                 if (text && joinable) {
                     // "…go for a walk." + "after lunch." — the pause's full stop
                     // goes when the sentence carries on in lowercase.
@@ -2253,9 +2298,13 @@ export class AgentConnection {
      *  spelling and punctuation drift ("favorite" → "favourite",
      *  "Rex's." → "Rex's coat") — so an exact prefix compare alone misses.
      *  Two layers:
-     *    1. Exact: duplicate-of / prefix-of the previous raw emission
-     *       (cheap, catches the common single-turn case).
-     *    2. Fuzzy: word-align the new transcript against the concatenation
+     *    1. Restated: the previous raw emission, re-heard, opening this one
+     *       (restatedPrefixEnd). Measured live: xAI transcribes all speech
+     *       since the leg's last completed reply, so the previous emission is
+     *       exactly what gets restated; the reference resets when a reply
+     *       completes (response.done), where xAI resets.
+     *    2. Fuzzy, also only while no reply has completed since the previous
+     *       emission: word-align the new transcript against the concatenation
      *       of recent user rows from THIS socket (replayed history can't
      *       re-emit) and strip every fully-matched row — every word of the
      *       row must match, within the spelling drift below. A different
@@ -2269,11 +2318,15 @@ export class AgentConnection {
     _extractNewUserSpeech(transcript) {
         const prev = this._lastUserTranscriptText;
         this._lastUserTranscriptText = transcript;
-        if (prev) {
-            if (transcript === prev) return "";  // pure duplicate re-emission
-            if (transcript.length > prev.length && transcript.startsWith(prev)) {
-                return transcript.slice(prev.length).trim();
-            }
+        // No earlier emission since the last reply (or the socket opened):
+        // xAI starts afresh, so a repeat of an earlier row is new speech.
+        if (!prev) return transcript;
+        if (transcript === prev) return "";  // pure duplicate re-emission
+        const start = restatedPrefixEnd(prev, transcript);
+        if (start) {
+            const rest = transcript.split(/\s+/).filter(Boolean).slice(start).join(" ");
+            if (!rest) console.warn(`[voice:${this.connId}] dropped re-transcribed user speech`);
+            return rest;
         }
         const MIN_STRIP_WORDS = 4;
         const rawWords = transcript.split(/\s+/).filter(Boolean);
