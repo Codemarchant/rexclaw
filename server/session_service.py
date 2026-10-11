@@ -2512,10 +2512,12 @@ def face_director_select(con, *, session, line, context=(), listening=False, wor
     # reply already said, which the browser sends along. A listening read's
     # own line may already be saved; it is the line, not its context.
     user_label = (config['user_display_name'] or '').strip() or 'User'
+    # In a group call the other companions' lines are saved here too, under
+    # their own speaker: they are not this companion's words.
     rows = con.execute(
-        "SELECT role, content FROM messages WHERE session_id = ? AND role IN ('user', 'assistant')"
+        "SELECT role, content, speaker FROM messages WHERE session_id = ? AND role IN ('user', 'assistant')"
         " ORDER BY sequence DESC, id DESC LIMIT 2", (session['id'],)).fetchall()
-    conversation = [(user_label if r['role'] == 'user' else name, (r['content'] or '')[:400])
+    conversation = [(user_label if r['role'] == 'user' else r['speaker'] or name, (r['content'] or '')[:400])
                     for r in reversed(rows) if (r['content'] or '').strip()]
     if listening and conversation and conversation[-1] == (user_label, line[:400]):
         conversation.pop()

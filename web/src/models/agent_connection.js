@@ -1310,7 +1310,14 @@ export class AgentConnection {
             (msg.type === "conversation.item.input_audio_transcription.completed" &&
              msg.status === "in_progress" && this._userSpeaking && this._streamingTranscription)) {
             if (this._streamingTranscription && this._userSpeaking && !this._staleSpeechItem(msg.item_id)) {
-                const partial = msg.transcript || msg.text || "";
+                let partial = msg.transcript || msg.text || "";
+                // Hypotheses restate the speech since the last reply too
+                // (measured live): only what follows the previous final is
+                // this utterance.
+                const prev = this._perTurnTranscripts ? "" : this._lastUserTranscriptText;
+                const start = prev ? restatedPrefixEnd(prev, partial) : 0;
+                if (start) partial = partial.split(/\s+/).filter(Boolean).slice(start).join(" ");
+                if (!partial) return;
                 if (this._liveMemoryStreaming && !this.manager.hasPeers()) {
                     this._liveMemoryItemId = msg.item_id || null;
                     this._liveMemory?.update(partial);
