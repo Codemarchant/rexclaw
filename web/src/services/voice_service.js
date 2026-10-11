@@ -107,6 +107,7 @@ class VoiceCallService {
         this._floorConnId = null;          // agent currently holding the floor
         this._suppressPrimaryOnce = false; // eat primary's next auto-response (turn routed to a peer)
         this._directorGeneration = 0;      // bumped on every user turn; stales pending director decisions
+        this._userTurnSeq = 0;             // the user's turns only (spoken or typed), unlike the generation
         this.endingCall = null;            // token of an end_call hangup under way (endCallWhenIdle)
         this._consecutiveAgentTurns = 0;
         // Set once the chain cap fired and the wrap-up nudge turn was
@@ -714,6 +715,7 @@ class VoiceCallService {
         }
         text = (text || "").trim();
         if (!text) return false;
+        this._userTurnSeq++;
         this._directorGeneration++;
         const generation = this._directorGeneration;
         this._consecutiveAgentTurns = 0;
@@ -1061,6 +1063,7 @@ class VoiceCallService {
         // every other leg's in-flight speech has played out — the joiner may
         // have been summoned by an agent (add_agent_to_call) whose spoken
         // follow-up ("getting Bob now…") is still streaming on ITS leg.
+        const userTurns = this._userTurnSeq;
         for (const other of this.connections.values()) {
             if (other === conn || other.isTerminal) continue;
             await this._waitForPlayoutEnd(other, this._directorGeneration);
@@ -1069,6 +1072,14 @@ class VoiceCallService {
         // shouldn't start the instant the previous speaker's audio cuts.
         await new Promise((r) => setTimeout(r, INTER_TURN_PAUSE_MS));
         if (conn.isTerminal) return false;
+        // The user spoke meanwhile ("Ara, say something…"): their turn owns
+        // the floor and is being routed. The greeting's generation bump
+        // below would drop that routing and leave them unanswered, so the
+        // newcomer skips it — answering the user is its hello.
+        if (this._userTurnSeq !== userTurns) {
+            console.log(`[voice] ${conn.agentName || conn.connId} joined while the user spoke — no greeting`);
+            return true;
+        }
         this._consecutiveAgentTurns = 0;
         // The greeting owns the floor: invalidate any agent-chatter
         // deliberation still pending from before the join, so it can't
@@ -1566,9 +1577,29 @@ class VoiceCallService {
             this.primary._maybeCreateResponse();
         } else {
             this.primary.cancelActiveResponse(`routed-to-${target.connId}`);
-            target.requestResponse();
+            this._grantPeerTurn(target, generation);
         }
         this._setFloor(target);
+    }
+
+    /** Give a peer the user's turn. One that can't take it yet — still
+     *  joining, mid-compaction, or finishing another reply (its greeting) —
+     *  gets it as soon as it can; one that never can hands it to the
+     *  primary. requestResponse refuses silently, and the user's turn used
+     *  to go unanswered. A reply queued behind a cancel is not a refusal. */
+    async _grantPeerTurn(target, generation) {
+        if (target.requestResponse() || target._replyAfterCancel) return;
+        console.log(`[voice] director: ${target.connId} (${target.agentName}) can't take the turn yet `
+            + `(status=${target.state.status}, inFlight=${!!target._responseInFlight}, `
+            + `compacting=${!!target.state.compacting}) — waiting`);
+        await this._waitForLive(target, 15000);
+        await this._waitForPlayoutEnd(target, generation);
+        if (generation !== this._directorGeneration) return;
+        if (!target.isTerminal && (target.requestResponse() || target._replyAfterCancel)) return;
+        console.log(`[voice] director: ${target.connId} never took the turn — the primary answers`);
+        this._suppressPrimaryOnce = false;
+        this.primary._maybeCreateResponse();
+        this._setFloor(this.primary);
     }
 
     /** The user physically started speaking: they always win the floor.
@@ -1579,6 +1610,7 @@ class VoiceCallService {
         if (conn === this.primary) this._userVoiceAt = Date.now();
         this.idleEvents.noteUser();
         if (conn !== this.primary) return;
+        this._userTurnSeq++;
         this._directorGeneration++;
         console.log(`[voice] chatter: VAD speech_started — generation now ${this._directorGeneration} (pending grants invalidated)`);
         this._consecutiveAgentTurns = 0;
