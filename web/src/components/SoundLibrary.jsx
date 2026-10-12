@@ -58,7 +58,7 @@ function SoundFields({ value, kinds, onChange }) {
     );
 }
 
-export default function SoundLibrary({ sounds, kinds, onChange }) {
+export default function SoundLibrary({ sounds, kinds, keepDownloads, onKeepDownloads, onChange }) {
     const [adding, setAdding] = useState(null);   // {…fields, file}
     const [editing, setEditing] = useState(null); // {id, …fields}
     const [busy, setBusy] = useState(false);
@@ -93,6 +93,12 @@ export default function SoundLibrary({ sounds, kinds, onChange }) {
     const upload = async () => {
         setBusy(true);
         try {
+            if (adding.url !== undefined) {
+                const { file, ...fields } = adding;
+                onChange(await rpc("/api/audio/sounds/fetch", fields));
+                setAdding(null);
+                return;
+            }
             const fd = new FormData();
             for (const k of ["name", "kind", "description", "level", "credit"]) fd.append(k, String(adding[k] ?? ""));
             fd.append("file", adding.file, adding.file.name);
@@ -120,6 +126,14 @@ export default function SoundLibrary({ sounds, kinds, onChange }) {
         }
     };
 
+    const setKeepDownloads = async (keep) => {
+        try {
+            onKeepDownloads((await rpc("/api/audio/sounds/keep_downloads", { keep })).keep_downloaded_sounds);
+        } catch (e) {
+            notification.add(e?.message || _t("Could not save the setting"), { type: "danger" });
+        }
+    };
+
     const remove = async (s) => {
         if (!(await confirmAsk(_t("Delete the sound '%s'? Scripts that use it will render without it, with a warning.", s.name)))) return;
         try {
@@ -140,6 +154,12 @@ export default function SoundLibrary({ sounds, kinds, onChange }) {
                     {_t("Beds and music loop under the voice until changed: a new {bed NAME} or {music NAME} crossfades to it, and {bed off} or {music off} stops it (add fade=10s for a slower fade). A sound effect plays once, and by default the script waits for it to finish so it is heard on its own. Add a length to cut it short ({sound thunder 5s}), or add under to play it beneath the next lines without waiting ({sound rain under}).")}
                 </p>
             </details>
+            <label className="rx_check" style={{ margin: "0 0 0.4rem" }}
+                   title={_t("Companions can download music and sounds from the web (YouTube and other links) for a voice message. When this is on, those downloads are saved here with a credit to their source, and later recordings can reuse them. When off, each download is used for that one recording and then deleted.")}>
+                <input type="checkbox" checked={!!keepDownloads}
+                       onChange={(ev) => setKeepDownloads(ev.target.checked)} />
+                <span>{_t("Keep sounds companions download")}</span>
+            </label>
             <div className="rx_mem_toolbar">
                 {sounds.length > 0 && (
                     <>
@@ -155,21 +175,42 @@ export default function SoundLibrary({ sounds, kinds, onChange }) {
                     </>
                 )}
                 {!adding && (
-                    <button className="btn btn-sm" style={{ marginLeft: "auto" }}
-                            onClick={() => { setAdding({ ...BLANK }); setTimeout(() => fileRef.current?.click(), 0); }}>
-                        <i className="fa fa-upload" /> {_t("Add a sound")}
-                    </button>
+                    <span style={{ marginLeft: "auto", display: "flex", gap: "0.4rem" }}>
+                        <button className="btn btn-sm"
+                                onClick={() => { setAdding({ ...BLANK }); setTimeout(() => fileRef.current?.click(), 0); }}>
+                            <i className="fa fa-upload" /> {_t("Add a sound")}
+                        </button>
+                        <button className="btn btn-sm" onClick={() => setAdding({ ...BLANK, url: "" })}>
+                            <i className="fa fa-link" /> {_t("Add from a link")}
+                        </button>
+                    </span>
                 )}
             </div>
             {adding && (
                 <div className="rx_agent_editor rx_studio_sound_form">
-                    <label>{_t("File")}</label>
-                    <input ref={fileRef} type="file" accept="audio/*,.wav,.flac,.ogg,.mp3"
-                           onChange={(ev) => pickFile(ev.target.files?.[0])} />
+                    {adding.url !== undefined ? (
+                        <>
+                            <label title={_t("A YouTube link, a page on another video or music site, or a direct link to an audio file. The first 30 minutes are used.")}>
+                                {_t("Link")}
+                            </label>
+                            <input type="text" value={adding.url} placeholder="https://www.youtube.com/watch?v=…" autoFocus
+                                   onChange={(ev) => setAdding({ ...adding, url: ev.target.value })} />
+                        </>
+                    ) : (
+                        <>
+                            <label>{_t("File")}</label>
+                            <input ref={fileRef} type="file" accept="audio/*,.wav,.flac,.ogg,.mp3"
+                                   onChange={(ev) => pickFile(ev.target.files?.[0])} />
+                        </>
+                    )}
                     <SoundFields value={adding} kinds={kinds} onChange={setAdding} />
                     <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.6rem" }}>
-                        <button className="btn btn-sm btn-primary" disabled={busy || !adding.file || !adding.name} onClick={upload}>
-                            {busy ? <><i className="fa fa-spinner fa-spin" /> {_t("Uploading…")}</> : _t("Add sound")}
+                        <button className="btn btn-sm btn-primary"
+                                disabled={busy || !(adding.url !== undefined ? adding.url.trim() : adding.file) || !adding.name}
+                                onClick={upload}>
+                            {busy
+                                ? <><i className="fa fa-spinner fa-spin" /> {adding.url !== undefined ? _t("Downloading…") : _t("Uploading…")}</>
+                                : _t("Add sound")}
                         </button>
                         <button className="btn btn-sm" disabled={busy} onClick={() => setAdding(null)}>{_t("Cancel")}</button>
                     </div>

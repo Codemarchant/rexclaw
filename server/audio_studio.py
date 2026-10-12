@@ -1768,14 +1768,16 @@ def _encode(mixer, gain):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def render(con, config, script, *, voice, language='auto', pace=1.0, speaker=None):
+def render(con, config, script, *, voice, language='auto', pace=1.0, speaker=None, extra_sounds=None):
     """Render `script` to an mp3 under FILES_DIR.
 
     Returns {'audio_url', 'duration_seconds', 'tts_chars', 'usd', 'warnings',
     'notes'} — notes are what extensions' render hooks tell the companion.
     Raises UserError for anything the caller should show (no key, empty
     script, a TTS failure). `speaker` replaces xAI TTS (engine_speaker):
-    nothing is billed then."""
+    nothing is billed then. `extra_sounds` adds sound rows to the library
+    for this render only (name → row, like audio_sounds.catalog): the ones
+    a companion downloaded for it."""
     if speaker is None and not config['xai_api_key']:
         raise UserError(xai_client.NO_KEY_MSG)
     script = (script or '').strip()
@@ -1783,7 +1785,7 @@ def render(con, config, script, *, voice, language='auto', pace=1.0, speaker=Non
         raise UserError('The script is empty.')
     if len(script) > MAX_SCRIPT_CHARS:
         raise UserError(f'The script is too long ({len(script)} characters, max {MAX_SCRIPT_CHARS}).')
-    sounds = audio_sounds.catalog(con)
+    sounds = {**audio_sounds.catalog(con), **(extra_sounds or {})}
     events, target, pronounce, warnings = parse(script, voice=voice, pace=pace, sounds=sounds)
     _fix_dual_pans(events)
     # Load only the recorded audio this script calls: bundled beds and uploads.

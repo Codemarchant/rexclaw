@@ -170,6 +170,7 @@ def audio_bootstrap(payload: dict = Body(default={}), con=Depends(db_con)):
         'engine_voices': _engine_voices(con, config),
         'sounds': _sounds(con),
         'sound_kinds': audio_sounds.KINDS,
+        'keep_downloaded_sounds': bool(config['keep_downloaded_sounds']),
         'guide': audio_studio.guide(config, audio_sounds.catalog(con)),
     }
 
@@ -209,6 +210,24 @@ def audio_sound_upload(
     return _sounds_payload(con)
 
 
+@router.post("/sounds/fetch")
+def audio_sound_fetch(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Add a sound from a link (YouTube, other sites, an audio file): the
+    download companions use for voice messages (media_fetch.py), first 30
+    minutes. A plain def, like upload: the download runs in the thread pool."""
+    url = (payload.get('url') or '').strip()
+    if not url.startswith(('http://', 'https://')):
+        raise UserError('Paste a link starting with http:// or https://.')
+    name, kind, level = audio_sounds.validate(con, name=payload.get('name'), kind=payload.get('kind'),
+                                              level=payload.get('level'))
+    path, duration = audio_sounds.fetch(url)
+    audio_sounds.store(con, name=name, kind=kind, description=(payload.get('description') or '').strip()[:300],
+                       level=level, credit=((payload.get('credit') or '').strip() or url)[:300],
+                       file_path=path, source_filename=url, duration=duration)
+    con.commit()
+    return _sounds_payload(con)
+
+
 @router.post("/sounds/save")
 def audio_sound_save(payload: dict = Body(default={}), con=Depends(db_con)):
     """Edit a sound's details (not its audio). Renaming breaks scripts that
@@ -234,6 +253,16 @@ def audio_sound_delete(payload: dict = Body(default={}), con=Depends(db_con)):
         con.commit()
         audio_sounds.delete_file(row)
     return _sounds_payload(con)
+
+
+@router.post("/sounds/keep_downloads")
+def audio_sound_keep_downloads(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Whether sounds companions download for a voice message join the
+    library (create_voicemail's `sounds`)."""
+    keep = bool(payload.get('keep'))
+    con.execute("UPDATE config SET keep_downloaded_sounds = ? WHERE id = 1", (int(keep),))
+    con.commit()
+    return {'keep_downloaded_sounds': keep}
 
 
 @router.post("/rules/save")

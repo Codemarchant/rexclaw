@@ -13,13 +13,19 @@ resampled to the studio's 24 kHz (soxr) and stored as FLAC under
 data/files/sounds/. Licensing is the user's call; the credit field is
 there to keep track of it. Loops get a crossfaded seam at load time, so
 any file can loop without a click.
+
+Companions can also download a sound for a voice message (fetch): a
+YouTube link, any other site yt-dlp supports, or a direct link to an
+audio file (media_fetch.py).
 """
 import io
 import re
+import shutil
 import uuid
 
 import numpy as np
 
+from . import media_fetch
 from .db import ASSETS_DIR, FILES_DIR, utcnow
 from .errors import UserError
 
@@ -94,13 +100,18 @@ def validate(con, *, name, kind, level, sound_id=None):
 
 def ingest(raw, filename):
     """Decode an uploaded file → (web path, duration seconds)."""
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise UserError(f'The file is over {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.')
+    return ingest_file(io.BytesIO(raw), filename)
+
+
+def ingest_file(source, filename):
+    """Decode audio (a path or a file object) → (web path, duration seconds)."""
     import soundfile as sf
     import soxr
     from .audio_studio import SR
-    if len(raw) > MAX_UPLOAD_BYTES:
-        raise UserError(f'The file is over {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.')
     try:
-        data, rate = sf.read(io.BytesIO(raw), dtype='float32', always_2d=True)
+        data, rate = sf.read(source, dtype='float32', always_2d=True)
     except Exception:
         raise UserError(f'Could not read "{filename}" as audio. Supported: WAV, FLAC, OGG and MP3.')
     if not len(data):
@@ -119,6 +130,18 @@ def ingest(raw, filename):
         for i in range(0, len(data), 65536):  # blocks: one huge write can crash libsndfile
             f.write(data[i:i + 65536])
     return f'/files/sounds/{fname}', round(len(data) / SR, 1)
+
+
+def fetch(url):
+    """A sound from the web → (web path, duration seconds), stored like an
+    upload. Only the first MAX_SECONDS are kept (ambience videos run for
+    hours; beds and music loop anyway)."""
+    work = SOUNDS_DIR / f'_download_{uuid.uuid4().hex}'
+    try:
+        meta = media_fetch.fetch_audio(url, work, max_seconds=MAX_SECONDS)
+        return ingest_file(meta['audio'], url)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def catalog(con):

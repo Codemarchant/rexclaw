@@ -341,6 +341,11 @@ export const JA = {
   "Add a sound": "サウンドを追加",
   "Add sound": "追加",
   "Uploading…": "アップロード中…",
+  "Add from a link": "リンクから追加",
+  "Link": "リンク",
+  "Downloading…": "ダウンロード中…",
+  "A YouTube link, a page on another video or music site, or a direct link to an audio file. The first 30 minutes are used.":
+    "YouTube のリンク、その他の動画・音楽サイトのページ、または音声ファイルへの直接リンク。最初の30分が使われます。",
   "No sounds yet.": "まだサウンドがありません。",
   "File": "ファイル",
   "Kind": "種類",
@@ -364,6 +369,10 @@ export const JA = {
   "Beds and music loop under the voice until changed: a new {bed NAME} or {music NAME} crossfades to it, and {bed off} or {music off} stops it (add fade=10s for a slower fade). A sound effect plays once, and by default the script waits for it to finish so it is heard on its own. Add a length to cut it short ({sound thunder 5s}), or add under to play it beneath the next lines without waiting ({sound rain under}).":
     "ベッドと音楽は、変更されるまで声の下でループします。新しい {bed NAME} や {music NAME} でクロスフェードして切り替わり、{bed off} や {music off} で止まります（fade=10s を付けるとゆっくりフェードします）。効果音は1回だけ鳴り、デフォルトでは台本がその終わりを待つので、単独で聞こえます。長さを付けると途中で止まり（{sound thunder 5s}）、under を付けると待たずに次の行の下で鳴ります（{sound rain under}）。",
   "Could not save the sound": "サウンドを保存できませんでした",
+  "Could not save the setting": "設定を保存できませんでした",
+  "Keep sounds companions download":"コンパニオンがダウンロードしたサウンドを残す",
+  "Companions can download music and sounds from the web (YouTube and other links) for a voice message. When this is on, those downloads are saved here with a credit to their source, and later recordings can reuse them. When off, each download is used for that one recording and then deleted.":
+    "コンパニオンはボイスメッセージ用に、Web（YouTube などのリンク）から音楽やサウンドをダウンロードできます。オンにすると、ダウンロードしたものが入手元のクレジットつきでここに保存され、以降の録音でも再利用できます。オフにすると、その録音にだけ使われてから削除されます。",
   "Delete the sound '%s'? Scripts that use it will render without it, with a warning.":
     "サウンド「%s」を削除しますか？これを使う台本は、警告つきでこのサウンドなしで生成されます。",
   "Renaming breaks scripts that call the old name; they render without it, with a warning.":
@@ -454,6 +463,9 @@ export const JA = {
   "Voice messages (create_voicemail)": "ボイスメッセージ（create_voicemail）",
   "Lets the companion record audio messages in its own voice during text chat (create_voicemail): teasing voice notes, good-morning messages, bedtime stories, guided meditations and breathing exercises, with timed silences, ambient sound and effects. The recording plays inline in the chat and is also listed under History → Recordings. Text sessions only. Billed by xAI as text-to-speech, about a cent per minute of speech.":
     "テキストチャット中に、コンパニオンが自分の声で音声メッセージを録音できるようにします（create_voicemail）。からかい半分のボイスメモ、おはようメッセージ、寝る前のお話、誘導瞑想、呼吸法など。時間どおりの無音、環境音、エフェクトも使えます。録音はチャット内で再生でき、履歴 → 録音 にも一覧表示されます。テキストセッションのみ。xAI の音声合成として課金され、読み上げ1分あたり約1セントです。",
+  "Voice messages: music from the web": "ボイスメッセージ: Web から音楽",
+  "Lets voice messages (affects create_voicemail) download music and sounds from links the companion finds, for example with web search: a YouTube video, another video or music site, or an audio file. Think of a workout beat under a running session, or a piece you ask for by name. Turn it off to keep recordings to the built-in sounds and your own library (History → Recordings → Your sounds). Requires Voice messages.":
+    "ボイスメッセージ用に、コンパニオンが見つけたリンク（Web 検索など）から音楽やサウンドをダウンロードできるようにします（create_voicemail に影響）。YouTube の動画、その他の動画・音楽サイト、音声ファイルに対応します。ランニング用セッションの下に流すワークアウト曲や、名前を挙げてリクエストした曲などに。オフにすると、録音には内蔵サウンドと自分のライブラリ（履歴 → 録音 → Your sounds）だけが使われます。ボイスメッセージが必要です。",
 
   // ── Settings: connection / models ─────────────────────────────────────
   "Could not load settings": "設定を読み込めませんでした",

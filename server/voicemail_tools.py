@@ -12,6 +12,8 @@ playground). This module holds the tool schema, the executor and the
 audio_recordings row helpers both callers use.
 """
 import logging
+import re
+import uuid
 from textwrap import dedent
 
 from . import audio_sounds, audio_studio
@@ -67,6 +69,41 @@ _PARAMETERS = {
 }
 
 
+def _sounds_parameter(keep):
+    """create_voicemail's `sounds`: tracks downloaded for this recording.
+    What happens to the files afterwards is the user's keep setting, so
+    it's built per session."""
+    after =('Downloads are saved to the user\'s sound library, so later recordings call them by name '
+             'without downloading again.' if keep else
+             'Downloads are used for this recording only, then deleted.')
+    return {
+        'type': 'array',
+        'description': (
+            'Music or sounds to download for this recording, when the user wants something your sounds '
+            'don\'t have: a workout playlist beat, a particular piece, a sound effect. Find a track with '
+            'web search first. Each one then plays by the name you give it, exactly like your own sounds '
+            '({music NAME}, {bed NAME}, {sound NAME}). The first 30 minutes of a longer track are used; '
+            'beds and music loop. A download adds up to a minute or so to the render. ' + after),
+        'items': {
+            'type': 'object',
+            'properties': {
+                'name': {'type': 'string',
+                         'description': 'What the script calls it: lowercase letters, digits and hyphens, '
+                                        'e.g. "upbeat-run" for {music upbeat-run}.'},
+                'url': {'type': 'string',
+                        'description': 'A YouTube link (or a link from any video or music site), or a '
+                                       'direct link to an audio file.'},
+                'kind': {'type': 'string', 'enum': sorted(audio_sounds.KINDS),
+                         'description': 'bed (a looping background), music (a looping music layer) or '
+                                        'sound (a one-shot effect).'},
+                'description': {'type': 'string', 'description': 'What it sounds like and what it suits.'},
+                'credit': {'type': 'string', 'description': 'Artist, title and licence, as the page gives them.'},
+            },
+            'required': ['name', 'url', 'kind'],
+        },
+    }
+
+
 def build_tool(con, agent=None):
     """create_voicemail for a text turn. Built per session because its
     description carries the user's writing rules (config.recording_rules)
@@ -82,12 +119,14 @@ def build_tool(con, agent=None):
     own_tags = tag_guide(con, agent, config) if agent else ''
     guide = audio_studio.guide_text(rules, audio_sounds.catalog(con), agent, speech_tags=speech_tags,
                                     tag_guide=own_tags)
-    parameters = _PARAMETERS
+    properties = dict(_PARAMETERS['properties'])
+    if agent is None or agent['enable_voicemail_downloads']:
+        properties['sounds'] = _sounds_parameter(bool(config['keep_downloaded_sounds']))
     if not (speech_tags or own_tags):
         # No tags on this voice: the script is described without them.
-        script = {**_PARAMETERS['properties']['script'],
-                  'description': 'The full script: spoken lines, plus directive lines in braces.'}
-        parameters = {**_PARAMETERS, 'properties': {**_PARAMETERS['properties'], 'script': script}}
+        properties['script'] = {**properties['script'],
+                                'description': 'The full script: spoken lines, plus directive lines in braces.'}
+    parameters = {**_PARAMETERS, 'properties': properties}
     return {
         'type': 'function',
         'name': CREATE_VOICEMAIL_TOOL_NAME,
@@ -107,6 +146,54 @@ def store_recording(con, *, name, source, script, voice, result, agent_id=None,
         (name, source, category, agent_id, session_id, voice, script, result['audio_url'],
          result['duration_seconds'], result['tts_chars'], utcnow()))
     return cur.lastrowid
+
+
+def download_sounds(con, items, *, keep):
+    """create_voicemail's `sounds`, downloaded → name → sound row for the
+    render (audio_studio.render extra_sounds). With `keep`
+    (config.keep_downloaded_sounds) each one joins the library, and a link
+    already there is reused instead of downloaded again; otherwise the rows
+    carry a str id and the caller deletes their files after the render."""
+    if not items:
+        return {}
+    if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
+        raise UserError('sounds must be a list of {name, url, kind} objects.')
+    out = {}
+    try:
+        for item in items:
+            url = (item.get('url') or '').strip()
+            if not re.match(r'^https?://', url):
+                raise UserError(f'sounds: "{url}" is not a link.')
+            name = (item.get('name') or '').strip().lower()
+            if name in out:
+                raise UserError(f'sounds: "{name}" is listed twice.')
+            known = con.execute("SELECT * FROM audio_sounds WHERE source_filename = ?", (url,)).fetchone()
+            if known and known['name'] == name:
+                out[name] = dict(known)
+                continue
+            name, kind, level = audio_sounds.validate(con, name=name, kind=item.get('kind'), level=0)
+            if known:
+                # Downloaded before under another name: the same file, called as asked.
+                out[name] = {**dict(known), 'name': name, 'kind': kind}
+                continue
+            description = (item.get('description') or '').strip()[:300]
+            credit = ', '.join(v for v in ((item.get('credit') or '').strip(), url) if v)[:300]
+            path, duration = audio_sounds.fetch(url)
+            row = {'id': f'download-{uuid.uuid4().hex}', 'name': name, 'kind': kind,
+                   'description': description, 'level': level, 'credit': credit, 'file_path': path,
+                   'source_filename': url, 'duration_seconds': duration}
+            if keep:
+                row['id'] = audio_sounds.store(con, name=name, kind=kind, description=description, level=level,
+                                               credit=credit, file_path=path, source_filename=url,
+                                               duration=duration)
+                con.commit()
+            out[name] = row
+    except Exception:
+        for row in out.values():
+            if isinstance(row['id'], str):
+                audio_sounds.delete_file(row)
+        raise
+    return out
 
 
 def _clamp_pace(value):
@@ -175,6 +262,9 @@ def execute_create_voicemail(con, session, agent, arguments):
     if session['origin'] == 'delegated':
         return {'error': 'Background task sessions cannot record voice messages.'}
     arguments = arguments or {}
+    if arguments.get('sounds') and not agent['enable_voicemail_downloads']:
+        return {'error': 'Downloading music and sounds is switched off for this companion; use the '
+                         'built-in sounds and the user\'s library.'}
     script = arguments.get('script')
     if not isinstance(script, str) or not script.strip():
         return {'error': 'script is required.'}
@@ -186,10 +276,13 @@ def execute_create_voicemail(con, session, agent, arguments):
     # SQLite holds the write lock for the whole render (see imagine_tools
     # _execute_local_tool).
     con.commit()
+    downloads = {}
     try:
         voice, speaker = call_voice(con, agent, config)
+        downloads = download_sounds(con, arguments.get('sounds'), keep=bool(config['keep_downloaded_sounds']))
         result = audio_studio.render(con, config, script, voice=voice, language=language,
-                                     pace=_clamp_pace(agent['voice_speed']), speaker=speaker)
+                                     pace=_clamp_pace(agent['voice_speed']), speaker=speaker,
+                                     extra_sounds=downloads)
     except UserError as e:
         return {'error': str(e)}
     except Exception as e:
@@ -197,6 +290,10 @@ def execute_create_voicemail(con, session, agent, arguments):
         # whole text turn (the tool_call row is already committed).
         _logger.exception('create_voicemail render failed')
         return {'error': f'The recording could not be rendered: {e}'}
+    finally:
+        for row in downloads.values():
+            if isinstance(row['id'], str):   # this recording's only
+                audio_sounds.delete_file(row)
     rec_id = store_recording(con, name=title, source='voicemail', script=script,
                              voice=voice, result=result,
                              agent_id=agent['id'], session_id=session['id'])
@@ -208,6 +305,10 @@ def execute_create_voicemail(con, session, agent, arguments):
         'note': ('The recording is already in the chat as a playable attachment. Do not '
                  'say or write the URL or file name; just talk about it naturally.'),
     }
+    if downloads:
+        payload['downloaded'] = [{'name': name, 'kind': row['kind'], 'duration_seconds': row['duration_seconds'],
+                                  'in_library': not isinstance(row['id'], str)}
+                                 for name, row in downloads.items()]
     if result['warnings']:
         payload['warnings'] = result['warnings']
     if result['notes']:

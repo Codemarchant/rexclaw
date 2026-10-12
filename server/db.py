@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS config (
     -- User override of audio_studio's default writing rules for recordings
     -- (History → Recordings → Full guide); NULL/empty = the defaults.
     recording_rules TEXT,
+    -- Sounds companions download for a voice message (create_voicemail's
+    -- `sounds`) join the user's sound library; 0 = used for that one
+    -- recording, then deleted.
+    keep_downloaded_sounds INTEGER NOT NULL DEFAULT 0,
     xai_model TEXT NOT NULL DEFAULT 'grok-voice-latest',
     -- The voice setup companions use unless they pick their own:
     -- 'realtime' (xAI's speech-to-speech API, xai_model above) or a
@@ -551,6 +555,8 @@ CREATE TABLE IF NOT EXISTS agents (
     -- create_voicemail: text chat only — a recorded voice note, meditation
     -- or sleep piece rendered by audio_studio.py (xAI TTS + our timeline).
     enable_voicemail INTEGER NOT NULL DEFAULT 1,
+    -- create_voicemail's `sounds`: music and sounds downloaded from links.
+    enable_voicemail_downloads INTEGER NOT NULL DEFAULT 1,
     -- Extensions' tool switches (plugins.py): JSON {extension id: true}.
     extension_tools TEXT NOT NULL DEFAULT '{}',
     -- perform_song: voice calls — the companion performs a song it has learned
@@ -1447,6 +1453,8 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN xai_oauth_account TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN seeded_grok_pipeline INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE imagine_images ADD COLUMN xai_file_account TEXT",
+    "ALTER TABLE config ADD COLUMN keep_downloaded_sounds INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agents ADD COLUMN enable_voicemail_downloads INTEGER NOT NULL DEFAULT 1",
 )
 
 

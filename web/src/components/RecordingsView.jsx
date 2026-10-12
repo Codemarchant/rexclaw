@@ -691,6 +691,8 @@ export default function RecordingsView({ active }) {
                     </div>
                     <div style={{ display: libTab === "sounds" ? "" : "none" }}>
                         <SoundLibrary sounds={data.sounds} kinds={data.sound_kinds}
+                                      keepDownloads={data.keep_downloaded_sounds}
+                                      onKeepDownloads={(keep) => setData((d) => ({ ...d, keep_downloaded_sounds: keep }))}
                                       onChange={(p) => setData((d) => ({ ...d, sounds: p.sounds, guide: p.guide }))} />
                     </div>
                     <div style={{ display: libTab === "recordings" ? "" : "none" }}>

@@ -25,6 +25,12 @@ dependencies = [
     "tokenizers>=0.20",
     # Claude brains (server/pipeline/llm.py AnthropicLlm).
     "anthropic>=1.11",
+    # Audio from links (server/media_fetch.py): yt-dlp with its YouTube
+    # solver scripts ([default] → yt-dlp-ejs), Deno as the JS runtime those
+    # need, and PyAV to decode what it downloads (webm/opus, m4a).
+    "yt-dlp[default]>=2026.8.19",
+    "deno>=2.5",
+    "av>=14",
 ]
 
 [project.scripts]
