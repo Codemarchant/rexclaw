@@ -1290,6 +1290,7 @@ export class AgentConnection {
             this._recordedMcpCallIds?.clear();
             this._mcpCallArgs?.clear();
             this._dispatchedCallIds?.clear();
+            this._callKeysInResponse?.clear();
             this.pendingFunctionCalls?.clear();
             // Fresh turn — clear any tool-reply debt. (If this response
             // itself emits tool calls, _handleFunctionCall re-arms the flag.)
@@ -2183,6 +2184,33 @@ export class AgentConnection {
         }
     }
 
+    /** A repeat of a call this reply already made: answered without running
+     *  (an unanswered call reads as never made). Not stopped: xAI sends a
+     *  reply's calls together once it has written them all (measured live
+     *  2026-10-13: five in the same instant, a cancel sent after the second
+     *  still ended "completed"), so there is nothing left to stop. */
+    _answerRepeatedCall(callId, name) {
+        const result = {
+            ok: false,
+            status: "repeat_not_run",
+            note: "You already made this exact call in this reply, so this copy was not run. The first call's result comes back by itself.",
+        };
+        this._sendWs({
+            type: "conversation.item.create",
+            item: { type: "function_call_output", call_id: callId, output: JSON.stringify(result) },
+        });
+        if (!SILENT_BROWSER_TOOLS.has(name)) {
+            this._appendMessage({
+                role: "tool_result",
+                content: JSON.stringify(result),
+                tool_name: name,
+                tool_result_json: JSON.stringify(result),
+                xai_call_id: callId,
+            });
+        }
+        console.warn(`[voice:${this.connId}] reply repeated its ${name} call - not run`, this._currentResponseId);
+    }
+
     /** Dispatch a single function call to the browser tool dispatcher and
      *  echo tool_call / tool_result messages into the transcript.
      *
@@ -2215,6 +2243,17 @@ export class AgentConnection {
             this._searchedInResponse = true;
             return;
         }
+        // A reply that makes the same call twice, arguments and all, is
+        // stuck repeating itself: one reply (2026-10-13) sent the same
+        // create_video 96 times, and no result can reach the model mid-reply
+        // to stop it. Only the first runs.
+        const callKey = `${name}:${argumentsJson}`;
+        if (!this._callKeysInResponse) this._callKeysInResponse = new Set();
+        if (this._callKeysInResponse.has(callKey)) {
+            this._answerRepeatedCall(callId, name);
+            return;
+        }
+        this._callKeysInResponse.add(callKey);
         // This turn now owes a follow-up response.create once the tool
         // round-trip completes — unless this call ends the turn (end_turn,
         // see END_TURN_TOOLS).
