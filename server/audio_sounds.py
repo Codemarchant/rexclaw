@@ -8,11 +8,13 @@ Uploaded audio becomes a named sound that scripts call by kind:
   music   {music NAME}  a looping music layer that plays alongside a bed
   sound   {sound NAME}  a one-shot effect at that moment, like {chime}
 
-Uploads are decoded (soundfile: WAV, FLAC, OGG, MP3), mixed to stereo,
-resampled to the studio's 24 kHz (soxr) and stored as FLAC under
-data/files/sounds/. Licensing is the user's call; the credit field is
-there to keep track of it. Loops get a crossfaded seam at load time, so
-any file can loop without a click.
+Uploads are decoded (soundfile: WAV, FLAC, OGG, MP3), mixed to stereo
+and stored as Ogg Vorbis under data/files/sounds/, at their own sample
+rate up to 48 kHz: music also plays on its own in calls (call_music.py),
+where the studio's 24 kHz would sound dull. The studio resamples at load
+time (older uploads are 24 kHz FLAC). Licensing is the user's call; the
+credit field is there to keep track of it. Loops get a crossfaded seam at
+load time, so any file can loop without a click.
 
 Companions can also download a sound for a voice message (fetch): a
 YouTube link, any other site yt-dlp supports, or a direct link to an
@@ -72,6 +74,7 @@ MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 MAX_SECONDS = 30 * 60          # an upload is decoded whole into memory; beds and music
                                # loop, so they never need the render's 2-hour length
 LOOP_SEAM = 3.0                # seconds of crossfade folded into a loop's seam
+MAX_RATE = 48000               # stored sample rate cap (common music rates: 44.1 / 48 kHz)
 RESERVED = {'ocean', 'rain', 'brown', 'pink', 'drone', 'none', 'off', 'stop', 'on', *BUNDLED}
 
 _CACHE = {}  # id → (file mtime, stereo float32 at SR)
@@ -109,7 +112,6 @@ def ingest_file(source, filename):
     """Decode audio (a path or a file object) → (web path, duration seconds)."""
     import soundfile as sf
     import soxr
-    from .audio_studio import SR
     try:
         data, rate = sf.read(source, dtype='float32', always_2d=True)
     except Exception:
@@ -119,17 +121,18 @@ def ingest_file(source, filename):
     if len(data) / rate > MAX_SECONDS:
         raise UserError(f'The file is longer than {MAX_SECONDS // 60} minutes.')
     data = data[:, :2] if data.shape[1] >= 2 else np.repeat(data, 2, axis=1)
-    if rate != SR:
-        data = soxr.resample(data, rate, SR).astype(np.float32)
+    if rate > MAX_RATE:
+        data = soxr.resample(data, rate, MAX_RATE).astype(np.float32)
+        rate = MAX_RATE
     peak = float(np.abs(data).max())
     if peak > 0:
         data = data * (0.89 / peak)  # −1 dBFS; levels are set at render time
     SOUNDS_DIR.mkdir(parents=True, exist_ok=True)
-    fname = f'sound_{uuid.uuid4().hex}.flac'
-    with sf.SoundFile(SOUNDS_DIR / fname, 'w', SR, 2, format='FLAC', subtype='PCM_16') as f:
+    fname = f'sound_{uuid.uuid4().hex}.ogg'
+    with sf.SoundFile(SOUNDS_DIR / fname, 'w', rate, 2, format='OGG', subtype='VORBIS') as f:
         for i in range(0, len(data), 65536):  # blocks: one huge write can crash libsndfile
             f.write(data[i:i + 65536])
-    return f'/files/sounds/{fname}', round(len(data) / SR, 1)
+    return f'/files/sounds/{fname}', round(len(data) / rate, 1)
 
 
 def fetch(url):

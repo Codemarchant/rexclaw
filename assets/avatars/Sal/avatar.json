@@ -7,6 +7,20 @@
   "main_outfit_description": "No clothing - the markings and colouring are the whole look.",
   "outfits": [],
   "gestures": [],
+  "music": [
+    {
+      "name": "Mirage",
+      "file": "music-mirage.ogg",
+      "description": "a slow, watery drone with an eerie waterphone shimmer, no beat; still and a little uncanny, like the marsh at night",
+      "credit": "\"Mirage\" Kevin MacLeod (incompetech.com), CC BY 4.0"
+    },
+    {
+      "name": "Hearth",
+      "file": "music-hearth.ogg",
+      "description": "a warm, steady ambient drone that barely moves; for slow thinking, long questions and quiet company",
+      "credit": "\"Hearth\" by Rest You Sleeping Giant, Free Music Archive, CC BY 4.0"
+    }
+  ],
   "backgrounds": [
     {
       "name": "Charcoal",

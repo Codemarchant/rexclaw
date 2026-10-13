@@ -7,6 +7,7 @@ import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { formatClock } from "../lib/format_clock";
 import { fmtLocal } from "./HeartbeatsPanel.jsx";
 import SoundLibrary from "./SoundLibrary.jsx";
+import MusicPlaylists from "./MusicPlaylists.jsx";
 import Pager, { usePager } from "./Pager.jsx";
 
 /** History → Recordings: the audio studio playground.
@@ -694,6 +695,7 @@ export default function RecordingsView({ active }) {
                                       keepDownloads={data.keep_downloaded_sounds}
                                       onKeepDownloads={(keep) => setData((d) => ({ ...d, keep_downloaded_sounds: keep }))}
                                       onChange={(p) => setData((d) => ({ ...d, sounds: p.sounds, guide: p.guide }))} />
+                        <MusicPlaylists sounds={data.sounds} />
                     </div>
                     <div style={{ display: libTab === "recordings" ? "" : "none" }}>
                         {data.recordings.length > 0 && (

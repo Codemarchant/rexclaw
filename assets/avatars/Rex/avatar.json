@@ -7,6 +7,20 @@
   "main_outfit_description": "An open olive-green leather vest over a bare chest, with a brown bandolier strap across the torso and a wide brown belt. White/grey textured pants. Topped off with a small brown pirate captain's hat featuring a white skull-and-crossbones emblem.",
   "outfits": [],
   "gestures": [],
+  "music": [
+    {
+      "name": "Merchants and Sea Salt",
+      "file": "music-merchants-and-sea-salt.ogg",
+      "description": "a steady, easy-going harbour-town tune; for working through a plan, logistics, or a calm watch at sea",
+      "credit": "\"Merchants and Sea Salt\" by NBJDLukasAbsolute, OpenGameArt, CC0"
+    },
+    {
+      "name": "Midnight Tale",
+      "file": "music-midnight-tale.ogg",
+      "description": "quiet guitar and lute by the tavern fire, no percussion; for winding down after a long day, or a drink and a story",
+      "credit": "\"Midnight Tale\" Kevin MacLeod (incompetech.com), CC BY 4.0"
+    }
+  ],
   "backgrounds": [
     {
       "name": "Charcoal",

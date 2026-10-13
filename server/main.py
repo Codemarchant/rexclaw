@@ -12,12 +12,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import heartbeat, memory_vectors, parent_watch, plugins
+from . import call_music, heartbeat, memory_vectors, parent_watch, plugins
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, get_config, init_db
 from .errors import UserError
 from .routes import (audio, avatars, extensions, games, heartbeats, live_chat, manga, minecraft, misc,
-                     pipeline, songs, text, voice, voicelab)
+                     music, pipeline, songs, text, voice, voicelab)
 from .lore_seeds import seed_lore_if_empty
 from .seeds import migrate_default_outfit_sections, seed_if_empty
 
@@ -67,6 +67,8 @@ def startup():
     # Daemon thread embedding recall memories for meaning search (catches
     # up on any without a current vector; no-op without the bundled model).
     memory_vectors.start()
+    # Music downloaded for past calls only (call_music.fetch without keep).
+    call_music.clear_call_downloads()
     plugins.emit('startup')
     _logger.info("Rexclaw Companions server ready.")
 
@@ -88,6 +90,7 @@ app.include_router(games.router)
 app.include_router(live_chat.router)
 app.include_router(audio.router)
 app.include_router(songs.router)
+app.include_router(music.router)
 app.include_router(voicelab.router)
 app.include_router(manga.router)
 app.include_router(extensions.router)

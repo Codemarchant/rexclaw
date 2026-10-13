@@ -473,6 +473,33 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     const openFor = (list, idx, item) =>
         setOpenItem({ list, idx, orig: JSON.parse(JSON.stringify(item)) });
 
+    // Tracks a background can start: the avatar's own, plus the music
+    // library's while it uses the library (call_music.tracks' names).
+    const ownMusic = (manifest.music || []).map((m) => (m.name || "").trim()).filter(Boolean);
+    const musicNames = [...new Set([
+        ...ownMusic,
+        ...(manifest.music_library !== false
+            ? library.filter((f) => f.kind === "audio" && f.source !== "user").map((f) => f.name) : []),
+    ])];
+    // Playlists a background can start (call_music.playlists): the avatar's,
+    // "All my tracks" with two or more own tracks, and the library's.
+    const [libraryPlaylists, setLibraryPlaylists] = useState([]);
+    useEffect(() => {
+        rpc("/api/music/playlists", {}).then((r) => setLibraryPlaylists(r.playlists || [])).catch(() => {});
+    }, []);
+    const playlistNames = [...new Set([
+        ...(manifest.playlists || []).map((p) => (p.name || "").trim()).filter(Boolean),
+        ...(ownMusic.length >= 2 ? ["All my tracks"] : []),
+        ...(manifest.music_library !== false ? libraryPlaylists.map((p) => p.name) : []),
+    ])];
+    const togglePlaylistTrack = (i, name, on) => {
+        const tracks = (manifest.playlists[i].tracks || []).filter((t) => t !== name);
+        setList("playlists", i, { tracks: on ? [...tracks, name] : tracks });
+    };
+    const setDefaultPlaylist = (i, on) => setM({
+        playlists: (manifest.playlists || []).map((p, j) => ({ ...p, default: on && j === i })),
+    });
+
     const setList = (key, idx, patch) => {
         const arr = [...(manifest[key] || [])];
         arr[idx] = { ...arr[idx], ...patch };
@@ -1058,6 +1085,24 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                                 ))}
                             </select>
                         </span>
+                        <span className="rx_scene_xform" title={_t("Background music started whenever this background is switched to in a call (or the call opens on it). Leave blank to keep whatever is playing.")}>
+                            <strong className="rx_scene_xform_label">{_t("Music")}</strong>
+                            <select value={b.music || ""}
+                                    onChange={(ev) => setList("backgrounds", i, { music: ev.target.value || "" })}>
+                                <option value="">{_t("None (keep current)")}</option>
+                                {playlistNames.length > 0 && (
+                                    <optgroup label={_t("Playlists")}>
+                                        {playlistNames.map((n) => <option key={n} value={`playlist:${n}`}>{n}</option>)}
+                                    </optgroup>
+                                )}
+                                <optgroup label={_t("Tracks")}>
+                                    {musicNames.map((n) => <option key={n} value={n}>{n}</option>)}
+                                </optgroup>
+                                {b.music && !musicNames.includes(b.music)
+                                    && !playlistNames.some((n) => `playlist:${n}` === b.music)
+                                    && <option value={b.music}>{b.music}</option>}
+                            </select>
+                        </span>
                         {/* Direct grid child pinned to the controls column — gets its
                             own grid line under the file controls (see rx_subrow--bg). */}
                         {/* Two DIFFERENT things get positioned here, easy to
@@ -1100,6 +1145,98 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                         )}
                     </div>
                     {rowButtons}
+                    </div>
+                ))}
+            </Section>
+
+            {/* Background music in calls (server/call_music.py) */}
+            <Section title={_t("Music")}
+                     onAdd={() => addItem("music", { name: "", file: "", description: "", credit: "" })}>
+                <label className="rx_check" style={{ margin: "0.3rem 0" }}
+                       title={_t("On: in calls this avatar can play every track in the music library (History → Recordings → Your sounds, music kind, plus the built-in music) as well as its own tracks below. Off: only its own.")}>
+                    <input type="checkbox" checked={manifest.music_library !== false}
+                           onChange={(ev) => setM({ music_library: ev.target.checked })} />
+                    <span>{_t("Use the whole music library too")}</span>
+                </label>
+                {(manifest.music || []).map((m, i) => !isOpen("music", i) ? (
+                    <div key={i} className="rx_memory_row">
+                        <strong>{m.name || _t("(unnamed)")}</strong>
+                        <span className="rx_memory_content text-muted small">
+                            {m.file || _t("(none)")}{m.description ? ` · ${m.description}` : ""}
+                        </span>
+                        <button className="btn btn-sm btn-link p-0" onClick={() => openFor("music", i, m)}>
+                            {_t("Edit")}
+                        </button>
+                        <button className="btn btn-sm btn-link p-0" title={_t("Remove")}
+                                onClick={() => removeItem("music", i)}>
+                            <i className="fa fa-trash-o" />
+                        </button>
+                    </div>
+                ) : (
+                    <div key={i} className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+                        <label>{_t("Name")}</label>
+                        <input type="text" value={m.name || ""} placeholder={_t("e.g. Tavern jig")}
+                               onChange={(ev) => setList("music", i, { name: ev.target.value })} />
+                        <FileField label={_t("Audio file")} kind="audio" packKey={pack_key} value={m.file}
+                                   library={library} accept="audio/*,.mp3,.ogg,.opus,.m4a,.aac,.flac,.wav"
+                                   onUploaded={(fn) => {
+                                       const lib = library.find((f) => f.url === fn);
+                                       setList("music", i, { file: fn, name: m.name || (lib ? lib.name : fn.replace(/\.[^.]+$/, "")) });
+                                   }} />
+                        <label title={_t("Companions read this to pick the right track for the moment.")}>{_t("Description")}</label>
+                        <input type="text" value={m.description || ""}
+                               placeholder={_t("e.g. 'cheerful fiddle jig, upbeat; for lively evenings'")}
+                               onChange={(ev) => setList("music", i, { description: ev.target.value })} />
+                        <label title={_t("For your own records: who made it, where it came from, its licence.")}>{_t("Credit / licence")}</label>
+                        <input type="text" value={m.credit || ""}
+                               onChange={(ev) => setList("music", i, { credit: ev.target.value })} />
+                        {rowButtons}
+                    </div>
+                ))}
+            </Section>
+
+            <Section title={_t("Playlists")}
+                     onAdd={() => addItem("playlists", { name: "", tracks: [], default: false })}>
+                <p className="text-muted small" style={{ margin: "0.3rem 0" }}>
+                    {_t("Tracks played in turn, with a crossfade between them. The default playlist is what calls open with when \"Start music when a call starts\" is on (♪ panel); without one, the avatar's own tracks play in turn.")}
+                </p>
+                {(manifest.playlists || []).map((p, i) => !isOpen("playlists", i) ? (
+                    <div key={i} className="rx_memory_row">
+                        <strong>{p.name || _t("(unnamed)")}</strong>
+                        <span className="rx_memory_content text-muted small">
+                            {(p.tracks || []).join(", ") || _t("(no tracks)")}{p.default ? ` · ${_t("default")}` : ""}
+                        </span>
+                        <button className="btn btn-sm btn-link p-0" onClick={() => openFor("playlists", i, p)}>
+                            {_t("Edit")}
+                        </button>
+                        <button className="btn btn-sm btn-link p-0" title={_t("Remove")}
+                                onClick={() => removeItem("playlists", i)}>
+                            <i className="fa fa-trash-o" />
+                        </button>
+                    </div>
+                ) : (
+                    <div key={i} className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+                        <label>{_t("Name")}</label>
+                        <input type="text" value={p.name || ""} placeholder={_t("e.g. Quiet evening")}
+                               onChange={(ev) => setList("playlists", i, { name: ev.target.value })} />
+                        <label className="rx_check" style={{ marginTop: "0.4rem" }}>
+                            <input type="checkbox" checked={!!p.default}
+                                   onChange={(ev) => setDefaultPlaylist(i, ev.target.checked)} />
+                            <span>{_t("Default playlist")}</span>
+                        </label>
+                        <label>{_t("Tracks (played in the order you tick them)")}</label>
+                        {musicNames.length === 0 && <p className="text-muted small">{_t("Add music above first.")}</p>}
+                        {musicNames.map((n) => {
+                            const at = (p.tracks || []).indexOf(n);
+                            return (
+                                <label key={n} className="rx_check" style={{ margin: "0.1rem 0" }}>
+                                    <input type="checkbox" checked={at >= 0}
+                                           onChange={(ev) => togglePlaylistTrack(i, n, ev.target.checked)} />
+                                    <span>{at >= 0 ? `${at + 1}. ` : ""}{n}</span>
+                                </label>
+                            );
+                        })}
+                        {rowButtons}
                     </div>
                 ))}
             </Section>

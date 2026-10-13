@@ -75,6 +75,20 @@
       "partner_scale": 1.0
     }
   ],
+  "music": [
+    {
+      "name": "Bubbles",
+      "file": "music-bubbles.ogg",
+      "description": "light, bright lo-fi with a soft relaxed beat and warm keys; easy company for chatting, digging into something together or a lazy afternoon",
+      "credit": "\"Bubbles\" by HoliznaCC0, Free Music Archive, CC0"
+    },
+    {
+      "name": "Easy Lemon",
+      "file": "music-easy-lemon.ogg",
+      "description": "cheerful, curious celesta and marimba over a soft kit; for upbeat moments, brainstorming and bright mornings",
+      "credit": "\"Easy Lemon\" Kevin MacLeod (incompetech.com), CC BY 4.0"
+    }
+  ],
   "backgrounds": [
     {
       "name": "Charcoal",

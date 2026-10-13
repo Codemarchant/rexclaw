@@ -18,6 +18,20 @@
     }
   ],
   "gestures": [],
+  "music": [
+    {
+      "name": "Goldberg Aria",
+      "file": "music-goldberg-aria.ogg",
+      "description": "Bach's Goldberg Variations Aria on solo piano: slow, ornamented and composed; for a calm evening, careful planning or quiet reflection",
+      "credit": "J.S. Bach, Goldberg Variations BWV 988, Aria; Kimiko Ishizaka, Open Goldberg Variations, CC0"
+    },
+    {
+      "name": "Lark Adagio",
+      "file": "music-lark-adagio.ogg",
+      "description": "the slow movement of Haydn's 'Lark' string quartet: warm, singing and dignified; for a formal occasion or a gracious, unhurried talk",
+      "credit": "Haydn, String Quartet Op. 64 No. 5 'The Lark', II. Adagio cantabile; Musopen String Quartet, public domain"
+    }
+  ],
   "backgrounds": [
     {
       "name": "Charcoal",

@@ -4351,6 +4351,8 @@ class AvatarRenderer {
             if (bg.effects && EFFECTS_PRESET_OPTIONS.some(([id]) => id === bg.effects)) picks.effects = bg.effects;
             if (bg.ambience && AMBIENCE_OPTIONS.some(([id]) => id === bg.ambience)) picks.ambience = bg.ambience;
             if (Object.keys(picks).length) saveRenderPrefs(picks);
+            // Its music, in a call (models/background_music.js).
+            if (bg.music) window.dispatchEvent(new CustomEvent("rexclaw:background-switched", { detail: bg }));
         }
         this._applyBackgroundToActiveHost();
     }

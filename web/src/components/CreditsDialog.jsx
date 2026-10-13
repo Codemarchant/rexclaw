@@ -57,6 +57,29 @@ const CREDITS = [
         ],
     },
     {
+        title: "Companion background music",
+        items: [
+            ["Kevin MacLeod (incompetech.com)",
+             "https://incompetech.com",
+             "CC BY 4.0. \"Easy Lemon\" (Eve), \"Clear Air\" and \"Lobby Time\" (Ara), "
+             + "\"Midnight Tale\" (Rex), \"Mirage\" (Sal). Licensed under Creative Commons: "
+             + "By Attribution 4.0 License."],
+            ["\"Hearth\" (Rest You Sleeping Giant)",
+             "https://freemusicarchive.org/music/Rest_You_Sleeping_Giant/",
+             "CC BY 4.0, via the Free Music Archive. Sal's music."],
+            ["\"Bubbles\" (HoliznaCC0)",
+             "https://freemusicarchive.org/music/holiznacc0/",
+             "CC0, via the Free Music Archive. Eve's music."],
+            ["\"Merchants and Sea Salt\" (NBJDLukasAbsolute)",
+             "https://opengameart.org/content/merchants-and-sea-salt",
+             "CC0, via OpenGameArt. Rex's music."],
+            ["Bach, Goldberg Aria (Kimiko Ishizaka) · Haydn, \"Lark\" Adagio (Musopen String Quartet)",
+             "https://commons.wikimedia.org",
+             "CC0 / public domain recordings, via Wikimedia Commons. Leo's music. "
+             + "Sources in each avatar's CREDITS.md (assets/avatars/<name>/)."],
+        ],
+    },
+    {
         title: "Rexmaw Raids music",
         items: [
             ["\"Pirate's Orchestra\" (Dizzy Crow)",

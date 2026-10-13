@@ -370,6 +370,62 @@ export const JA = {
     "ベッドと音楽は、変更されるまで声の下でループします。新しい {bed NAME} や {music NAME} でクロスフェードして切り替わり、{bed off} や {music off} で止まります（fade=10s を付けるとゆっくりフェードします）。効果音は1回だけ鳴り、デフォルトでは台本がその終わりを待つので、単独で聞こえます。長さを付けると途中で止まり（{sound thunder 5s}）、under を付けると待たずに次の行の下で鳴ります（{sound rain under}）。",
   "Could not save the sound": "サウンドを保存できませんでした",
   "Could not save the setting": "設定を保存できませんでした",
+  // ── Background music in calls ─────────────────────────────────────────
+  "Background music": "BGM",
+  "Music under the call, dipping whenever someone speaks. It stops when the call ends.":
+    "通話中に流れる音楽です。誰かが話すと音量が下がり、通話が終わると止まります。",
+  "Playlists, then your avatar's own tracks, then the music library (History → Recordings → Your sounds, music kind).":
+    "プレイリスト、アバター専用の曲、音楽ライブラリ（履歴 → 録音 → Your sounds の音楽）の順に並びます。",
+  "Playlists": "プレイリスト",
+  "Tracks": "曲",
+  "All my tracks": "専用曲すべて",
+  "the call start": "通話の開始",
+  "Start music when a call starts": "通話の開始時に音楽を流す",
+  "Calls open with music: the background's track or playlist if it names one, otherwise the avatar's default playlist (or its own tracks). Applies to every companion.":
+    "通話の開始時に音楽を流します。背景に曲やプレイリストが設定されていればそれを、なければアバターのデフォルトのプレイリスト（または専用曲）を流します。すべてのコンパニオンに適用されます。",
+  "Tracks played in turn, with a crossfade between them. The default playlist is what calls open with when \"Start music when a call starts\" is on (♪ panel); without one, the avatar's own tracks play in turn.":
+    "曲を順番に、クロスフェードでつないで流します。「通話の開始時に音楽を流す」（♪ パネル）がオンのとき、通話はデフォルトのプレイリストで始まります。デフォルトがなければ、アバターの専用曲を順番に流します。",
+  "e.g. Quiet evening": "例: 静かな夜",
+  "Default playlist": "デフォルトのプレイリスト",
+  "Tracks (played in the order you tick them)": "曲（チェックした順に再生）",
+  "Add music above first.": "先に上で音楽を追加してください。",
+  "Music playlists": "音楽プレイリスト",
+  "New playlist": "新しいプレイリスト",
+  "Library tracks played in turn as background music in calls, for every companion whose avatar uses the music library. Only sounds of the Music kind (and the built-in music) can go in.":
+    "ライブラリの曲を、通話中の BGM として順番に流します。音楽ライブラリを使うアバターのすべてのコンパニオンが使えます。追加できるのは種類が「音楽」のサウンド（と内蔵の音楽）だけです。",
+  "e.g. Rainy day": "例: 雨の日",
+  "No playlists yet.": "まだプレイリストがありません。",
+  "Delete the playlist '%s'? The tracks stay in your sounds.": "プレイリスト「%s」を削除しますか？ 曲はサウンドに残ります。",
+  "Could not save the playlist": "プレイリストを保存できませんでした",
+  "This device lets music start only after a tap: tap anywhere and it begins.":
+    "この端末では、タップした後でないと音楽を再生できません。どこかをタップすると始まります。",
+  "Choose music…": "音楽を選ぶ…",
+  "No music yet": "まだ音楽がありません",
+  "This avatar": "このアバター",
+  "Music library": "音楽ライブラリ",
+  "Play": "再生",
+  "Volume": "音量",
+  "Volume: 50 is the usual background level": "音量: 50 が通常の BGM の大きさです",
+  "started by %s": "%s が再生",
+  "you": "あなた",
+  "this background": "この背景",
+  "Or paste a YouTube or music link…": "または YouTube や音楽のリンクを貼り付け…",
+  "Download it (the first 30 minutes) and play it": "ダウンロードして（最初の30分）再生します",
+  "Background music started whenever this background is switched to in a call (or the call opens on it). Leave blank to keep whatever is playing.":
+    "通話中にこの背景へ切り替えたとき（またはこの背景で通話が始まったとき）に流れる BGM。空欄なら今の音楽をそのまま流します。",
+  "Use the whole music library too": "音楽ライブラリ全体も使う",
+  "On: in calls this avatar can play every track in the music library (History → Recordings → Your sounds, music kind, plus the built-in music) as well as its own tracks below. Off: only its own.":
+    "オン: 通話中、このアバターは下の専用曲に加えて、音楽ライブラリ（履歴 → 録音 → Your sounds の音楽と内蔵の音楽）のすべての曲を流せます。オフ: 専用曲のみ。",
+  "e.g. Tavern jig": "例: 酒場のジグ",
+  "Audio file": "音声ファイル",
+  "Companions read this to pick the right track for the moment.": "コンパニオンはこれを読んで、その場に合う曲を選びます。",
+  "e.g. 'cheerful fiddle jig, upbeat; for lively evenings'": "例: 「陽気なフィドルのジグ、アップテンポ。にぎやかな夜に」",
+  "Background music (play_background_music)": "BGM（play_background_music）",
+  "Lets the companion play music quietly under a voice call (play_background_music): put on a track when you ask, or when the moment suits it, change it, turn it up or down, or stop it. The music dips whenever someone speaks and stops when the call ends. They choose from their avatar's tracks and, unless the avatar turns it off, the music library (History → Recordings → Your sounds). You can also pick music yourself from the ♪ panel.":
+    "ボイス通話中に、コンパニオンが BGM を小さく流せるようにします（play_background_music）。頼まれたときやその場に合うときに曲をかけ、変えたり、音量を上げ下げしたり、止めたりします。誰かが話すと音量が下がり、通話が終わると止まります。曲はアバターの専用曲と、アバターでオフにしていなければ音楽ライブラリ（履歴 → 録音 → Your sounds）から選びます。♪ パネルから自分で選ぶこともできます。",
+  "Background music: from the web": "BGM: Web から",
+  "Lets background music (affects play_background_music) come from links the companion finds, for example with web search: a YouTube video, another video or music site, or an audio file. The first 30 minutes are used. Turn it off to keep a companion to the tracks you have given them. Requires Background music.":
+    "BGM に、コンパニオンが見つけたリンク（Web 検索など）を使えるようにします（play_background_music に影響）。YouTube の動画、その他の動画・音楽サイト、音声ファイルに対応し、最初の30分が使われます。オフにすると、あなたが用意した曲だけを使います。BGM が必要です。",
   "Keep sounds companions download":"コンパニオンがダウンロードしたサウンドを残す",
   "Companions can download music and sounds from the web (YouTube and other links) for a voice message. When this is on, those downloads are saved here with a credit to their source, and later recordings can reuse them. When off, each download is used for that one recording and then deleted.":
     "コンパニオンはボイスメッセージ用に、Web（YouTube などのリンク）から音楽やサウンドをダウンロードできます。オンにすると、ダウンロードしたものが入手元のクレジットつきでここに保存され、以降の録音でも再利用できます。オフにすると、その録音にだけ使われてから削除されます。",

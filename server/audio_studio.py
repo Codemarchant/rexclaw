@@ -1726,6 +1726,15 @@ def _k_weight_curve(freqs):
     return shelf * hp
 
 
+def _block_energies(x):
+    """A (2, n) block → its per-100 ms K-weighted channel-summed mean
+    squares, _integrated_loudness's input (a partial last 100 ms is left out)."""
+    hop = SR // 10
+    kw = _fft_filter(x, _k_weight)
+    m = kw.shape[1] // hop
+    return (kw[:, :m * hop] ** 2).reshape(2, m, hop).mean(axis=2).sum(axis=0)
+
+
 def _integrated_loudness(block_energies):
     """BS.1770 gated loudness from per-100 ms K-weighted channel-summed
     mean squares (400 ms windows, 75 % overlap)."""
@@ -1827,14 +1836,11 @@ def render(con, config, script, *, voice, language='auto', pace=1.0, speaker=Non
     # Pass 1: loudness + peak, block by block.
     energies, peak = [], 0.0
     block = _LOOP_SECONDS * SR
-    hop = SR // 10
     for a in range(0, mixer.n, block):
         b = min(a + block, mixer.n)
         x = mixer.render(a, b)
         peak = max(peak, float(np.abs(x).max()))
-        kw = _fft_filter(x, _k_weight)
-        m = kw.shape[1] // hop
-        energies.extend((kw[:, :m * hop] ** 2).reshape(2, m, hop).mean(axis=2).sum(axis=0))
+        energies.extend(_block_energies(x))
     loudness = _integrated_loudness(energies)
     gain = _db(TARGET_LUFS - loudness) if loudness is not None else 1.0
     if peak * gain > _db(PEAK_CEILING_DB):

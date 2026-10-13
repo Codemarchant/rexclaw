@@ -14,6 +14,7 @@ import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES as SIZES } from "../lib/mascot_li
 import { EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
 import { backgroundPickerEntries, currentBackgroundKey, resolveDefaultBackground } from "../lib/background_picker";
 import { stage } from "../models/stage";
+import { backgroundMusic } from "../models/background_music";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 import KaraokeOverlay from "./KaraokeOverlay.jsx";
 
@@ -48,6 +49,7 @@ function saveMascotPref(patch) {
 export default function MascotView() {
     const sv = useReactive(voice.state);
     const stg = useReactive(stage.state);   // karaoke stage (the settings window's Songs tab drives it)
+    const bgm = useReactive(backgroundMusic.state);   // background music (the Songs tab drives it too)
     const scap = useReactive(screenCapture.state);
     const awareState = useReactive(cameraAwareness.state);
     const wk = useReactive(wakeState);
@@ -721,6 +723,15 @@ export default function MascotView() {
                     mode: stage.state.mode,
                     error: stage.state.error || null,
                 },
+                // Background music, for the Songs tab (it plays here, with the call).
+                music: {
+                    status: backgroundMusic.state.status,
+                    track: backgroundMusic.state.track ? { ...backgroundMusic.state.track } : null,
+                    playlist: backgroundMusic.state.playlist ? { ...backgroundMusic.state.playlist } : null,
+                    by: backgroundMusic.state.by,
+                    volume: backgroundMusic.state.volume,
+                    error: backgroundMusic.state.error || null,
+                },
             });
         },
         command: (msg) => {
@@ -834,6 +845,15 @@ export default function MascotView() {
                     else if (a === "options") Object.assign(stage.state.options, msg.options || {});
                     return;
                 }
+                // Background music from the Songs tab (the window resolves
+                // the track; it plays here).
+                case "music": {
+                    if (msg.action === "play" && msg.track) backgroundMusic.play(msg.track).catch(() => {});
+                    else if (msg.action === "playlist" && msg.playlist) backgroundMusic.playPlaylist(msg.playlist).catch(() => {});
+                    else if (msg.action === "stop") backgroundMusic.stop();
+                    else if (msg.action === "volume") backgroundMusic.setVolume(msg.volume);
+                    return;
+                }
                 case "set": {
                     const want = !!msg.value;
                     if (msg.key === "ghost" && want !== ghost) toggleGhost();
@@ -864,7 +884,8 @@ export default function MascotView() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [ghost, ghostFade, cursorFollow, pinned, fullBody, sizeIdx, customSize, backdrop, currentAgent,
          sv.selectedOutfitId, sv.activeBackground, agents, selectedAgentId, sv.status, sv.muted, shareKey,
-         stg.status, stg.song?.id, stg.mode, stg.error]);
+         stg.status, stg.song?.id, stg.mode, stg.error,
+         bgm.status, bgm.track?.url, bgm.playlist?.name, bgm.by, bgm.volume, bgm.error]);
     // Window size rides in the snapshot too — republish when the shell
     // resizes us (presets, scroll, group widening) so the fields track it.
     useEffect(() => {

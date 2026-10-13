@@ -6,6 +6,7 @@ import { notification } from "../lib/notification";
 import { formatClock } from "../lib/format_clock";
 import { stage } from "../models/stage";
 import SongPicker from "./SongPicker.jsx";
+import BackgroundMusicControls from "./BackgroundMusicControls.jsx";
 
 /** Mascot settings → Songs: the karaoke stage on the desktop avatar.
  *
@@ -77,6 +78,15 @@ export default function MascotSongsTab({ mascot, alive, send }) {
 
     return (
         <>
+            <section>
+                <h3><i className="fa fa-headphones" /> {_t("Background music")}</h3>
+                <p className="text-muted">{_t("Music under the call, dipping whenever someone speaks. It stops when the call ends.")}</p>
+                <BackgroundMusicControls agentId={agentId} music={mascot?.music || {}} disabled={!alive}
+                                         onPlay={(m) => send(m.tracks ? { type: "music", action: "playlist", playlist: m }
+                                                                      : { type: "music", action: "play", track: m })}
+                                         onStop={() => send({ type: "music", action: "stop" })}
+                                         onVolume={(v) => send({ type: "music", action: "volume", volume: v })} />
+            </section>
             <section>
                 <h3><i className="fa fa-music" /> {_t("Songs")}</h3>
                 <p className="text-muted">{_t("Your companion sings and dances on the desktop, with the lyrics under them.")}</p>

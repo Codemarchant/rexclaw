@@ -26,6 +26,7 @@ import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { notification } from "../lib/notification";
 import { DanceDirector } from "../services/dance_director";
+import { backgroundMusic } from "./background_music";
 import { MASCOT_MODE } from "../lib/ui_state";
 
 const LIP_ATTACK_RATE = 50;         // lipsync_service.js (airi's rates)
@@ -190,9 +191,11 @@ class Stage {
                 this._unmuteAfter = true;
                 await call.setMuted(true);
             }
+            backgroundMusic.hold(true);   // the song has the speakers
             this._start(0);
         } catch (e) {
             console.error("[stage] play failed", e);
+            backgroundMusic.hold(false);
             this.state.error = e.message || String(e);
             this.state.status = "ready";
         }
@@ -283,6 +286,7 @@ class Stage {
         }
         this._stopSources();
         this._stopMic();
+        backgroundMusic.hold(false);
         const wasPerforming = this.renderer?.isPerforming?.();
         this.renderer?.endPerformance?.();
         if (wasPerforming) this.renderer?.setEmotion?.("neutral", { explicit: false });

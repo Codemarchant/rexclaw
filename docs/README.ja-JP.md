@@ -628,6 +628,15 @@ def setup(api):
   bassimat の `heartbeat-drone` と `void-drone`、PhonZz の `relaxation-pads` と
   `angelic-pad`、Kronek9 の `emanation`、Andrewkn の `space-pad` と
   `cosmic-glow`。出典は `assets/audio/beds/CREDITS.md` に記載。
+- コンパニオンの BGM — Kevin MacLeod、
+  **[incompetech.com](https://incompetech.com)**（CC-BY 4.0）の "Easy Lemon"、
+  "Clear Air"、"Lobby Time"、"Midnight Tale"、"Mirage"。
+  **[Free Music Archive](https://freemusicarchive.org)** から Rest You Sleeping
+  Giant の "Hearth"（CC-BY 4.0）と HoliznaCC0 の "Bubbles"（CC0）。
+  OpenGameArt から NBJDLukasAbsolute の "Merchants and Sea Salt"（CC0）。
+  Wikimedia Commons から Kimiko Ishizaka によるバッハのゴルトベルク変奏曲アリア
+  （CC0）と Musopen String Quartet によるハイドン「ひばり」のアダージョ
+  （パブリックドメイン）。出典は各アバターの `assets/avatars/<名前>/CREDITS.md` に記載。
 - Rexmaw Raids の音楽 — **[OpenGameArt](https://opengameart.org)** から：
   Dizzy Crow の "Pirate's Orchestra"、RandomMind の "Fantasy: Rising Moon" と
   "Medieval: Victory Theme"（CC0）、Matthew Pablo の "Blackmoor Tides" と

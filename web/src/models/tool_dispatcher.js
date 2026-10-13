@@ -1,4 +1,5 @@
 import { rpc } from "../lib/rpc";
+import { backgroundMusic } from "./background_music";
 import { EMOTION_GESTURE_MAP, GESTURE_FILE_MAP, GESTURE_LOOP_MAP } from "./avatar_catalog";
 // The shared renderer singleton (imported directly, not via services/index,
 // to avoid an import cycle through voice_service). take_selfie snapshots the
@@ -84,6 +85,7 @@ const NATIVE_TOOL_NAMES = new Set([
 const NO_DUPLICATE_WHILE_RUNNING = new Set([
     "change_background", "create_video", "generate_gesture", "delegate_task",
     "local_task", "text_companion", "analyze_screen", "record_screen_clip",
+    "play_background_music",   // a link downloads for up to a minute
 ]);
 
 // How many of the user's turns a repeated set_emotion counts as a run rather
@@ -325,6 +327,14 @@ export class ToolDispatcher {
                 return { ok: true, note: "Go on: this is your next turn." };
             case "perform_song":
                 return this._performSong(args);
+            case "play_background_music":
+                // One track per call, whichever companion changes it
+                // (models/background_music.js).
+                return backgroundMusic.runTool(args || {}, {
+                    agentId: this.conversationState?.agentId,
+                    agentName: this.conversationState?.agentName,
+                    call: this.callManager,
+                });
             case "change_outfit":
                 return this._changeOutfit(args);
             case "take_selfie":
@@ -794,6 +804,15 @@ export class ToolDispatcher {
             return { ok: false, error: "Only the main companion of a call can take the stage." };
         }
         const { stage } = await import("./stage.js");
+        if (song === "stop") {
+            // Asked to stop (typed: the mic is muted mid-song). No "user
+            // stopped it" note: the companion made this call itself.
+            if (stage.state.status !== "playing" && stage.state.status !== "paused") {
+                return { ok: true, note: "No song is playing." };
+            }
+            stage.stop();
+            return { ok: true, note: "The song is stopped and the user's mic is back on." };
+        }
         if (stage.state.status === "playing" || stage.state.status === "paused") {
             return { ok: false, error: "A song is already playing on the stage." };
         }

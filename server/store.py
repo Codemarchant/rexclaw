@@ -33,6 +33,9 @@ def background_payload(row):
         'lighting': row['lighting'] or False,
         'effects': row['effects'] or False,
         'ambience': row['ambience'] or False,
+        # Background music started on switching to it in a call: a track
+        # name among the avatar's tracks (call_music.tracks).
+        'music': row['music'] or False,
     }
     if row['type'] == 'video':
         # Uploaded loop: the renderer keys the <video> layer off video_url,

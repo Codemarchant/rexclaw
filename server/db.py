@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS config (
     -- `sounds`) join the user's sound library; 0 = used for that one
     -- recording, then deleted.
     keep_downloaded_sounds INTEGER NOT NULL DEFAULT 0,
+    -- Background music starts as a call opens (call_music.py): the
+    -- background's track or playlist, else the avatar's default playlist.
+    music_on_call_start INTEGER NOT NULL DEFAULT 0,
     xai_model TEXT NOT NULL DEFAULT 'grok-voice-latest',
     -- The voice setup companions use unless they pick their own:
     -- 'realtime' (xAI's speech-to-speech API, xai_model above) or a
@@ -342,7 +345,45 @@ CREATE TABLE IF NOT EXISTS avatars (
     -- an empty list with restrict on disables the built-ins entirely, so a
     -- pack can ship with nothing but its own custom gestures.
     restrict_base_gestures INTEGER NOT NULL DEFAULT 0,
-    base_gestures TEXT
+    base_gestures TEXT,
+    -- Background music in calls (call_music.py): 1 = the whole music library
+    -- (History → Recordings → Your sounds) plays alongside the avatar's own
+    -- tracks (avatar_music); 0 = only its own.
+    music_library INTEGER NOT NULL DEFAULT 1
+);
+
+-- An avatar's own background-music tracks (manifest "music"): a file in the
+-- pack, or a library / bundled track picked by its web path. Replaced
+-- wholesale on each scan, like the other child rows.
+CREATE TABLE IF NOT EXISTS avatar_music (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    avatar_id INTEGER NOT NULL REFERENCES avatars(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    sequence INTEGER NOT NULL DEFAULT 10,
+    file_path TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    credit TEXT NOT NULL DEFAULT ''
+);
+
+-- An avatar's playlists (manifest "playlists"): track names among its
+-- tracks (call_music.tracks), played in turn. is_default = what a call opens
+-- with when config.music_on_call_start is on. Replaced on each scan.
+CREATE TABLE IF NOT EXISTS avatar_playlists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    avatar_id INTEGER NOT NULL REFERENCES avatars(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    sequence INTEGER NOT NULL DEFAULT 10,
+    tracks TEXT NOT NULL DEFAULT '[]',     -- JSON list of track names
+    is_default INTEGER NOT NULL DEFAULT 0
+);
+
+-- Playlists of the music library (History → Recordings → Your sounds),
+-- offered to every companion whose avatar uses the library.
+CREATE TABLE IF NOT EXISTS music_playlists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    tracks TEXT NOT NULL DEFAULT '[]',     -- JSON list of library track names
+    created_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS avatar_outfits (
@@ -416,7 +457,11 @@ CREATE TABLE IF NOT EXISTS avatar_backgrounds (
     -- Same idea for the Effects preset and the Ambience layer (ids from
     -- web render_prefs option lists; 'off' is a real pick, NULL = keep).
     effects TEXT,
-    ambience TEXT
+    ambience TEXT,
+    -- Background music started when this background is switched to in a
+    -- call: a track name among the avatar's tracks (call_music.tracks), or
+    -- "playlist:NAME" for one of its playlists.
+    music TEXT
 );
 
 -- Where a companion was last hand-placed (walk mode) inside one specific
@@ -557,6 +602,10 @@ CREATE TABLE IF NOT EXISTS agents (
     enable_voicemail INTEGER NOT NULL DEFAULT 1,
     -- create_voicemail's `sounds`: music and sounds downloaded from links.
     enable_voicemail_downloads INTEGER NOT NULL DEFAULT 1,
+    -- play_background_music: voice calls — music under the call from the
+    -- avatar's tracks (call_music.py); _downloads lets it take links too.
+    enable_background_music INTEGER NOT NULL DEFAULT 1,
+    enable_background_music_downloads INTEGER NOT NULL DEFAULT 1,
     -- Extensions' tool switches (plugins.py): JSON {extension id: true}.
     extension_tools TEXT NOT NULL DEFAULT '{}',
     -- perform_song: voice calls — the companion performs a song it has learned
@@ -1455,6 +1504,12 @@ MIGRATIONS = (
     "ALTER TABLE imagine_images ADD COLUMN xai_file_account TEXT",
     "ALTER TABLE config ADD COLUMN keep_downloaded_sounds INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE agents ADD COLUMN enable_voicemail_downloads INTEGER NOT NULL DEFAULT 1",
+    # Background music in calls (call_music.py).
+    "ALTER TABLE avatars ADD COLUMN music_library INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE avatar_backgrounds ADD COLUMN music TEXT",
+    "ALTER TABLE agents ADD COLUMN enable_background_music INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE agents ADD COLUMN enable_background_music_downloads INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE config ADD COLUMN music_on_call_start INTEGER NOT NULL DEFAULT 0",
 )
 
 

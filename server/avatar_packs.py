@@ -52,7 +52,19 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
          "scale": 1.0, "offset": [0, 0, 0], "rotation_y": 0,
          "is_default": false},
         {"name": "Poster", "type": "image", "image": "poster.jpg"},
-        {"name": "Rain loop", "type": "video", "video": "rain.mp4"}   // muted, looping
+        {"name": "Rain loop", "type": "video", "video": "rain.mp4"},  // muted, looping
+        {"name": "Tavern", "type": "scene", "glb": "tavern.glb",
+         "music": "Tavern jig"}           // optional: track (or "playlist:NAME")
+                                         // started when switched to in a call
+      ],
+      "playlists": [                     // optional: tracks played in turn
+        {"name": "Evening", "tracks": ["Tavern jig", "Space pad"], "default": true}
+      ],
+      "music_library": true,             // optional; default true — the whole
+                                         // music library plays as well as "music"
+      "music": [                         // background music in calls (call_music.py)
+        {"name": "Tavern jig", "file": "jig.ogg", "description": "…", "credit": "…"},
+        {"name": "Space pad", "file": "/assets/audio/beds/space-pad.ogg"}
       ]
     }
 
@@ -72,7 +84,7 @@ import re
 from pathlib import Path
 
 from .browser_tools import _BUILTIN_GESTURE_IDS
-from .db import ASSETS_DIR, DATA_DIR
+from .db import ASSETS_DIR, DATA_DIR, FILES_DIR
 
 _logger = logging.getLogger(__name__)
 
@@ -109,7 +121,8 @@ def _resolve(ref, pack_dir, url_base, *, pack, field):
     if not ref or not isinstance(ref, str):
         return None
     if ref.startswith("/"):
-        checked = {"/assets/": ASSETS_DIR, "/user-assets/": USER_ASSETS_DIR}
+        checked = {"/assets/": ASSETS_DIR, "/user-assets/": USER_ASSETS_DIR,
+                   "/files/": FILES_DIR}   # library sounds (music tracks)
         for prefix, root in checked.items():
             if ref.startswith(prefix) and not (root / ref[len(prefix):]).is_file():
                 _logger.warning("pack %s: %s points at missing %s — skipped", pack, field, ref)
@@ -202,25 +215,26 @@ def _upsert_avatar(con, pack_key, vals):
             " vrm_path = ?, vrma_idle_path = ?, emotion_decay = ?, fidgets = ?,"
             " fidget_interval = ?, restrict_base_gestures = ?, base_gestures = ?,"
             " physical_description = ?, main_outfit_name = ?, main_outfit_description = ?,"
-            " face_tuning = ?, active = 1 WHERE id = ?",
+            " face_tuning = ?, music_library = ?, active = 1 WHERE id = ?",
             (pack_key, vals["name"], vals["description"], vals["sequence"],
              vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
              vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
              vals["base_gestures"], vals["physical_description"],
              vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
-             row["id"]),
+             vals["music_library"], row["id"]),
         )
         return row["id"]
     cur = con.execute(
         "INSERT INTO avatars (pack_key, name, description, sequence, vrm_path, vrma_idle_path,"
         " emotion_decay, fidgets, fidget_interval, restrict_base_gestures, base_gestures,"
-        " physical_description, main_outfit_name, main_outfit_description, face_tuning"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " physical_description, main_outfit_name, main_outfit_description, face_tuning,"
+        " music_library) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (pack_key, vals["name"], vals["description"], vals["sequence"],
          vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
          vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
          vals["base_gestures"], vals["physical_description"],
-         vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"]),
+         vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
+         vals["music_library"]),
     )
     return cur.lastrowid
 
@@ -261,12 +275,48 @@ def _scan_pack(con, pack_dir, url_root):
         "main_outfit_name": _text_or_none(manifest.get("main_outfit_name")),
         "main_outfit_description": _text_or_none(manifest.get("main_outfit_description")),
         "face_tuning": _face_tuning(manifest.get("face_tuning")),
+        "music_library": 0 if manifest.get("music_library") is False else 1,
     })
 
     # Children are replaced wholesale — manifest is the source of truth.
     con.execute("DELETE FROM avatar_outfits WHERE avatar_id = ?", (avatar_id,))
     con.execute("DELETE FROM avatar_gestures WHERE avatar_id = ?", (avatar_id,))
     con.execute("DELETE FROM avatar_backgrounds WHERE avatar_id = ?", (avatar_id,))
+    con.execute("DELETE FROM avatar_music WHERE avatar_id = ?", (avatar_id,))
+
+    seen_tracks = set()
+    for i, m in enumerate(manifest.get("music") or []):
+        if not isinstance(m, dict):
+            continue
+        name = str(m.get("name") or "").strip()
+        path = _resolve(m.get("file"), pack_dir, url_base, pack=pack_key, field=f"music[{i}].file")
+        if not name or not path or name.lower() in seen_tracks:
+            continue
+        seen_tracks.add(name.lower())
+        con.execute(
+            "INSERT INTO avatar_music (avatar_id, name, sequence, file_path, description, credit)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (avatar_id, name, (i + 1) * 10, path, str(m.get("description") or ""),
+             str(m.get("credit") or "")),
+        )
+
+    con.execute("DELETE FROM avatar_playlists WHERE avatar_id = ?", (avatar_id,))
+    seen_lists, saw_default_list = set(), False
+    for i, p in enumerate(manifest.get("playlists") or []):
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("name") or "").strip()
+        names = [str(t).strip() for t in p.get("tracks") or [] if str(t).strip()]
+        if not name or not names or name.lower() in seen_lists:
+            continue
+        seen_lists.add(name.lower())
+        is_default = bool(p.get("default")) and not saw_default_list
+        saw_default_list = saw_default_list or is_default
+        con.execute(
+            "INSERT INTO avatar_playlists (avatar_id, name, sequence, tracks, is_default)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (avatar_id, name, (i + 1) * 10, json.dumps(names), int(is_default)),
+        )
 
     for i, o in enumerate(manifest.get("outfits") or []):
         if not isinstance(o, dict):
@@ -375,15 +425,15 @@ def _scan_pack(con, pack_dir, url_root):
             "INSERT INTO avatar_backgrounds (avatar_id, name, sequence, type, preset_style,"
             " image_path, scene_path, scene_scale, scene_offset_x, scene_offset_y, scene_offset_z,"
             " scene_rotation_y, is_default, default_pos_x, default_pos_z, default_yaw,"
-            " lighting, effects, ambience)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " lighting, effects, ambience, music)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (avatar_id, name, (i + 1) * 10, btype, preset, image_path, scene_path,
              float(b.get("scale") or 1.0), float(offset[0]), float(offset[1]), float(offset[2]),
              float(b.get("rotation_y") or 0.0), int(is_default),
              float(b.get("default_x") or 0.0), float(b.get("default_z") or 0.0),
              float(b.get("default_yaw") or 0.0),
              *((str(b.get(k)).strip() or None) if b.get(k) else None
-               for k in ("lighting", "effects", "ambience"))),
+               for k in ("lighting", "effects", "ambience", "music"))),
         )
 
     return avatar_id
@@ -453,6 +503,8 @@ _ALLOWED_UPLOAD_EXT = {
     "scene": {".glb", ".gltf"},
     "image": {".png", ".jpg", ".jpeg", ".webp"},
     "video": {".mp4", ".webm"},
+    # Background music (call_music.py): what Chromium plays in an <audio>.
+    "audio": {".mp3", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".flac", ".wav"},
 }
 # Every media extension a pack may hold — THE list: the uploader, the zip
 # importer (transfer.py) and the unused-file cleanup all read it, so a new
@@ -663,6 +715,27 @@ def _validate_manifest(pack_dir, m):
             _check_file(g.get("partner_vrma"), f"Combo gesture '{enum}' partner animation")
             if not (g.get("partner_avatar") or "").strip():
                 _check_file(g.get("partner_vrm"), f"Combo gesture '{enum}' partner VRM")
+
+    tracks = set()
+    for i, t in enumerate(m.get("music") or []):
+        name = (t.get("name") or "").strip()
+        if not name:
+            raise UserError(f"Music track #{i + 1} needs a name.")
+        if name.lower() in tracks:
+            raise UserError(f"Two music tracks are called '{name}'.")
+        tracks.add(name.lower())
+        _check_file(t.get("file"), f"Music track '{name}'")
+
+    lists = set()
+    for i, p in enumerate(m.get("playlists") or []):
+        name = (p.get("name") or "").strip()
+        if not name:
+            raise UserError(f"Playlist #{i + 1} needs a name.")
+        if name.lower() in lists:
+            raise UserError(f"Two playlists are called '{name}'.")
+        lists.add(name.lower())
+        if not [t for t in p.get("tracks") or [] if str(t).strip()]:
+            raise UserError(f"Playlist '{name}' has no tracks.")
 
     for i, b in enumerate(m.get("backgrounds") or []):
         btype = b.get("type") or "static"

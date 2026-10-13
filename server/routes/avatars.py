@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, portraits, store, transfer
+from .. import avatar_packs, call_music, portraits, store, transfer
 from ..errors import UserError
 from .common import db_con
 
@@ -137,8 +137,15 @@ async def upload(
 def shared_assets(payload: dict = Body(default={}), con=Depends(db_con)):
     """Files in the shared library (data/assets + bundled glb/vrma dirs),
     optionally filtered by upload kind — drives the editor's library picker
-    so one dropped file serves every avatar without re-uploading."""
-    return avatar_packs.list_shared_assets(payload.get("kind"))
+    so one dropped file serves every avatar without re-uploading. Audio also
+    lists the music library (bundled music + Your sounds' music)."""
+    kind = payload.get("kind")
+    out = avatar_packs.list_shared_assets(kind)
+    if kind in (None, "audio"):
+        out += [{"kind": "audio", "name": t["name"], "url": t["url"],
+                 "source": "bundled" if t["source"] == "bundled" else "library"}
+                for t in call_music.library_tracks(con)]
+    return out
 
 
 @router.post("/get")

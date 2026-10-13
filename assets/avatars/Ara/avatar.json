@@ -55,6 +55,20 @@
       "partner_scale": 1.0
     }
   ],
+  "music": [
+    {
+      "name": "Clear Air",
+      "file": "music-clear-air.ogg",
+      "description": "unhurried acoustic guitars with a soft piano, no drums; warm and calm, for a quiet talk, winding down or a hard day",
+      "credit": "\"Clear Air\" Kevin MacLeod (incompetech.com), CC BY 4.0"
+    },
+    {
+      "name": "Lobby Time",
+      "file": "music-lobby-time.ogg",
+      "description": "a gentle café jazz combo, vibraphone, piano and upright bass, softly grooving; for easy-going chats and a cosy café feel",
+      "credit": "\"Lobby Time\" Kevin MacLeod (incompetech.com), CC BY 4.0"
+    }
+  ],
   "backgrounds": [
     {
       "name": "Charcoal",

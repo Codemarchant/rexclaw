@@ -13,7 +13,7 @@ import time
 import requests
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
-from .. import audio_examples, audio_sounds, audio_studio, voicemail_tools
+from .. import audio_examples, audio_sounds, audio_studio, call_music, voicemail_tools
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import UserError
 from ..pipeline import setups as voice_setups
@@ -237,6 +237,14 @@ def audio_sound_save(payload: dict = Body(default={}), con=Depends(db_con)):
         raise UserError('id must be an integer.')
     name, kind, level = audio_sounds.validate(con, name=payload.get('name'), kind=payload.get('kind'),
                                               level=payload.get('level'), sound_id=sound_id)
+    old = con.execute("SELECT * FROM audio_sounds WHERE id = ?", (sound_id,)).fetchone()
+    if old and old['kind'] == 'music' and (name != old['name'] or kind != 'music'):
+        # Avatars name music library tracks; the library's playlists follow.
+        users = call_music.sound_users(con, old['name'])
+        if users:
+            raise UserError(f'"{old["name"]}" is used by name in {", ".join(users)}. Change that in the '
+                            f'avatar editor first, or keep this name and kind.')
+        call_music.rename_in_library_playlists(con, old['name'], name if kind == 'music' else None)
     con.execute("""UPDATE audio_sounds SET name = ?, kind = ?, description = ?, level = ?, credit = ?
                    WHERE id = ?""",
                 (name, kind, (payload.get('description') or '').strip()[:300], level,
@@ -249,6 +257,12 @@ def audio_sound_save(payload: dict = Body(default={}), con=Depends(db_con)):
 def audio_sound_delete(payload: dict = Body(default={}), con=Depends(db_con)):
     row = con.execute("SELECT * FROM audio_sounds WHERE id = ?", (payload.get('id'),)).fetchone()
     if row:
+        users = call_music.sound_users(con, row['name'] if row['kind'] == 'music' else None, row['file_path'])
+        if users:
+            raise UserError(f'"{row["name"]}" is used in {", ".join(users)}. Remove it there in the '
+                            f'avatar editor first.')
+        if row['kind'] == 'music':
+            call_music.rename_in_library_playlists(con, row['name'])
         con.execute("DELETE FROM audio_sounds WHERE id = ?", (row['id'],))
         con.commit()
         audio_sounds.delete_file(row)

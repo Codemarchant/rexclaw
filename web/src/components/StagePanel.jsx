@@ -7,6 +7,8 @@ import { formatClock } from "../lib/format_clock";
 import { stage } from "../models/stage";
 import { avatarRenderer, voice } from "../services";
 import SongPicker from "./SongPicker.jsx";
+import BackgroundMusicControls from "./BackgroundMusicControls.jsx";
+import { backgroundMusic } from "../models/background_music";
 
 /** Voice view → Stage: the karaoke panel.
  *
@@ -18,6 +20,7 @@ import SongPicker from "./SongPicker.jsx";
  *  does. */
 export default function StagePanel({ agent }) {
     const st = useReactive(stage.state);
+    const bgm = useReactive(backgroundMusic.state);
     const [lib, setLib] = useState({ songs: [], examples: [], dances: [], styles: {} });
     const [selected, setSelected] = useState(null);     // song id
     const [busy, setBusy] = useState("");
@@ -92,6 +95,14 @@ export default function StagePanel({ agent }) {
 
     return (
         <div className="o_voice_full_settings rx_stage_panel">
+            <div className="o_voice_full_settings_section">
+                <strong><i className="fa fa-headphones" /> {_t("Background music")}</strong>
+                <BackgroundMusicControls agentId={agent?.id} music={bgm}
+                                         onPlay={(m) => (m.tracks ? backgroundMusic.playPlaylist(m) : backgroundMusic.play(m))
+                                             .catch((e) => notification.add(e.message, { type: "danger" }))}
+                                         onStop={() => backgroundMusic.stop()}
+                                         onVolume={(v) => backgroundMusic.setVolume(v)} />
+            </div>
             <div className="o_voice_full_settings_section">
                 <strong><i className="fa fa-music" /> {_t("Stage")}</strong>
                 {lab?.status?.installed && (

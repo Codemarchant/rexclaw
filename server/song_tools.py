@@ -46,14 +46,16 @@ def build_perform_tool(con, agent):
             f'Songs you know: {listing}. '
             'The call answers at once; say a short line first (the song starts right after), and '
             'don\'t talk over it: the user\'s mic is muted while it plays and you get a note when '
-            'it ends. mode: "i_sing" (you sing, the default), "duet" (you take turns with the '
+            'it ends. They can still type to you; if they ask you to stop, pass song "stop". '
+            'mode: "i_sing" (you sing, the default), "duet" (you take turns with the '
             'user, who sings every other line or the second part), or "user_sings" (karaoke for '
             'them: you dance, their singing is scored).'
         ),
         'parameters': {
             'type': 'object',
             'properties': {
-                'song': {'type': 'string', 'enum': titles, 'description': 'The song to perform.'},
+                'song': {'type': 'string', 'enum': titles + ['stop'],
+                         'description': 'The song to perform, or "stop" to end the one playing.'},
                 'mode': {'type': 'string', 'enum': ['i_sing', 'duet', 'user_sings']},
             },
             'required': ['song'],

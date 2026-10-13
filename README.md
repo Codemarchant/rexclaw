@@ -612,6 +612,15 @@ each project.
   `relaxation-pads` and `angelic-pad` by PhonZz, `emanation` by Kronek9,
   `space-pad` and `cosmic-glow` by Andrewkn. Sources in
   `assets/audio/beds/CREDITS.md`.
+- Companion background music — Kevin MacLeod,
+  **[incompetech.com](https://incompetech.com)** (CC-BY 4.0): "Easy Lemon",
+  "Clear Air", "Lobby Time", "Midnight Tale" and "Mirage"; "Hearth" by Rest
+  You Sleeping Giant (CC-BY 4.0) and "Bubbles" by HoliznaCC0 (CC0), from the
+  **[Free Music Archive](https://freemusicarchive.org)**; "Merchants and Sea
+  Salt" by NBJDLukasAbsolute (CC0, OpenGameArt); Bach's Goldberg Aria by
+  Kimiko Ishizaka (CC0) and Haydn's "Lark" Adagio by the Musopen String
+  Quartet (public domain), from Wikimedia Commons. Sources in each avatar's
+  `assets/avatars/<name>/CREDITS.md`.
 - Rexmaw Raids music — from **[OpenGameArt](https://opengameart.org)**:
   "Pirate's Orchestra" by Dizzy Crow, "Fantasy: Rising Moon" and "Medieval:
   Victory Theme" by RandomMind (CC0), "Blackmoor Tides" and "Blackmoor

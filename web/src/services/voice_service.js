@@ -2,6 +2,7 @@ import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { MASCOT_MODE } from "../lib/ui_state";
 import { makeConversationState } from "../models/conversation_state";
+import { backgroundMusic } from "../models/background_music";
 import {
     AgentConnection,
     GAME_RAPID_MS,
@@ -1254,6 +1255,8 @@ class VoiceCallService {
         // However the call died (End click, ws death, token cap, idle
         // hangup), there's nothing left to time out.
         this._stopInactivityWatch();
+        // Background music stops with the call.
+        backgroundMusic.callEnded();
     }
 
     // ------------------------------------------------------------------
@@ -1475,6 +1478,9 @@ class VoiceCallService {
         if (!keepUserBackground) {
             this.state.activeBackground = payload.active_background || null;
         }
+        // Background music follows the call from here, and the background
+        // in view starts its own track if it names one.
+        backgroundMusic.callStarted(this, this.state.agentId, renderer._currentBackground);
     }
 
     // ------------------------------------------------------------------

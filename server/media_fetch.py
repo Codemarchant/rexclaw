@@ -95,31 +95,46 @@ def to_wav(src, dst, max_seconds=None):
     """Decode any audio or video file → a stereo 16-bit WAV at its own
     sample rate, at most `max_seconds` long. Streams frame by frame, so an
     hour of audio never sits in memory."""
-    import av
     import soundfile as sf
+    out, written, rate = None, 0, None
     try:
-        with av.open(str(src)) as container:
-            if not container.streams.audio:
-                raise UserError('The download has no audio.')
-            stream = container.streams.audio[0]
-            rate = stream.codec_context.sample_rate
-            resampler = av.AudioResampler(format='flt', layout='stereo', rate=rate)
-            limit = int(max_seconds * rate) if max_seconds else None
-            written = 0
-            with sf.SoundFile(dst, 'w', rate, 2, subtype='PCM_16') as out:
-                for frame in _resampled(container, stream, resampler):
-                    x = frame.to_ndarray().reshape(-1, 2)   # packed float: L R L R …
-                    if limit is not None:
-                        x = x[:limit - written]
-                    out.write(x)
-                    written += len(x)
-                    if limit is not None and written >= limit:
-                        break
-    except av.error.FFmpegError as e:
-        raise UserError(f'Could not decode the download: {e}')
+        for rate, x in decode(src, max_seconds=max_seconds):
+            if out is None:
+                out = sf.SoundFile(dst, 'w', rate, 2, subtype='PCM_16')
+            out.write(x)
+            written += len(x)
+    finally:
+        if out is not None:
+            out.close()
     if not written:
         raise UserError('The download holds no audio.')
     return written / rate
+
+
+def decode(src, rate=None, max_seconds=None):
+    """Any audio or video file → (sample rate, (n, 2) float32 block)
+    pairs, frame by frame: stereo, at `rate` (None = the file's own), at
+    most `max_seconds` long."""
+    import av
+    try:
+        with av.open(str(src)) as container:
+            if not container.streams.audio:
+                raise UserError('The file has no audio.')
+            stream = container.streams.audio[0]
+            rate = rate or stream.codec_context.sample_rate
+            resampler = av.AudioResampler(format='flt', layout='stereo', rate=rate)
+            limit = int(max_seconds * rate) if max_seconds else None
+            done = 0
+            for frame in _resampled(container, stream, resampler):
+                x = frame.to_ndarray().reshape(-1, 2)   # packed float: L R L R …
+                if limit is not None:
+                    x = x[:limit - done]
+                done += len(x)
+                yield rate, x
+                if limit is not None and done >= limit:
+                    return
+    except av.error.FFmpegError as e:
+        raise UserError(f'Could not decode the audio: {e}')
 
 
 def _resampled(container, stream, resampler):

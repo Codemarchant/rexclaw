@@ -41,7 +41,7 @@ const CONTINUE_MAX_IN_A_ROW = 6;
 // affectionate exchange is where it most wants to, so the score went up and
 // the reply stopped on a single line. It takes the flag like the rest now.
 const END_TURN_TOOLS = new Set(["set_emotion", "play_gesture", "generate_gesture", "move_around", "perform_song",
-    "remember", "forget", "minecraft_command", "game_action", "adjust_affection"]);
+    "play_background_music", "remember", "forget", "minecraft_command", "game_action", "adjust_affection"]);
 
 /** Whether a call's arguments ask to end the turn on it. Malformed arguments
  *  read as "no" — the default, a follow-up reply. */
@@ -1013,8 +1013,14 @@ export class AgentConnection {
                 else this._liveMemory?.cancel();
             }
             // A reply ran: xAI's next user final starts afresh, so a repeated
-            // phrase is new speech (see _extractNewUserSpeech).
-            if (status === "completed") this._lastUserTranscriptText = "";
+            // phrase is new speech (see _extractNewUserSpeech). Only a reply
+            // that SPOKE: measured live (2026-10-13), a completed response
+            // holding nothing but tool calls leaves xAI restating the speech
+            // before it ("Please mark this one down for later. Did you get
+            // it?", 3/3), so the reference has to survive it.
+            if (status === "completed" && (msg.response?.output || []).some((o) => o?.type === "message")) {
+                this._lastUserTranscriptText = "";
+            }
             // Motion director: nothing more is being composed (audio may
             // still be playing out — the director watches playback itself);
             // any trailing transcript fragment is the last sentence.
@@ -1114,6 +1120,18 @@ export class AgentConnection {
                 // model stuck calling first can't loop.
                 if (this._endTurnInResponse && !(this._turnAudioSec > 0)
                     && !this._responseIsToolReply) {
+                    this._pendingToolReply = true;
+                }
+                // Same for a reply that only ran xAI's own searches: xAI
+                // normally speaks the answer in the same response, but has
+                // been seen to end it right after the searches with nothing
+                // said (a call with Rex, 2026-10-13: two web_search calls,
+                // out: 0), which left the turn unanswered. The results are
+                // in the conversation, so the follow-up can use them. Once
+                // only, like above.
+                if (this._searchedInResponse && !(this._turnAudioSec > 0) && !this._pendingToolReply
+                    && !this._endTurnInResponse && !this._responseIsToolReply) {
+                    console.info(`[voice:${this.connId}] reply ended after its searches without a word - asking for the answer`);
                     this._pendingToolReply = true;
                 }
                 // The user cut off a move note's reply before it moved (they
@@ -1243,6 +1261,7 @@ export class AgentConnection {
             // ends its turn on a call, and whether it is itself a post-tool
             // follow-up.
             this._endTurnInResponse = false;
+            this._searchedInResponse = false;
             this._responseIsToolReply = !!this._nextResponseIsToolReply;
             this._nextResponseIsToolReply = false;
             // Any new reply settles a game move's owed commentary: this one
@@ -2191,7 +2210,9 @@ export class AgentConnection {
         }
         if (XAI_SERVER_SIDE_TOOLS.has(name)) {
             // xAI runs the search itself and feeds the result back into its
-            // own response stream.
+            // own response stream - usually; see _searchedInResponse at
+            // response.done.
+            this._searchedInResponse = true;
             return;
         }
         // This turn now owes a follow-up response.create once the tool

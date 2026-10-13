@@ -47,7 +47,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import avatar_packs, lore_tools, memory_tools, portraits
-from .db import ASSETS_DIR, utcnow
+from .db import ASSETS_DIR, FILES_DIR, utcnow
 from .errors import UserError
 from .pipeline import engines as pipeline_engines, setups as voice_setups
 
@@ -67,7 +67,7 @@ HEARTBEATS_FILE_VERSION = 1
 # Already-compressed formats are STORED (zipping a VRM buys ~nothing and
 # costs real time at 100+ MB); everything else (json, text) deflates.
 _STORED_EXTS = {".vrm", ".vrma", ".glb", ".gltf", ".png", ".jpg", ".jpeg", ".webp",
-                ".mp4", ".webm"}
+                ".mp4", ".webm", ".mp3", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".flac"}
 # Extra harmless files allowed inside an imported pack besides the media
 # kinds the uploader accepts (community packs often carry a readme/license).
 _PACK_EXTRA_EXTS = {".txt", ".md"}
@@ -234,6 +234,9 @@ def _iter_manifest_refs(manifest):
             yield b, "video"
             yield b, "glb"
             yield b, "scene"
+    for m in manifest.get("music") or []:
+        if isinstance(m, dict):
+            yield m, "file"
 
 
 def manifest_local_files(manifest):
@@ -269,12 +272,56 @@ def _shared_ref_disk_path(ref):
         ("/user-assets/", avatar_packs.USER_ASSETS_DIR),
         ("/avatars/", avatar_packs.USER_PACKS_DIR),
         ("/assets/", ASSETS_DIR),
+        ("/files/", FILES_DIR),            # sound-library music an avatar picked
     ):
         if ref.startswith(prefix):
             p = (root / ref[len(prefix):]).resolve()
             if root.resolve() in p.parents and p.is_file():
                 return p
     return None
+
+
+def _carry_background_music(manifest):
+    """Backgrounds and playlists can name tracks (and backgrounds a
+    playlist) from this install's music library (call_music.tracks /
+    playlists), which the importing install may not have: copy those tracks
+    into the exported manifest's own "music" list, and a library playlist
+    into its "playlists", so everything travels with the pack (the files
+    are inlined below like any shared ref)."""
+    if manifest.get("music_library") is False:
+        return
+    own = {str(m.get("name") or "").strip().lower()
+           for m in manifest.get("music") or [] if isinstance(m, dict)}
+    lists = {str(p.get("name") or "").strip().lower()
+             for p in manifest.get("playlists") or [] if isinstance(p, dict)}
+    refs = {str(b.get("music")).strip() for b in manifest.get("backgrounds") or []
+            if isinstance(b, dict) and b.get("music")}
+    wanted = {r for r in refs if not r.startswith("playlist:")}
+    wanted |= {str(t).strip() for p in manifest.get("playlists") or [] if isinstance(p, dict)
+               for t in p.get("tracks") or []}
+    wanted_lists = {r[len("playlist:"):] for r in refs if r.startswith("playlist:")}
+    wanted_lists = {p for p in wanted_lists if p.lower() not in lists}
+    wanted = {w for w in wanted if w and w.lower() not in own}
+    if not wanted and not wanted_lists:
+        return
+    from . import call_music
+    from .db import connect
+    con = connect()
+    try:
+        library = {t["name"].lower(): t for t in call_music.library_tracks(con)}
+        library_lists = {p["name"].lower(): p for p in call_music.library_playlists(con)}
+    finally:
+        con.close()
+    for name in sorted(wanted_lists):
+        p = library_lists.get(name.lower())
+        if p:
+            manifest.setdefault("playlists", []).append({"name": name, "tracks": p["tracks"]})
+            wanted |= {t for t in p["tracks"] if t.lower() not in own}
+    for name in sorted(wanted):
+        t = library.get(name.lower())
+        if t:
+            manifest.setdefault("music", []).append({
+                "name": name, "file": t["url"], "description": t["description"], "credit": t["credit"]})
 
 
 def add_pack_to_zip(zf, pack_key, prefix=""):
@@ -289,6 +336,7 @@ def add_pack_to_zip(zf, pack_key, prefix=""):
         raise UserError(f"avatar.json is unreadable: {e}")
     if not isinstance(manifest, dict):
         raise UserError("avatar.json must be a JSON object.")
+    _carry_background_music(manifest)
 
     taken = {f.name for f in src.iterdir() if f.is_file() and f.name != "avatar.json"}
     inlined = {}
