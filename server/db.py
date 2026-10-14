@@ -60,19 +60,29 @@ CREATE TABLE IF NOT EXISTS config (
     -- Background music starts as a call opens (call_music.py): the
     -- background's track or playlist, else the avatar's default playlist.
     music_on_call_start INTEGER NOT NULL DEFAULT 0,
-    xai_model TEXT NOT NULL DEFAULT 'grok-voice-latest',
+    -- Model defaults name a version, never a -latest alias, so an xAI
+    -- release can't change a companion's voice or behaviour overnight
+    -- (grok-voice-latest moved to Voice 3.0 on 2026-10-14).
+    xai_model TEXT NOT NULL DEFAULT 'grok-voice-2.0',
     -- The voice setup companions use unless they pick their own:
     -- 'realtime' (xAI's speech-to-speech API, xai_model above) or a
     -- voice_setups id (server/pipeline/setups.py).
     default_voice_setup TEXT NOT NULL DEFAULT 'realtime',
-    text_model TEXT NOT NULL DEFAULT 'grok-latest',
-    summary_model TEXT NOT NULL DEFAULT 'grok-latest',
+    text_model TEXT NOT NULL DEFAULT 'grok-4.6',
+    summary_model TEXT NOT NULL DEFAULT 'grok-4.6',
     -- Model for the group-call turn director (a one-token "who speaks next"
     -- classification on every group-call turn). Latency matters more than
     -- intelligence — use the fastest non-reasoning model available. Empty =
     -- fall back to the Text Model.
     director_model TEXT NOT NULL DEFAULT 'grok-4.20-non-reasoning',
-    imagine_model TEXT NOT NULL DEFAULT 'grok-imagine-image-quality-latest',
+    -- grok-imagine-image-quality retires on 2026-11-02 (xAI's migration
+    -- guide recommends 2.0).
+    imagine_model TEXT NOT NULL DEFAULT 'grok-imagine-image-2.0',
+    -- Its `quality` ('low', 'medium' or 'auto'), sent only to
+    -- grok-imagine-image-2.0, the one model that takes it. Auto is low for
+    -- new images and medium for edits (xAI's docs) — what xAI does when
+    -- it's left out, so the default changes nothing until a user picks.
+    imagine_quality TEXT NOT NULL DEFAULT 'auto',
     -- xAI multi-agent model used when delegate_task is called with
     -- multi_agent=true. Several agents collaborate and a leader synthesizes
     -- — every sub-agent bills tokens, so it is markedly more expensive than
@@ -255,7 +265,7 @@ CREATE TABLE IF NOT EXISTS config (
     local_task_workdir TEXT NOT NULL DEFAULT '',
     -- Minecraft bot sidecar: the text model that plans the bot's actions
     -- (empty = grok-4.20-non-reasoning), the stronger model used for hard
-    -- directives like building (empty = grok-latest), and the in-game
+    -- directives like building (empty = grok-4.5), and the in-game
     -- username of the user, so the bot knows whose orders outrank
     -- everyone else's. minecraft_brain_connection: where those models run
     -- - 'xai' (the app's key) or a voice_connections id of an
@@ -1510,6 +1520,12 @@ MIGRATIONS = (
     "ALTER TABLE agents ADD COLUMN enable_background_music INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE agents ADD COLUMN enable_background_music_downloads INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE config ADD COLUMN music_on_call_start INTEGER NOT NULL DEFAULT 0",
+    # Per-look face mapping (JSON) from the pack manifest's `face_map`: the
+    # model's own shapes for the face director's channels, and moments
+    # (shapes a feeling shows from a level up). NULL = auto-detected.
+    "ALTER TABLE avatars ADD COLUMN face_map TEXT",
+    "ALTER TABLE avatar_outfits ADD COLUMN face_map TEXT",
+    "ALTER TABLE config ADD COLUMN imagine_quality TEXT NOT NULL DEFAULT 'auto'",
 )
 
 

@@ -30,9 +30,16 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
       "face_tuning": {"smile": 0.4},     // optional; per-look strength of the
                                          // face director's channels and the
                                          // own-emotion expressions (1 = as rigged)
+      "face_map": {                      // optional; per-look: the model's own
+        "channels": {"wink": {"ウィンク": 1}},  // shapes for a channel ({} = off),
+        "feelings": {"happy": {"2": {      // and per feeling and level 1-3:
+          "builtin": false,              // drop the level's built-in parts,
+          "parts": {"smile": 0.6},       // play these channels and
+          "shapes": {"はぁと": 1}}}}      // these shapes at these weights
+      },
       "outfits": [
         {"name": "Winter", "vrm": "kira_winter.vrm", "description": "…",
-         "face_tuning": {}}              // optional; the outfit model's own
+         "face_tuning": {}, "face_map": {}}  // optional; the outfit model's own
       ],
       "gestures": [
         {"enum": "wave_hello", "vrma": "wave.vrma", "description": "…",
@@ -181,6 +188,66 @@ def _face_tuning(value):
     return json.dumps(out, sort_keys=True) if out else None
 
 
+def _face_shapes(value, cap):
+    """{morph: weight} → the weights above 0, capped; None when not a dict."""
+    if not isinstance(value, dict):
+        return None
+    out = {}
+    for k, v in value.items():
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(k, str) and 0 < len(k) <= 128 and v > 0:
+            out[k] = round(min(v, cap), 3)
+    return out
+
+
+def _face_map(value):
+    """A look's `face_map` → the JSON stored on its row, or None when empty.
+    `channels`: {channel: {morph: weight 0-2}}, where {} turns the channel
+    off. `feelings`: {feeling: {"1"|"2"|"3": {builtin: false to drop the
+    level's built-in parts, parts: {channel: 0-2}, shapes: {morph: 0-2}}}}.
+    An older `moments` list ({feeling, from, shapes}) is read as shapes on
+    each level from `from` up."""
+    if not isinstance(value, dict):
+        return None
+    channels = {}
+    raw_channels = value.get("channels")
+    for ch, shapes in (raw_channels.items() if isinstance(raw_channels, dict) else ()):
+        clean = _face_shapes(shapes, 2.0)
+        if isinstance(ch, str) and 0 < len(ch) <= 64 and clean is not None:
+            channels[ch] = clean
+    raw_feelings = value.get("feelings")
+    raw_feelings = {k: dict(v) for k, v in raw_feelings.items() if isinstance(v, dict)} \
+        if isinstance(raw_feelings, dict) else {}
+    raw_moments = value.get("moments")
+    for m in (raw_moments if isinstance(raw_moments, list) else ()):
+        if isinstance(m, dict) and isinstance(m.get("feeling"), str) and m.get("from") in (1, 2, 3):
+            for level in range(m["from"], 4):
+                setup = raw_feelings.setdefault(m["feeling"], {}).setdefault(str(level), {})
+                if isinstance(setup, dict):
+                    setup["shapes"] = {**(setup.get("shapes") or {}), **(m.get("shapes") or {})}
+    feelings = {}
+    for feeling, levels in raw_feelings.items():
+        if not isinstance(feeling, str) or not 0 < len(feeling) <= 32:
+            continue
+        for level, setup in levels.items():
+            if str(level) not in ("1", "2", "3") or not isinstance(setup, dict):
+                continue
+            clean = {"builtin": False} if setup.get("builtin") is False else {}
+            parts = _face_shapes(setup.get("parts"), 2.0)
+            shapes = _face_shapes(setup.get("shapes"), 2.0)
+            if parts:
+                clean["parts"] = parts
+            if shapes:
+                clean["shapes"] = shapes
+            if clean:
+                feelings.setdefault(feeling, {})[str(level)] = clean
+    out = {k: v for k, v in (("channels", channels), ("feelings", feelings)) if v}
+    return json.dumps(out, sort_keys=True, ensure_ascii=False) if out else None
+
+
 def _id_list(value):
     """Manifest id list (JSON array or comma-separated string) → the
     normalised comma-separated form stored in the DB, or None when empty."""
@@ -215,26 +282,26 @@ def _upsert_avatar(con, pack_key, vals):
             " vrm_path = ?, vrma_idle_path = ?, emotion_decay = ?, fidgets = ?,"
             " fidget_interval = ?, restrict_base_gestures = ?, base_gestures = ?,"
             " physical_description = ?, main_outfit_name = ?, main_outfit_description = ?,"
-            " face_tuning = ?, music_library = ?, active = 1 WHERE id = ?",
+            " face_tuning = ?, face_map = ?, music_library = ?, active = 1 WHERE id = ?",
             (pack_key, vals["name"], vals["description"], vals["sequence"],
              vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
              vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
              vals["base_gestures"], vals["physical_description"],
              vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
-             vals["music_library"], row["id"]),
+             vals["face_map"], vals["music_library"], row["id"]),
         )
         return row["id"]
     cur = con.execute(
         "INSERT INTO avatars (pack_key, name, description, sequence, vrm_path, vrma_idle_path,"
         " emotion_decay, fidgets, fidget_interval, restrict_base_gestures, base_gestures,"
         " physical_description, main_outfit_name, main_outfit_description, face_tuning,"
-        " music_library) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " face_map, music_library) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (pack_key, vals["name"], vals["description"], vals["sequence"],
          vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
          vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
          vals["base_gestures"], vals["physical_description"],
          vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
-         vals["music_library"]),
+         vals["face_map"], vals["music_library"]),
     )
     return cur.lastrowid
 
@@ -275,6 +342,7 @@ def _scan_pack(con, pack_dir, url_root):
         "main_outfit_name": _text_or_none(manifest.get("main_outfit_name")),
         "main_outfit_description": _text_or_none(manifest.get("main_outfit_description")),
         "face_tuning": _face_tuning(manifest.get("face_tuning")),
+        "face_map": _face_map(manifest.get("face_map")),
         "music_library": 0 if manifest.get("music_library") is False else 1,
     })
 
@@ -326,9 +394,10 @@ def _scan_pack(con, pack_dir, url_root):
             continue
         con.execute(
             "INSERT INTO avatar_outfits (avatar_id, name, sequence, vrm_path, outfit_description,"
-            " face_tuning) VALUES (?, ?, ?, ?, ?, ?)",
+            " face_tuning, face_map) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (avatar_id, str(o.get("name") or f"Outfit {i + 1}"), (i + 1) * 10,
-             path, o.get("description") or None, _face_tuning(o.get("face_tuning"))),
+             path, o.get("description") or None, _face_tuning(o.get("face_tuning")),
+             _face_map(o.get("face_map"))),
         )
 
     seen_enums = set()

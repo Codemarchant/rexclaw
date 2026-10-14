@@ -553,9 +553,15 @@ export function createWater(R) {
   reflector.name = "water.reflector";
   for (const k of Object.keys(shared)) reflector.material.uniforms[k] = shared[k];
   reflector.material.fog = false;
-  reflector.camera.layers.set(layers.WORLD);
-  reflector.camera.layers.enable(layers.SKY);
-  reflector.camera.layers.enable(layers.FX);
+  // three r185's Reflector keeps a reflection camera per scene camera, cloned
+  // from it on first use; only the player's view reflects (below). The clone
+  // takes the camera's children too: an AudioListener already on it would
+  // write the mirrored pose into the shared AudioContext every frame.
+  const reflectCam = reflector.getReflectionCamera(R.camera);
+  reflectCam.clear();
+  reflectCam.layers.set(layers.WORLD);
+  reflectCam.layers.enable(layers.SKY);
+  reflectCam.layers.enable(layers.FX);
   const reflect = reflector.onBeforeRender;
   reflector.onBeforeRender = function (renderer, sc, camera, ...rest) {
     if (camera !== R.camera) return;               // only for the player's view

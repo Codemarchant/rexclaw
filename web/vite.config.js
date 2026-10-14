@@ -45,6 +45,14 @@ export default defineConfig({
   build: {
     assetsDir: "app-assets",
   },
+  // These find their decoders (three/examples/jsm/libs/) next to themselves
+  // via import.meta.url; pre-bundled into .vite/deps, that path 404s in dev.
+  optimizeDeps: {
+    exclude: [
+      "three/examples/jsm/loaders/DRACOLoader.js",
+      "three/examples/jsm/loaders/KTX2Loader.js",
+    ],
+  },
   server: {
     port: 5990,
     proxy: {

@@ -157,6 +157,13 @@ def avatar_payload(con, avatar_id):
             return json.loads(row['face_tuning'] or '{}')
         except ValueError:
             return {}
+
+    # The look's own shapes for the face (face_map); {} = auto-detected.
+    def face_map(row):
+        try:
+            return json.loads(row['face_map'] or '{}')
+        except (ValueError, IndexError):
+            return {}
     outfits = [{
         'id': 0,
         'name': (av['main_outfit_name'] or '').strip() or MAIN_OUTFIT_FALLBACK_NAME,
@@ -165,6 +172,7 @@ def avatar_payload(con, avatar_id):
         'portrait_url': portraits.portrait_url(av['vrm_path']),
         'fullbody_url': portraits.fullbody_url(av['vrm_path']),
         'face_tuning': face_tuning(av),
+        'face_map': face_map(av),
     }]
     for o in outfit_rows:
         if not o['vrm_path']:
@@ -177,6 +185,7 @@ def avatar_payload(con, avatar_id):
             'portrait_url': portraits.portrait_url(o['vrm_path']),
             'fullbody_url': portraits.fullbody_url(o['vrm_path']),
             'face_tuning': face_tuning(o),
+            'face_map': face_map(o),
         })
     backgrounds = [background_payload(b) for b in bg_rows]
     default_bg = next((b for b in bg_rows if b['is_default']), None)

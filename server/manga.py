@@ -767,7 +767,8 @@ def paint_panel(con, *, agent_id, script, index, mode, aspect):
                   'in the middle of the frame. No text.')
         body = xai_client.generate_image(
             xai_api_key=config['xai_api_key'], images_url=config['xai_images_url'],
-            model=config['imagine_model'], prompt=prompt, aspect_ratio=ratio)
+            model=config['imagine_model'], prompt=prompt, aspect_ratio=ratio,
+            quality=config['imagine_quality'])
     else:
         outfit = _clip(p.get('outfit'), 80) or _clip(script.get('outfit'), 80) or None
         uri, err, _note = imagine_tools._portrait_data_uri(con, agent, outfit)
@@ -827,7 +828,7 @@ def paint_panel(con, *, agent_id, script, index, mode, aspect):
         body = xai_client.edit_image(
             xai_api_key=config['xai_api_key'], edits_url=config['xai_images_edits_url'],
             model=config['imagine_model'], prompt=prompt, image_data_uris=refs,
-            aspect_ratio=ratio)
+            aspect_ratio=ratio, quality=config['imagine_quality'])
     store.accrue_usd_ticks(con, store.extract_cost_ticks(body.get('usage') or {}))
     con.commit()
     first = body['data'][0]

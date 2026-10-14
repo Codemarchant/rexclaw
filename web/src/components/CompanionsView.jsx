@@ -141,7 +141,7 @@ function clampInt(value, lo, hi, fallback) {
 // roster. Keep in sync with server/browser_tools.py (gestures) and
 // session_service._expression_section (grok speech tags).
 const BUILTIN_GESTURES =
-    "clapping, dance, goodbye, greeting, jump, look_around, sleepy, thinking, " +
+    "clapping, dance, goodbye, greeting, jump, look_around, sleepy, thinking, stretch, kick, " +
     "peace_sign, shoot, spin, show_full_body, model_pose, squat, backflip, " +
     "blow_kiss, belly_dance, push_up, pike_walk";
 const GROK_INLINE_TAGS =

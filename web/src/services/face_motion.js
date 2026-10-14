@@ -134,11 +134,18 @@ const FACE_TEASE_TILT_P = 0.34;
 // ARKit shapes, then the nearest expression half. A sided channel picks one
 // side per use.
 const FACE_ACCENTS = {
+    // A brow signal takes the expression's brow shapes alone where the
+    // author drew them apart (face_regions' `brow` half): the whole upper
+    // half brought the surprised eyes' small pupils with every raised brow,
+    // and the angry eyes' narrowing — which holds a blink half shut — with
+    // every knit one.
     brow_raise: [{ Fcl_BRW_Surprised: 1 },
-        { browInnerUp: 1, browOuterUpLeft: 1, browOuterUpRight: 1 }, { "rx:surprised:upper": 1 }],
-    brow_knit:  [{ Fcl_BRW_Angry: 1 }, { browDownLeft: 1, browDownRight: 1 }, { "rx:angry:upper": 1 }],
+        { browInnerUp: 1, browOuterUpLeft: 1, browOuterUpRight: 1 }, { "rx:surprised:brow": 1 },
+        { "rx:surprised:upper": 1 }],
+    brow_knit:  [{ Fcl_BRW_Angry: 1 }, { browDownLeft: 1, browDownRight: 1 }, { "rx:angry:brow": 1 },
+        { "rx:angry:upper": 1 }],
     eye_widen:  [{ Fcl_EYE_Spread: 1 }, { eyeWideLeft: 1, eyeWideRight: 1 }, { "rx:surprised:upper": 1 }],
-    brow_sad:   [{ Fcl_BRW_Sorrow: 1 }, { browInnerUp: 1 }, { "rx:sad:upper": 1 }],
+    brow_sad:   [{ Fcl_BRW_Sorrow: 1 }, { browInnerUp: 1 }, { "rx:sad:brow": 1 }, { "rx:sad:upper": 1 }],
     // The mouth had no VRoid option at all, so on a VRoid model — most VRM
     // avatars — every smile was a split-out half of the `relaxed`
     // expression rather than the shape its author drew. Same strength, since
@@ -177,6 +184,32 @@ const FACE_ACCENTS = {
         "tere", "cheek", "Cheek", "cheeks", "Cheeks"] },
     { Blush: 1 }, { blush: 1 }, { 照れ: 1 }, { 赤面: 1 }],
 };
+// A look's own mapping (face_map.channels) replaces the options above with
+// shapes picked in Tune face. These channels play one of them at a time.
+const FACE_SIDED = new Set(["wink", "smirk"]);
+// How a mapped shape is treated in update, by the channel it was mapped to:
+// a mouth one yields to the lip-sync like MOUTH_SHAPE, an open-mouth one
+// like FACE_JAW_SHAPES, and an eye one counts against the blink like
+// EYE_SHAPE (but not the brows mapped beside it).
+const FACE_OWN_CLASS = {
+    smile: "mouth", smirk: "mouth", pout: "mouth", "sad:mouth": "mouth", lip_stretch: "mouth",
+    "angry:mouth": "mouth", "happy:mouth": "jaw", "surprised:mouth": "jaw",
+    eye_widen: "eye", "happy:upper": "eye", "relaxed:upper": "eye", "sad:upper": "eye",
+    "angry:upper": "eye", wink: "eye",
+};
+const BROW_NAME = /brow|眉|まゆ/i;
+
+/** A feeling's built-in parts at a level (FACE_FEELINGS), for the tuning
+ *  dialog: [{ part, arrive }] — `arrive` for the ones played once as a
+ *  clear feeling arrives. */
+export function feelingParts(feeling, level) {
+    const def = FACE_FEELINGS[feeling] || {};
+    const at = (list) => (def[list] || []).filter(([, from, to = 3]) => level >= from && level <= to);
+    return [
+        ...at("parts").map(([part]) => ({ part, arrive: false })),
+        ...(level === 2 ? at("arrive").map(([part]) => ({ part, arrive: true })) : []),
+    ];
+}
 // Per-look tuning (the avatar editor's Tune face): a strength per channel,
 // 1 = the numbers above on the shapes the model's author drew, and per
 // own-emotion expression (`emotion:<state>`, set_emotion's cap). Models
@@ -455,6 +488,7 @@ export class FaceMotion {
         this.items = [];                  // timed moods, signals and beats (_env)
         this.moodItem = null;             // the one of them that is the current mood
         this.traceItem = null;            // what is left of it once the wait is over
+        this.ownItem = null;              // the mood's own shapes (face_map), switched whole
         this.moodKey = null;
         this.markAt = null;               // when this mood's manga mark pops (performance s)
         this.markName = null;
@@ -540,20 +574,34 @@ export class FaceMotion {
             for (const old of [this.moodItem, this.traceItem]) {
                 if (old) this._retire(old, now, FACE_MOOD_S);
             }
+            // The last mood's own shapes switch off as the next one's switch
+            // on (below), with no gap between them.
+            if (this.ownItem) this.ownItem.hold = Math.max(0, now + markIn - this.ownItem.start);
             this.moodItem = null;
             this.traceItem = null;
+            this.ownItem = null;
             this.moodKey = moodKey;
             // A mood that never arrived takes its pending mark with it.
             this.markAt = null;
             if (moodKey) {
                 const band = FACE_MOOD_BAND[rest - 1];
+                // The look's own setup for this level (face_map) holds with
+                // the mood; level 3's rides the peak below.
                 this.moodItem = {
-                    ...this._mix(rig, feelings, rest, band),
+                    ...this._withOwn(this._mix(rig, feelings, rest, band), rig, face.top, rest),
                     ...this._bearing(feelings, rest),
                     feelings, level: rest, band,
                     start: now, rise: FACE_MOOD_S, hold: Infinity, fall: FACE_MOOD_S, burst: true,
                 };
                 this.items.push(this.moodItem);
+                // Its own shapes (a star or heart eye) switch on whole on the
+                // line, when its mark pops — not eased in, which sank the
+                // model's pupil before the new one rose, leaving none between.
+                const shapes = this._ownShapes(rig, face.top, rest);
+                if (shapes) {
+                    this.ownItem = { shapes, presets: {}, start: now + markIn, hold: Infinity, step: true };
+                    this.items.push(this.ownItem);
+                }
                 // What only arrives with a clear feeling (`arrive`), once,
                 // then the face settles to the mood. A strong one has its
                 // peak below instead.
@@ -605,7 +653,16 @@ export class FaceMotion {
         // A strong feeling (a laugh, a glare, a gasp) peaks with the line's
         // start and settles back to the mood.
         if (level === 3) {
-            this.items.push({ ...this._mix(rig, feelings, 3, FACE_SIGNAL_BAND[1]), ...timed(FACE_PEAK) });
+            const peak = this._withOwn(this._mix(rig, feelings, 3, FACE_SIGNAL_BAND[1]), rig, face.top, 3);
+            const t = timed(FACE_PEAK);
+            this.items.push({ ...peak, ...t });
+            // Level 3's own shapes, whole from the line until the peak
+            // starts to fade (as the mood's, above).
+            const shapes = this._ownShapes(rig, face.top, 3);
+            const on = now + markIn;
+            if (shapes) {
+                this.items.push({ shapes, presets: {}, start: on, hold: Math.max(0, t.start + t.rise + t.hold - on), step: true });
+            }
         }
 
         // What the line does (the rules above FACE_QUESTION_RAISE_P): brows
@@ -802,6 +859,7 @@ export class FaceMotion {
         }
         this.moodItem = null;
         this.traceItem = null;
+        this.ownItem = null;
         this.moodKey = null;
         this.markAt = null;
         this.markFeel = null;
@@ -835,10 +893,12 @@ export class FaceMotion {
         const bearing = { pitch: 0, yaw: 0, roll: 0 };
         let wink = null;
         let gx = 0, gy = 0;
+        const whole = new Set();          // shapes a `step` item switches
         this.items = this.items.filter((it) => {
             const e = this._env(it, now);
             if (e < 0) return false;
             for (const [m, w] of Object.entries(it.shapes)) morphs[m] = Math.max(morphs[m] || 0, w * e);
+            if (it.step && e > 0) Object.keys(it.shapes).forEach((m) => whole.add(m));
             for (const [n, w] of Object.entries(it.presets)) presets[n] = Math.max(presets[n] || 0, w * e);
             if (it.gaze) {
                 gx += it.gaze.x * e;
@@ -872,11 +932,14 @@ export class FaceMotion {
         // saturate(sum of the eye shapes)) — so a blink never closes lids an
         // expression has already half closed: summed, they overshoot and deform.
         let eyes = 0;
+        const own = this._ownClasses();
         for (const name of new Set([...Object.keys(morphs), ...rig.driven])) {
-            let w = Math.min(1, morphs[name] || 0) * y;
-            if (FACE_JAW_SHAPES.has(name)) w *= 1 - this.talk;
-            else if (MOUTH_SHAPE.test(name)) w = Math.min(w, 1 - this.jaw);
-            if (EYE_SHAPE.test(name)) eyes += w;
+            // A switched shape stays whole while standing aside, and goes
+            // halfway through it — eased, a star eye would lose its pupil.
+            let w = Math.min(1, morphs[name] || 0) * (whole.has(name) ? (y >= 0.5 ? 1 : 0) : y);
+            if (FACE_JAW_SHAPES.has(name) || own.jaw.has(name)) w *= 1 - this.talk;
+            else if (MOUTH_SHAPE.test(name) || own.mouth.has(name)) w = Math.min(w, 1 - this.jaw);
+            if (EYE_SHAPE.test(name) || own.eye.has(name)) eyes += w;
             for (const [mesh, idx] of rig.morphs[name] || []) mesh.morphTargetInfluences[idx] = w;
             if (w > 0) rig.driven.add(name);
             else rig.driven.delete(name);
@@ -986,6 +1049,8 @@ export class FaceMotion {
         const shapes = {};
         const presets = {};
         for (const [feeling, share] of Object.entries(feelings)) {
+            // A look can switch a level's built-in parts off (face_map).
+            if (this._feelingSetup(feeling, level)?.builtin === false) continue;
             for (const [part, from, to = 3, scale = 1] of FACE_FEELINGS[feeling]?.[list] || []) {
                 if (level < from || level > to) continue;
                 const got = this._channel(rig, part, share * w * scale);
@@ -1058,9 +1123,11 @@ export class FaceMotion {
                 if (id === "gaze" || id.startsWith("emotion:")) continue;
                 const opts = FACE_ACCENTS[id];
                 const got = this._resolve(rig, id, 1);
-                // Both sides of a one-sided option, not just the one drawn.
+                // Both sides of a one-sided option, not just the one drawn —
+                // and every shape the look mapped to it.
+                const own = this._own(rig, id);
                 const side = opts?.find((o) => o.side && o.side.every((m) => rig.morphs[m]))?.side;
-                for (const m of side || Object.keys(got?.shapes || {})) {
+                for (const m of own ? Object.keys(own) : side || Object.keys(got?.shapes || {})) {
                     if (m.startsWith("rx:")) continue;
                     if (!found.has(m)) found.set(m, { id: `shape:${m}`, morph: m, size: this._shapesSize(rig, { [m]: 1 }), channels: [] });
                     found.get(m).channels.push(id);
@@ -1070,8 +1137,103 @@ export class FaceMotion {
         return [...found.values()];
     }
 
-    /** `_channel` before the look's tuning. */
-    _resolve(rig, name, w) {
+    /** The look's own shapes for a channel (face_map) that this model has:
+     *  { morph: weight }, {} when the look turned the channel off, or null
+     *  to auto-detect (no mapping, or none of its shapes are here). */
+    _own(rig, name) {
+        const own = this.r.faceMap?.()?.channels?.[name];
+        if (!own || typeof own !== "object") return null;
+        const names = Object.keys(own);
+        if (!names.length) return {};
+        const found = names.filter((m) => rig.morphs[m] && own[m] > 0);
+        return found.length ? Object.fromEntries(found.map((m) => [m, own[m]])) : null;
+    }
+
+    /** The look's mapped shapes by how update treats them (FACE_OWN_CLASS):
+     *  { mouth, jaw, eye } Sets, rebuilt when the mapping changes. */
+    _ownClasses() {
+        const map = this.r.faceMap?.() || null;
+        if (this._ownFor !== map || !this._own3) {
+            const out = { mouth: new Set(), jaw: new Set(), eye: new Set() };
+            for (const [channel, shapes] of Object.entries(map?.channels || {})) {
+                const cls = FACE_OWN_CLASS[channel];
+                if (!cls) continue;
+                for (const m of Object.keys(shapes || {})) {
+                    if (cls !== "eye" || !BROW_NAME.test(m)) out[cls].add(m);
+                }
+            }
+            this._ownFor = map;
+            this._own3 = out;
+        }
+        return this._own3;
+    }
+
+    /** The look's own setup for a feeling at a level (face_map.feelings):
+     *  { builtin, parts, shapes }, or null for the built-in parts alone. */
+    _feelingSetup(feeling, level) {
+        return this.r.faceMap?.()?.feelings?.[feeling]?.[level] || null;
+    }
+
+    /** A mix with the look's own parts for the top feeling at `level` laid
+     *  over it, at the weights the look gives them — not scaled by the
+     *  level. Level 3's ride the peak and fade back to level 2's. */
+    _withOwn(mix, rig, feeling, level) {
+        const setup = this._feelingSetup(feeling, level);
+        if (!setup) return mix;
+        const lay = (got) => {
+            for (const [m, v] of Object.entries(got?.shapes || {})) mix.shapes[m] = Math.max(mix.shapes[m] || 0, v);
+            for (const [n, v] of Object.entries(got?.presets || {})) mix.presets[n] = Math.max(mix.presets[n] || 0, v);
+        };
+        for (const [part, k] of Object.entries(setup.parts || {})) lay(this._channel(rig, part, k));
+        return mix;
+    }
+
+    /** The look's own shapes for the top feeling at `level` that this model
+     *  has: { morph: weight }, or null. Played whole (a `step` item): a
+     *  heart or star eye is drawn on/off and broken half-way. */
+    _ownShapes(rig, feeling, level) {
+        const shapes = {};
+        for (const [m, k] of Object.entries(this._feelingSetup(feeling, level)?.shapes || {})) {
+            if (rig.morphs[m] && k > 0) shapes[m] = k;
+        }
+        return Object.keys(shapes).length ? shapes : null;
+    }
+
+    /** What rexclaw finds for a channel on this model by itself, for the
+     *  tuning dialog: { kind: "shapes" | "half" | "expression", names }, or
+     *  null when the model can't show it. */
+    autoSource(id) {
+        const rig = this._rigFor();
+        const got = this._resolve(rig, id, 1, true);
+        if (!got) return null;
+        const shapes = Object.keys(got.shapes);
+        if (shapes.some((m) => m.startsWith("rx:"))) return { kind: "half", names: [] };
+        if (shapes.length) {
+            const side = FACE_ACCENTS[id]?.find((o) => o.side && o.side.every((m) => rig.morphs[m]))?.side;
+            return { kind: "shapes", names: side || shapes };
+        }
+        return { kind: "expression", names: Object.keys(got.presets) };
+    }
+
+    /** The model's morph names (not the split halves), for picking shapes. */
+    morphNames() {
+        return Object.keys(this._rigFor().morphs).filter((m) => !m.startsWith("rx:")).sort();
+    }
+
+    /** `_channel` before the look's tuning. `auto` ignores the look's own
+     *  mapping: what rexclaw finds on the model by itself. */
+    _resolve(rig, name, w, auto = false) {
+        const own = auto ? null : this._own(rig, name);
+        if (own) {
+            const names = Object.keys(own);
+            if (!names.length) return null;
+            // One side at a time for a one-sided channel (a wink, a smirk).
+            if (FACE_SIDED.has(name)) {
+                const m = pick(names);
+                return { shapes: { [m]: own[m] * w }, presets: {} };
+            }
+            return { shapes: Object.fromEntries(names.map((m) => [m, own[m] * w])), presets: {} };
+        }
         const options = FACE_ACCENTS[name] || [{ [`rx:${name}`]: 1 }];
         for (const opt of options) {
             if (opt.side) {
@@ -1109,7 +1271,7 @@ export class FaceMotion {
                 if (kind === "emotion") {
                     const name = this.emotions[state]?.name;
                     out[id] = name && vrm?.expressionManager?.getExpression?.(name)
-                        ? expressionSize(vrm, name) : null;
+                        ? expressionSize(vrm, name, rig.layers) : null;
                     continue;
                 }
                 if (id === "gaze") {
@@ -1123,7 +1285,7 @@ export class FaceMotion {
                     out[id] = this._shapesSize(rig, got.shapes);
                 } else {
                     const preset = Object.keys(got.presets)[0];
-                    out[id] = preset ? expressionSize(vrm, preset) : null;
+                    out[id] = preset ? expressionSize(vrm, preset, rig.layers) : null;
                 }
             }
         }
@@ -1131,7 +1293,8 @@ export class FaceMotion {
     }
 
     /** Largest vertex displacement of morphs written together at weights
-     *  {morph: k}: summed per shared vertex buffer, like the GPU does. */
+     *  {morph: k}: summed per shared vertex buffer, like the GPU does —
+     *  the hidden layers left out (splitEmotionExpressions' `layers`). */
     _shapesSize(rig, shapes) {
         const sums = new Map();
         for (const [m, k] of Object.entries(shapes)) {
@@ -1152,8 +1315,11 @@ export class FaceMotion {
             }
         }
         let max = 0;
-        for (const d of sums.values()) {
-            for (let i = 0; i < d.length; i += 3) max = Math.max(max, Math.hypot(d[i], d[i + 1], d[i + 2]));
+        for (const [key, d] of sums) {
+            const off = rig.layers?.get(key);
+            for (let i = 0; i < d.length; i += 3) {
+                if (!off?.has(i / 3)) max = Math.max(max, Math.hypot(d[i], d[i + 1], d[i + 2]));
+            }
         }
         return max;
     }
@@ -1186,9 +1352,9 @@ export class FaceMotion {
 
     /** The avatar's face morphs, found once per VRM: name → [[mesh, index]]
      *  across every primitive that carries it (a VRoid face is split into
-     *  several) — the region and ARKit shapes the accents use where it has
-     *  them, and, once the director first runs on it, its emotion
-     *  expressions split into halves (face_regions.js). `driven` is what we
+     *  several) — all of the model's morphs, and, once the director first
+     *  runs on it, its emotion expressions split into halves
+     *  (face_regions.js). `driven` is what we
      *  wrote non-zero last frame, so it can be put back to 0 — no expression
      *  binds these morphs, so nothing else ever resets them. */
     _rigFor() {
@@ -1197,15 +1363,12 @@ export class FaceMotion {
         if (rig?.vrm !== vrm) {
             const morphs = {};
             const opts = Object.values(FACE_ACCENTS).flat();
-            const wanted = new Set(opts
-                .flatMap((o) => o.side || (o.expr ? [] : Object.keys(o)))
-                .filter((m) => !m.startsWith("rx:")));
+            // Every morph, not just the ones FACE_ACCENTS names: a look's
+            // face_map can pick any of the model's own shapes.
             vrm?.scene?.traverse((o) => {
                 const dict = o.morphTargetDictionary;
                 if (!dict || !o.morphTargetInfluences) return;
-                for (const name of wanted) {
-                    if (name in dict) (morphs[name] ||= []).push([o, dict[name]]);
-                }
+                for (const [name, idx] of Object.entries(dict)) (morphs[name] ||= []).push([o, idx]);
             });
             // Which of the expressions a channel can ask for by name this
             // model actually carries (getExpression is undefined for the
@@ -1225,12 +1388,13 @@ export class FaceMotion {
             rig.split = true;
             const t0 = performance.now();
             try {
-                const { morphs, parts } = splitEmotionExpressions(vrm, this.r.libs.THREE);
+                const { morphs, parts, layers } = splitEmotionExpressions(vrm, this.r.libs.THREE);
                 Object.assign(rig.morphs, morphs);
                 rig.parts = parts;
+                rig.layers = layers;
                 const got = Object.entries(parts).map(([p, h]) => `${p}(${Object.keys(h).join("+")})`).join(" ");
                 const extra = Object.keys(rig.morphs).filter((m) => !m.startsWith("rx:")).length;
-                console.log(`[face] expressions split: ${got || "none"}; ${extra} finer shapes`
+                console.log(`[face] expressions split: ${got || "none"}; ${extra} shapes`
                     + ` (${Math.round(performance.now() - t0)} ms)`);
             } catch (e) {
                 console.warn("[face] expression split failed", e);
@@ -1241,8 +1405,14 @@ export class FaceMotion {
 
     /** A timed face item's level now: 0 before it starts, easing up (to the
      *  burst, then settling to 1), holding, easing down; -1 once it is over.
-     *  A retired item fades from wherever it was. */
+     *  A retired item fades from wherever it was. A `step` item is whole
+     *  from its start for `hold` s, and a retired one is gone at once. */
     _env(it, now) {
+        if (it.step) {
+            const t = now - it.start;
+            if (it.fallStart !== undefined || t >= it.hold) return -1;
+            return t < 0 ? 0 : 1;
+        }
         if (it.fallStart !== undefined) {
             const u = (now - it.fallStart) / it.fall;
             return u >= 1 ? -1 : it.fallFrom * (1 - easeInOutCubic(Math.max(0, u)));
@@ -1355,7 +1525,9 @@ export class FaceMotion {
                 // The feeling thins to a trace rather than going out.
                 const { feelings, level, band } = this.moodItem;
                 this._retire(this.moodItem, now, FACE_MOOD_S);
+                if (this.ownItem) this._retire(this.ownItem, now, 0);
                 this.moodItem = null;
+                this.ownItem = null;
                 this.moodKey = null;
                 const thin = FACE_TRACE_W / band;
                 const bearing = this._bearing(feelings, level).bearing;

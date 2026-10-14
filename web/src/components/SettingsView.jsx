@@ -744,6 +744,18 @@ export default function SettingsView({ active }) {
                                    onChange={(ev) => setField("imagine_model", ev.target.value)} />
                         </div>
                         <div>
+                            <label title={_t("Image quality for grok-imagine-image-2.0, the only model that takes it. Medium is sharper but slower and costs more; Auto lets xAI choose (currently low for new images, medium for edits).")}>
+                                {_t("Imagine quality")}
+                            </label>
+                            <select value={config.imagine_quality || "auto"}
+                                    disabled={(config.imagine_model || "").trim() !== "grok-imagine-image-2.0"}
+                                    onChange={(ev) => setField("imagine_quality", ev.target.value)}>
+                                <option value="auto">{_t("Auto")}</option>
+                                <option value="low">{_t("Low")}</option>
+                                <option value="medium">{_t("Medium")}</option>
+                            </select>
+                        </div>
+                        <div>
                             <label title={_t("Grok Imagine video model used for animated backgrounds and the create_video tool.")}>
                                 {_t("Imagine video model")}
                             </label>

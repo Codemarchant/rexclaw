@@ -822,6 +822,7 @@ def execute_imagine_tool(con, session, tool_name, arguments):
                 prompt=_reference_legend(labels) + prompt,
                 image_data_uris=source_uris,
                 response_format='b64_json',
+                quality=config['imagine_quality'],
             )
         except UserError as e:
             return {'error': str(e)}
@@ -845,6 +846,7 @@ def execute_imagine_tool(con, session, tool_name, arguments):
             prompt=prompt,
             aspect_ratio=aspect_ratio,
             response_format='b64_json',
+            quality=config['imagine_quality'],
         )
     except UserError as e:
         return {'error': str(e)}

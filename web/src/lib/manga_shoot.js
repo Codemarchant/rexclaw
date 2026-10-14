@@ -16,9 +16,9 @@ import { EMOTION_GESTURE_MAP, GESTURE_FILE_MAP } from "../models/avatar_catalog"
 // values picked by eye. The emotion clips (Blush, Sad, …) stand in when a
 // panel has a feeling but no pose.
 const KEY_POSE = {
-    greeting: 0.4, goodbye: 0.45, peace_sign: 0.5, thinking: 0.55, clapping: 0.35,
+    greeting: 0.4, goodbye: 0.39, peace_sign: 0.5, thinking: 0.55, clapping: 0.35,
     blow_kiss: 0.5, jump: 0.42, model_pose: 0.6, shoot: 0.5, look_around: 0.3,
-    sleepy: 0.55, show_full_body: 0.5, spin: 0.25,
+    sleepy: 0.43, show_full_body: 0.5, spin: 0.25,
 };
 const EMOTION_KEY_POSE = 0.5;
 const LEAD_IN_S = 0.35;        // start this far before the key frame: covers the clip's 0.25 s fade-in

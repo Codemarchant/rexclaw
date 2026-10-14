@@ -322,6 +322,11 @@ pack-relative filenames, or absolute web paths —
   use) before bundling one into a pack.
 - **[BOOTH](https://booth.pm)** — pixiv's marketplace, with a large paid (and
   free) VRM avatar scene if you want something more polished or exclusive.
+- **Already have a VRChat avatar?** **[SoulFlame VRM Exporter](https://cucumberworks.github.io/vpm/)**
+  (free, Unity + VRChat Creator Companion) converts it to VRM, including its
+  PhysBones, lilToon/Poiyomi materials and Modular Avatar setup. Rexclaw
+  renders lilToon materials natively, and plays the idle loops and gaze-following
+  eyelids the exporter writes. Check the avatar's terms before converting.
 
 Animation clips are `.vrma` — the bundled gesture pack (pixiv's VRoid Project
 Motion Pack) covers the built-ins, and packs can add custom clips per avatar.
@@ -597,9 +602,15 @@ each project.
 - **[VRoid Project Motion Pack](https://vroid.pixiv.help/hc/en-us/articles/4402394424089)**
   — pixiv Inc. The bundled VRMA gesture clips. Commercial use permitted
   with credit.
+- **[SoulFlame VRM Exporter](https://cucumberworks.github.io/vpm/)** (MIT,
+  CucumberWorks) — the `stretch` and `goodbye` gestures, from its sample
+  motions.
 - **[@pixiv/three-vrm](https://github.com/pixiv/three-vrm)** (MIT) — VRM
   avatar and VRMA animation runtime, on
   **[three.js](https://threejs.org)** (MIT).
+- **[three-liltoon](https://github.com/mochiya-labs/three-liltoon)** (MIT,
+  Mochiya) — renders the lilToon materials of converted VRChat avatars; a
+  port of **[lilToon](https://github.com/lilxyzw/lilToon)** (MIT, lilxyzw).
 - **[Digital Life Project](https://github.com/dlp3d-ai/dlp3d.ai)** (MIT,
   S-Lab, Nanyang Technological University) — source of the motion library in
   `assets/motion/dlp3d-ani` (the speaking gestures and idle fidgets),

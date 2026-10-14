@@ -87,7 +87,7 @@ export function createRenderer(ctx = {}) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1.0;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.setClearColor(CLEAR, 1);
   renderer.info.autoReset = false;          // count every pass of a frame: reflection, shadows, post
   renderer.domElement.setAttribute("aria-label", "The Rexmaw's helm at night");

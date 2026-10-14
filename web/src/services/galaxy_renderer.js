@@ -201,7 +201,7 @@ export class GalaxyRenderer {
         this.hovered = -1;
         this.matches = null;
         this.running = false;
-        this.clock = new THREE.Clock();
+        this.clock = new THREE.Timer();
         this._v = new THREE.Vector3();
 
         this._resize = this._resize.bind(this);
@@ -535,7 +535,7 @@ export class GalaxyRenderer {
         if (on === this.running) return;
         this.running = on;
         if (on) {
-            this.clock.getDelta();
+            this.clock.update();
             this._raf = requestAnimationFrame(this._frame);
         } else {
             cancelAnimationFrame(this._raf);
@@ -546,7 +546,7 @@ export class GalaxyRenderer {
         if (!this.running) return;
         this._raf = requestAnimationFrame(this._frame);
         const now = performance.now();
-        this.uniforms.uTime.value += this.clock.getDelta();
+        this.uniforms.uTime.value += this.clock.update().getDelta();
         if (this._introStart != null) {
             const t = Math.min(1, (now - this._introStart) / INTRO_MS);
             this.uniforms.uIntro.value = t;

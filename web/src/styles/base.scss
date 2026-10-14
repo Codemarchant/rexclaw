@@ -1324,17 +1324,93 @@ body {
     }
     .rx_face_tuning_row {
         display: grid;
-        grid-template-columns: auto 10rem 1fr 4.5rem;
+        // Label and slider give way before anything scrolls sideways.
+        grid-template-columns: auto minmax(5rem, 10rem) minmax(3rem, 1fr) 4rem 1.6rem;
         align-items: center;
         gap: 0.4rem;
         font-size: 0.85rem;
         border-radius: 0.3rem;
         transition: background-color 0.2s;
         &.is-used { background: #fef3c7; }
+        &.is-missing label { color: #94a3b8; }
         label { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .btn-link { padding: 0 0.25rem; }
+        .btn-link.is-set { color: #d97706; }
         input[type="number"] { width: 100%; }
+        input[type="range"] { width: 100%; min-width: 0; }
     }
+    // A part's (or moment's) own shapes: chosen morphs with a weight each.
+    .rx_face_shapes {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        margin: 0.2rem 0 0.5rem 1.6rem;
+        padding: 0.4rem 0.5rem;
+        border-left: 2px solid #e2e8f0;
+        font-size: 0.85rem;
+    }
+    .rx_face_shapes_row {
+        display: grid;
+        grid-template-columns: minmax(4rem, 1fr) minmax(3rem, 1fr) 4rem auto;
+        align-items: center;
+        gap: 0.4rem;
+        span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        input[type="range"] { width: 100%; min-width: 0; }
+        input[type="number"] { width: 100%; }
+        .btn-link { padding: 0 0.25rem; }
+    }
+    .rx_face_shapes_actions { display: flex; gap: 0.4rem; }
+    // Search-to-add: a scrolling list under the box while it has focus.
+    .rx_face_search { position: relative; width: 100%; input { width: 100%; } }
+    .rx_face_search_list {
+        position: absolute;
+        z-index: 5;
+        left: 0;
+        right: 0;
+        max-height: 14rem;
+        overflow-y: auto;
+        background: #fff;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.3rem;
+        box-shadow: 0 6px 16px rgba(15, 23, 42, 0.15);
+    }
+    .rx_face_search_item {
+        display: block;
+        width: 100%;
+        padding: 0.25rem 0.5rem;
+        border: 0;
+        background: none;
+        text-align: left;
+        font-size: 0.85rem;
+        &:hover, &:focus { background: #eff6ff; }
+    }
+    // Feelings: one open at a time, a block per level inside.
+    .rx_face_feeling { border-top: 1px solid #e2e8f0; }
+    .rx_face_feeling_head {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        width: 100%;
+        padding: 0.35rem 0.25rem;
+        border: 0;
+        background: none;
+        font-size: 0.9rem;
+        text-align: left;
+        .fa { width: 0.8rem; color: #64748b; }
+        &:hover { background: #f8fafc; }
+    }
+    .rx_face_feeling_badge {
+        margin-left: auto;
+        font-size: 0.75rem;
+        color: #d97706;
+    }
+    .rx_face_level {
+        margin: 0.25rem 0 0.6rem 1rem;
+        font-size: 0.85rem;
+        .rx_face_shapes { margin-left: 0; }
+    }
+    .rx_face_level_head { display: flex; align-items: center; gap: 0.3rem; .btn-link { padding: 0 0.25rem; } }
+    .rx_face_level_builtin { display: block; margin: 0.15rem 0 0.2rem 1.6rem; color: #475569; }
 }
 
 // Credits link, centred under the last settings section.

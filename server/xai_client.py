@@ -219,8 +219,19 @@ def _delete_with_retry(url, headers, timeout=DEFAULT_TIMEOUT):
     return resp
 
 
+# Imagine's `quality` (config.imagine_quality). xAI takes it on
+# grok-imagine-image-2.0 only, so other models never get it.
+IMAGE_QUALITIES = ('low', 'medium', 'auto')
+_QUALITY_MODELS = ('grok-imagine-image-2.0',)
+
+
+def _image_quality(payload, model, quality):
+    if quality in IMAGE_QUALITIES and model in _QUALITY_MODELS:
+        payload['quality'] = quality
+
+
 def generate_image(*, xai_api_key, images_url, model, prompt,
-                   aspect_ratio=None, response_format='b64_json', user=None):
+                   aspect_ratio=None, response_format='b64_json', user=None, quality=None):
     """POST /v1/images/generations to generate an image with Grok Imagine.
 
     Returns the raw decoded response body. The caller is responsible for
@@ -237,6 +248,7 @@ def generate_image(*, xai_api_key, images_url, model, prompt,
     }
     if aspect_ratio:
         payload['aspect_ratio'] = aspect_ratio
+    _image_quality(payload, model, quality)
     if user:
         payload['user'] = str(user)
     headers = {
@@ -258,7 +270,7 @@ def generate_image(*, xai_api_key, images_url, model, prompt,
 
 def edit_image(*, xai_api_key, edits_url, model, prompt,
                image_data_uris=None, aspect_ratio=None,
-               response_format='b64_json', user=None):
+               response_format='b64_json', user=None, quality=None):
     """POST /v1/images/edits with one or more source images.
 
     Sources come as `image_data_uris` (base64 data URIs — the
@@ -285,6 +297,7 @@ def edit_image(*, xai_api_key, edits_url, model, prompt,
         payload['images'] = entries
     if aspect_ratio:
         payload['aspect_ratio'] = aspect_ratio
+    _image_quality(payload, model, quality)
     if user:
         payload['user'] = str(user)
     headers = {

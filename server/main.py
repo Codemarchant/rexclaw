@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import call_music, heartbeat, memory_vectors, parent_watch, plugins
@@ -116,13 +116,20 @@ if WEB_DIST.is_dir():
     app.mount("/app-assets", StaticFiles(directory=str(WEB_DIST / "app-assets")), name="app-assets")
 
     @app.get("/{full_path:path}")
-    async def spa(full_path: str):
+    async def spa(full_path: str, request: Request):
         candidate = WEB_DIST / full_path
         if full_path and candidate.is_file():
-            headers = None
-            if candidate.name == "index.html":
-                headers = {"Cache-Control": "no-cache"}
-            return FileResponse(candidate, headers=headers)
+            # Unhashed, like index.html: the games' modules and the three.js
+            # they share. Heuristically cached, an update left Rexmaw Raids
+            # running an old water.js against the new three.js. no-cache has
+            # the browser ask each load; an unchanged file is answered with an
+            # empty 304 (FileResponse alone, unlike StaticFiles, resends it).
+            resp = FileResponse(candidate, stat_result=candidate.stat(),
+                                headers={"Cache-Control": "no-cache"})
+            etag = resp.headers.get("etag")
+            if etag and etag in request.headers.get("if-none-match", ""):
+                return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
+            return resp
         # index.html must revalidate on every load: it's the unhashed entry
         # that names the hashed bundles. Without this, Chromium's heuristic
         # caching (10% of time-since-Last-Modified, no revalidation) can pin

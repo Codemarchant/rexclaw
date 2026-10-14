@@ -130,7 +130,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 $("stage").appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 0.5, 8000);
-const clock = new THREE.Clock();
+const clock = new THREE.Timer();
 const time = { value: 0 };
 const ocean = createOcean(); scene.add(ocean.mesh);
 const sky = createSky(scene);
@@ -964,7 +964,7 @@ fx.setScale(innerHeight);
 
 function frame() {
   requestAnimationFrame(frame);
-  const raw = Math.min(clock.getDelta(), 0.05);
+  const raw = Math.min(clock.update().getDelta(), 0.05);
   const dt = raw * S.timeScale;
   time.value += dt;
   const t = time.value, amp = ocean.uniforms.uAmp.value;

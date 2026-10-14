@@ -316,11 +316,16 @@ export function createPost(R) {
     // so the bloom works at the tier's fraction of the screen (1/2, or 1/4 on Low).
     const bloom = new UnrealBloomPass(new THREE.Vector2(Math.max(2, w * dpr * q.bloomScale * 2), Math.max(2, h * dpr * q.bloomScale * 2)),
       tw["bloom.strength"].v, tw["bloom.radius"].v, tw["bloom.threshold"].v);
-    // Each kernel a true Gaussian (sigma = R/3): three's 1-sigma cut-off is close to a
-    // box filter, and separable boxes make square halos.
+    // Each kernel a true Gaussian at the width the look was tuned on: sigma = 1, 1.67,
+    // 2.33, 3, 3.67 per mip (the old radii 3–11 over 3). three r185 doubled its radii
+    // (6–22, sigma R/3), so that's R/6 — and its shader no longer divides by the
+    // weights' sum, so they're normalised here (unnormalised, every blur pass
+    // multiplied the glow and the frame blew out white).
     for (const m of bloom.separableBlurMaterials) {
-      const n = m.defines.KERNEL_RADIUS, s = n / 3;
-      m.uniforms.gaussianCoefficients.value = Array.from({ length: n }, (_, k) => Math.exp(-0.5 * k * k / (s * s)));
+      const n = m.defines.KERNEL_RADIUS, s = n / 6;
+      const w = Array.from({ length: n }, (_, k) => Math.exp(-0.5 * k * k / (s * s)));
+      const sum = w[0] + 2 * w.slice(1).reduce((a, b) => a + b, 0);
+      m.uniforms.gaussianCoefficients.value = w.map((x) => x / sum);
     }
     const setSize = bloom.setSize.bind(bloom);
     bloom.setSize = (bw, bh) => setSize(Math.max(2, bw * q.bloomScale * 2), Math.max(2, bh * q.bloomScale * 2));

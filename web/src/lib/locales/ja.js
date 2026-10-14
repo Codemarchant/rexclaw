@@ -80,6 +80,7 @@ export const JA = {
   "None": "なし",
   "Low": "低",
   "Medium": "中",
+  "Auto": "自動",
   "High": "高",
   "messages": "件のメッセージ",
   "Name": "名前",
@@ -876,6 +877,9 @@ export const JA = {
   "Text model": "テキストモデル",
   "Summary model": "要約モデル",
   "Imagine model": "Imagine モデル",
+  "Imagine quality": "Imagine 品質",
+  "Image quality for grok-imagine-image-2.0, the only model that takes it. Medium is sharper but slower and costs more; Auto lets xAI choose (currently low for new images, medium for edits).":
+    "grok-imagine-image-2.0 の画質（この設定に対応するのはこのモデルのみ）。中はより精細ですが、時間がかかり料金も高くなります。自動は xAI が選びます（現在は新規画像が低、編集が中）。",
   "Imagine video model": "Imagine 動画モデル",
   "Grok Imagine video model used for animated backgrounds and the create_video tool.":
     "アニメーション背景と create_video ツールで使用される Grok Imagine 動画モデル。",
@@ -1742,6 +1746,8 @@ export const JA = {
   "Look Around": "きょろきょろ",
   "Sleepy": "ねむい",
   "Thinking": "考え中",
+  "Stretch": "ストレッチ",
+  "Kick": "キック",
   "Show Full Body": "全身を見せる",
   "Greeting": "あいさつ",
   "Peace Sign": "ピースサイン",
@@ -2161,10 +2167,14 @@ export const JA = {
   "Minecraft sidecar": "Minecraft サイドカー",
   "pixiv Inc. The built-in gesture clips. Commercial use permitted with credit.":
     "pixiv Inc.。組み込みのジェスチャークリップ。クレジット表記により商用利用可。",
+  "MIT, CucumberWorks. The stretch and goodbye gestures, from its sample motions.":
+    "MIT、CucumberWorks。stretch と goodbye のジェスチャー（サンプルモーションより）。",
   "MIT. Plays the avatars and their animations.":
     "MIT。アバターとそのアニメーションを再生します。",
   "MIT. The 3D renderer behind every avatar view.":
     "MIT。すべてのアバター表示を支える 3D レンダラー。",
+  "MIT, Mochiya. Renders the lilToon materials of converted VRChat avatars; a port of lilToon (MIT, lilxyzw).":
+    "MIT、Mochiya。変換した VRChat アバターの lilToon マテリアルを描画します。lilToon（MIT、lilxyzw）の移植です。",
   "MIT, S-Lab, Nanyang Technological University. Source of the speaking gestures and idle fidgets, converted to VRMA by the tool in tools/motion.":
     "MIT、S-Lab, Nanyang Technological University。発話ジェスチャーと待機中の小さな動きの出典。tools/motion のツールで VRMA に変換しています。",
   "Apache-2.0. The offline speech models that listen for wake phrases.":

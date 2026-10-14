@@ -60,7 +60,7 @@ if (process.env.XAI_API_KEY) {
     brain.configure({
         apiKey: process.env.XAI_API_KEY,
         model: process.env.BRAIN_MODEL || "grok-4-fast-non-reasoning",
-        hardModel: process.env.BRAIN_MODEL_HARD || "grok-latest",
+        hardModel: process.env.BRAIN_MODEL_HARD || "grok-4.5",
     });
 }
 

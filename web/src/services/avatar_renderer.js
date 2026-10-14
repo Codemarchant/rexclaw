@@ -29,6 +29,9 @@ import {
 } from "@pixiv/three-vrm";
 import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from "@pixiv/three-vrm-animation";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
+import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
     EMOTION_DECAY_MS,
@@ -42,6 +45,7 @@ import { LookPost } from "./look_post";
 import { ArtStyle } from "./art_style";
 import { MoodMarks } from "./mood_marks";
 import { Ambience, MOOD_AMBIENCE } from "./ambience";
+import { applyEyelids, restoreSpringRest, startVrmExtras, takeSpringRest } from "./vrm_extras";
 
 // Kept async + memoized so the renderer code below stays identical to the
 // CDN-loading version it was ported from.
@@ -467,6 +471,143 @@ function nameMorphTargets(gltf) {
     });
 }
 
+// lilToon material settings that SoulFlame VRM Exporter and Mochiya Avatar
+// Tools write next to each material's MToon fallback; three-liltoon renders
+// them.
+const LILTOON_EXTENSION = "MOCHIYA_materials_liltoon";
+
+// three-liltoon 0.1.5 (pinned in package.json) premultiplies a transparent
+// material's colour as lilToon does (blend One / OneMinusSrcAlpha), then
+// sRGB-encodes that premultiplied colour for the canvas. encode(c·a) is far
+// above encode(c)·a at low alpha (the curve's slope is 12.92 near 0), so a
+// face layer's faint parts blow out to white (Shinano's blush and tears).
+// Encoding the straight colour and premultiplying after lands within ~2/255
+// of Unity. Only the canvas pass is affected: into a linear render target
+// (the bloom path) the library skips the encode. Patched on the class, not
+// the loaded materials: the library draws extra passes (two-pass
+// transparency, fur, outline) with LilToonMaterials it makes itself.
+// Recheck on upgrading.
+const LILTOON_ENCODE_START = "highp vec3 linearColor = max(out_var_SV_Target.rgb, vec3(0.0));";
+const LILTOON_ENCODE_END = "lessThanEqual(linearColor, vec3(0.0031308))\n        );";
+
+function unpremultiplyLilToonEncode(shader) {
+    const src = shader.fragmentShader;
+    if (!src.includes(LILTOON_ENCODE_START) || !src.includes(LILTOON_ENCODE_END)) return;
+    shader.fragmentShader = src
+        .replace(LILTOON_ENCODE_START, "highp float rxPremulA = out_var_SV_Target.a;\n"
+            + "        highp vec3 linearColor = rxPremulA > 0.0 ? max(out_var_SV_Target.rgb, vec3(0.0)) / rxPremulA : vec3(0.0);")
+        .replace(LILTOON_ENCODE_END, `${LILTOON_ENCODE_END}\n        out_var_SV_Target.rgb *= rxPremulA;`);
+}
+
+function fixLilToonPremultipliedEncode(LilToonMaterial, THREE) {
+    const premultiplied = (m) => m.transparent
+        && m.blendSrc === THREE.OneFactor && m.blendDst === THREE.OneMinusSrcAlphaFactor;
+    LilToonMaterial.prototype.onBeforeCompile = function (shader) {
+        if (premultiplied(this)) unpremultiplyLilToonEncode(shader);
+    };
+    // three caches programs by this key; the patch depends on the blend.
+    LilToonMaterial.prototype.customProgramCacheKey = function () {
+        return premultiplied(this) ? "rx-unpremultiplied-encode" : "";
+    };
+}
+
+// enableLilToon wraps every renderer.render with its pass preparation, so
+// each lilToon model holds a lease on it until its materials are disposed
+// (VRMUtils.deepDispose on unload); the wrapper goes once none is left.
+function leaseLilToonRendering(root, { LilToonMaterial, enableLilToon }, renderer) {
+    const live = new Set();
+    root.traverse((o) => {
+        if (!o.isMesh) return;
+        for (const m of [].concat(o.material)) if (m instanceof LilToonMaterial) live.add(m);
+    });
+    if (!live.size) return;
+    const release = enableLilToon(renderer);
+    for (const m of live) {
+        const onDispose = () => {
+            m.removeEventListener("dispose", onDispose);
+            live.delete(m);
+            if (!live.size) release();
+        };
+        m.addEventListener("dispose", onDispose);
+    }
+}
+
+// A shape's normal changes, where the file leaves them out of a mesh part
+// whose other shapes have them. Exporters write them for only some shapes
+// and parts (Shinano's see-through face layer has none), and GLTFLoader
+// then reuses the base normals — "no change" — so a blush or tear layer a
+// shape slides out of the head is lit with the normals it had hidden
+// there, 26–48° off, and lilToon's toon shadow greys it. Unity computes
+// these from the mesh on import; so does this. Only the change in surface
+// direction is added, so an artist's custom face normals stay; a part with
+// no shape normals at all is left as the file has it.
+function fillMorphNormals(root, THREE) {
+    root.traverse((o) => {
+        const g = o.isMesh ? o.geometry : null;
+        const base = g?.attributes.normal;
+        const normals = g?.morphAttributes.normal;
+        if (!base || !g.index || !normals?.includes(base) || g.morphTargetsRelative === false) return;
+        const pos = g.attributes.position, idx = g.index.array, n = pos.count;
+        const P = new Float32Array(n * 3);
+        for (let v = 0; v < n; v++) { P[v * 3] = pos.getX(v); P[v * 3 + 1] = pos.getY(v); P[v * 3 + 2] = pos.getZ(v); }
+        // Triangles around each vertex (CSR), built once per part.
+        const start = new Uint32Array(n + 1);
+        for (let k = 0; k < idx.length; k++) start[idx[k] + 1]++;
+        for (let v = 0; v < n; v++) start[v + 1] += start[v];
+        const tris = new Uint32Array(idx.length), next = start.slice(0, n);
+        for (let k = 0; k < idx.length; k++) tris[next[idx[k]]++] = k - (k % 3);
+        // Area-weighted normal of the triangles around v, positions Q, into N at v.
+        const normalAt = (Q, v, N) => {
+            let x = 0, y = 0, z = 0;
+            for (let s = start[v]; s < start[v + 1]; s++) {
+                const f = tris[s], i = idx[f] * 3, j = idx[f + 1] * 3, k = idx[f + 2] * 3;
+                const ux = Q[j] - Q[i], uy = Q[j + 1] - Q[i + 1], uz = Q[j + 2] - Q[i + 2];
+                const wx = Q[k] - Q[i], wy = Q[k + 1] - Q[i + 1], wz = Q[k + 2] - Q[i + 2];
+                x += uy * wz - uz * wy; y += uz * wx - ux * wz; z += ux * wy - uy * wx;
+            }
+            const l = Math.hypot(x, y, z) || 1;
+            N[v * 3] = x / l; N[v * 3 + 1] = y / l; N[v * 3 + 2] = z / l;
+        };
+        let rest = null;
+        g.morphAttributes.position.forEach((delta, t) => {
+            if (normals[t] !== base) return;
+            if (!rest) { rest = new Float32Array(n * 3); for (let v = 0; v < n; v++) normalAt(P, v, rest); }
+            const Q = P.slice(), moved = [];
+            for (let v = 0; v < n; v++) {
+                const dx = delta.getX(v), dy = delta.getY(v), dz = delta.getZ(v);
+                if (!(dx || dy || dz)) continue;
+                Q[v * 3] += dx; Q[v * 3 + 1] += dy; Q[v * 3 + 2] += dz;
+                moved.push(v);
+            }
+            // The moved vertices and their neighbours, whose triangles moved.
+            const touched = new Set();
+            for (const v of moved) {
+                for (let s = start[v]; s < start[v + 1]; s++) {
+                    touched.add(idx[tris[s]]); touched.add(idx[tris[s] + 1]); touched.add(idx[tris[s] + 2]);
+                }
+            }
+            const out = new Float32Array(n * 3);
+            for (const v of touched) {
+                normalAt(Q, v, out);
+                out[v * 3] -= rest[v * 3]; out[v * 3 + 1] -= rest[v * 3 + 1]; out[v * 3 + 2] -= rest[v * 3 + 2];
+            }
+            normals[t] = new THREE.BufferAttribute(out, 3);
+        });
+    });
+}
+
+// The JSON chunk of a binary glTF (.vrm / .glb), or null for anything else.
+function glbJson(buffer) {
+    if (buffer.byteLength < 20) return null;
+    const view = new DataView(buffer);
+    if (view.getUint32(0, true) !== 0x46546c67 || view.getUint32(16, true) !== 0x4e4f534a) return null;  // "glTF", "JSON"
+    try {
+        return JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 20, view.getUint32(12, true))));
+    } catch (e) {
+        return null;
+    }
+}
+
 // Emotion definitions. `cap` is the peak weight for the primary expression —
 // kept below 1.0 because full-weight VRoid expressions read as "too raw" /
 // over-smiley. `secondary` couples a subtle mouth shape into the emotion so
@@ -719,7 +860,8 @@ class AvatarRenderer {
         // Face director's face and head (face_motion.js), base avatar only.
         this._face = new FaceMotion(this, EMOTION_STATES);
         this._faceTuningPreview = null;   // the tuning dialog's live values (faceTuning)
-        this._closeUp = false;            // the tuning dialog's face close-up (setCloseUp)
+        this._faceMapPreview = null;      // the tuning dialog's face_map draft (faceMap)
+        this._closeUp = null;             // the tuning dialog's view (setCloseUp); null while it's closed
         this._rawSpeakingIntensity = 0;   // set by setSpeakingIntensity()
         this._speakingIntensity = 0;      // smoothed for animation
         this._fullBody = false;           // false = face shot, true = full-body + orbit
@@ -890,7 +1032,7 @@ class AvatarRenderer {
         // _captureHeadWorldY re-applies with the model's actual head height.
         this._applyCameraPreset();
 
-        this.clock = new THREE.Clock();
+        this.clock = new THREE.Timer();
 
         // mount() may have run before this lazy init completed (the AvatarCanvas
         // host is attached on Owl's child-first mount, while loadVRM kicks off
@@ -922,20 +1064,58 @@ class AvatarRenderer {
         }
     }
 
+    /** GLTFLoader with the Draco / meshopt / KTX2 decoders that models
+     *  optimised by gltf-transform and similar tools need. The Draco and
+     *  Basis decoders locate their own files (import.meta.url), which Vite
+     *  bundles, so nothing is downloaded. */
+    _gltfLoader() {
+        const { GLTFLoader } = this.libs;
+        this._draco ??= new DRACOLoader();
+        this._ktx2 ??= new KTX2Loader().detectSupport(this.renderer);
+        return new GLTFLoader()
+            .setDRACOLoader(this._draco)
+            .setKTX2Loader(this._ktx2)
+            .setMeshoptDecoder(MeshoptDecoder);
+    }
+
+    /** Loads a VRM — the base avatar, a peer or a combo partner. A file
+     *  carrying lilToon materials also gets three-liltoon, imported only then
+     *  (its shader port is 2 MB). Its render passes wrap every
+     *  renderer.render while such an avatar is loaded (leaseLilToonRendering);
+     *  a scene without one never pays for them. */
+    async _loadVrmGltf(url) {
+        const { THREE, VRMLoaderPlugin, VRMAnimationLoaderPlugin } = this.libs;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`VRM fetch failed (${res.status}): ${url}`);
+        const buffer = await res.arrayBuffer();
+        let lilToon = null;
+        let core = null;
+        if (glbJson(buffer)?.extensionsUsed?.includes(LILTOON_EXTENSION)) {
+            lilToon = await import("@mochiya/three-liltoon/vrm");
+            core = await import("@mochiya/three-liltoon");
+            fixLilToonPremultipliedEncode(core.LilToonMaterial, THREE);
+        }
+        const loader = this._gltfLoader();
+        loader.register((parser) => (lilToon
+            ? lilToon.enableLilToonVRM(new VRMLoaderPlugin(parser))
+            : new VRMLoaderPlugin(parser)));
+        loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+        const gltf = await loader.parseAsync(buffer, THREE.LoaderUtils.extractUrlBase(url));
+        if (core) leaseLilToonRendering(gltf.scene, core, this.renderer);
+        fillMorphNormals(gltf.scene, THREE);
+        nameMorphTargets(gltf);
+        return gltf;
+    }
+
     async _doLoadVRM(url, generation) {
         await this._ensureRenderer();
-        const { THREE, GLTFLoader, VRMLoaderPlugin, VRMUtils, VRMAnimationLoaderPlugin } = this.libs;
+        const { THREE, VRMUtils } = this.libs;
 
         // Track what URL we're targeting so a rapid second loadVRM(sameUrl)
         // dedupes via the idempotency check at the top of loadVRM.
         this._loadedVrmUrl = url;
 
-        const loader = new GLTFLoader();
-        loader.register((parser) => new VRMLoaderPlugin(parser));
-        loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
-
-        const gltf = await loader.loadAsync(url);
-        nameMorphTargets(gltf);
+        const gltf = await this._loadVrmGltf(url);
 
         // A newer loadVRM() started while we were awaiting. Dispose our
         // freshly-loaded gltf and bail without touching the live scene —
@@ -1084,6 +1264,7 @@ class AvatarRenderer {
         // final orientation + rest pose so they don't visibly lurch to catch
         // up on the first few frames after an avatar / outfit swap.
         try { vrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
+        this._vrmExtras = startVrmExtras(gltf, vrm, this.mixer, THREE);
         // VR-session hand colliders survive an avatar swap: the new spring
         // bone manager needs the shared group re-registered.
         this._applySpringCollidersToVRM(vrm);
@@ -1878,7 +2059,7 @@ class AvatarRenderer {
         this._comboPendingKey = key;
         // Locomotion owns the body while walking — same rule as playGesture.
         if (this._moving) return;
-        const { THREE, GLTFLoader, VRMLoaderPlugin, VRMUtils, VRMAnimationLoaderPlugin,
+        const { THREE, GLTFLoader, VRMUtils, VRMAnimationLoaderPlugin,
                 createVRMAnimationClip } = this.libs;
 
         const generation = ++this._comboGeneration;
@@ -1905,10 +2086,8 @@ class AvatarRenderer {
                     loadClip(combo.partner_vrma_url),
                 ]);
             } else {
-                const partnerLoader = new GLTFLoader();
-                partnerLoader.register((parser) => new VRMLoaderPlugin(parser));
                 [partnerGltf, baseVrma, partnerVrma] = await Promise.all([
-                    partnerLoader.loadAsync(combo.partner_vrm_url),
+                    this._loadVrmGltf(combo.partner_vrm_url),
                     loadClip(combo.vrma_url),
                     loadClip(combo.partner_vrma_url),
                 ]);
@@ -2352,6 +2531,7 @@ class AvatarRenderer {
         });
         host.setEmotion = (name, opts) => this.setPeerEmotion(peer.id, name, opts);
         host.faceTuning = (id) => this.faceTuning(id, peer);
+        host.faceMap = () => this.faceMap(peer);
         host.eyeRange = () => this.eyeRange(peer);
         host._clipExpressions = () => this._clipExpressions(peer);
         return host;
@@ -2393,15 +2573,12 @@ class AvatarRenderer {
         if (peer._loadedVrmUrl === vrmUrl && peer.vrm) return;  // idempotent
         const generation = ++peer._loadGeneration;
         peer._loadedVrmUrl = vrmUrl;
-        const { THREE, GLTFLoader, VRMLoaderPlugin, VRMUtils, VRMAnimationLoaderPlugin,
+        const { THREE, GLTFLoader, VRMUtils, VRMAnimationLoaderPlugin,
                 createVRMAnimationClip } = this.libs;
 
-        const loader = new GLTFLoader();
-        loader.register((parser) => new VRMLoaderPlugin(parser));
-        loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
         let gltf;
         try {
-            gltf = await loader.loadAsync(vrmUrl);
+            gltf = await this._loadVrmGltf(vrmUrl);
         } catch (e) {
             console.error("[voice] peer VRM load failed", vrmUrl, e);
             if (peer._loadGeneration === generation) peer._loadedVrmUrl = null;
@@ -2469,6 +2646,7 @@ class AvatarRenderer {
             peer._hipsBasePos = hipsNode ? hipsNode.position.clone() : null;
         } catch (e) { /* non-fatal */ }
         try { vrm.springBoneManager?.reset(); } catch (e) { /* non-fatal */ }
+        peer._vrmExtras = startVrmExtras(gltf, vrm, peer.mixer, THREE);
         this._applySpringCollidersToVRM(vrm);
 
         peer._idle.reset();
@@ -4196,13 +4374,12 @@ class AvatarRenderer {
         this._loadedRoomUrl = url;
         await this._ensureRenderer();
         if (this._roomLoadGeneration !== generation) return;  // superseded during init
-        const { GLTFLoader } = this.libs;
         // Dispose any existing room first so swaps don't stack environments.
         // _disposeRoom (not clearRoom) so we don't bump our own generation.
         this._disposeRoom();
         let gltf;
         try {
-            gltf = await new GLTFLoader().loadAsync(url);
+            gltf = await this._gltfLoader().loadAsync(url);
         } catch (e) {
             console.error("[voice] room load failed", url, e);
             if (this._roomLoadGeneration === generation) this._loadedRoomUrl = null;
@@ -4953,7 +5130,8 @@ class AvatarRenderer {
      *  `shot` overrides the view's own face/full toggle — the auto-follow
      *  director asks for "face" or "full" by name (see _autoShotOrbit). */
     _cameraPreset(shot = null) {
-        const wantFull = shot ? shot === "full" : this._fullBody;
+        // The tuning dialog frames the face whatever the view behind it.
+        const wantFull = shot ? shot === "full" : this._fullBody && this._closeUp === null;
         // The heights were captured at load, standing on the floor at the
         // model's own size; a group call's Ctrl + drag (_bindCtrlDrag) can
         // raise and resize a character since, so they are carried along.
@@ -5901,6 +6079,31 @@ class AvatarRenderer {
         this._faceTuningPreview = tuning || null;
     }
 
+    /** The look's own face shapes (face_map: { channels, feelings }), the
+     *  tuning dialog's draft while it is open, or null to auto-detect. The
+     *  same object while nothing changes, so the face caches by it. */
+    faceMap(actor = this) {
+        if (actor === this && this._faceMapPreview) return this._faceMapPreview;
+        const payload = actor === this ? this._currentAvatarPayload : actor.avatarPayload;
+        const m = payload?.outfits?.find((o) => o.vrm_url === actor._loadedVrmUrl)?.face_map;
+        return m && (m.channels || m.feelings) ? m : null;
+    }
+
+    /** The tuning dialog's face_map draft, null to go back to the saved one. */
+    setFaceMapPreview(map) {
+        this._faceMapPreview = map || null;
+    }
+
+    /** The loaded model's morph names, for picking a channel's shapes. */
+    faceMorphNames() {
+        return this.vrm ? this._face.morphNames() : [];
+    }
+
+    /** What rexclaw finds for a channel on the loaded model by itself. */
+    faceAutoSource(id) {
+        return this.vrm ? this._face.autoSource(id) : null;
+    }
+
     faceTuningSizes() {
         return this.vrm ? this._face.tuningSizes() : {};
     }
@@ -5914,9 +6117,10 @@ class AvatarRenderer {
         return this._face.record(fn);
     }
 
-    /** The face tuning close-up on (the face fills the frame) or off. */
+    /** The face tuning view: true = the face fills the frame, false = head
+     *  and shoulders, null = the dialog is closed (back to the normal shot). */
     setCloseUp(on) {
-        this._closeUp = !!on;
+        this._closeUp = on == null ? null : !!on;
         if (this._orbitControls) this._orbitControls.minDistance = on ? CLOSE_UP_MIN_DISTANCE : 1.2;
         this._applyCameraPreset();
     }
@@ -6100,8 +6304,9 @@ class AvatarRenderer {
             }
         }
 
+        this.clock.update();
         const delta = this.clock.getDelta();
-        const now = this.clock.elapsedTime;
+        const now = this.clock.getElapsed();
 
         // Steering first so the mixer + camera see this frame's position.
         // Locomotion runs in XR too (walkTo-driven placement from the VR move
@@ -6110,6 +6315,9 @@ class AvatarRenderer {
         // A performance sets its dance clips' times and weights from the
         // music clock before the mixer poses the bones with them.
         if (this._perf) this._preparePerformance(delta);
+        // Spring joints whose rest the file's idle loops animate: back to
+        // their loaded pose before the mixer (see vrm_extras.js).
+        if (this.vrm) restoreSpringRest(this._vrmExtras);
         if (this.mixer) this.mixer.update(delta);
         // Clip releases queued during that update (finished events, stop
         // requests) happen here: the bones hold the clip's final frame, and
@@ -6150,6 +6358,8 @@ class AvatarRenderer {
             for (const cb of this._preVRMUpdateCallbacks) {
                 try { cb(delta, now); } catch (e) { /* non-fatal */ }
             }
+            takeSpringRest(this._vrmExtras);
+            applyEyelids(this.vrm, this._vrmExtras);
             try {
                 this.vrm.expressionManager?.update?.();
                 this.vrm.update(delta);
@@ -6160,6 +6370,7 @@ class AvatarRenderer {
         if (this._peers.size) {
             for (const peer of this._peers.values()) {
                 if (!peer.vrm) continue;
+                restoreSpringRest(peer._vrmExtras);
                 if (peer.mixer) peer.mixer.update(delta);
                 this._flushReleases(peer);
                 this._applyIdle(peer, delta);
@@ -6171,6 +6382,8 @@ class AvatarRenderer {
                 this._applyVowels(peer);
                 this._applyEmotion(peer, delta);
                 this._applyIdleMouth(peer);
+                takeSpringRest(peer._vrmExtras);
+                applyEyelids(peer.vrm, peer._vrmExtras);
                 try {
                     peer.vrm.expressionManager?.update?.();
                     peer.vrm.update(delta);
@@ -6615,7 +6828,7 @@ class AvatarRenderer {
         key.castShadow = shadows;
         if (this.renderer.shadowMap.enabled !== shadows) {
             this.renderer.shadowMap.enabled = shadows;
-            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            this.renderer.shadowMap.type = THREE.PCFShadowMap;
             // Shader programs bake in whether shadow maps are sampled —
             // force a recompile so the toggle shows without a reload.
             this.scene.traverse((obj) => {

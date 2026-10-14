@@ -1340,6 +1340,14 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         try:
             if realtime:
                 xai_resp = realtime[0].mint(realtime[1])
+            elif xai_oauth.account(config) != 'key':
+                # Signed in with Grok: the browser opens the socket with the
+                # subscription token itself. A client secret minted from it
+                # is billed to the account's credits, not the subscription —
+                # xAI refuses it with a 402 "personal-team-blocked:
+                # spending-limit" at 0% usage (checked 2026-10-14), while
+                # the token as the sub-protocol opens a session.
+                xai_resp = {'token': xai_key}
             else:
                 xai_resp = xai_client.mint_ephemeral_token(
                     xai_api_key=xai_key,

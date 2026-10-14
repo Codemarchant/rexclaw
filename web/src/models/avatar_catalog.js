@@ -63,11 +63,15 @@ export function emotionSettleTarget(emotion, avatarName) {
 export const GESTURES = [
     { id: "clapping", label: "Clapping", icon: "fa-hand-paper-o", url: `${VRMA_BASE}/Clapping.vrma` },
     { id: "dance", label: "Dance", icon: "fa-music", url: `${VRMA_BASE}/Dance.vrma` },
-    { id: "goodbye", label: "Goodbye", icon: "fa-hand-peace-o", url: `${VRMA_BASE}/Goodbye.vrma` },
+    // SoulFlame VRM Exporter's sample wave (MIT, CucumberWorks).
+    { id: "goodbye", label: "Goodbye", icon: "fa-hand-peace-o", url: `${VRMA_BASE}/Wave.vrma` },
     { id: "jump", label: "Jump", icon: "fa-arrow-up", url: `${VRMA_BASE}/Jump.vrma` },
     { id: "look_around", label: "Look Around", icon: "fa-search", url: `${VRMA_BASE}/LookAround.vrma` },
-    { id: "sleepy", label: "Sleepy", icon: "fa-moon-o", url: `${VRMA_BASE}/Sleepy.vrma` },
+    { id: "sleepy", label: "Sleepy", icon: "fa-moon-o", url: `${VRMA_BASE}/Yawning.vrma` },
     { id: "thinking", label: "Thinking", icon: "fa-lightbulb-o", url: `${VRMA_BASE}/Thinking.vrma` },
+    // SoulFlame VRM Exporter's sample motion (MIT, CucumberWorks).
+    { id: "stretch", label: "Stretch", icon: "fa-sun-o", url: `${VRMA_BASE}/Stretch.vrma` },
+    { id: "kick", label: "Kick", icon: "fa-bolt", url: `${VRMA_BASE}/Kick.vrma` },
     // pixiv VRoid Motion Pack
     { id: "show_full_body", label: "Show Full Body", icon: "fa-arrows-alt", url: `${VRMA_BASE}/VRMA_01_show_full_body.vrma` },
     { id: "greeting", label: "Greeting", icon: "fa-handshake-o", url: `${VRMA_BASE}/VRMA_02_greeting.vrma` },
@@ -75,7 +79,7 @@ export const GESTURES = [
     { id: "shoot", label: "Shoot", icon: "fa-crosshairs", url: `${VRMA_BASE}/VRMA_04_shoot.vrma` },
     { id: "spin", label: "Spin", icon: "fa-refresh", url: `${VRMA_BASE}/VRMA_05_spin.vrma` },
     { id: "model_pose", label: "Model Pose", icon: "fa-camera", url: `${VRMA_BASE}/VRMA_06_model_pose.vrma` },
-    { id: "squat", label: "Squats", icon: "fa-compress", url: `${VRMA_BASE}/VRMA_07_squat.vrma`, loop: true },
+    { id: "squat", label: "Squats", icon: "fa-compress", url: `${VRMA_BASE}/Squat.vrma`, loop: true },
     { id: "backflip", label: "Backflip", icon: "fa-rotate-left", url: `${VRMA_BASE}/Backflip.vrma` },
     { id: "blow_kiss", label: "Blow Kiss", icon: "fa-heart", url: `${VRMA_BASE}/BlowKiss.vrma` },
     { id: "belly_dance", label: "Belly Dance", icon: "fa-female", url: `${VRMA_BASE}/BellyDance.vrma` },

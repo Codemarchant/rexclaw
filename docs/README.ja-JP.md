@@ -329,6 +329,12 @@ data/avatars/Kira/
 - **[BOOTH](https://booth.pm)** — pixiv のマーケットプレイス。より
   作り込まれた、あるいは限定的なアバターを求めるなら、有料（と無料）の
   VRM アバターが豊富にあります。
+- **VRChat アバターをお持ちなら** **[SoulFlame VRM Exporter](https://cucumberworks.github.io/vpm/)**
+  （無料、Unity + VRChat Creator Companion）で VRM に変換できます。
+  PhysBone、lilToon/Poiyomi のマテリアル、Modular Avatar の構成も含めて
+  変換されます。Rexclaw は lilToon マテリアルをそのまま描画し、エクスポーター
+  が書き出す待機ループと視線に合わせたまぶたの動きも再生します。変換する前に
+  アバターの利用規約を確認してください。
 
 アニメーションクリップは `.vrma` 形式です — 同梱ジェスチャーパック
 （pixiv の VRoid Project Motion Pack）が組み込み分をカバーし、パックで
@@ -614,9 +620,15 @@ def setup(api):
 - **[VRoid Project Motion Pack](https://vroid.pixiv.help/hc/ja/articles/4402394424089)**
   — pixiv Inc.。同梱の VRMA ジェスチャークリップ。クレジット表記により
   商用利用可。
+- **[SoulFlame VRM Exporter](https://cucumberworks.github.io/vpm/)**（MIT、
+  CucumberWorks）— `stretch` と `goodbye` のジェスチャー（サンプルモーション
+  より）。
 - **[@pixiv/three-vrm](https://github.com/pixiv/three-vrm)**（MIT）— VRM
   アバターと VRMA アニメーションのランタイム。基盤は
   **[three.js](https://threejs.org)**（MIT）。
+- **[three-liltoon](https://github.com/mochiya-labs/three-liltoon)**（MIT、
+  Mochiya）— 変換した VRChat アバターの lilToon マテリアルを描画します。
+  **[lilToon](https://github.com/lilxyzw/lilToon)**（MIT、lilxyzw）の移植です。
 - **[Digital Life Project](https://github.com/dlp3d-ai/dlp3d.ai)**（MIT、
   S-Lab, Nanyang Technological University）— `assets/motion/dlp3d-ani` の
   モーションライブラリ（発話ジェスチャーと待機中のフィジェット）の出典。
