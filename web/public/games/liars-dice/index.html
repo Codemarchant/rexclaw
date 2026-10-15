@@ -95,7 +95,10 @@ const game = RexGame.create({
     + "(e.g. 'four threes'). Each bid must be higher: more dice, or the same number of a higher face (2 to 6). Instead of "
     + "bidding you can call the last bid a lie. Then every die is shown: if there are fewer than bid, the bidder loses a "
     + "die, otherwise the caller does. Lose all your dice and you lose the game. Whether ones are wild (count as every face) "
-    + "depends on the mode; each turn tells you. Your dice are SECRET: never say them out loud. Bluffing is half the game.",
+    + "depends on the mode; each turn tells you. Your dice are SECRET: never say them out loud. Bluffing is half the game: "
+    + "whatever you say about your dice is a play, not a report: act strong when you're weak, act weak when you're "
+    + "strong, or tell the plain truth when they'll take it for a bluff. Read the user (how they bid, what they say, how "
+    + "they took your last bluff) and say whatever tricks them best.",
   actions: [
     { name: "bid", description: "Raise the bid: how many dice of one face (2-6) you claim are on the whole table.",
       schema: { type: "object", properties: { quantity: { type: "integer" }, face: { type: "integer", enum: [2, 3, 4, 5, 6] } }, required: ["quantity", "face"] } },
@@ -149,7 +152,7 @@ function askBid() {
   }
   const raise = bid ? `To raise: more than ${bid.quantity} dice, or ${bid.quantity} of a face above ${bid.face}.` : "You open: bid anything.";
   game.force({
-    state: `## Your dice (secret): ${mine.join(" ")}\n${M.wild ? "Ones are WILD. Counting your wild ones, you hold" : "No wild dice this game. You hold"}: ${per}.\n`
+    state: `## Your dice (secret): ${mine.join(" ")}\n${M.wild ? "Ones are WILD. Counting your wild ones, you hold (secret too)" : "No wild dice this game. You hold (secret too)"}: ${per}.\n`
       + `The user has ${count.you} hidden dice; ${total()} dice in all. Any one die shows a given face `
       + `${M.wild ? "or a wild one 1 time in 3" : "1 time in 6"}, so the user's cup holds about ${avg} of any face.${judge}\n${raise}`,
     query: bid ? `The user bids ${bidText(bid)}. Raise with bid, or call_liar.` : "You open the bidding: bid.",

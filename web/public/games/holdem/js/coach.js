@@ -78,7 +78,7 @@
         : "You are the big blind: you act first after the flop."));
     lines.push(`Your cards (secret, don't say them): ${cardsText(hole)}. Board: ${board.length ? cardsText(board) : "nothing yet"}.`);
     const preTop = !board.length ? ` A top-${pct(P.PCT[P.code(hole)])} starting hand.` : "";
-    lines.push(`You have ${P.describe(hole, board)}. It wins ${pct(eq)} against a random hand.${preTop}`);
+    lines.push(`Your hand (secret too): ${P.describe(hole, board)}. It wins ${pct(eq)} against a random hand.${preTop}`);
     const draws = P.draws(hole, board);
     const outs = draws.reduce((n, d) => n + d.outs, 0);
     if (draws.length) {

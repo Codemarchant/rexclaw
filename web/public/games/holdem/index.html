@@ -150,9 +150,13 @@ const RULES = "You are playing heads-up no-limit Texas Hold'em against the user,
   + "turn and on the river, and the best five-card hand wins at a showdown. Every amount you give is a raise-TO total "
   + "for the current betting round (raise to 300 means your bet this round becomes 300 in all). You never see the "
   + "user's cards before a showdown, and nothing you're told gives them away: your equity figures are against a random "
-  + "hand. Your own cards are secret too: never say what they are (until a showdown, or show_cards). Talk about your "
-  + "hand all you like, and lie about it if you want, but don't give it away. "
-  + "The user may lie about their hand, and so may you: bluffing, table talk and fishing for tells are the game. "
+  + "hand. Your own cards are secret too: never say what they are (until a showdown, or show_cards). Whatever you say "
+  + "about your hand is a play, not a report: act strong when you're weak, act weak when you're strong, or tell the "
+  + "plain truth when they'll take it for a bluff. Read the user (how they bet, what they say, how they took your last "
+  + "bluff) and say whatever tricks them best. One old trick is a fake slip: let a hand out as if by accident (\"Raise "
+  + "to 300, my flush can carry it... oops, forget I said that.\") when you don't hold it, or when the truth will sound "
+  + "like a trap. "
+  + "The user may lie about their hand too: bluffing, table talk and fishing for tells are the game. "
   + "Play in your own character and talk while you play. On your turn you get your cards, what you hold, the pot and "
   + "the price, a read on how the user plays, and a sensible plan with a bluff option. You decide; your character can "
   + "overrule the plan. Polly, the parrot on the rail, sometimes squawks 'Bluff!' after your bets. She isn't always right.";
@@ -277,8 +281,10 @@ function askMove(lead = "", afterUser = null) {
     state: K.brief(h, { handNo: match.handNo, reads: reads(), shoveOnly: !!M.reset, levelText: levelText() }),
     // Last thing they read before speaking, so the secrecy rule goes here:
     // a voice model otherwise narrates its decision ("nine-three, I fold").
-    query: `${lead}${did}Your turn: poker_action. Act first, then talk. Poker face: say what you did and talk to `
-      + "the user, but never name your cards, say how strong or weak your hand is, or admit a bluff.",
+    query: `${lead}${did}Your turn: poker_action. Act first, then talk. Poker face: say your move the way a player `
+      + "at the table would (\"I check.\", \"Raise to 300.\") and talk to the user. Anything you say about your hand is "
+      + "a play you chose to trick them (a bluff, a truth they won't believe, or a fake slip), never a real slip; and "
+      + "never admit a bluff.",
     actions: ["poker_action"],
     afterUser,
   });
@@ -370,14 +376,17 @@ function afterAction(p, events, before, notes = [], squawk = false) {
   if (p === "them") {
     told = `You ${verb}${a.allIn ? " (all-in)" : ""}.${notes.length ? ` (${notes.join("; ")}.)` : ""}`;
     // Their line after the action is the other place a hand slips out.
-    if (!h.done || h.result.how === "fold") told += " Poker face: don't reveal your cards or your hand's strength.";
+    if (!h.done || h.result.how === "fold") told += " Poker face: anything you say about your hand is a play, not a report.";
     if (squawk) told += " Polly the parrot squawked \"Bluff!\" at your bet. She isn't always right; the user heard her.";
   }
   if (h.street !== before && !h.done) {
-    const streetNote = `${T.STREETS[h.street][0].toUpperCase() + T.STREETS[h.street].slice(1)}: the board is ${cards(h.board)}. `
-      + `You have ${P.describe(h.hole.them, h.board)}. Pot ${T.potTotal(h)}.`;
-    if (p === "them") told += ` ${streetNote}`;
-    else if (!theirTurn()) game.tell(streetNote, true);
+    const street = `${T.STREETS[h.street][0].toUpperCase() + T.STREETS[h.street].slice(1)}: the board is ${cards(h.board)}.`;
+    const pot = ` Pot ${T.potTotal(h)}.`;
+    // Their move's result leaves the hand out (their next brief has it):
+    // read back with the move, it was said with the move ("I check with
+    // my pair of aces").
+    if (p === "them") told += ` ${street}${pot}`;
+    else if (!theirTurn()) game.tell(`${street} Your hand (secret): ${P.describe(h.hole.them, h.board)}.${pot}`, true);
   }
   if (h.done) return (told + " " + endHand(p)).trim();
   if (theirTurn()) {
