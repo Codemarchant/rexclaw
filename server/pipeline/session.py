@@ -559,6 +559,10 @@ class PipelineSession:
         self._turn_started = True
         self.emit({'type': 'input_audio_buffer.speech_started', 'audio_start_ms': max(0, audio_ms),
                    'item_id': self._turn_item})
+        # A reply this cuts off is owed again if the turn brings no words (a
+        # cough, noise: _settle_owed), as LiveKit resumes a false interruption.
+        if self._resp is not None or self._companion_audible():
+            self._owed = True
         await self._interrupt(time.monotonic())
         if not self.stt.streaming and int(self.stt.get('partial_ms') or 0) > 0:
             self._partial_task = self._spawn(self._partials(self._turn_item))
@@ -639,7 +643,7 @@ class PipelineSession:
 
     def _settle_owed(self):
         """A turn closed without words (a cough, noise): answer the turn it
-        held back, which would otherwise never get a reply."""
+        held back or cut off, which would otherwise never get a reply."""
         if self._owed:
             self._auto_respond()
 

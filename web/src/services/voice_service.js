@@ -109,6 +109,7 @@ class VoiceCallService {
         this._suppressPrimaryOnce = false; // eat primary's next auto-response (turn routed to a peer)
         this._directorGeneration = 0;      // bumped on every user turn; stales pending director decisions
         this._userTurnSeq = 0;             // the user's turns only (spoken or typed), unlike the generation
+        this._owedUserTurn = null;         // the user's last turn until a companion answers it (onUserTurnWithoutWords)
         this.endingCall = null;            // token of an end_call hangup under way (endCallWhenIdle)
         this._consecutiveAgentTurns = 0;
         // Set once the chain cap fired and the wrap-up nudge turn was
@@ -731,6 +732,7 @@ class VoiceCallService {
             peer.injectContextItem(`[${label}]: ${text}`, { promptResponse: false });
             peer.recordMessage({ role: "user", content: text });
         }
+        this._owedUserTurn = text;
         this._routeUserTurn(text, generation);
         return true;
     }
@@ -1250,6 +1252,7 @@ class VoiceCallService {
         }
         this._floorConnId = null;
         this._suppressPrimaryOnce = false;
+        this._owedUserTurn = null;
         this._consecutiveAgentTurns = 0;
         this._userTurnNudgeSent = false;
         // However the call died (End click, ws death, token cap, idle
@@ -1542,7 +1545,30 @@ class VoiceCallService {
         // explicit response request instead.
         this._suppressPrimaryOnce = true;
         this.primary.cancelActiveResponse("director-deliberating");
+        this._owedUserTurn = text;
         this._routeUserTurn(text, generation);
+    }
+
+    /** The primary's VAD heard "speech" that brought no new words: a noise,
+     *  an echo, music coming back up after the duck. xAI then re-sends the
+     *  turn it already transcribed, which _extractNewUserSpeech strips to
+     *  nothing (measured live). Its speech_started still cut off every peer
+     *  and staled the routing of the user's turn, so a turn nobody has
+     *  answered yet would get no reply: route it again, once. Not after an
+     *  answered turn (answering a noise intrudes), not while the user is
+     *  speaking again, and not while the primary replies: its VAD
+     *  auto-reply to the segment already answers the re-sent turn. */
+    onUserTurnWithoutWords(conn) {
+        if (conn !== this.primary || !this.hasPeers() || !this._owedUserTurn) return;
+        if (conn._userSpeaking || conn._responseInFlight) return;
+        const text = this._owedUserTurn;
+        this._owedUserTurn = null;
+        console.log("[voice] director: speech with no words cut off the user's turn — routing it again");
+        // The voice pipeline answers such a turn itself, after its final
+        // (session.py _settle_owed): held back like any auto-response.
+        this._suppressPrimaryOnce = true;
+        this._directorGeneration++;
+        this._routeUserTurn(text, this._directorGeneration);
     }
 
     /** Ask the LLM director which agent answers the user's turn, then grant
@@ -1669,6 +1695,7 @@ class VoiceCallService {
             rpc("/api/games/speech", { session_id: conn.state.sessionId, text }).catch(() => {});
         }
         if (!this.hasPeers()) return;
+        this._owedUserTurn = null;
         this.closeUserRows();
         if (conn.role === "peer") {
             // Display-only mirror: the peer leg already persisted the row

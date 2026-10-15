@@ -1409,6 +1409,12 @@ export class AgentConnection {
                 try { this.manager.onUserTranscript(this, text, joinedRow); } catch (e) {
                     console.error(`[voice:${this.connId}] onUserTranscript failed`, e);
                 }
+            } else if (!this._staleSpeechItem(msg.item_id)) {
+                // Speech with no new words (noise, an echo): a turn it cut
+                // off may still be owed a reply.
+                try { this.manager.onUserTurnWithoutWords?.(this); } catch (e) {
+                    console.error(`[voice:${this.connId}] onUserTurnWithoutWords failed`, e);
+                }
             }
             // The user's row is in — release any assistant final(s) held
             // back so rows keep conversational order.
