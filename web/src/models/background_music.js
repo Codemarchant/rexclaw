@@ -431,7 +431,7 @@ class BackgroundMusic {
                 return null;
             } catch (e) {
                 return e?.name === "NotAllowedError"
-                    ? "The user's device blocked the sound until they tap the screen; it starts on their next tap."
+                    ? "The user's device holds the sound until their next touch on the screen; it starts then."
                     : `It could not be played: ${e.message || e}`;
             }
         };
