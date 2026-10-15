@@ -65,6 +65,10 @@ rm "$REQS"
 
 # --- 3. Slim + smoke test ----------------------------------------------------
 find "$PY_DIR" -type d -name "__pycache__" -prune -exec rm -rf {} +
+# ncurses' terminal database (Linux PBS only) — the headless server never uses
+# curses/readline, and its case-only symlinks (N/NCR260VT300WPP ->
+# ../n/ncr260vt300wpp) make itch.io reject the build as "unsafe paths".
+rm -rf "$PY_DIR/share/terminfo"
 "$PY_EXE" -c "import fastapi, uvicorn, requests, multipart, numpy, onnxruntime, soundfile; print('[runtime] import smoke test OK')"
 # websockets (xAI streaming STT/TTS) and the Twitch chat client use the
 # interpreter's default SSL context rather than certifi — make sure it
