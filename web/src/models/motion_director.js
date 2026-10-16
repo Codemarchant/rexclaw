@@ -37,6 +37,7 @@
 import { rpc } from "../lib/rpc";
 import { splitWords } from "../lib/words";
 import { FaceDirector } from "./face_director";
+import { ToolMotion } from "./tool_motion";
 
 const TICK_MS = 250;
 const SPEAK_ON = 0.05;            // renderer speaking intensity that counts as talking
@@ -244,9 +245,11 @@ export class MotionDirector {
         // gesture zoom-out), but it rides the same global motion settings,
         // so it is carried here and handed straight on.
         this._gestureZoomOut = true;
+        this._toolAnimations = true;    // config.tool_animations (tool_motion.js)
         this._leadMs = SPEECH_LEAD_SEED_MS;   // rolling selector round trip
         this._rate = { ...SPEECH_RATE_SEED };  // chars/sec of voice, per script
         this._face = new FaceDirector(this);
+        this._tools = new ToolMotion(this);
         // Group calls: the others hear this companion's lines as the voice
         // reaches them (set by the call manager), and this one hears theirs.
         this.onLineSpoken = null;       // (line) — a line of this turn is heard now
@@ -298,6 +301,12 @@ export class MotionDirector {
             get vrm() { return r()?._peers?.get(id)?.vrm || null; },
             get _rawSpeakingIntensity() { return r()?._peers?.get(id)?._rawSpeakingIntensity || 0; },
             isGestureBusy: () => !!r()?.isPeerGestureBusy?.(id),
+            playGesture: (url, opts) => r()?.playPeerGesture?.(id, url, opts),
+            stopGesture: () => r()?.stopPeerGesture?.(id),
+            gestureUrl: () => r()?.gestureUrl?.(id) || null,
+            preloadGesture: (url) => r()?.preloadGesture?.(url, id),
+            attachToolProp: (url, spec) => r()?.attachToolProp?.(url, spec, id) || Promise.resolve(null),
+            startToolOrb: () => r()?.startToolOrb?.(id) || null,
             isLayerClipRunning: () => !!r()?.isPeerLayerClipRunning?.(id),
             playLibraryClip: (clip, opts) => r()?.playPeerLibraryClip?.(id, clip, opts) || Promise.resolve(false),
             stopLayerClip: () => r()?.stopPeerLayerClip?.(id),
@@ -316,6 +325,7 @@ export class MotionDirector {
         this._pending.length = 0;
         this._endSpoken();
         this._face.setEnabled(false);
+        this._tools.cleared();
     }
 
     // ── group calls: the others hear what this one says ───────────────
@@ -459,6 +469,7 @@ export class MotionDirector {
             idle_fidgets: this._fidgets,
             fidget_interval: this._fidgetInterval,
             gesture_zoom_out: this._gestureZoomOut,
+            tool_animations: this._toolAnimations,
         };
     }
 
@@ -477,6 +488,8 @@ export class MotionDirector {
             this._gestureZoomOut = !!s.gesture_zoom_out;
             this.renderer?.setGestureZoomOut?.(this._gestureZoomOut);
         }
+        // Read when the next slow tool starts; one already playing finishes.
+        if ("tool_animations" in s) this._toolAnimations = !!s.tool_animations;
     }
 
     setSpeechGestures(enabled) {
@@ -578,6 +591,20 @@ export class MotionDirector {
      *  character contradicting itself. Cleared when the next reply starts. */
     noteExpressionTool() {
         this._turnUsedExpressionTool = true;
+    }
+
+    /** A slow tool is running / has answered / every call was dropped:
+     *  the waiting motion it may get (tool_motion.js). */
+    toolStarted(callId, name, responseId) {
+        this._tools.started(callId, name, responseId);
+    }
+
+    toolEnded(callId) {
+        this._tools.ended(callId);
+    }
+
+    toolsCleared() {
+        this._tools.cleared();
     }
 
     /** Assistant transcript delta (the companion's own words, streamed).

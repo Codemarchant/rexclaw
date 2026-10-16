@@ -320,6 +320,7 @@ export default function SettingsView({ active }) {
                 idle_fidgets: !!config.idle_fidgets,
                 fidget_interval: config.fidget_interval,
                 gesture_zoom_out: !!config.gesture_zoom_out,
+                tool_animations: !!config.tool_animations,
             });
             markDirty(false);
             load();
@@ -609,6 +610,19 @@ export default function SettingsView({ active }) {
                             + "shot, then eases back in. Only for gestures someone chose (the "
                             + "companion's own, or the trigger buttons), not the automated ones "
                             + "above.")}
+                    </p>
+                    <div className="rx_check">
+                        <input id="rx_tool_animations" type="checkbox"
+                               checked={!!config.tool_animations}
+                               onChange={(ev) => setField("tool_animations", ev.target.checked ? 1 : 0)} />
+                        <label htmlFor="rx_tool_animations">{_t("Act out slow tools on calls")}</label>
+                    </div>
+                    <p className="text-muted">
+                        {_t("While one slow tool runs on a call, the companion acts it out until "
+                            + "the result is back: a phone to text another companion, a ball of "
+                            + "light for a new background, a palette and brush for a picture, a "
+                            + "camera frame for a video, a holographic keyboard for a computer "
+                            + "task. Their own gestures always come first.")}
                     </p>
                 </section>
 

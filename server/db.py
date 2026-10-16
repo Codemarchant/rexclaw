@@ -226,6 +226,11 @@ CREATE TABLE IF NOT EXISTS config (
     -- after. On by default — the face view frames the collarbone up, so
     -- without it most of what play_gesture does happens out of shot.
     gesture_zoom_out INTEGER NOT NULL DEFAULT 1,
+    -- Voice calls: while one slow tool runs (texting a companion, a new
+    -- background, a picture, a video, a delegated or computer task, a
+    -- screen recording) the companion acts it out — phone, magic, palette
+    -- (web/src/models/tool_motion.js).
+    tool_animations INTEGER NOT NULL DEFAULT 1,
     -- Face director (face_director.py): a director-model reading per spoken
     -- sentence drives brows, eyes, mouth and gaze under the companion's own
     -- set_emotion. Off by default — it costs a call per sentence.
@@ -1526,6 +1531,7 @@ MIGRATIONS = (
     "ALTER TABLE avatars ADD COLUMN face_map TEXT",
     "ALTER TABLE avatar_outfits ADD COLUMN face_map TEXT",
     "ALTER TABLE config ADD COLUMN imagine_quality TEXT NOT NULL DEFAULT 'auto'",
+    "ALTER TABLE config ADD COLUMN tool_animations INTEGER NOT NULL DEFAULT 1",
 )
 
 

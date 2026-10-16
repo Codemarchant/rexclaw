@@ -513,6 +513,10 @@ export default function MascotSettingsView() {
                                     _t("Pulls the camera out while a chosen gesture plays (the companion's own, or a manual trigger), so the body is in shot, and eases back in afterwards. The automated ones above never move the camera."),
                                     mascot.motion.gesture_zoom_out,
                                     (v) => sendMotion({ gesture_zoom_out: v }))}
+                                {check("rx_ms_toolanim", _t("Act out slow tools on calls"),
+                                    _t("While one slow tool runs on a call, they act it out until the result is back: a phone to text someone, a ball of light for a new background, a brush for a picture."),
+                                    mascot.motion.tool_animations !== false,
+                                    (v) => sendMotion({ tool_animations: v }))}
                             </fieldset>
                         </section>
                     )}

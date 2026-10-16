@@ -2341,6 +2341,11 @@ export const JA = {
     "ジェスチャーの再生中はカメラが引いて画面の外に出ないようにし、終わるとゆっくり元に戻ります。対象は誰かが選んだジェスチャー（コンパニオン自身によるもの、またはトリガーボタン）だけで、上の自動ジェスチャーは含みません。",
   "Pulls the camera out while a chosen gesture plays (the companion's own, or a manual trigger), so the body is in shot, and eases back in afterwards. The automated ones above never move the camera.":
     "選ばれたジェスチャー（コンパニオン自身によるもの、または手動トリガー）の再生中にカメラを引いて体が映るようにし、終わるとゆっくり元に戻します。上の自動ジェスチャーではカメラは動きません。",
+  "Act out slow tools on calls": "通話中、時間のかかるツールを演じる",
+  "While one slow tool runs on a call, the companion acts it out until the result is back: a phone to text another companion, a ball of light for a new background, a palette and brush for a picture, a camera frame for a video, a holographic keyboard for a computer task. Their own gestures always come first.":
+    "通話中に時間のかかるツールがひとつ実行されている間、結果が戻るまでコンパニオンがそれを演じます。別のコンパニオンへのメッセージにはスマホ、新しい背景には光の玉、画像にはパレットと筆、動画にはカメラのフレーム、パソコン作業にはホログラムのキーボード。コンパニオン自身のジェスチャーが常に優先されます。",
+  "While one slow tool runs on a call, they act it out until the result is back: a phone to text someone, a ball of light for a new background, a brush for a picture.":
+    "通話中に時間のかかるツールがひとつ実行されている間、結果が戻るまでそれを演じます。メッセージにはスマホ、新しい背景には光の玉、画像には筆。",
 
   // ── Library animation picker ──
   "Library animations": "ライブラリのアニメーション",

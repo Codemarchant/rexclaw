@@ -45,6 +45,7 @@ import { LookPost } from "./look_post";
 import { ArtStyle } from "./art_style";
 import { MoodMarks } from "./mood_marks";
 import { Ambience, MOOD_AMBIENCE } from "./ambience";
+import { ToolProps } from "./tool_props";
 import { applyEyelids, restoreSpringRest, startVrmExtras, takeSpringRest } from "./vrm_extras";
 
 // Kept async + memoized so the renderer code below stays identical to the
@@ -927,6 +928,7 @@ class AvatarRenderer {
         this._moodMarks = null;           // MoodMarks sprites, while the pref is on
         this._ambience = null;            // Ambience particles (services/ambience.js), once any is picked
         this._ambiencePref = "off";       // the user's Look → Ambience pick
+        this._toolProps = null;           // tool-motion props + orb (services/tool_props.js), once one is used
         this._moodAmbience = false;       // a deliberate emotion briefly plays its ambience (MOOD_AMBIENCE)
         this._effectsTuning = EFFECTS_PRESETS; // console: edit a preset, then setEffectsPreset(id) again
         this._touchEnabled = true;
@@ -2808,6 +2810,63 @@ class AvatarRenderer {
         };
         peer.mixer.addEventListener("finished", onFinished);
         return action;   // as playGesture: lets a caller wait for the one-shot
+    }
+
+    // ── Tool motions (models/tool_motion.js) ─────────────────────────
+    // `peerId` null = the base avatar, otherwise a group-call peer slot.
+
+    _toolActor(peerId) {
+        return peerId == null ? this : this._peers.get(peerId) || null;
+    }
+
+    /** The gesture clip the actor is playing now (null when none). */
+    gestureUrl(peerId = null) {
+        return this._toolActor(peerId)?._currentGestureUrl || null;
+    }
+
+    /** Load a gesture clip into the actor's cache without playing it, so a
+     *  later playGesture / playPeerGesture starts on the frame it is asked. */
+    async preloadGesture(url, peerId = null) {
+        const actor = this._toolActor(peerId);
+        if (!actor?.vrm || !url) return;
+        actor._gestureClips ||= new Map();
+        if (actor._gestureClips.has(url)) return;
+        const { GLTFLoader, VRMAnimationLoaderPlugin, createVRMAnimationClip } = this.libs;
+        const vrm = actor.vrm;
+        try {
+            const loader = new GLTFLoader();
+            loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+            const gltf = await loader.loadAsync(url);
+            const vrma = gltf.userData.vrmAnimations?.[0];
+            if (!vrma || actor.vrm !== vrm || actor._gestureClips.has(url)) return;
+            const clip = createVRMAnimationClip(vrma, vrm);
+            clip.rexclawExpressions = this._vrmaExpressionNames(vrma);
+            actor._gestureClips.set(url, clip);
+        } catch (e) {
+            console.warn("[tool-motion] clip preload failed", url, e);
+        }
+    }
+
+    _ensureToolProps() {
+        return (this._toolProps ||= new ToolProps(this.libs, this.scene));
+    }
+
+    preloadToolProp(url) {
+        if (this.libs) this._ensureToolProps().preload(url);
+    }
+
+    /** A prop in the actor's hand (hidden until show()), or null. */
+    async attachToolProp(url, spec, peerId = null) {
+        const actor = this._toolActor(peerId);
+        if (!actor?.vrm || !this.libs) return null;
+        return this._ensureToolProps().attach(actor.vrm, url, spec);
+    }
+
+    /** The orb of light between the actor's hands, or null. */
+    startToolOrb(peerId = null) {
+        const actor = this._toolActor(peerId);
+        if (!actor?.vrm || !this.libs) return null;
+        return this._ensureToolProps().orb(actor.vrm);
     }
 
     /** Stop a peer's gesture (incl. loops) and ease back to its idle. */
@@ -6389,6 +6448,10 @@ class AvatarRenderer {
             view.head = this.getHeadWorldPosition(this._ambienceHead ||= new this.libs.THREE.Vector3());
             this._ambience.update(delta, this.vrm?.scene.position || null,
                 this.renderer.getDrawingBufferSize(this._sizeScratch ||= new this.libs.THREE.Vector2()).y, view);
+        }
+        if (this._toolProps?.active) {
+            this._toolProps.update(delta,
+                this.renderer.getDrawingBufferSize(this._sizeScratch ||= new this.libs.THREE.Vector2()).y);
         }
         if (!this._xrActive) this._updatePortraitBlur();
         this._draw();

@@ -59,7 +59,7 @@ _CONFIG_FIELDS = (
     "transcript_display_limit", "heartbeat_notifications",
     "transcript_retention_days", "file_default_expiry_seconds",
     "speech_gestures", "idle_fidgets", "fidget_interval",
-    "gesture_zoom_out", "face_director", "jev_model", "live_memory_mode",
+    "gesture_zoom_out", "tool_animations", "face_director", "jev_model", "live_memory_mode",
     "live_memory_cooldown_seconds", "text_max_searches", "delegate_max_searches",
     "xai_max_turns",
     "summary_max_words", "summary_consolidate_words",
@@ -225,7 +225,7 @@ def motion_settings_set(payload: dict = Body(default={}), con=Depends(db_con)):
     in the Settings tab). The same motion fields as /config/set, on their own.
     """
     sets, vals = [], []
-    for key in ("speech_gestures", "idle_fidgets", "gesture_zoom_out"):
+    for key in ("speech_gestures", "idle_fidgets", "gesture_zoom_out", "tool_animations"):
         if key in payload:
             sets.append(f"{key} = ?")
             vals.append(1 if payload[key] else 0)
@@ -245,6 +245,7 @@ def motion_settings_set(payload: dict = Body(default={}), con=Depends(db_con)):
         "idle_fidgets": bool(row["idle_fidgets"]),
         "fidget_interval": float(row["fidget_interval"] or 60),
         "gesture_zoom_out": bool(row["gesture_zoom_out"]),
+        "tool_animations": bool(row["tool_animations"]),
     }
 
 
@@ -299,6 +300,7 @@ def motion_libraries(con=Depends(db_con)):
             "idle_fidgets": bool(row["idle_fidgets"]),
             "fidget_interval": float(row["fidget_interval"] or 60),
             "gesture_zoom_out": bool(row["gesture_zoom_out"]),
+            "tool_animations": bool(row["tool_animations"]),
         },
     }
 

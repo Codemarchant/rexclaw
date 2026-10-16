@@ -1298,6 +1298,9 @@ class VoiceCallService {
                 setConversationState: (s) => this.env.services.motion_director?.setConversationState?.(s),
                 onAssistantTranscript: (d, ahead) => this.env.services.motion_director?.onAssistantTranscript?.(d, ahead),
                 noteExpressionTool: () => this.env.services.motion_director?.noteExpressionTool?.(),
+                toolStarted: (c, n, r) => this.env.services.motion_director?.toolStarted?.(c, n, r),
+                toolEnded: (c) => this.env.services.motion_director?.toolEnded?.(c),
+                toolsCleared: () => this.env.services.motion_director?.toolsCleared?.(),
                 // Live audio-schedule probe, for diagnosing gesture timing.
                 audioLookahead: () => conn._audioLookaheadSec?.() ?? 0,
             };
@@ -1388,6 +1391,9 @@ class VoiceCallService {
             setConversationState: (s) => conn._motion?.setConversationState(s),
             onAssistantTranscript: (d, ahead) => conn._motion?.onAssistantTranscript(d, ahead),
             noteExpressionTool: () => conn._motion?.noteExpressionTool(),
+            toolStarted: (c, n, r) => conn._motion?.toolStarted(c, n, r),
+            toolEnded: (c) => conn._motion?.toolEnded(c),
+            toolsCleared: () => conn._motion?.toolsCleared(),
             audioLookahead: () => conn._audioLookaheadSec?.() ?? 0,
         };
     }

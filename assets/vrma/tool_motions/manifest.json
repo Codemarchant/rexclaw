@@ -1,0 +1,208 @@
+{
+  "fps": 30,
+  "motions": {
+    "phone_text": {
+      "tool": "text_companion",
+      "props": {
+        "phone": {
+          "show_in": 0.5,
+          "hide_out": 0.72
+        }
+      },
+      "in": {
+        "file": "phone_text_in.vrma",
+        "duration": 1.5
+      },
+      "loop": {
+        "file": "phone_text_loop.vrma",
+        "duration": 4.0
+      },
+      "out": {
+        "file": "phone_text_out.vrma",
+        "duration": 1.4
+      }
+    },
+    "phone_call": {
+      "tool": "delegate_task",
+      "props": {
+        "phone": {
+          "show_in": 0.5,
+          "hide_out": 0.72
+        }
+      },
+      "in": {
+        "file": "phone_call_in.vrma",
+        "duration": 1.6
+      },
+      "loop": {
+        "file": "phone_call_loop.vrma",
+        "duration": 5.0
+      },
+      "out": {
+        "file": "phone_call_out.vrma",
+        "duration": 1.4
+      }
+    },
+    "conjure_portal": {
+      "tool": "change_background",
+      "props": {},
+      "in": {
+        "file": "conjure_portal_in.vrma",
+        "duration": 1.3
+      },
+      "loop": {
+        "file": "conjure_portal_loop.vrma",
+        "duration": 3.0
+      },
+      "out": {
+        "file": "conjure_portal_out.vrma",
+        "duration": 1.4
+      },
+      "effect": {
+        "kind": "orb",
+        "show_in": 0.55,
+        "burst_out": 0.22
+      }
+    },
+    "paint_canvas": {
+      "tool": "create_image",
+      "props": {
+        "palette": {
+          "show_in": 0.35,
+          "hide_out": 1.0
+        },
+        "brush": {
+          "show_in": 0.35,
+          "hide_out": 1.0
+        }
+      },
+      "in": {
+        "file": "paint_canvas_in.vrma",
+        "duration": 1.3
+      },
+      "loop": {
+        "file": "paint_canvas_loop.vrma",
+        "duration": 4.0
+      },
+      "out": {
+        "file": "paint_canvas_out.vrma",
+        "duration": 1.4
+      }
+    },
+    "frame_shot": {
+      "tool": "create_video",
+      "props": {},
+      "in": {
+        "file": "frame_shot_in.vrma",
+        "duration": 1.3
+      },
+      "loop": {
+        "file": "frame_shot_loop.vrma",
+        "duration": 6.0
+      },
+      "out": {
+        "file": "frame_shot_out.vrma",
+        "duration": 1.3
+      }
+    },
+    "holo_type": {
+      "tool": "local_task",
+      "props": {
+        "holo": {
+          "show_in": 0.55,
+          "hide_out": 0.25
+        }
+      },
+      "in": {
+        "file": "holo_type_in.vrma",
+        "duration": 1.2
+      },
+      "loop": {
+        "file": "holo_type_loop.vrma",
+        "duration": 4.0
+      },
+      "out": {
+        "file": "holo_type_out.vrma",
+        "duration": 1.3
+      }
+    },
+    "watch_closely": {
+      "tool": "record_screen_clip",
+      "props": {},
+      "in": {
+        "file": "watch_closely_in.vrma",
+        "duration": 1.3
+      },
+      "loop": {
+        "file": "watch_closely_loop.vrma",
+        "duration": 5.0
+      },
+      "out": {
+        "file": "watch_closely_out.vrma",
+        "duration": 1.3
+      }
+    }
+  },
+  "props": {
+    "phone": {
+      "file": "props/phone.glb",
+      "bone": "rightHand",
+      "position": [
+        -0.06,
+        -0.028,
+        0.01
+      ],
+      "rotation": [
+        0.64086,
+        -0.29884,
+        0.29884,
+        0.64086
+      ]
+    },
+    "palette": {
+      "file": "props/palette.glb",
+      "bone": "leftHand",
+      "position": [
+        0.075,
+        -0.022,
+        0.05
+      ],
+      "rotation": [
+        0.67438,
+        0.21263,
+        -0.21263,
+        0.67438
+      ]
+    },
+    "brush": {
+      "file": "props/brush.glb",
+      "bone": "rightHand",
+      "position": [
+        -0.075,
+        -0.014,
+        0.022
+      ],
+      "rotation": [
+        0.58622,
+        -0.39541,
+        0.39541,
+        0.58622
+      ]
+    },
+    "holo": {
+      "file": "props/holo.glb",
+      "bone": "hips",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  }
+}

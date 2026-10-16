@@ -587,20 +587,23 @@ def list_shared_assets(kind=None):
     kind: the user's shared library (data/assets, recursive) plus the bundled
     shared GLB/VRMA dirs. Drives the editor's library picker."""
     ext_kind = {e: k for k, exts in _ALLOWED_UPLOAD_EXT.items() for e in exts}
+    # (root, url base, source, the one kind it lists or None for all)
     roots = [
-        (USER_ASSETS_DIR, "/user-assets", "user"),
-        (ASSETS_DIR / "glb", "/assets/glb", "bundled"),
-        (ASSETS_DIR / "vrma", "/assets/vrma", "bundled"),
+        (USER_ASSETS_DIR, "/user-assets", "user", None),
+        (ASSETS_DIR / "glb", "/assets/glb", "bundled", None),
+        # Clips only: the tool motions' props (vrma/tool_motions/props) are
+        # not scenes.
+        (ASSETS_DIR / "vrma", "/assets/vrma", "bundled", "vrma"),
     ]
     out = []
-    for root, base, source in roots:
+    for root, base, source, only in roots:
         if not root.is_dir():
             continue
         for f in sorted(root.rglob("*")):
             if not f.is_file():
                 continue
             k = ext_kind.get(f.suffix.lower())
-            if not k or (kind and k != kind):
+            if not k or (kind and k != kind) or (only and k != only):
                 continue
             rel = f.relative_to(root).as_posix()
             out.append({"kind": k, "name": rel, "url": f"{base}/{rel}", "source": source})

@@ -138,6 +138,7 @@ export class ToolDispatcher {
     clearPending() {
         this._pending.clear();
         this._running.clear();
+        this.avatarApi?.toolsCleared?.();
     }
 
     /**
@@ -163,6 +164,8 @@ export class ToolDispatcher {
             };
         } else {
             if (runKey) this._running.set(runKey, callId);
+            // A slow tool's waiting motion, if it has one (tool_motion.js).
+            this.avatarApi?.toolStarted?.(callId, name, responseId);
             try {
                 result = await this._invoke(name, args, { responseId });
             } catch (e) {
@@ -176,26 +179,33 @@ export class ToolDispatcher {
         // Apply post-result UI side effects BEFORE acknowledging the call
         // upstream — keeps the visual change tightly correlated with the
         // model's "done" beat.
-        if (result && !result.error) {
-            // change_background returns image_url (still) or video_url
-            // (animated=true) — each side swaps the live backdrop and
-            // updates its own "latest Imagine" picker slot.
-            if (name === "change_background" && result.video_url) {
-                this._applyImagineVideoBackground(result);
-            } else if (name === "change_background" && result.image_url) {
-                this._applyImagineBackground(result);
+        try {
+            if (result && !result.error) {
+                // change_background returns image_url (still) or video_url
+                // (animated=true) — each side swaps the live backdrop and
+                // updates its own "latest Imagine" picker slot.
+                if (name === "change_background" && result.video_url) {
+                    this._applyImagineVideoBackground(result);
+                } else if (name === "change_background" && result.image_url) {
+                    this._applyImagineBackground(result);
+                }
+                if (name === "adjust_affection" && result.ok) {
+                    this._applyAffection(result);
+                }
+                if (name === "generate_gesture" && result.vrma_url) {
+                    // Same path as play_gesture: the companion's own choice owns
+                    // the body, and a loop runs until 'idle' or another gesture.
+                    // keepTravel: a generated motion can really walk somewhere —
+                    // in a 3D scene they stay where it took them (renderer's call).
+                    this.avatarApi?.noteExpressionTool?.();
+                    this.avatarApi?.playGesture?.(result.vrma_url, { loop: !!result.loop, keepTravel: true });
+                }
             }
-            if (name === "adjust_affection" && result.ok) {
-                this._applyAffection(result);
-            }
-            if (name === "generate_gesture" && result.vrma_url) {
-                // Same path as play_gesture: the companion's own choice owns
-                // the body, and a loop runs until 'idle' or another gesture.
-                // keepTravel: a generated motion can really walk somewhere —
-                // in a 3D scene they stay where it took them (renderer's call).
-                this.avatarApi?.noteExpressionTool?.();
-                this.avatarApi?.playGesture?.(result.vrma_url, { loop: !!result.loop, keepTravel: true });
-            }
+        } finally {
+            // After the side effects: the motion's outro plays as the new
+            // background (or whatever the tool made) appears. In a finally
+            // so a side effect that throws can't leave the motion looping.
+            this.avatarApi?.toolEnded?.(callId);
         }
         this._pending.delete(callId);
         // Send the result back to the model.
