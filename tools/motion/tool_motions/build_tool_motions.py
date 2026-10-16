@@ -743,7 +743,37 @@ def conjure_portal(b):
             "effect": {"kind": "orb", "show_in": 0.55, "burst_out": 0.22}}
 
 
-@motion("paint_canvas", "create_image", props=["palette", "brush"])
+def show_it(b, rest, hold):
+    """A reveal: from `hold`, she holds what the tool made (a print with
+    the picture, a film card playing the video) up beside her face, facing
+    you, for a couple of seconds, then lowers it. One hand, so it reads the
+    same on any proportions. Timing: 0.35-1.0 up, 1.0-3.0 showing it off
+    with a little wag, 3.0-3.8 down to the side (props in at ~0.5, out at
+    ~3.25)."""
+    # Out to her right, so the print sits beside her face, not over it.
+    show_wrist = at(b.sh_R, right=0.13, up=0.02, fwd=0.17)
+    show = mix(rest, Pose(
+        spine=rot(roll=-1.5, yaw=-4), upper_chest=rot(yaw=-3),
+        head=rot(roll=-7, yaw=-6, pitch=2),
+        # Palm to the viewer, fingers up behind the print, thumb across
+        # its front edge.
+        arm_R=arm("R", show_wrist, V(up=1, right=-0.1, fwd=0.15), V(right=-1), V(right=1, up=-1, fwd=-0.2)),
+        # Fingers near straight behind the print (curled, they poked
+        # through it), thumb lifted round to its front.
+        fingers_R={"thumb": 0.35, "thumb_op": 0.6, "index": [0.04, 0.06, 0.04], "middle": [0.05, 0.07, 0.04],
+                   "ring": [0.06, 0.08, 0.05], "little": [0.08, 0.1, 0.06]},
+    ), 1.0)
+
+    def reveal(t):
+        wag = seg(t, 0.9, 1.2) * (1 - seg(t, 2.8, 3.0))
+        shown = add(show, arm_R={"hand": V(right=0.012 * wave(t, 1.0) * wag, up=0.006 * wave(t, 0.5) * wag)},
+                    head=rot(roll=2.5 * wave(t, 2.0) * wag))
+        p = blend(hold, shown, seg(t, 0.35, 1.0))
+        return blend(p, rest, seg(t, 3.0, 3.8))
+    return reveal
+
+
+@motion("paint_canvas", "create_image", props=["palette", "brush", "photo"])
 def paint_canvas(b):
     """Painting the picture: palette on the left hand, brush strokes on an
     invisible canvas between the companion and the viewer."""
@@ -807,11 +837,19 @@ def paint_canvas(b):
     def outro(t):
         return blend(hold, rest, seg(t, 0.15, 1.3))
 
-    return {"in": (1.3, intro), "loop": (4.0, loop), "out": (1.4, outro),
-            "prop_times": {"palette": {"show_in": 0.35, "hide_out": 1.0}, "brush": {"show_in": 0.35, "hide_out": 1.0}}}
+    # The reveal (played instead of the outro when the picture is back):
+    # brush and palette go, and she holds the finished print up beside her
+    # face (show_it). The app puts the real image on the print.
+    reveal = show_it(b, rest, hold)
+
+    return {"in": (1.3, intro), "loop": (4.0, loop), "out": (1.4, outro), "reveal": (3.9, reveal),
+            "reveal_props": ["photo"],
+            "prop_times": {"palette": {"show_in": 0.35, "hide_out": 1.0, "hide_reveal": 0.3},
+                           "brush": {"show_in": 0.35, "hide_out": 1.0, "hide_reveal": 0.3},
+                           "photo": {"show_reveal": 0.5, "hide_reveal": 3.25}}}
 
 
-@motion("frame_shot", "create_video")
+@motion("frame_shot", "create_video", props=["film"])
 def frame_shot(b):
     """Directing the video: thumbs and forefingers make a camera frame,
     peeking through it and scouting the shot."""
@@ -848,7 +886,11 @@ def frame_shot(b):
     def outro(t):
         return blend(hold, rest, seg(t, 0.1, 1.2))
 
-    return {"in": (1.3, intro), "loop": (6.0, loop), "out": (1.3, outro), "prop_times": {}}
+    # When the clip is back: the frame drops and she holds up a film card
+    # with the video playing on it (the app plays it, muted).
+    return {"in": (1.3, intro), "loop": (6.0, loop), "out": (1.3, outro),
+            "reveal": (3.9, show_it(b, rest, hold)), "reveal_props": ["film"],
+            "prop_times": {"film": {"show_reveal": 0.5, "hide_reveal": 3.25}}}
 
 
 @motion("holo_type", "local_task", props=["holo"])
@@ -952,6 +994,8 @@ PROPS = {
     "palette": {"bone": "leftHand"},
     "brush": {"bone": "rightHand"},
     "holo": {"bone": "hips"},
+    "photo": {"bone": "rightHand"},
+    "film": {"bone": "rightHand"},
 }
 # glTF (x left, y up, z forward) of the holo screen centre, relative to the hips.
 HOLO_SCREEN = (0.3, 0.42, 0.26)
@@ -1043,6 +1087,93 @@ def make_palette():
         o.data.materials.append(_material(f"paint{i}", col, rough=0.25))
         blobs.append(o)
     return _join([pal] + blobs, "palette")
+
+
+PHOTO_SIZE = (0.13, 0.155)      # an instant print, a little oversized so it reads on screen
+PHOTO_WINDOW = 0.11             # the square picture window
+PHOTO_TOP_MARGIN = 0.01
+
+
+def make_photo():
+    """An instant-photo print: white card, face +Z (glTF), long side +Y,
+    and in front of its window a separate square panel named
+    `photo_picture` (UVs 0..1, u to the right and v up as you face the
+    print) that the app paints with the finished picture."""
+    import bmesh
+    w, h = PHOTO_SIZE
+
+    def card(bm):
+        bmesh.ops.create_cube(bm, size=1.0)
+        for v in bm.verts:
+            x, y, z = v.co
+            v.co = _g(x * w, y * h, z * 0.002)
+    frame = _mesh_object("photo", card)
+    frame.data.materials.append(_material("photo_card", (0.95, 0.94, 0.9), rough=0.6))
+    s = PHOTO_WINDOW
+    cy = h / 2 - PHOTO_TOP_MARGIN - s / 2
+
+    def window(bm):
+        uv = bm.loops.layers.uv.new()
+        corners = [(-s / 2, -s / 2), (s / 2, -s / 2), (s / 2, s / 2), (-s / 2, s / 2)]
+        # 1.5 mm proud of the card face (0.2 mm z-fought into blotches).
+        vs = [bm.verts.new(_g(x, cy + y, 0.0025)) for x, y in corners]
+        f = bm.faces.new(vs)
+        for loop, (x, y) in zip(f.loops, corners):
+            loop[uv].uv = (x / s + 0.5, y / s + 0.5)
+        f.normal_update()
+    # Picture panels end in `_picture` (the app finds them by that), each
+    # with its own name: a shared one came out as `photo_image.001` on
+    # the second prop.
+    image = _mesh_object("photo_picture", window)
+    image.data.materials.append(_material("photo_picture", (0.5, 0.5, 0.5), rough=0.8))
+    image.parent = frame
+    return frame
+
+
+FILM_SIZE = (0.17, 0.11)        # a landscape film card
+FILM_WINDOW = (0.144, 0.081)    # 16:9, where the video plays
+
+
+def make_film():
+    """A film card for the video preview: dark card with sprocket holes
+    along the top and bottom, landscape (long side +X glTF, face +Z), and
+    a 16:9 `film_picture` panel in front for the app to play the clip on."""
+    import bmesh
+    w, h = FILM_SIZE
+
+    def card(bm):
+        bmesh.ops.create_cube(bm, size=1.0)
+        for v in bm.verts:
+            x, y, z = v.co
+            v.co = _g(x * w, y * h, z * 0.003)
+    frame = _mesh_object("film", card)
+    frame.data.materials.append(_material("film_card", (0.06, 0.06, 0.07), rough=0.5))
+    holes = []
+    n = 9
+    for row in (-1, 1):
+        for i in range(n):
+            cx = -w / 2 + (i + 0.5) * w / n
+            cy = row * (h / 2 - 0.0075)
+
+            def hole(bm, cx=cx, cy=cy):
+                corners = [(-0.0045, -0.003), (0.0045, -0.003), (0.0045, 0.003), (-0.0045, 0.003)]
+                bm.faces.new([bm.verts.new(_g(cx + x, cy + y, 0.0025)) for x, y in corners])
+            o = _mesh_object(f"sprocket{row}{i}", hole)
+            o.data.materials.append(_material(f"sprocket{row}{i}", (0.85, 0.85, 0.82), rough=0.6))
+            holes.append(o)
+    frame = _join([frame] + holes, "film")
+    sw, sh = FILM_WINDOW
+
+    def window(bm):
+        uv = bm.loops.layers.uv.new()
+        corners = [(-sw / 2, -sh / 2), (sw / 2, -sh / 2), (sw / 2, sh / 2), (-sw / 2, sh / 2)]
+        f = bm.faces.new([bm.verts.new(_g(x, y, 0.003)) for x, y in corners])
+        for loop, (x, y) in zip(f.loops, corners):
+            loop[uv].uv = (x / sw + 0.5, y / sh + 0.5)
+    image = _mesh_object("film_picture", window)
+    image.data.materials.append(_material("film_picture", (0.2, 0.2, 0.22), rough=0.8))
+    image.parent = frame
+    return frame
 
 
 def make_brush():
@@ -1230,7 +1361,8 @@ def phone_screen_image():
     return img
 
 
-PROP_BUILDERS = {"phone": make_phone, "palette": make_palette, "brush": make_brush, "holo": make_holo}
+PROP_BUILDERS = {"phone": make_phone, "palette": make_palette, "brush": make_brush, "holo": make_holo,
+                 "photo": make_photo, "film": make_film}
 
 
 # ── keying + export ─────────────────────────────────────────────────────
@@ -1371,6 +1503,13 @@ GRIPS = {
                   off_palm=0.014, long_tilt_deg=22),
     # Built in place around the hips.
     "holo": {"position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0]},
+    # Held up by its lower edge in front of the palm, picture facing out.
+    "photo": grip((-1, 0, 0), (0, -1, 0), (0, 0, 1), along=0.085, toward_thumb=0.0,
+                  off_palm=0.022, long_tilt_deg=0),
+    # Same hold, landscape: the short side runs up the fingers, high
+    # enough that the card covers the fingertips and clears the cuff.
+    "film": grip((-1, 0, 0), (0, -1, 0), (0, 0, 1), along=0.085, toward_thumb=0.0,
+                 off_palm=0.023, long_tilt_deg=0),
 }
 
 
@@ -1396,7 +1535,9 @@ def report(rig, solver, body):
     worst frame-to-frame jump (a flip shows up as a jump)."""
     for mid in (WANTED if WANTED and WANTED != ["all"] else list(MOTIONS)):
         parts = MOTIONS[mid]["build"](body)
-        for part in ("in", "loop", "out"):
+        for part in ("in", "loop", "out", "reveal"):
+            if part not in parts:
+                continue
             dur, fn = parts[part]
             stats = {}
             prev = {}
@@ -1452,8 +1593,9 @@ def main():
         spec = MOTIONS[mid]
         parts = spec["build"](body)
         for other in props_built.values():
-            other.animation_data_clear()
-            other.hide_render = True
+            for o in [other, *other.children_recursive]:
+                o.animation_data_clear()
+                o.hide_render = True
         prop_objs = []
         for pid in spec["props"]:
             if pid not in props_built:
@@ -1463,6 +1605,8 @@ def main():
                     for o in bpy.data.objects:
                         o.select_set(False)
                     obj.select_set(True)
+                    for child in obj.children_recursive:   # a print's picture panel
+                        child.select_set(True)
                     keep = obj.matrix_world.copy()
                     obj.matrix_world = Matrix()
                     bpy.ops.export_scene.gltf(filepath=os.path.join(OUT_DIR, "props", f"{pid}.glb"),
@@ -1477,7 +1621,10 @@ def main():
             manifest["props"][pid] = {"file": f"props/{pid}.glb", "bone": PROPS[pid]["bone"],
                                       "position": g["position"], "rotation": g["rotation"]}
         entry = {"tool": spec["tool"], "props": {}}
-        for part in ("in", "loop", "out"):
+        reveal_props = parts.get("reveal_props", [])
+        for part in ("in", "loop", "out", "reveal"):
+            if part not in parts:
+                continue
             dur, fn = parts[part]
             act, n = key_clip(rig, solver, f"{mid}_{part}", dur, fn)
             fname = f"{mid}_{part}.vrma"
@@ -1486,23 +1633,23 @@ def main():
             entry[part] = {"file": fname, "duration": round((n - 1) / FPS, 3)}
             if PREVIEW_DIR:
                 for obj in prop_objs:
+                    # Keyed visibility for the preview: shown from the start
+                    # of the part unless it appears in it (`show_<part>`),
+                    # gone after `hide_<part>`. The intro's props come in at
+                    # show_in; the reveal's own props only exist in it.
                     pt = parts["prop_times"].get(obj.name, {})
-                    vis = True
-                    if part == "in":
-                        obj.hide_render = False
-                        # Keyed visibility for the preview.
-                        obj.hide_render = True
-                        obj.keyframe_insert("hide_render", frame=1)
-                        obj.hide_render = False
-                        obj.keyframe_insert("hide_render", frame=int(pt.get("show_in", 0) * FPS) + 1)
-                    elif part == "out":
-                        obj.hide_render = False
-                        obj.keyframe_insert("hide_render", frame=1)
-                        obj.hide_render = True
-                        obj.keyframe_insert("hide_render", frame=int(pt.get("hide_out", dur) * FPS) + 1)
-                    else:
-                        obj.animation_data_clear()
-                        obj.hide_render = not vis
+                    only_reveal = obj.name in reveal_props
+                    visible_at_start = part in ("loop", "out", "reveal") and not only_reveal
+                    keys = [(1, not visible_at_start)]
+                    if f"show_{part}" in pt:
+                        keys.append((int(pt[f"show_{part}"] * FPS) + 1, False))
+                    if f"hide_{part}" in pt:
+                        keys.append((int(pt[f"hide_{part}"] * FPS) + 1, True))
+                    for o in [obj, *obj.children_recursive]:
+                        o.animation_data_clear()
+                        for frame, hidden in keys:
+                            o.hide_render = hidden
+                            o.keyframe_insert("hide_render", frame=frame)
                 frames = sorted(set([1, n // 4, n // 2, (3 * n) // 4, n]))
                 c = body.chest
                 views = [(c + V(fwd=2.2, up=0.05, right=0.25), c + V(up=-0.1)),
@@ -1518,9 +1665,12 @@ def main():
                              (p + V(up=0.08, fwd=0.32, right=0.22), p)]
                 render_frames(f"{mid}_{part}", frames, cam, views)
                 for obj in prop_objs:
-                    obj.animation_data_clear()
+                    for o in [obj, *obj.children_recursive]:
+                        o.animation_data_clear()
         for pid in spec["props"]:
             entry["props"][pid] = parts["prop_times"].get(pid, {})
+        if reveal_props:
+            entry["reveal_props"] = reveal_props
         if parts.get("effect"):
             entry["effect"] = parts["effect"]
         manifest["motions"][mid] = entry

@@ -205,7 +205,7 @@ export class ToolDispatcher {
             // After the side effects: the motion's outro plays as the new
             // background (or whatever the tool made) appears. In a finally
             // so a side effect that throws can't leave the motion looping.
-            this.avatarApi?.toolEnded?.(callId);
+            this.avatarApi?.toolEnded?.(callId, result);
         }
         this._pending.delete(callId);
         // Send the result back to the model.

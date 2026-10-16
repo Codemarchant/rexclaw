@@ -22,6 +22,9 @@ const POP_S = 0.16;           // scale-in / scale-out time of a prop
 const ORB_GROW_S = 0.7;       // orb fading in round the hands
 const ORB_BURST_S = 0.8;      // orb flung outwards and gone
 const ORB_COUNT = 72;
+// A video preview that hasn't decoded its first frame by now isn't shown
+// (the reveal then goes ahead without the card).
+const VIDEO_LOAD_MS = 2500;
 
 // Same world-size point sprite as ambience.js (see its note on three's
 // attenuation leaving out the focal term).
@@ -243,12 +246,73 @@ export class ToolProps {
         obj.scale.setScalar(0);
         obj.visible = false;
         node.add(obj);
-        const handle = { obj, vrm, target: 0, value: 0, disposed: false };
+        const handle = { obj, vrm, target: 0, value: 0, disposed: false, texture: null, video: null };
         handle.show = () => { handle.target = 1; obj.visible = true; };
         handle.hide = () => { handle.target = 0; };
+        // What the tool made, on the prop's picture panel (the mesh whose
+        // name ends in `_picture`: a print's picture, a film card's screen):
+        // cropped to fill the panel's own shape, unlit so it shows in its
+        // own colours, drawn just in front of the card. Each resolves true
+        // once it is on.
+        let panel = null;
+        obj.traverse((o) => { if (!panel && o.isMesh && o.name.endsWith("_picture")) panel = o; });
+        const panelAspect = () => {
+            panel.geometry.computeBoundingBox();
+            const s = panel.geometry.boundingBox.getSize(new THREE.Vector3());
+            return s.y > 0 ? s.x / s.y : 1;
+        };
+        const paint = (tex, width, height) => {
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.flipY = false;   // glTF UV convention, like the loader's own textures
+            // Cover: the source's spare width (or height) is cut off evenly.
+            const k = (width / height) / panelAspect();
+            if (k > 1) { tex.repeat.set(1 / k, 1); tex.offset.set((1 - 1 / k) / 2, 0); }
+            else { tex.repeat.set(1, k); tex.offset.set(0, (1 - k) / 2); }
+            panel.material = new THREE.MeshBasicMaterial({
+                map: tex, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4,
+            });
+            handle.texture = tex;
+        };
+        handle.setImage = (url) => new Promise((resolve) => {
+            if (!panel || !url) return resolve(false);
+            new THREE.TextureLoader().load(url, (tex) => {
+                if (handle.disposed) { tex.dispose(); return resolve(false); }
+                paint(tex, tex.image?.width || 1, tex.image?.height || 1);
+                resolve(true);
+            }, undefined, () => resolve(false));
+        });
+        // A video playing on the panel, muted and looping, from its start —
+        // a preview; the full clip is in the transcript.
+        handle.setVideo = (url) => new Promise((resolve) => {
+            if (!panel || !url) return resolve(false);
+            const video = document.createElement("video");
+            // iOS Safari autoplays only a video with the muted and playsinline
+            // ATTRIBUTES (the properties alone aren't enough there).
+            video.setAttribute("muted", "");
+            video.setAttribute("playsinline", "");
+            Object.assign(video, { muted: true, loop: true, playsInline: true, preload: "auto", src: url });
+            const giveUp = setTimeout(() => resolve(false), VIDEO_LOAD_MS);
+            video.addEventListener("loadeddata", () => {
+                clearTimeout(giveUp);
+                if (handle.disposed) return resolve(false);
+                handle.video = video;
+                paint(new THREE.VideoTexture(video), video.videoWidth || 16, video.videoHeight || 9);
+                resolve(true);
+            }, { once: true });
+            // Playing at once is what starts the loading (a video that is
+            // in no page may otherwise wait); muted, so autoplay is allowed.
+            video.play().catch(() => {});
+            video.addEventListener("error", () => { clearTimeout(giveUp); resolve(false); }, { once: true });
+        });
         handle.dispose = () => {
             handle.disposed = true;
             obj.removeFromParent();
+            handle.texture?.dispose();
+            if (handle.video) {
+                handle.video.pause();
+                handle.video.removeAttribute("src");
+                handle.video.load();
+            }
             this._props.delete(handle);
         };
         this._props.add(handle);

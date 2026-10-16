@@ -12,6 +12,9 @@
  * companion's own gestures, so anything deliberate — a play_gesture, an
  * emotion's clip, a manual trigger, walking, the karaoke stage — simply
  * takes the body, and the motion stands down (its props go with it).
+ * A motion may also have a `reveal`, an outro that shows what the tool
+ * made: create_image's ends with the finished picture held up on a print,
+ * create_video's with the clip playing (muted) on a film card.
  *
  * Only when ONE slow tool is called in a reply: two different ones in the
  * same reply leave the body alone, and while a motion plays, a slow tool
@@ -49,17 +52,26 @@ function loadManifest() {
             const byTool = new Map();
             for (const [id, motion] of Object.entries(m?.motions || {})) {
                 const clip = (part) => ({ url: `${BASE_URL}${motion[part].file}`, duration: motion[part].duration });
+                const revealOnly = new Set(motion.reveal_props || []);
+                const props = Object.entries(motion.props || {}).map(([pid, times]) => ({
+                    id: pid, ...times, ...m.props[pid], url: `${BASE_URL}${m.props[pid].file}`,
+                }));
                 const entry = {
                     id, tool: motion.tool, in: clip("in"), loop: clip("loop"), out: clip("out"),
+                    // An outro that shows what the tool made (the finished
+                    // picture on a print), played instead of `out` when the
+                    // result has an image.
+                    reveal: motion.reveal ? clip("reveal") : null,
                     effect: motion.effect || null,
-                    props: Object.entries(motion.props || {}).map(([pid, times]) => ({
-                        id: pid, ...times, ...m.props[pid], url: `${BASE_URL}${m.props[pid].file}`,
-                    })),
+                    props: props.filter((p) => !revealOnly.has(p.id)),
+                    revealProps: props.filter((p) => revealOnly.has(p.id)),
                 };
                 byTool.set(motion.tool, entry);
                 // All of them keep the hands at the chest or the face: the
                 // face view's gesture zoom-out frames them from the waist.
-                for (const part of ["in", "loop", "out"]) UPPER_BODY_GESTURE_URLS.add(entry[part].url);
+                for (const part of ["in", "loop", "out", "reveal"]) {
+                    if (entry[part]) UPPER_BODY_GESTURE_URLS.add(entry[part].url);
+                }
             }
             return byTool;
         })
@@ -120,10 +132,16 @@ export class ToolMotion {
         this._begin(motion, callId, responseId);
     }
 
-    /** A tool call's result is back. */
-    ended(callId) {
+    /** A tool call's result is back. With several calls running (two
+     *  pictures at once), the reveal shows the one that finished last. */
+    ended(callId, result = null) {
         const run = this._run;
-        if (!run || !run.calls.delete(callId) || run.calls.size) return;
+        if (!run || !run.calls.delete(callId)) return;
+        if (result && !result.error) {
+            if (result.video_url) run.reveal = { kind: "video", url: result.video_url };
+            else if (result.image_url) run.reveal = { kind: "image", url: result.image_url };
+        }
+        if (run.calls.size) return;
         if (run.phase === "loop") this._outro(run);
         // "wait": _intro sees nothing left to wait for; "in": the step
         // after the intro goes straight to the outro.
@@ -145,8 +163,10 @@ export class ToolMotion {
         };
         this._run = run;
         // Clips and props load during the delay, so each step starts on time.
-        for (const part of ["in", "loop", "out"]) a?.preloadGesture?.(motion[part].url);
-        for (const p of motion.props) this.director.renderer?.preloadToolProp?.(p.url);
+        for (const part of ["in", "loop", "out", "reveal"]) {
+            if (motion[part]) a?.preloadGesture?.(motion[part].url);
+        }
+        for (const p of [...motion.props, ...motion.revealProps]) this.director.renderer?.preloadToolProp?.(p.url);
         this._later(run, START_DELAY_MS, () => this._intro(run));
     }
 
@@ -189,16 +209,61 @@ export class ToolMotion {
     }
 
     async _outro(run) {
-        if (!this._live(run) || run.phase === "out") return;
-        if (!(await this._play(run, "out"))) return;
+        if (!this._live(run) || run.phase === "out" || run.phase === "reveal" || run.preparing) return;
+        // The reveal only once what it shows is on its prop: a picture that
+        // can't load, or a clip the device won't play (iOS Low Power Mode
+        // blocks even muted autoplay), gets the plain outro instead of an
+        // empty hand held up.
+        let part = "out";
+        let shown = [];
+        if (run.reveal && run.motion.reveal) {
+            run.preparing = true;
+            shown = await Promise.all(run.motion.revealProps.map((spec) => this._revealProp(run, spec)));
+            run.preparing = false;
+            if (this._run !== run) return shown.forEach((p) => p?.handle.dispose());
+            if (shown.length && shown.every(Boolean)) part = "reveal";
+            else shown.forEach((p) => p?.handle.dispose());
+            // Something else took the body while it loaded: stand down.
+            const now = this.avatar.gestureUrl?.() || null;
+            if (now && now !== run.current) {
+                if (part === "reveal") shown.forEach((p) => p.handle.dispose());
+                return this._abort(run);
+            }
+        }
+        if (!(await this._play(run, part))) {
+            if (part === "reveal") shown.forEach((p) => p.handle.dispose());
+            return;
+        }
         for (const p of run.props) {
-            this._later(run, (p.spec.hide_out ?? 0) * 1000, () => p.handle?.hide());
+            this._later(run, (p.spec[`hide_${part}`] ?? p.spec.hide_out ?? 0) * 1000, () => p.handle?.hide());
+        }
+        if (part === "reveal") {
+            for (const p of shown) {
+                run.props.push(p);
+                this._later(run, (p.spec.show_reveal ?? 0) * 1000, () => p.handle.show());
+                this._later(run, (p.spec.hide_reveal ?? run.motion.reveal.duration) * 1000, () => p.handle.hide());
+            }
         }
         const fx = run.motion.effect;
         if (fx?.kind === "orb") this._later(run, (fx.burst_out ?? 0) * 1000, () => run.orb?.burst());
         // Its own release hands the body back to the idle; this only
         // tidies up after it.
-        this._later(run, (run.motion.out.duration + 0.5) * 1000, () => this._finish(run));
+        this._later(run, (run.motion[part].duration + 0.5) * 1000, () => this._finish(run));
+    }
+
+    /** A reveal prop with what the tool made already on it (the print with
+     *  the picture, the film card playing the clip), still hidden; null
+     *  when it couldn't be made ready. */
+    async _revealProp(run, spec) {
+        const handle = await this.avatar.attachToolProp?.(spec.url, spec);
+        if (!handle) return null;
+        const { kind, url } = run.reveal;
+        const ok = await (kind === "video" ? handle.setVideo?.(url) : handle.setImage?.(url));
+        if (!ok) {
+            handle.dispose();
+            return null;
+        }
+        return { spec, handle };
     }
 
     /** Start one of the motion's clips; false (and the run is over) when
@@ -239,10 +304,14 @@ export class ToolMotion {
     _check(run) {
         if (this._run !== run) return;
         if (!this._live(run)) return this._abort(run);
+        // Loading the reveal: an intro that ends meanwhile releases to the
+        // idle, which is fine — the outro picks up from there (_outro
+        // checks for a real takeover itself).
+        if (run.preparing) return;
         const now = this.avatar.gestureUrl?.() || null;
         if (now === run.current || (run.pending && now === run.pending)) return;
         // The outro ran out and released to the idle: done.
-        if (run.phase === "out" && !now) return this._finish(run);
+        if ((run.phase === "out" || run.phase === "reveal") && !now) return this._finish(run);
         this._abort(run);
     }
 

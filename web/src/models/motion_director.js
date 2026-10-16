@@ -599,8 +599,8 @@ export class MotionDirector {
         this._tools.started(callId, name, responseId);
     }
 
-    toolEnded(callId) {
-        this._tools.ended(callId);
+    toolEnded(callId, result = null) {
+        this._tools.ended(callId, result);
     }
 
     toolsCleared() {
