@@ -66,6 +66,20 @@ def partial_tag_at(text):
     return -1
 
 
+# A voice's own bracket cue ([giggles], [soft, tired voice]), or one still
+# being written — only a recent bracket, as in SentenceChunker._next_cut.
+_BRACKET_CUE = re.compile(r'\[[^\]\n]*\]|\[[^\]\n]{0,80}$')
+
+
+def _has_words(text):
+    """Whether `text` holds something to say besides cues and tags."""
+    at = partial_tag_at(text)
+    if at >= 0:
+        text = text[:at]
+    text = _WRAP_RE.sub('', _BRACKET_CUE.sub('', text))
+    return re.search(r'\w', text) is not None
+
+
 def strip_speech_tags(text):
     """Text as it would be heard, for transcripts and tagless voices."""
     text = _INLINE_RE.sub('', text or '')
@@ -225,6 +239,11 @@ class SentenceChunker:
         while True:
             cut = self._next_cut()
             if cut is None:
+                break
+            # A cue after the last words ("…my job. [giggles]") stays with
+            # that sentence: alone it is a request with nothing to say,
+            # which ElevenLabs refuses. So a cut waits for words after it.
+            if not _has_words(self._buf[cut:]):
                 break
             chunks.append(self._emit(self._buf[:cut]))
             self._buf = self._buf[cut:].lstrip()
