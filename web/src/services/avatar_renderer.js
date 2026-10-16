@@ -476,41 +476,6 @@ function nameMorphTargets(gltf) {
 // them.
 const LILTOON_EXTENSION = "MOCHIYA_materials_liltoon";
 
-// three-liltoon 0.1.5 (pinned in package.json) premultiplies a transparent
-// material's colour as lilToon does (blend One / OneMinusSrcAlpha), then
-// sRGB-encodes that premultiplied colour for the canvas. encode(c·a) is far
-// above encode(c)·a at low alpha (the curve's slope is 12.92 near 0), so a
-// face layer's faint parts blow out to white (Shinano's blush and tears).
-// Encoding the straight colour and premultiplying after lands within ~2/255
-// of Unity. Only the canvas pass is affected: into a linear render target
-// (the bloom path) the library skips the encode. Patched on the class, not
-// the loaded materials: the library draws extra passes (two-pass
-// transparency, fur, outline) with LilToonMaterials it makes itself.
-// Recheck on upgrading.
-const LILTOON_ENCODE_START = "highp vec3 linearColor = max(out_var_SV_Target.rgb, vec3(0.0));";
-const LILTOON_ENCODE_END = "lessThanEqual(linearColor, vec3(0.0031308))\n        );";
-
-function unpremultiplyLilToonEncode(shader) {
-    const src = shader.fragmentShader;
-    if (!src.includes(LILTOON_ENCODE_START) || !src.includes(LILTOON_ENCODE_END)) return;
-    shader.fragmentShader = src
-        .replace(LILTOON_ENCODE_START, "highp float rxPremulA = out_var_SV_Target.a;\n"
-            + "        highp vec3 linearColor = rxPremulA > 0.0 ? max(out_var_SV_Target.rgb, vec3(0.0)) / rxPremulA : vec3(0.0);")
-        .replace(LILTOON_ENCODE_END, `${LILTOON_ENCODE_END}\n        out_var_SV_Target.rgb *= rxPremulA;`);
-}
-
-function fixLilToonPremultipliedEncode(LilToonMaterial, THREE) {
-    const premultiplied = (m) => m.transparent
-        && m.blendSrc === THREE.OneFactor && m.blendDst === THREE.OneMinusSrcAlphaFactor;
-    LilToonMaterial.prototype.onBeforeCompile = function (shader) {
-        if (premultiplied(this)) unpremultiplyLilToonEncode(shader);
-    };
-    // three caches programs by this key; the patch depends on the blend.
-    LilToonMaterial.prototype.customProgramCacheKey = function () {
-        return premultiplied(this) ? "rx-unpremultiplied-encode" : "";
-    };
-}
-
 // enableLilToon wraps every renderer.render with its pass preparation, so
 // each lilToon model holds a lease on it until its materials are disposed
 // (VRMUtils.deepDispose on unload); the wrapper goes once none is left.
@@ -1093,7 +1058,6 @@ class AvatarRenderer {
         if (glbJson(buffer)?.extensionsUsed?.includes(LILTOON_EXTENSION)) {
             lilToon = await import("@mochiya/three-liltoon/vrm");
             core = await import("@mochiya/three-liltoon");
-            fixLilToonPremultipliedEncode(core.LilToonMaterial, THREE);
         }
         const loader = this._gltfLoader();
         loader.register((parser) => (lilToon
