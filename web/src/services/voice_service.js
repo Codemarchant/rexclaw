@@ -1475,7 +1475,11 @@ class VoiceCallService {
             if (!keepUserBackground && payload.active_background !== undefined && renderer.setBackground) {
                 renderer.setBackground(payload.active_background || null);
             }
-            if (payload.avatar.vrm_url && !renderer.vrm) {
+            // Only when no surface has loaded or is loading the avatar: the
+            // mascot pop-out starts its own load (in the recorded outfit)
+            // and resumes the call at once, and this base-outfit load would
+            // supersede it.
+            if (payload.avatar.vrm_url && !renderer.vrm && !renderer._loadingVrmPromise) {
                 renderer.loadVRM(payload.avatar.vrm_url).catch((e) => {
                     console.error("[voice] avatar VRM load failed", e);
                 });
