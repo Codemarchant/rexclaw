@@ -6184,6 +6184,9 @@ class AvatarRenderer {
      *  the head share. Null eases the blend out before dropping the state,
      *  so toggling off glides back to eye contact instead of snapping. */
     setCursorFollow(point) {
+        // A spot being pointed at (lookAtPoint) outranks the cursor feed
+        // until its hold ends.
+        if (this._cursorFollow?.holdUntil > performance.now()) return;
         if (!point) {
             if (this._cursorFollow) this._cursorFollow.off = true;
             return;
@@ -6213,6 +6216,16 @@ class AvatarRenderer {
             cf.lastX = point.x;
             cf.lastY = point.y;
         }
+    }
+
+    /** point_at_screen: look toward a window-relative point (CSS px, may lie
+     *  outside the window) for `ms`, through the cursor-follow gaze — eyes
+     *  plus a share of the head. Once the hold ends the gaze settles back
+     *  as it does when the cursor stops moving. */
+    lookAtPoint(point, ms) {
+        if (this._cursorFollow) this._cursorFollow.holdUntil = 0;
+        this.setCursorFollow(point);
+        if (this._cursorFollow) this._cursorFollow.holdUntil = performance.now() + ms;
     }
 
     /** Idle eye saccades. Nudges the look-at target away from the
@@ -6255,8 +6268,9 @@ class AvatarRenderer {
         if (cf && !this._xrActive) {
             const THREE = this.libs.THREE;
             const k = 1 - Math.exp(-CURSOR_FOLLOW_RATE * (delta || 0.016));
+            const now = performance.now();
             const engaged = !cf.off
-                && (performance.now() - cf.movedAt) / 1000 < CURSOR_FOLLOW_IDLE_S;
+                && (now < (cf.holdUntil || 0) || (now - cf.movedAt) / 1000 < CURSOR_FOLLOW_IDLE_S);
             cf.blend += ((engaged ? 1 : 0) - cf.blend) * k;
             cf.sx += (cf.ndcX - cf.sx) * k;
             cf.sy += (cf.ndcY - cf.sy) * k;

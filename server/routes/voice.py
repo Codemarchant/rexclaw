@@ -2,12 +2,15 @@
 """Voice-mode (realtime WebSocket) session routes. Mirrors the Odoo module's
 controllers/voice_session.py minus the Odoo-native tool surface."""
 import base64
+import io
 import logging
 import uuid
 
+import requests
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
+from PIL import Image
 
-from .. import affection_tools, companion_texting, delegate_tools, games, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, plugins, session_service, store, text_to_vrma, xai_client
+from .. import affection_tools, companion_texting, delegate_tools, games, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, plugins, screen_pointer, session_service, store, text_to_vrma, xai_client
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -375,6 +378,48 @@ def session_analyze_screen(session_id: int, payload: dict = Body(default={}), co
                 "transcript. Answer them from `analysis` in your own voice — "
                 "don't recite it verbatim.",
     }
+
+
+@router.post("/session/{session_id}/point_at_screen")
+def session_point_at_screen(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """point_at_screen: find the companion's named targets on a frame of the
+    shared screen with Jev (screen_pointer), and store the frame with the
+    rings drawn on it, so the transcript shows where it pointed whether or
+    not the desktop app could draw them over the screen itself."""
+    session = resolve_session(con, session_id)
+    if not store.get_agent(con, session["agent_id"])["enable_point_tool"]:
+        raise AccessError("Pointing is disabled on this agent.")
+    targets = payload.get("targets")
+    targets = [t.strip().replace("\n", " ")[:300] for t in (targets if isinstance(targets, list) else [targets])
+               if isinstance(t, str) and t.strip()][:9]
+    if not targets:
+        return {"ok": False, "error": "Name at least one thing to point at in `targets`."}
+    config = get_config(con)
+    if not config["typesafe_api_key"]:
+        return {"ok": False, "error": "Pointing needs a TypeSafe API key (Settings → TypeSafe (Jev))."}
+    data = payload.get("image_data_url") or ""
+    try:
+        frame = Image.open(io.BytesIO(base64.b64decode(data.partition(",")[2], validate=True)))
+        frame.load()
+    except Exception:
+        raise ValidationError("image_data_url must be a data:image/... URI.")
+    try:
+        results, ticks = screen_pointer.locate(config["typesafe_api_key"], config["jev_model"], frame, targets)
+    except requests.HTTPError as e:
+        detail = e.response.text[:200] if e.response is not None else ""
+        hint = (" Box questions need Jev 1.14: set the Jev model to jev-preview in Settings."
+                if e.response is not None and e.response.status_code == 400 else "")
+        return {"ok": False, "error": f"Pointing failed: TypeSafe said {detail}.{hint}"}
+    except Exception as e:
+        return {"ok": False, "error": f"Pointing failed: {e}"}
+    store.accrue_usd_ticks(con, ticks)
+    con.commit()
+    stored = _store_session_image(
+        con, session_id, screen_pointer.annotate(frame, results),
+        kind="screenshot", name=f"Pointed at: {targets[0][:60]}",
+        flag="enable_point_tool",
+    )
+    return {**stored, "ok": True, "targets": results}
 
 
 @router.post("/session/{session_id}/screen_clip")

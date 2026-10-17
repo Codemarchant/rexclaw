@@ -59,21 +59,25 @@ def to_request(qs):
     return out
 
 
-def ask(api_key, model, state, qs, *, timeout=None):
-    """POST one request; returns the parsed body. Raises on HTTP errors."""
-    resp = _session().post(
-        JEV_URL,
-        headers={'Authorization': f'Bearer {api_key}'},
-        json={'model': (model or '').strip() or JEV_MODEL, 'state': state, 'questions': to_request(qs)},
-        timeout=timeout or TIMEOUT,
-    )
+def ask(api_key, model, state, qs, *, timeout=None, assets=None):
+    """POST one request; returns the parsed body. Raises on HTTP errors.
+    `assets` maps a reference string used in the state to an image
+    ({'type': 'image', 'format': 'jpg', 'data_base64': ...}); images and Box
+    questions are opt-in per request (docs.typesafe.ai/images)."""
+    headers = {'Authorization': f'Bearer {api_key}'}
+    body = {'model': (model or '').strip() or JEV_MODEL, 'state': state, 'questions': to_request(qs)}
+    if assets:
+        headers['TypeSafe-Danger-Zone-Images'] = 'true'
+        body['assets'] = assets
+    resp = _session().post(JEV_URL, headers=headers, json=body, timeout=timeout or TIMEOUT)
     resp.raise_for_status()
     return resp.json()
 
 
 def answers(body, qs):
     """Jev's answers as {qid: {'level': int} | {'probs', 'pick', 'confidence'}
-    | {'yes': p}}. A Score is rounded to its nearest level — its `score` is a
+    | {'yes': p} | {'box', 'confidence'}}. A Box's edges are fractions of the
+    image, from its top-left corner. A Score is rounded to its nearest level — its `score` is a
     probability-weighted position, good for a threshold and not for a
     magnitude — and a Choice keeps its whole distribution and its pick."""
     got = (body or {}).get('answers') or {}
@@ -88,6 +92,10 @@ def answers(body, qs):
                         'pick': a.get('choice'), 'confidence': float(a.get('confidence') or 0)}
         elif q['type'] == 'noul' and isinstance(a.get('noul'), (int, float)):
             out[qid] = {'yes': float(a['noul'])}
+        elif q['type'] == 'box' and isinstance(a.get('box'), dict) and all(
+                isinstance(a['box'].get(k), (int, float)) for k in ('left', 'top', 'right', 'bottom')):
+            out[qid] = {'box': {k: float(a['box'][k]) for k in ('left', 'top', 'right', 'bottom')},
+                        'confidence': float(a.get('confidence') or 0)}
     return out
 
 

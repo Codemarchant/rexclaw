@@ -665,6 +665,9 @@ CREATE TABLE IF NOT EXISTS agents (
     -- agnostic — they capture, they don't generate — so separate from the
     -- Grok Imagine flag.
     enable_capture_tools INTEGER NOT NULL DEFAULT 1,
+    -- point_at_screen: highlight things on the user's shared screen, found
+    -- by Jev. Offered only while a TypeSafe key is set.
+    enable_point_tool INTEGER NOT NULL DEFAULT 1,
     -- Voice activation: with standby listening on (config.wake_word_enabled),
     -- hearing this phrase while no call is live starts one with this
     -- companion. wake_action picks what "starts" means: 'resume_last'
@@ -1532,6 +1535,7 @@ MIGRATIONS = (
     "ALTER TABLE avatar_outfits ADD COLUMN face_map TEXT",
     "ALTER TABLE config ADD COLUMN imagine_quality TEXT NOT NULL DEFAULT 'auto'",
     "ALTER TABLE config ADD COLUMN tool_animations INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE agents ADD COLUMN enable_point_tool INTEGER NOT NULL DEFAULT 1",
 )
 
 

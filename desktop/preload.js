@@ -89,6 +89,11 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     // mascot mode, opened from the island's share button or the settings
     // window.
     openMascotShare: () => ipcRenderer.invoke("mascot-share-open"),
+    // point_at_screen: rings over the shared screen around {left, top,
+    // right, bottom, label} boxes (fractions of the screen) for holdMs.
+    // Resolves {shown, look}: look = the first ring's centre relative to
+    // this window, in CSS px, for the avatar's gaze.
+    showScreenPoints: (opts) => ipcRenderer.invoke("screen-points", opts || {}),
     // Per-window "always on top" pin (transcript + mascot settings windows).
     // get resolves null in windows that have no pin — hide the button then.
     windowPin: () => ipcRenderer.invoke("window-pin-get"),

@@ -88,6 +88,10 @@ const NO_DUPLICATE_WHILE_RUNNING = new Set([
     "play_background_music",   // a link downloads for up to a minute
 ]);
 
+// How long point_at_screen's rings stay up (and the avatar looks at them):
+// long enough to cover the reply that refers to them. A judgment call.
+const POINT_HOLD_MS = 5000;
+
 // How many of the user's turns a repeated set_emotion counts as a run rather
 // than a new moment (see _setEmotion). A judgment call, not a measured rate.
 const EMOTION_REPEAT_TURNS = 10;
@@ -353,6 +357,8 @@ export class ToolDispatcher {
                 return this._takeScreenshot(args);
             case "analyze_screen":
                 return this._analyzeScreen(args);
+            case "point_at_screen":
+                return this._pointAtScreen(args);
             case "record_screen_clip":
                 return this._recordScreenClip(args);
             case "add_agent_to_call":
@@ -543,6 +549,62 @@ export class ToolDispatcher {
             ...(typeof question === "string" && question.trim() ? { question } : {}),
         });
         return { ...result, source };
+    }
+
+    /** point_at_screen: grab a frame of the shared screen at full size (the
+     *  server's second look crops from it), have the server find each named
+     *  target with Jev, then highlight the ones it found. The desktop app
+     *  draws rings over the real screen when a whole screen is shared (the
+     *  shell knows where that screen sits) and returns where the first one
+     *  is relative to this window, for the avatar's gaze. The frame with the
+     *  rings drawn on it lands in the transcript everywhere. */
+    async _pointAtScreen({ targets } = {}) {
+        if (!this.sessionId) {
+            return { ok: false, error: "point_at_screen requires an active session." };
+        }
+        const { source, error } = this._resolveCaptureSource("screen");
+        if (error) {
+            // The shared messages offer the camera instead, which this tool can't use.
+            if (!screenCapture.isSupported) {
+                return { ok: false, error: "This device's browser can't share its screen (mobile browsers don't allow it), so there is nothing to point at." };
+            }
+            return screenCapture.resolveSource(null) === "camera"
+                ? { ok: false, error: "Only the camera is being shared. Ask the user to open the share button in the header, switch to Screen and start it." }
+                : { ok: false, error };
+        }
+        const dataUrl = screenCapture.grabFrame(4096, source);
+        if (!dataUrl) {
+            return { ok: false, error: "The shared screen has not produced a frame yet — try again in a moment." };
+        }
+        const result = await rpc(`/api/voice/session/${this.sessionId}/point_at_screen`, {
+            image_data_url: dataUrl,
+            targets: Array.isArray(targets) ? targets : [targets],
+        });
+        if (!result.ok) return result;
+        const numbered = result.targets.length > 1;
+        const points = result.targets
+            .map((t, i) => t.visible && { ...t.box, label: numbered ? String(i + 1) : "" })
+            .filter(Boolean);
+        let onScreen = false;
+        if (points.length && window.rexclawDesktop?.showScreenPoints) {
+            const shown = await window.rexclawDesktop.showScreenPoints({ points, holdMs: POINT_HOLD_MS })
+                .catch(() => null);
+            onScreen = !!shown?.shown;
+            if (shown?.look) avatarRenderer.lookAtPoint(shown.look, POINT_HOLD_MS);
+        }
+        const missing = result.targets.filter((t) => !t.visible).map((t) => t.target);
+        return {
+            ok: true,
+            imagine_image_id: result.imagine_image_id,
+            found: result.targets.filter((t) => t.visible).map((t) => t.target),
+            not_found: missing,
+            note: (points.length
+                ? (onScreen
+                    ? "Highlighted on the user's screen for a few seconds, and the marked screenshot is in the transcript."
+                    : "Marked on the screenshot in the transcript (highlights over the screen itself need the desktop app sharing a whole screen).")
+                : "Nothing was found, so nothing is highlighted.")
+                + (missing.length ? " Not found on screen: describe those by what is visibly there, or look again with analyze_screen." : ""),
+        };
     }
 
     /** record_screen_clip: record the armed screen share for N seconds and

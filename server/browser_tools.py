@@ -177,6 +177,47 @@ ANALYZE_SCREEN_TOOL = {
     },
 }
 
+# Pointing rides the same user-armed share, screen only. Jev finds each
+# target (server/screen_pointer.py): it locates, it doesn't reason, so the
+# companion works out what to point at first and names it by what is
+# visibly there. Offered under its own flag (enable_point_tool) and only
+# while a TypeSafe key is set.
+POINT_AT_SCREEN_TOOL = {
+    "name": "point_at_screen",
+    "description": (
+        "Point something out on the user's shared screen: a brief "
+        "highlight appears around each target. Use it when they ask where "
+        "something is, or to show them an answer or the next step you have "
+        "worked out. It finds things, it doesn't think: work out WHAT to "
+        "point at first (analyze_screen with a focused question, as many "
+        "looks as you need), then name each target by what is visibly "
+        "there - its text, label, look or position (\"the answer option "
+        "'C. 42'\", \"the Export button in the top toolbar\", \"the cell in "
+        "row 3, column 5 of the sudoku grid\"), never by what it means "
+        "(\"the right answer\"). Several targets are highlighted and "
+        "numbered in the order given. The result says which were found: "
+        "one that wasn't may have scrolled away or look different from "
+        "your description. Screen only, not the camera. "
+        + _SHARE_HOWTO
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "targets": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": 9,
+                "description": (
+                    "What to point at, one visible description each, in "
+                    "the order to number them."
+                ),
+            },
+        },
+        "required": ["targets"],
+    },
+}
+
 # Screen recording rides the same user-armed share as take_screenshot: no
 # share, no capture. Duration is model-supplied and capped at 90 s browser-
 # side (web/src/lib/screen_capture.js MAX_CLIP_SECONDS — keep in sync). The

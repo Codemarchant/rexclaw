@@ -915,6 +915,8 @@ let pickerWindow = null;
 // Powers the pop-out handoff: a window that had sharing armed sets the
 // pending flag before the switch, and the arriving window silently re-arms
 // the SAME source (legacy desktop-capture constraints need no gesture).
+// displayId (a screen source's display, "" for windows) places
+// point_at_screen's rings.
 let lastShareSource = null;
 let shareHandoffPending = false;
 
@@ -986,7 +988,7 @@ async function showScreenSharePicker(request, callback) {
         return;
     }
     if (waylandPortal && sources.length === 1) {
-        lastShareSource = { id: sources[0].id, audio: false };
+        lastShareSource = { id: sources[0].id, audio: false, displayId: sources[0].display_id || "" };
         callback({ video: sources[0] });
         return;
     }
@@ -1052,7 +1054,7 @@ async function showScreenSharePicker(request, callback) {
             callback(null);
         } else {
             const audioGranted = !!(request.audioRequested && process.platform === "win32");
-            lastShareSource = { id: source.id, audio: audioGranted };
+            lastShareSource = { id: source.id, audio: audioGranted, displayId: source.display_id || "" };
             callback({
                 video: source,
                 // System ('loopback') audio capture is Windows-only in
@@ -1509,6 +1511,91 @@ ipcMain.handle("share-handoff-take", () => {
     if (!shareHandoffPending || !lastShareSource) return null;
     shareHandoffPending = false;
     return lastShareSource;
+});
+
+// point_at_screen: rings drawn over the user's real screen around what the
+// companion points at — a click-through, transparent, always-on-top window
+// covering the shared display, made per call and closed once the rings
+// have faded. Only a whole-screen share maps to the desktop: its source
+// names the display, while a shared window's position isn't knowable from
+// here (the transcript's marked frame covers that case). Not hidden from
+// capture on purpose: a stream or recording should show the rings too.
+let pointWindow = null;
+
+// Ring geometry mirrors server/screen_pointer.py ring(): padded by a
+// quarter of each side (at least 10 px), never smaller than 36 px.
+function pointOverlayHtml(points, width, height, holdMs) {
+    const rings = points.map((p, i) => {
+        const w = (p.right - p.left) * width, h = (p.bottom - p.top) * height;
+        const pw = Math.max(10, w * 0.25, (36 - w) / 2), ph = Math.max(10, h * 0.25, (36 - h) / 2);
+        const x = p.left * width - pw, y = p.top * height - ph;
+        const style = `left:${x}px;top:${y}px;`
+            + `width:${w + 2 * pw}px;height:${h + 2 * ph}px;animation-delay:${i * 150}ms,${i * 150 + 300}ms,${holdMs - 400}ms`;
+        // The number sits off the ring's top-left corner, kept on screen.
+        const label = p.label
+            ? `<span style="left:${-Math.max(0, Math.min(26, x))}px;top:${-Math.max(0, Math.min(26, y))}px">`
+              + `${_escapeHtml(String(p.label).slice(0, 2))}</span>`
+            : "";
+        return `<div class="ring" style="${style}">${label}</div>`;
+    }).join("");
+    return `<!doctype html><html><head><meta charset="utf-8"><style>
+        html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden}
+        .ring{position:absolute;box-sizing:border-box;border:4px solid #ffcc00;border-radius:12px;
+            box-shadow:0 0 0 2px rgba(0,0,0,.55),inset 0 0 0 2px rgba(0,0,0,.35),0 0 18px rgba(255,204,0,.7);
+            opacity:0;animation:pop .3s ease-out forwards,pulse .9s ease-in-out 2,fade .4s ease-in forwards}
+        .ring span{position:absolute;width:28px;height:28px;border-radius:50%;
+            background:#ffcc00;border:2px solid rgba(0,0,0,.6);color:#111;font:700 15px/24px Segoe UI,Arial,sans-serif;text-align:center}
+        @keyframes pop{from{opacity:0;transform:scale(1.25)}to{opacity:1;transform:scale(1)}}
+        @keyframes pulse{50%{transform:scale(1.06)}}
+        @keyframes fade{from{opacity:1}to{opacity:0}}
+    </style></head><body>${rings}</body></html>`;
+}
+
+ipcMain.handle("screen-points", (event, { points, holdMs } = {}) => {
+    const { screen } = require("electron");
+    const src = lastShareSource;
+    if (!src?.id?.startsWith("screen:") || !Array.isArray(points) || !points.length) return { shown: false };
+    const display = screen.getAllDisplays().find((d) => String(d.id) === String(src.displayId));
+    if (!display) return { shown: false };
+    const b = display.bounds;
+    const hold = Math.max(1000, Math.min(15000, Number(holdMs) || 5000));
+    if (pointWindow && !pointWindow.isDestroyed()) pointWindow.destroy();
+    const win = pointWindow = new BrowserWindow({
+        x: b.x, y: b.y, width: b.width, height: b.height,
+        frame: false,
+        transparent: true,
+        hasShadow: false,
+        resizable: false,
+        movable: false,
+        focusable: false,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+        show: false,
+        webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    win.setIgnoreMouseEvents(true);
+    win.setAlwaysOnTop(true, "screen-saver");
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    win.once("ready-to-show", () => { if (!win.isDestroyed()) win.showInactive(); });
+    win.loadURL("data:text/html;charset=utf-8,"
+        + encodeURIComponent(pointOverlayHtml(points, b.width, b.height, hold)));
+    setTimeout(() => {
+        if (!win.isDestroyed()) win.destroy();
+        if (pointWindow === win) pointWindow = null;
+    }, hold + 200);
+    // The first ring's centre relative to the calling window's page (the
+    // window whose avatar should look at it).
+    const caller = BrowserWindow.fromWebContents(event.sender);
+    if (!caller || caller.isDestroyed()) return { shown: true, look: null };
+    const cb = caller.getContentBounds();
+    const p = points[0];
+    return {
+        shown: true,
+        look: {
+            x: b.x + ((p.left + p.right) / 2) * b.width - cb.x,
+            y: b.y + ((p.top + p.bottom) / 2) * b.height - cb.y,
+        },
+    };
 });
 
 ipcMain.handle("mascot-open", (event, opts) => {

@@ -1327,6 +1327,8 @@ export const JA = {
   "Grok or brain vision": "Grok または頭脳の画像認識",
   "Selfies, screenshots and clips run in the app. analyze_screen looks with the companion's own brain when it can see images (OpenAI, Claude or a local vision model, on the brain's quick model), otherwise with Grok vision on your xAI API key; left out when neither is available.":
     "自撮り・スクリーンショット・クリップはアプリ内で動きます。analyze_screen は、コンパニオンの頭脳が画像を認識できる（OpenAI、Claude、ローカルの画像認識モデル。頭脳のクイックモデルを使用）ならその頭脳で、そうでなければ xAI API キーで Grok の画像認識を使って見ます。どちらも使えないときは提供されません。",
+  "Finds things on the screen with Jev on your TypeSafe API key (Settings → TypeSafe (Jev), billed by TypeSafe). Not offered while no key is set.":
+    "TypeSafe API キーで Jev を使い、画面上のものを見つけます（設定 → TypeSafe（Jev）、TypeSafe の課金）。キーが未設定のときは提供されません。",
   "Grok or setup voice": "Grok またはセットアップの声",
   "Recorded in the voice the companion has on calls: Grok's (your xAI API key, billed by xAI), or its voice setup's voice (OpenAI, Fish, Kokoro...). Left out when neither can speak.":
     "通話と同じ声で録音します。Grok の声（xAI API キー、xAI の課金）か、音声セットアップの声（OpenAI、Fish、Kokoro など）です。どちらも話せないときは提供されません。",
@@ -1467,6 +1469,10 @@ export const JA = {
     "キャプチャツール（自撮り＆画面共有）",
   "Lets the companion take a photo of itself when you ask (take_selfie: the live avatar in calls, its portrait in chat) and, once you've shared your screen, grab screenshots or short clips of it (take_screenshot, analyze_screen, record_screen_clip). Captures land in the files library for the transcript and for other tools to use. Nothing is generated, so this works with any provider.":
     "頼まれたときにコンパニオンが自分の写真を撮れるようにします（take_selfie — 通話中はライブのアバター、チャットではポートレート）。また、画面共有を開始していれば、そのスクリーンショットや短いクリップを取得できます（take_screenshot、analyze_screen、record_screen_clip）。キャプチャはファイルライブラリに保存され、トランスクリプトや他のツールから利用できます — 何も生成しないため、どのプロバイダーでも使えます。",
+  "Point things out on screen (point_at_screen)":
+    "画面上で指し示す（point_at_screen）",
+  "Lets the companion highlight things on your shared screen (point_at_screen): where a button is, the answer to a puzzle it has worked out, the next step to take. It works out what to point at by looking with analyze_screen, then Jev finds each thing on the screen. In the desktop app sharing a whole screen, rings appear over the screen itself and the companion looks toward them; everywhere, the screenshot with the rings lands in the transcript.":
+    "共有中の画面上のものをコンパニオンがハイライトできるようにします（point_at_screen）。ボタンの場所、解いたパズルの答え、次にやる操作などです。何を指すかは analyze_screen で見て決め、Jev が画面上でそれぞれを見つけます。デスクトップアプリで画面全体を共有しているときは画面そのものにリングが表示され、コンパニオンもそちらを見ます。どの環境でも、リング入りのスクリーンショットがトランスクリプトに残ります。",
   "Image & video tools": "画像・動画ツール",
   "Unlocks the media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Each tool renders on Grok Imagine (billed by xAI: images cost cents, videos are priced per second) or on your own ComfyUI server. Pick the engine per tool in Settings → Local generation.":
     "メディアツールを有効にします：create_image と create_video（プロンプトから、または Imagine ライブラリの画像（セルフィー、スクリーンショット、アップロード）をリミックス）、さらに音声通話では change_background（アバターの背後に新しいシーンを生成）。各ツールは Grok Imagine（xAI が課金：画像は数セント、動画は秒単位）か、自分の ComfyUI サーバーで実行されます。エンジンはツールごとに 設定 → ローカル生成 で選びます。",
@@ -2121,8 +2127,8 @@ export const JA = {
   "Test": "テスト",
   "first call": "初回",
   "then": "以降",
-  "Used by: Expressive face and head, Automated background gestures, Live memory recall, and picking who speaks next in a group call. Background gestures and group-call turn selection fall back to the turn director model without a key, and without an xAI key either to the quick model of your companion's voice setup brain.":
-    "使用する機能：豊かな表情と頭の動き、自動背景ジェスチャー、会話中の記憶想起、グループ通話での次の話者の選択。キーがない場合、自動背景ジェスチャーと話者の選択にはターンディレクターモデルを使用し、xAI キーもない場合はコンパニオンの音声セットアップのブレインのクイックモデルを使用します。",
+  "Used by: Expressive face and head, Automated background gestures, Live memory recall, picking who speaks next in a group call, and pointing things out on your shared screen (point_at_screen, which needs a Jev 1.14 model such as jev-preview). Background gestures and group-call turn selection fall back to the turn director model without a key, and without an xAI key either to the quick model of your companion's voice setup brain.":
+    "使用する機能：豊かな表情と頭の動き、自動背景ジェスチャー、会話中の記憶想起、グループ通話での次の話者の選択、共有画面上で指し示す機能（point_at_screen。jev-preview などの Jev 1.14 モデルが必要）。キーがない場合、自動背景ジェスチャーと話者の選択にはターンディレクターモデルを使用し、xAI キーもない場合はコンパニオンの音声セットアップのブレインのクイックモデルを使用します。",
 
   // ── Settings / mascot: background avatar motion ───────────────────────
   "Background Avatar Motion": "アバターの自動モーション",

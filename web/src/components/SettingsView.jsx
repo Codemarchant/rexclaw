@@ -489,7 +489,8 @@ export default function SettingsView({ active }) {
                     )}
                     <p className="text-muted small">
                         {_t("Used by: Expressive face and head, Automated background gestures, "
-                            + "Live memory recall, and picking who speaks next in a group call. "
+                            + "Live memory recall, picking who speaks next in a group call, and pointing things out on "
+                            + "your shared screen (point_at_screen, which needs a Jev 1.14 model such as jev-preview). "
                             + "Background gestures and group-call turn selection fall back to the turn director model without a key, "
                             + "and without an xAI key either to the quick model of your companion's voice setup brain.")}
                     </p>

@@ -1177,6 +1177,9 @@ def _voice_tools(con, agent, config, *, group_peers=None):
         if config['xai_api_key'] or vision_brain(con, agent, config, 'voice'):
             tools.append(browser_tools.ANALYZE_SCREEN_TOOL)
         tools.append(browser_tools.RECORD_SCREEN_CLIP_TOOL)
+    # Pointing finds its targets with Jev (screen_pointer).
+    if agent['enable_point_tool'] and config['typesafe_api_key']:
+        tools.append(browser_tools.POINT_AT_SCREEN_TOOL)
 
     native_function_tools = []
     if agent['enable_grok_imagine_tools']:
@@ -2698,7 +2701,7 @@ NATIVE_TOOL_NAMES_TEXT = (
 # Browser tools that round-trip through the text client (dispatch in the
 # page's ToolDispatcher, results fed back via /tool_results). The screen
 # capture pair are the standalone's first text-mode browser tools.
-TEXT_BROWSER_TOOL_NAMES = {'take_screenshot', 'analyze_screen', 'record_screen_clip'}
+TEXT_BROWSER_TOOL_NAMES = {'take_screenshot', 'analyze_screen', 'record_screen_clip', 'point_at_screen'}
 
 
 def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_search,
@@ -2751,6 +2754,10 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                     'description': shared_tool['description'],
                     'parameters': shared_tool['parameters'],
                 })
+    if agent['enable_point_tool'] and enable_browser_tools and get_config(con)['typesafe_api_key']:
+        point = browser_tools.POINT_AT_SCREEN_TOOL
+        tools.append({'type': 'function', 'name': point['name'],
+                      'description': point['description'], 'parameters': point['parameters']})
     if enable_memory_tools:
         for entry in memory_tools.MEMORY_TOOLS:
             tools.append(entry)
