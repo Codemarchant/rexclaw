@@ -1681,4 +1681,7 @@ def main():
     print("TOOL MOTIONS DONE", wanted)
 
 
-main()
+# The roam motions (tools/motion/roam_motions) import this file for its rig,
+# solver and keying, so it only builds when run itself.
+if __name__ == "__main__":
+    main()

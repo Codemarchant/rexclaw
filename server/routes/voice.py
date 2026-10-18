@@ -4,6 +4,7 @@ controllers/voice_session.py minus the Odoo-native tool surface."""
 import base64
 import io
 import logging
+import random
 import uuid
 
 import requests
@@ -14,7 +15,7 @@ from .. import affection_tools, companion_texting, delegate_tools, games, imagin
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
-from .. import live_memory
+from .. import jev, live_memory
 from ..pipeline import setups as voice_setups
 
 _logger = logging.getLogger(__name__)
@@ -420,6 +421,168 @@ def session_point_at_screen(session_id: int, payload: dict = Body(default={}), c
         flag="enable_point_tool",
     )
     return {**stored, "ok": True, "targets": results}
+
+
+# Roam mode's screen-aware tricks: what a desktop companion looks for on
+# the screen between calls, each named by what is visibly there (Jev
+# locates, it doesn't reason; see screen_pointer). The keys are what the
+# client's tricks ask for (web/src/models/roam_director.js).
+ROAM_LOOKS = {
+    "link": "blue or underlined text link in a web page",
+    "close": "window close (X) button",
+    "video": "video player",
+    "picture": "photo or picture inside a web page or document",
+    "scrollbar": "vertical scrollbar thumb",
+    "search": "search box or text input field",
+    "text": "paragraph of text",
+    "face": "face of a person in a photo or video",
+    "icon": "desktop shortcut icon with its name under it",
+    "taskbar": "app icon in the taskbar",
+    "tab": "tab in a web browser's tab strip",
+    "button": "button",
+    "address": "address bar of a web browser",
+    "progress": "progress bar or loading bar",
+    "ad": "advertisement or ad banner",
+    "error": "error message or red error text",
+    "emoji": "emoji",
+}
+# A screen holds many of most of these and a Box finds one, so each is
+# asked for so that only one fits (TypeSafe's Box docs). Most get one of
+# these, a fresh pick per look, for a different one each time…
+ROAM_WHICH = ("the topmost {}", "the bottommost {}", "the leftmost {}", "the rightmost {}", "the largest {}")
+# …and these the ones that suit their tricks, or that tell apart things in
+# a row (a browser's tabs are all as high and as big).
+ROAM_WHICH_FOR = {
+    "close": ("the {} nearest the top-right corner",),
+    "video": ("the largest {}",), "scrollbar": ("the largest {}",), "progress": ("the largest {}",),
+    "error": ("the largest {}",), "search": ("the topmost {}",), "address": ("the topmost {}",),
+    "tab": ("the leftmost {}", "the rightmost {}"), "taskbar": ("the leftmost {}", "the rightmost {}"),
+}
+# Small things get Jev's second look (screen_pointer.locate; one image
+# request each): their cut-outs need the edges. Big ones only need roughly
+# where they are, unless the first box came back unsure: under the Box
+# docs' example threshold for looking again (they give no recommended one
+# yet).
+ROAM_REFINE = {"close", "icon", "taskbar", "tab", "button", "link", "face", "emoji", "error"}
+ROAM_BOX_CONFIDENT = 0.6
+
+
+def _roam_plain(noun):
+    """Any one of them: what the yes/no and the second look ask for."""
+    return ("an " if noun[0] in "aeiou" else "a ") + noun
+# What the user is up to, asked alongside: the client leans its tricks on
+# it, and leaves faces alone on a video call (that's a real person there).
+ROAM_SCENES = {
+    "video": "watching a video",
+    "reading": "reading an article or document",
+    "coding": "writing code",
+    "game": "playing a game",
+    "call": "in a video call or meeting",
+    "chat": "chatting or messaging",
+    "pictures": "looking at photos or pictures",
+    "desktop": "looking at an empty desktop or file manager",
+    "other": "something else",
+}
+# Faces are left alone when "call" gets more than an even share of the
+# scene's probability, not only when it's the pick: a joke on a real
+# person's face in your meeting costs far more than a skipped one, and
+# TypeSafe's advice is a lower threshold when the miss is the costly side.
+ROAM_CALL_P = 1 / len(ROAM_SCENES)
+
+
+def _shuffled(criteria):
+    """Options in a fresh order: Jev 1.13 leans toward a Choice's first
+    option (its jaggedness notes)."""
+    return dict(random.sample(list(criteria.items()), len(criteria)))
+
+
+@router.post("/roam/look")
+def roam_look(payload: dict = Body(default={}), con=Depends(db_con)):
+    """One look at the screen for a roaming companion: which of ROAM_LOOKS
+    are on the frame and where (box edges as fractions of it). Not tied to
+    a session (roaming happens between calls) and nothing is stored."""
+    config = get_config(con)
+    if not config["typesafe_api_key"]:
+        return {"ok": False, "reason": "no_key"}
+    data = payload.get("image_data_url") or ""
+    try:
+        frame = Image.open(io.BytesIO(base64.b64decode(data.partition(",")[2], validate=True)))
+        frame.load()
+    except Exception:
+        raise ValidationError("image_data_url must be a data:image/... URI.")
+    keys = [k for k in (payload.get("looks") or ROAM_LOOKS) if k in ROAM_LOOKS]
+    if not keys:
+        return {"ok": True, "found": []}
+    scene_q = {"s": {"type": "choice", "instructions": "What is the user doing in `screen`?",
+                     "criteria": _shuffled(ROAM_SCENES)}}
+    scene_job = screen_pointer._pool.submit(
+        screen_pointer._ask, config["typesafe_api_key"], config["jev_model"],
+        screen_pointer._scaled(frame, min(screen_pointer.MAX_SIDE, max(frame.size))), scene_q)
+    targets = [random.choice(ROAM_WHICH_FOR.get(k, ROAM_WHICH)).format(ROAM_LOOKS[k]) for k in keys]
+    try:
+        results, ticks = screen_pointer.locate(config["typesafe_api_key"], config["jev_model"], frame, targets,
+                                               refine={i for i, k in enumerate(keys) if k in ROAM_REFINE},
+                                               plain=[_roam_plain(ROAM_LOOKS[k]) for k in keys],
+                                               refine_below=ROAM_BOX_CONFIDENT)
+    except requests.HTTPError as e:
+        # Box needs Jev 1.14 (jev-preview while jev-latest is 1.13).
+        return {"ok": False, "reason": "jev_error",
+                "status": e.response.status_code if e.response is not None else None}
+    except Exception as e:
+        _logger.warning("roam look failed: %s", e)
+        return {"ok": False, "reason": "failed"}
+    # Not knowing counts as maybe on a call.
+    scene, on_call = None, True
+    try:
+        body = scene_job.result()
+        ticks += jev.input_ticks(body)
+        s = jev.answers(body, scene_q).get("s") or {}
+        scene = s.get("pick")
+        on_call = s.get("probs", {}).get("call", 1) > ROAM_CALL_P
+    except Exception as e:
+        _logger.info("roam scene question failed: %s", e)
+    store.accrue_usd_ticks(con, ticks)
+    con.commit()
+    return {"ok": True, "scene": scene if scene in ROAM_SCENES else None, "call": on_call,
+            "found": [{"key": k, "box": r["box"]} for k, r in zip(keys, results) if r["visible"]]}
+
+
+# Roam doodles a memory can turn into (the client's DOODLE_KINDS, roam_fx.js):
+# Jev picks the one that suits a random fact the companion remembers, or
+# none. Only the drawing reaches the screen, never the memory's words.
+ROAM_DOODLES = {
+    "heart": "a heart", "star": "a star", "smiley": "a smiley face", "flower": "a flower",
+    "cat": "a cat", "sun": "the sun", "note": "a music note", "cake": "a birthday cake",
+    "dog": "a dog", "coffee": "a cup of coffee", "book": "a book", "gamepad": "a game controller",
+    "pizza": "a slice of pizza", "none": "none of these fits",
+}
+
+
+@router.post("/roam/memory_doodle")
+def roam_memory_doodle(payload: dict = Body(default={}), con=Depends(db_con)):
+    """A doodle for a roaming companion to draw from something they remember
+    about the user: {kind} or {kind: None}."""
+    config = get_config(con)
+    if not config["typesafe_api_key"]:
+        return {"kind": None}
+    agent = resolve_agent(con, payload.get("agent_id"))
+    row = con.execute(
+        "SELECT content FROM memories WHERE (agent_id = ? OR agent_id IS NULL) AND memory_type = 'fact' "
+        "ORDER BY RANDOM() LIMIT 1", (agent["id"],)).fetchone()
+    if not row:
+        return {"kind": None}
+    qs = {"d": {"type": "choice", "instructions": "Which little drawing goes best with `memory`?",
+                "criteria": _shuffled(ROAM_DOODLES)}}
+    try:
+        body = jev.ask(config["typesafe_api_key"], config["jev_model"], {"memory": row["content"][:600]}, qs)
+    except Exception as e:
+        _logger.info("roam memory doodle failed: %s", e)
+        return {"kind": None}
+    store.accrue_usd_ticks(con, jev.input_ticks(body))
+    con.commit()
+    got = jev.answers(body, qs).get("d") or {}
+    kind = got.get("pick")
+    return {"kind": kind if kind in ROAM_DOODLES and kind != "none" else None}
 
 
 @router.post("/session/{session_id}/screen_clip")

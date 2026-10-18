@@ -1,0 +1,212 @@
+{
+  "umbrella": {
+    "file": "props/umbrella.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "vacuum": {
+    "file": "props/vacuum.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "spudgun": {
+    "file": "props/spudgun.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "launcher": {
+    "file": "props/launcher.glb",
+    "bone": "rightHand",
+    "position": [
+      0.0,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "shovel": {
+    "file": "props/shovel.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "rod": {
+    "file": "props/rod.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "hammer": {
+    "file": "props/hammer.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "guitar": {
+    "file": "props/guitar.glb",
+    "bone": "hips",
+    "position": [
+      -0.11,
+      0.1,
+      0.17
+    ],
+    "rotation": [
+      0.12326,
+      -0.06921,
+      -0.48467,
+      0.8632
+    ]
+  },
+  "boombox": {
+    "file": "props/boombox.glb",
+    "bone": "root",
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  "balloons": {
+    "file": "props/balloons.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "cape": {
+    "file": "props/cape.glb",
+    "bone": "upperChest",
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  "sunglasses": {
+    "file": "props/sunglasses.glb",
+    "bone": "head",
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  "sunbed": {
+    "file": "props/sunbed.glb",
+    "bone": "root",
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ]
+  },
+  "kart": {
+    "file": "props/kart.glb",
+    "bone": "root",
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ]
+  }
+}

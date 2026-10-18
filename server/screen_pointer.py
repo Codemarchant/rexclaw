@@ -88,14 +88,22 @@ def _look_again(api_key, model, frame, box, target):
             jev.input_ticks(body))
 
 
-def locate(api_key, model, frame, targets):
+def locate(api_key, model, frame, targets, refine=None, plain=None, refine_below=None):
     """Find each target on `frame` (a PIL image of the shared screen).
     Returns ([{'target', 'visible', 'box'}], usd_ticks); a box's edges are
-    fractions of the frame, and None when the target wasn't found."""
+    fractions of the frame, and None when the target wasn't found.
+    `refine`: indexes of the targets that get the second look (all of them
+    when None); one is a whole image request, worth it for small things.
+    `refine_below`: also those whose first box's confidence is under this.
+    `plain`: each target without the words that pick one out of several
+    ("a link" for "the topmost link"), for the Noul (is there one at all)
+    and the second look (which sees only a window of the frame, so "topmost"
+    would mean something else there); `targets` when None."""
+    plain = plain or targets
     qs = {}
     for i, target in enumerate(targets):
         qs[f'b{i}'] = {'type': 'box', 'instructions': f'{target} in `screen`'}
-        qs[f'v{i}'] = {'type': 'noul', 'instructions': f'Is {target} visible in `screen`?'}
+        qs[f'v{i}'] = {'type': 'noul', 'instructions': f'Is {plain[i]} visible in `screen`?'}
     body = _ask(api_key, model, _scaled(frame, min(MAX_SIDE, max(frame.size))), qs)
     ticks = jev.input_ticks(body)
     got = jev.answers(body, qs)
@@ -104,11 +112,13 @@ def locate(api_key, model, frame, targets):
         visible = (got.get(f'v{i}') or {}).get('yes', 0) >= jev.YES and f'b{i}' in got
         results.append({'target': target, 'visible': visible,
                         'box': got[f'b{i}']['box'] if visible else None})
-    found = [r for r in results if r['visible']]
+    found = [(i, r) for i, r in enumerate(results) if r['visible'] and (
+        refine is None or i in refine
+        or (refine_below is not None and got[f'b{i}']['confidence'] < refine_below))]
     if found:
         # The second looks are independent: one round trip for all of them.
-        futures = [_pool.submit(_look_again, api_key, model, frame, r['box'], r['target']) for r in found]
-        for r, f in zip(found, futures):
+        futures = [_pool.submit(_look_again, api_key, model, frame, r['box'], plain[i]) for i, r in found]
+        for (_, r), f in zip(found, futures):
             try:
                 r['box'], t = f.result()
                 ticks += t

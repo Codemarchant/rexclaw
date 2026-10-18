@@ -470,3 +470,579 @@ html.rx_mascot_mode {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+// ---- Roaming the desktop (models/roam_director.js) ------------------------
+// The window covers the screen's work area; the avatar host is a small box
+// the director slides around in it (inline position/transform), between two
+// click-through effect layers. The island hangs under the companion's feet
+// (--roam-island-x/y, set every frame) and shows while the cursor is on them.
+
+.rx_mascot.is-roaming {
+    .o_voice_avatar_canvas--mascot {
+        z-index: 2;
+        will-change: transform;
+    }
+
+    .rx_mascot_island {
+        left: var(--roam-island-x, 50%);
+        top: var(--roam-island-y, auto);
+        bottom: auto;
+    }
+}
+
+.rx_roam_under,
+.rx_roam_over,
+.rx_roam_follow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.rx_roam_under { z-index: 1; }
+.rx_roam_over { z-index: 3; }
+
+// What goes about with the character fades with them in ghost mode (the
+// same --ghost-fade the avatar host uses).
+.rx_roam_follow {
+    z-index: 4;
+    transition: opacity 0.25s ease;
+}
+
+.rx_mascot.is-roam-faded .rx_roam_follow { opacity: var(--ghost-fade, 0.15); }
+// One under the cursor (MascotView): over its own fade-ins and -outs.
+.rx_roam_under > .is-ghost-near,
+.rx_roam_over > .is-ghost-near { opacity: var(--ghost-fade, 0.15) !important; }
+
+.rx_roam_under > *,
+.rx_roam_over > *,
+.rx_roam_follow > * {
+    position: absolute;
+}
+
+.rx_roam_portal {
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(12, 6, 30, 0.95) 0 38%, rgba(124, 58, 237, 0.85) 52%,
+        rgba(56, 189, 248, 0.55) 64%, transparent 71%);
+    box-shadow: 0 0 24px rgba(139, 92, 246, 0.65), inset 0 0 18px rgba(56, 189, 248, 0.6);
+    // Flattened a little: a hole in the screen seen face-on, not a ball.
+    transform-origin: center;
+    mix-blend-mode: screen;
+
+    .rx_roam_portal_swirl {
+        position: absolute;
+        inset: 14%;
+        border-radius: 50%;
+        background: conic-gradient(from 0deg, transparent, rgba(196, 181, 253, 0.8), transparent 30%,
+            rgba(125, 211, 252, 0.7), transparent 60%, rgba(196, 181, 253, 0.8), transparent);
+        mask: radial-gradient(circle, transparent 42%, black 46%, black 70%, transparent 74%);
+    }
+}
+
+.rx_roam_patch {
+    border-radius: 3px;
+}
+
+.rx_roam_sticker {
+    display: block;
+    transform-origin: center;
+    filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.35));
+    will-change: transform;
+}
+
+.rx_roam_crumb {
+    border-radius: 2px;
+}
+
+.rx_roam_doodle {
+    --ink: #ff5fa2;
+    opacity: 0.92;
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 6px color-mix(in srgb, var(--ink) 55%, transparent));
+
+    svg {
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+    }
+
+    path {
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+    }
+}
+
+.rx_roam_doodle_text {
+    color: var(--ink);
+    font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+    font-weight: 700;
+    white-space: nowrap;
+    line-height: 1;
+    clip-path: inset(0 100% 0 0);
+}
+
+.rx_roam_zzz_letter {
+    position: absolute;
+    left: 0;
+    top: 0;
+    font: 700 22px/1 "Segoe UI", Arial, sans-serif;
+    color: #e0f2fe;
+    text-shadow: 0 0 2px rgba(15, 23, 42, 0.9), 0 0 8px rgba(56, 189, 248, 0.8);
+    opacity: 0;
+}
+
+.rx_roam_bubble {
+    position: absolute;
+    bottom: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(186, 230, 253, 0.45) 45%, rgba(125, 211, 252, 0.15) 70%);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+    opacity: 0;
+}
+
+.rx_roam_heart {
+    line-height: 1;
+    color: rgba(255, 111, 149, 0.9);
+    text-shadow: 0 0 6px rgba(255, 100, 140, 0.6);
+    opacity: 0;
+}
+
+// Gags (models/roam_gags.js).
+$roam-comic-font: "Impact", "Haettenschweiler", "Arial Black", sans-serif;
+
+.rx_roam_comic {
+    font-family: $roam-comic-font;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
+    letter-spacing: 0.02em;
+    -webkit-text-stroke: 3px #111;
+    paint-order: stroke fill;
+    text-shadow: 3px 4px 0 rgba(0, 0, 0, 0.55);
+    opacity: 0;
+}
+
+.rx_roam_say {
+    padding: 0.35em 0.7em;
+    border-radius: 1em;
+    background: #fff;
+    color: #111;
+    font: 600 15px/1.2 "Segoe UI", Arial, sans-serif;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    width: auto !important;
+    height: auto !important;
+    opacity: 0;
+
+    &::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        bottom: -7px;
+        border: 7px solid transparent;
+        border-top-color: #fff;
+        border-bottom: 0;
+        transform: translateX(-50%);
+    }
+}
+
+.rx_roam_cloud {
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 30% 60%, #6b7280 0 30%, transparent 31%),
+        radial-gradient(circle at 55% 40%, #7c8594 0 36%, transparent 37%),
+        radial-gradient(circle at 75% 62%, #6b7280 0 28%, transparent 29%);
+    filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.35));
+    opacity: 0;
+
+    .rx_roam_rain {
+        position: absolute;
+        left: 10%;
+        right: 10%;
+        top: 70%;
+        height: 200%;
+        overflow: hidden;
+    }
+
+    .rx_roam_drop {
+        position: absolute;
+        top: 0;
+        width: 2px;
+        height: 14px;
+        border-radius: 2px;
+        background: linear-gradient(rgba(186, 230, 253, 0), rgba(186, 230, 253, 0.9));
+    }
+}
+
+.rx_roam_sun {
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff7c2 0 22%, #fcd34d 30%, rgba(252, 211, 77, 0.35) 46%, transparent 70%);
+    mix-blend-mode: screen;
+    opacity: 0;
+}
+
+.rx_roam_tile {
+    background-repeat: no-repeat;
+    will-change: transform;
+}
+
+.rx_roam_ripple {
+    overflow: hidden;
+    border-radius: 6px;
+
+    .rx_roam_ripple_ring {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        border-radius: 50%;
+        border: 3px solid rgba(255, 255, 255, 0.85);
+        box-shadow: 0 0 10px rgba(125, 211, 252, 0.8), inset 0 0 10px rgba(125, 211, 252, 0.6);
+    }
+}
+
+.rx_roam_mound {
+    transform-origin: bottom;
+    border-radius: 50% 50% 8% 8% / 100% 100% 8% 8%;
+    background: radial-gradient(ellipse at 50% 30%, #9a7148, #6b4a2c 70%);
+    box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+
+    .rx_roam_xmark {
+        position: absolute;
+        left: 50%;
+        top: 8%;
+        transform: translateX(-50%);
+        color: #ef4444;
+        font: 900 26px/1 $roam-comic-font;
+        text-shadow: 0 0 2px #000;
+    }
+}
+
+.rx_roam_puff {
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(229, 231, 235, 0.95), rgba(156, 163, 175, 0.6) 55%, transparent 72%);
+}
+
+.rx_roam_shot--potato {
+    border-radius: 46% 54% 50% 50% / 60% 55% 45% 40%;
+    background: radial-gradient(circle at 35% 35%, #e3c27a, #a8793e 75%);
+    box-shadow: inset -2px -3px 0 rgba(0, 0, 0, 0.2);
+}
+
+.rx_roam_shot--fireball {
+    border-radius: 50%;
+    background: radial-gradient(circle, #fffbe6 0 18%, #ffcc33 32%, #ff6a00 55%, rgba(255, 60, 0, 0.4) 70%, transparent 74%);
+    filter: drop-shadow(0 0 12px rgba(255, 120, 0, 0.9));
+}
+
+// Flame at the tail (left), grey body, red nose (right): it flies nose
+// first (roam_fx.js projectile turns it along its way).
+.rx_roam_shot--rocket {
+    border-radius: 30% 60% 60% 30% / 50%;
+    background: linear-gradient(90deg, #ffb020 0 14%, #6b7280 14% 72%, #dc2626 72%);
+    box-shadow: -10px 0 12px rgba(255, 150, 30, 0.85);
+}
+
+.rx_roam_debris {
+    background-repeat: no-repeat;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+.rx_roam_shot--plane {
+    font-size: 36px;
+    line-height: 40px;
+    text-align: center;
+    color: #f8fafc;
+    text-shadow: 0 2px 3px rgba(0, 0, 0, 0.45);
+}
+
+.rx_roam_ember {
+    border-radius: 50%;
+    background: radial-gradient(circle, #ffe08a, #ff6a00 60%, transparent 70%);
+}
+
+.rx_roam_splat {
+    border-radius: 42% 58% 47% 53% / 55% 41% 59% 45%;
+    background: radial-gradient(circle at 45% 40%, #f6e7b8, #e2c77a 60%, #c9a85a);
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.15), inset 0 -4px 0 rgba(0, 0, 0, 0.12);
+}
+
+.rx_roam_blast {
+    border-radius: 50%;
+    background: radial-gradient(circle, #fffbe6 0 15%, #ffd23f 28%, #ff7a00 48%, rgba(220, 38, 38, 0.6) 62%, transparent 72%);
+    mix-blend-mode: screen;
+}
+
+.rx_roam_soot {
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(17, 17, 17, 0.75), rgba(17, 17, 17, 0.4) 50%, transparent 72%);
+}
+
+.rx_roam_confetti {
+    border-radius: 2px;
+}
+
+.rx_roam_flash {
+    background: #fff;
+    z-index: 20;
+}
+
+.rx_roam_thumb {
+    .rx_roam_thumb_circle {
+        position: absolute;
+        border: 8px solid #ef1c1c;
+        border-radius: 50%;
+        box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.4);
+    }
+
+    .rx_roam_thumb_arrow {
+        position: absolute;
+        color: #ef1c1c;
+        font: 900 110px/100px $roam-comic-font;
+        -webkit-text-stroke: 4px #fff;
+        paint-order: stroke fill;
+        filter: drop-shadow(2px 4px 0 rgba(0, 0, 0, 0.45));
+    }
+
+    .rx_roam_thumb_text {
+        position: absolute;
+        transform: translateY(-100%);
+        white-space: nowrap;
+        color: #ffe600;
+        font: 900 48px/1 $roam-comic-font;
+        -webkit-text-stroke: 5px #111;
+        paint-order: stroke fill;
+        text-shadow: 4px 5px 0 rgba(0, 0, 0, 0.5);
+    }
+}
+
+.rx_roam_line {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+
+    path {
+        fill: none;
+        stroke: rgba(241, 245, 249, 0.9);
+        stroke-width: 1.5;
+    }
+
+    circle {
+        fill: #ef4444;
+        stroke: #fff;
+        stroke-width: 3;
+    }
+}
+
+.rx_roam_cloud--seat {
+    background:
+        radial-gradient(circle at 28% 62%, #f8fafc 0 30%, transparent 31%),
+        radial-gradient(circle at 52% 38%, #ffffff 0 37%, transparent 38%),
+        radial-gradient(circle at 76% 60%, #f1f5f9 0 29%, transparent 30%);
+    filter: drop-shadow(0 4px 6px rgba(15, 23, 42, 0.35));
+}
+
+.rx_roam_chute {
+    .rx_roam_chute_canopy {
+        position: absolute;
+        transform-origin: 50% 100%;
+        border-radius: 50% 50% 12% 12% / 100% 100% 18% 18%;
+        background: repeating-linear-gradient(90deg, #ef4444 0 16.6%, #fafafa 16.6% 33.3%);
+        box-shadow: inset 0 -6px 0 rgba(0, 0, 0, 0.12), 0 3px 6px rgba(0, 0, 0, 0.3);
+    }
+
+    // The lines from the canopy's rim down to the hands (set per frame).
+    .rx_roam_chute_lines {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+
+        line {
+            stroke: rgba(255, 255, 255, 0.85);
+            stroke-width: 1.4;
+        }
+    }
+}
+
+.rx_roam_web {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+
+    line {
+        stroke: #f8fafc;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        filter: drop-shadow(0 0 1px rgba(15, 23, 42, 0.8));
+    }
+}
+
+.rx_roam_websplat {
+    border-radius: 50%;
+    background:
+        repeating-conic-gradient(rgba(248, 250, 252, 0.9) 0 6deg, transparent 6deg 45deg),
+        radial-gradient(circle, rgba(248, 250, 252, 0.9) 0 18%, transparent 19% 40%, rgba(248, 250, 252, 0.6) 41% 44%, transparent 45%);
+}
+
+// Second batch (models/roam_gags_more.js).
+.rx_roam_sign {
+    padding: 0.3em 0.6em;
+    border-radius: 0.4em;
+    background: #fffbeb;
+    color: #1f2937;
+    border: 2px solid #78350f;
+    font: 700 16px/1.1 "Segoe Print", "Comic Sans MS", cursive;
+    white-space: nowrap;
+    width: auto !important;
+    height: auto !important;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+    opacity: 0;
+
+    &--big { font-size: 34px; padding: 0.15em 0.45em; }
+}
+
+// The one thing on a click-through roam screen that takes a click.
+.rx_roam_clickable {
+    pointer-events: auto;
+    cursor: pointer;
+
+    &:hover { background: #fef3c7; }
+}
+
+.rx_roam_lens {
+    border-radius: 50%;
+    border: 5px solid #475569;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7), 0 6px 14px rgba(0, 0, 0, 0.4), inset 0 0 18px rgba(255, 255, 255, 0.35);
+    background-repeat: no-repeat;
+    opacity: 0;
+
+    .rx_roam_lens_handle {
+        position: absolute;
+        right: -32%;
+        bottom: -32%;
+        width: 40%;
+        height: 12%;
+        border-radius: 6px;
+        background: #78350f;
+        transform: rotate(45deg);
+        transform-origin: left center;
+    }
+}
+
+.rx_roam_fort {
+    .rx_roam_pillow {
+        position: absolute;
+        width: 22%;
+        height: 36%;
+        border-radius: 40%;
+        box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.25);
+    }
+
+    .rx_roam_fort_sign {
+        position: absolute;
+        left: 50%;
+        top: -26%;
+        transform: translateX(-50%) rotate(-4deg);
+        padding: 0.15em 0.5em;
+        background: #fff;
+        border: 2px solid #b91c1c;
+        color: #b91c1c;
+        font: 900 18px/1.1 $roam-comic-font;
+        white-space: nowrap;
+    }
+}
+
+.rx_roam_carpet {
+    background: linear-gradient(#b91c1c, #7f1d1d);
+    border-radius: 3px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+.rx_roam_pop {
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff 0 25%, rgba(255, 255, 255, 0.6) 40%, transparent 70%);
+    mix-blend-mode: screen;
+}
+
+.rx_roam_leafpile .rx_roam_leaf {
+    position: absolute;
+    line-height: 1;
+}
+
+.rx_roam_snowsplat {
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff 0 35%, rgba(255, 255, 255, 0.7) 50%, transparent 70%);
+}
+
+.rx_roam_shot--snowball {
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #fff, #dbeafe 70%);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.rx_roam_fireflies .rx_roam_firefly {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #fef08a;
+    box-shadow: 0 0 8px 3px rgba(250, 240, 120, 0.8);
+}
+
+.rx_roam_blanket {
+    border-radius: 45% 45% 14px 14px / 70% 70% 14px 14px;
+    background: repeating-linear-gradient(45deg, #818cf8 0 14px, #a5b4fc 14px 28px);
+    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.12), 0 3px 6px rgba(0, 0, 0, 0.3);
+    transform-origin: top;
+}
+
+.rx_roam_pointer svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+
+    path {
+        fill: #fff;
+        stroke: #111;
+        stroke-width: 4;
+        stroke-linejoin: round;
+    }
+}
+
+.rx_roam_star {
+    color: #fde047;
+    font-size: 22px;
+    line-height: 1;
+    text-shadow: 0 0 2px #000;
+}
+
+.rx_roam_drop2 {
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #fff, #7dd3fc 70%);
+}
+
+.rx_roam_clone {
+    opacity: 0.55;
+    filter: hue-rotate(160deg) saturate(1.4);
+}
+
+// Its border (padding) is set in px from its width (roam_fx.js polaroid).
+.rx_roam_polaroid {
+    box-sizing: border-box;
+    background: #fafaf7;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+
+    .rx_roam_polaroid_img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1;
+        object-fit: cover;
+    }
+}

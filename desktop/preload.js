@@ -55,6 +55,26 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     mascotDragStart: () => ipcRenderer.invoke("mascot-drag-start"),
     mascotDragMove: (pos) => ipcRenderer.invoke("mascot-drag-move", pos || {}),
     mascotDragEnd: () => ipcRenderer.invoke("mascot-drag-end"),
+    // Roam mode: the overlay takes the display's work area (roamStart
+    // resolves its size) and gives it back (roamStop). While it roams the
+    // shell pushes the other windows' rectangles + idle time (onRoamEnv)
+    // and a new area after a display change (onRoamArea); roamCapture is
+    // one still of the screen for the screen-aware tricks (null where it
+    // would need a prompt). setRoamPref mirrors the toggle for the tray.
+    roamStart: () => ipcRenderer.invoke("roam-start"),
+    roamStop: () => ipcRenderer.invoke("roam-stop"),
+    roamCapture: () => ipcRenderer.invoke("roam-capture"),
+    // The next getDisplayMedia gets system audio without the picker (Windows).
+    roamAudioArm: () => ipcRenderer.invoke("roam-audio-arm"),
+    setRoamPref: (on) => ipcRenderer.invoke("roam-pref", !!on),
+    onRoamEnv: (cb) => {
+        ipcRenderer.removeAllListeners("roam-env");
+        ipcRenderer.on("roam-env", (event, env) => cb(env));
+    },
+    onRoamArea: (cb) => {
+        ipcRenderer.removeAllListeners("roam-area");
+        ipcRenderer.on("roam-area", (event, area) => cb(area));
+    },
     // Snap the overlay to a corner of its current display, or send it to the
     // next monitor (keeping the corner it sits in).
     alignMascot: (corner) => ipcRenderer.invoke("mascot-align", corner),

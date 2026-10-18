@@ -26,6 +26,7 @@
       "main.js",
       "preload.js",
       "picker_preload.js",
+      "roam_windows.js",
       "package.json"
     ],
     "extraResources": [

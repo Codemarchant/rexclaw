@@ -75,6 +75,20 @@ async function loadLibs() {
 const FACE_FALLBACK_HEAD_Y = 1.35;  // typical adult VRM head Y, used pre-load
 const FACE_FOV = 20;
 const FULL_FOV = 35;
+// Roam mode (the mascot wandering the desktop, models/roam_director.js): a
+// fixed full-body shot in a small host the page slides around the screen.
+// Through the face shot's long lens the perspective stays flat, so the
+// character reads as standing on the screen's surface wherever it is.
+// The fractions are of the host's height and set its framing by eye: the
+// body fills 62% (headroom for jumps and raised arms), feet 4% up.
+const ROAM_FOV = FACE_FOV;
+const ROAM_BODY_FRAC = 0.62;
+const ROAM_FOOT_FRAC = 0.04;
+// Bones a carried thing overrides in the walk loop (roamWalk upperUrl).
+const ROAM_ARM_BONES = ["Shoulder", "UpperArm", "LowerArm", "Hand", "ThumbMetacarpal", "ThumbProximal",
+    "ThumbDistal", "IndexProximal", "IndexIntermediate", "IndexDistal", "MiddleProximal",
+    "MiddleIntermediate", "MiddleDistal", "RingProximal", "RingIntermediate", "RingDistal",
+    "LittleProximal", "LittleIntermediate", "LittleDistal"].flatMap((b) => [`left${b}`, `right${b}`]);
 // Padding factors expand the framed region so subjects don't kiss the
 // viewport edges. ~20% margin for face shot reads as portrait composition;
 // 10% for full body keeps feet+top with a touch of breathing room.
@@ -3461,6 +3475,7 @@ class AvatarRenderer {
      *  target still plays out, which is what lets a companion follow the
      *  camera around (stageMove "follow_camera"). */
     _updateMovement(delta) {
+        if (this._roam) { this._updateRoam(delta); return; }
         const flying = this._moveMode && this._moveKind === "camera";
         if (flying) this._updateCameraFly(delta);
         const actor = this._moveActor();
@@ -5124,12 +5139,249 @@ class AvatarRenderer {
     /** Toggle between face-shot (default) and full-body mode. Full-body mode
      *  zooms out, raises FOV, and attaches OrbitControls so the user can drag
      *  to rotate, scroll to zoom, and pan with right-click/two-finger drag. */
+    // ── Roam (the mascot wandering the desktop) ─────────────────────────
+    // The page moves the host element around the screen and decides what
+    // the character does (models/roam_director.js); the renderer keeps one
+    // fixed full-body shot of them inside it (ROAM_*), walks them in place
+    // and turns them, and reports where bones land in the host so the page
+    // can pin a pose to something on the screen.
+
+    /** Enter or leave roam framing. Leaving hands the camera back to the
+     *  view's own face / full-body preset. */
+    setRoam(on) {
+        if (on) {
+            if (this._roam) return;
+            this.stopMoving();
+            this._disableOrbit();
+            this._staging = null;
+            this._followCam = false;
+            this._autoCam = null;
+            this._gestureZoom = null;
+            this._roam = { walking: false, rate: 1, upperUrl: null, yaw: this._moveYaw || 0, shot: "full" };
+            this._applyRoamCamera();
+            return;
+        }
+        if (!this._roam) return;
+        this._roam = null;
+        if (this._moving) this._stopWalkAnim(this);
+        this._returnFacingY = 0;   // eased back round to the camera
+        if (this._xrActive) return;
+        this._applyCameraPreset();
+        if (this._fullBody) this._enableOrbit();
+    }
+
+    get isRoaming() { return !!this._roam; }
+
+    /** Walk in place (the page slides the host) at `rate` × the walk
+     *  clip's own pace, or stop. `upperUrl`: a VRMA whose arms replace the
+     *  walk's (carrying something), the legs and body still walking. */
+    roamWalk(on, { rate = 1, upperUrl = null } = {}) {
+        const r = this._roam;
+        if (!r) return;
+        r.walking = !!on;
+        r.rate = rate;
+        if (!on) {
+            if (this._moving) this._stopWalkAnim(this);
+            this._returnFacingY = null;
+            return;
+        }
+        if (upperUrl !== r.upperUrl && this._moving) this._stopWalkAnim(this);
+        r.upperUrl = upperUrl;
+        if (!this._moving) this._startRoamWalk();
+        else this._walkAction?.setEffectiveTimeScale(rate);
+    }
+
+    /** Turn to `yaw` (0 = facing the viewer, + turns towards screen right)
+     *  at the walk's turning speed. */
+    roamFace(yaw) {
+        if (this._roam) this._roam.yaw = yaw;
+    }
+
+    async _startRoamWalk() {
+        const r = this._roam;
+        if (!r || r.starting) return;
+        r.starting = true;
+        try {
+            // _startWalkAnim plays the actor's _walkAction: the plain loop,
+            // or the walk-with-these-arms one for this walk.
+            const carry = this._roamCarry;
+            if (!r.upperUrl) {
+                if (carry && this._walkAction === carry.action) this._walkAction = carry.plain;
+            } else {
+                const action = await this._roamCarryAction(r.upperUrl);
+                if (this._roam !== r || !r.walking) return;
+                if (action) this._walkAction = action;
+            }
+            await this._startWalkAnim(this);
+            this._walkAction?.setEffectiveTimeScale(r.rate);
+        } finally {
+            r.starting = false;
+        }
+    }
+
+    /** The walk loop with another clip's arms, cached per mixer + clip. */
+    async _roamCarryAction(url) {
+        const prev = this._roamCarry;
+        if (prev && this._walkAction === prev.action) this._walkAction = prev.plain;
+        const plain = await this._ensureWalkAction(this);
+        if (!plain || !this.vrm || !this.mixer) return null;
+        const c = this._roamCarry;
+        if (c && c.mixer === this.mixer && c.url === url && c.plain === plain) return c.action;
+        const vrm = this.vrm;
+        let upper;
+        try {
+            const { GLTFLoader, VRMAnimationLoaderPlugin, createVRMAnimationClip } = this.libs;
+            const loader = new GLTFLoader();
+            loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
+            const gltf = await loader.loadAsync(url);
+            const vrma = gltf.userData.vrmAnimations?.[0];
+            if (!vrma || this.vrm !== vrm) return null;
+            upper = createVRMAnimationClip(vrma, vrm);
+        } catch (e) {
+            console.error("[roam] carry clip load failed", url, e);
+            return null;
+        }
+        const { THREE } = this.libs;
+        const arms = new Set(ROAM_ARM_BONES
+            .map((b) => vrm.humanoid?.getNormalizedBoneNode?.(b)?.name).filter(Boolean));
+        const ownsArm = (t) => arms.has(t.name.slice(0, t.name.lastIndexOf(".")));
+        const walk = plain.getClip();
+        const tracks = [...walk.tracks.filter((t) => !ownsArm(t)), ...upper.tracks.filter(ownsArm)];
+        const action = this.mixer.clipAction(new THREE.AnimationClip(`roam-carry|${url}`, walk.duration, tracks));
+        action.setLoop(THREE.LoopRepeat, Infinity);
+        this._roamCarry = { mixer: this.mixer, url, action, plain };
+        return action;
+    }
+
+    /** Per frame while roaming (from _updateMovement): keep the walk going
+     *  across a model swap, ease the turn. */
+    _updateRoam(delta) {
+        const r = this._roam;
+        if (!this.vrm) return;
+        if (r.walking && !this._moving && !r.starting) this._startRoamWalk();
+        if (!r.walking && this._moving) this._stopWalkAnim(this);
+        this._returnFacingY = null;
+        let diff = r.yaw - (this._moveYaw || 0);
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        const step = MOVE_TURN_SPEED * delta;
+        this._setMoveYaw(this, Math.abs(diff) <= step ? r.yaw : this._moveYaw + Math.sign(diff) * step);
+    }
+
+    /** The roam shot: ROAM_FOV, the standing body ROAM_BODY_FRAC of the
+     *  host's height, feet ROAM_FOOT_FRAC above its bottom, centred on
+     *  where the avatar stands. The "face" shot (a jump scare) fills the
+     *  host with the head instead. */
+    _roamFrame() {
+        const headY = this._headWorldY ?? FACE_FALLBACK_HEAD_Y;
+        const top = this._meshTopY ?? (headY + 0.2);
+        const bottom = this._meshBottomY ?? 0;
+        const p = this.vrm?.scene.position || { x: 0, z: 0 };
+        if (this._roam?.shot === "face") {
+            // Chin to crown, a little cropped: right up against the glass.
+            const span = Math.max(0.15, top - (headY - 0.08)) * 0.85;
+            const distance = span / (2 * Math.tan((ROAM_FOV * Math.PI) / 360));
+            return { span, distance, x: p.x, z: p.z, centreY: headY + 0.07, body: top - bottom };
+        }
+        // world height the host shows
+        const span = Math.max(0.3, top - bottom) / (this._roam?.bodyFrac || ROAM_BODY_FRAC);
+        const distance = span / (2 * Math.tan((ROAM_FOV * Math.PI) / 360));
+        const centreY = bottom - ROAM_FOOT_FRAC * span + span / 2;
+        return { span, distance, x: p.x, z: p.z, centreY, body: top - bottom };
+    }
+
+    /** "full" (the roam shot) or "face" (the head filling the host). */
+    setRoamShot(shot) {
+        if (this._roam) this._roam.shot = shot === "face" ? "face" : "full";
+    }
+
+    /** The standing body's share of the host's height (ROAM_BODY_FRAC by
+     *  default; less leaves room overhead, for balloons). */
+    setRoamBodyFrac(frac) {
+        if (this._roam) this._roam.bodyFrac = frac || ROAM_BODY_FRAC;
+    }
+
+    /** A prop from the roam set (assets/vrma/roam/props.json) on the
+     *  avatar: hidden until show(); pointPx(name) is where its named point
+     *  (a muzzle, a nozzle) is drawn, in host px. */
+    async roamProp(id) {
+        this._roamPropSpecs ||= fetch("/assets/vrma/roam/props.json").then((r) => r.json()).catch(() => ({}));
+        const spec = (await this._roamPropSpecs)[id];
+        if (!spec || !this.vrm || !this.libs) return null;
+        const h = await this._ensureToolProps().attach(this.vrm, `/assets/vrma/roam/${spec.file}`, spec);
+        if (!h) return null;
+        h.pointPx = (name) => {
+            const node = h.obj.getObjectByName(`${id}_${name}`);
+            const host = this.activeCanvas;
+            if (!node || !host || !this.camera) return null;
+            const v = node.getWorldPosition(new this.libs.THREE.Vector3()).project(this.camera);
+            return { x: ((v.x + 1) / 2) * host.clientWidth, y: ((1 - v.y) / 2) * host.clientHeight };
+        };
+        return h;
+    }
+
+    /** This frame of the avatar as a 2D canvas the host's CSS size (the
+     *  WebGL buffer is read right after drawing, in the same task), into
+     *  `into` when given (a clone takes one every frame). */
+    roamSnapshot(into = null) {
+        const host = this.activeCanvas;
+        if (!this.renderer || !host) return null;
+        this._draw();
+        const src = this.renderer.domElement;
+        const c = into || document.createElement("canvas");
+        if (c.width !== host.clientWidth) c.width = host.clientWidth;
+        if (c.height !== host.clientHeight) c.height = host.clientHeight;
+        const g = c.getContext("2d");
+        g.clearRect(0, 0, c.width, c.height);
+        g.drawImage(src, 0, 0, c.width, c.height);
+        return c;
+    }
+
+    _applyRoamCamera() {
+        if (!this.camera || this._xrActive) return;
+        const f = this._roamFrame();
+        this.camera.position.set(f.x, f.centreY, f.z + f.distance);
+        if (this.camera.fov !== ROAM_FOV) {
+            this.camera.fov = ROAM_FOV;
+            this.camera.updateProjectionMatrix();
+        }
+        this.camera.lookAt(f.x, f.centreY, f.z);
+        if (this._lookAtTarget) this._lookAtTarget.position.copy(this.camera.position);
+    }
+
+    /** Scale and anchor of the roam shot in host CSS px: px per metre, the
+     *  standing feet's spot, the standing body's height. */
+    roamMetrics() {
+        const host = this.activeCanvas;
+        if (!this._roam || !host) return null;
+        const h = host.clientHeight || 1;
+        const f = this._roamFrame();
+        return {
+            pxPerM: h / f.span,
+            footX: (host.clientWidth || 1) / 2,
+            footY: h * (1 - ROAM_FOOT_FRAC),
+            bodyPx: (f.body * h) / f.span,
+        };
+    }
+
+    /** Where a humanoid bone is drawn, in host CSS px (null without one). */
+    roamBonePx(name) {
+        const host = this.activeCanvas;
+        const node = this.vrm?.humanoid?.getRawBoneNode?.(name);
+        if (!host || !node || !this.camera || !this.libs) return null;
+        const v = node.getWorldPosition(this._roamScratch ||= new this.libs.THREE.Vector3());
+        v.project(this.camera);
+        return { x: ((v.x + 1) / 2) * host.clientWidth, y: ((1 - v.y) / 2) * host.clientHeight };
+    }
+
     setFullBodyMode(enabled) {
         this._fullBody = !!enabled;
         if (!this.camera || !this.libs) return;
         // Ignored while in XR (the HMD owns the camera); the desired flag is
         // still recorded so exitXR can restore orbit framing on return.
         if (this._xrActive) return;
+        // Roaming keeps its own shot; leaving it applies the flag.
+        if (this._roam) return;
         this._applyCameraPreset();
         if (this._fullBody) {
             this._enableOrbit();
@@ -5318,7 +5570,7 @@ class AvatarRenderer {
     }
 
     _enableOrbit() {
-        if (this._orbitControls || !this.activeCanvas) return;
+        if (this._orbitControls || !this.activeCanvas || this._roam) return;
         const { OrbitControls } = this.libs;
         if (!OrbitControls) return;
         // OrbitControls binds to the renderer's DOM element for input. We pass
@@ -6427,7 +6679,10 @@ class AvatarRenderer {
                 } catch (e) { /* non-fatal */ }
             }
         }
-        if (!this._xrActive && this._stageCam) {
+        if (!this._xrActive && this._roam) {
+            // Roaming: the one fixed shot, the page moves the host.
+            this._applyRoamCamera();
+        } else if (!this._xrActive && this._stageCam) {
             // A performance's concert camera owns the view while it runs.
             this._updateStageCamera(delta);
         } else if (!this._xrActive) {

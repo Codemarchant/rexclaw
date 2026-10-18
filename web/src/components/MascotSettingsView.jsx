@@ -32,6 +32,8 @@ export default function MascotSettingsView() {
     const [controlsHidden, setControlsHidden] = useState(false);
     const [hideIdle, setHideIdle] = useState(false);
     const [startInMascot, setStartInMascot] = useState(false);
+    // Roaming's "Try one now": the picked action.
+    const [tryId, setTryId] = useState(null);
     // Cosmetic highlight for the emotion buttons — mirrors the click, not
     // the renderer (which decays emotions on its own schedule).
     const [emotion, setEmotion] = useState(null);
@@ -490,7 +492,7 @@ export default function MascotSettingsView() {
                             (v) => setShell(bridge.setStartupMascot, setStartInMascot, v))}
                     </section>
 
-                    {/* Last on purpose: the least-used section, and a niche one. */}
+                    {/* Near the end on purpose: the least-used section, and a niche one. */}
                     {mascot?.motion && (
                         <section>
                             <h3><i className="fa fa-child" /> {_t("Background Avatar Motion")}</h3>
@@ -517,6 +519,56 @@ export default function MascotSettingsView() {
                                     _t("While one slow tool runs on a call, they act it out until the result is back: a phone to text someone, a ball of light for a new background, a brush for a picture."),
                                     mascot.motion.tool_animations !== false,
                                     (v) => sendMotion({ tool_animations: v }))}
+                            </fieldset>
+                        </section>
+                    )}
+
+                    {/* Last: the whole-screen mode, apart from the window's own settings. */}
+                    {mascot?.roamAvailable !== false && (
+                        <section>
+                            <h3><i className="fa fa-paw" /> {_t("Roaming")}</h3>
+                            <fieldset disabled={!alive}>
+                                {check("rx_ms_roam", _t("Roam the desktop"),
+                                    _t("Between calls your companion leaves the window and wanders the whole screen: along the bottom and over your windows, sitting on them, napping while you're away, doodling. Clicks pass through them. A call brings them back."),
+                                    mascot?.roam,
+                                    (v) => send({ type: "set", key: "roam", value: v }))}
+                                {check("rx_ms_roam_tricks", _t("Play with what's on the screen"),
+                                    _t("Every twenty seconds or so while they roam, a screenshot goes to Jev to find links, videos, pictures and the like, so they can eat a link or sit on a video. Needs a TypeSafe API key and the jev-preview model. Whatever is on the screen goes in those screenshots, so turn this off before opening anything private. On Windows they also hear what's playing, to dance to your music; that sound stays on this computer."),
+                                    mascot?.roamTricks,
+                                    (v) => send({ type: "set", key: "roamTricks", value: v }))}
+                                <label>{_t("Size while roaming")}</label>
+                                <div className="rx_mascot_set_sizes">
+                                    {["S", "M", "L"].map((label, idx) => (
+                                        <button key={label}
+                                                className={"btn btn-sm " + (alive && mascot?.roamSize === idx ? "btn-primary" : "btn-light")}
+                                                onClick={() => send({ type: "roamSize", value: idx })}>
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {mascot?.roamLive && (mascot.roamActions || []).length > 0 && (() => {
+                                    const acts = [...mascot.roamActions].sort((a, b) => a.id.localeCompare(b.id));
+                                    const name = (id) => id.replace(/_/g, " ");
+                                    const chosen = acts.find((a) => a.id === tryId) || acts[0];
+                                    return (
+                                        <>
+                                            <label htmlFor="rx_ms_roam_try">{_t("Try one now")}</label>
+                                            <div className="rx_mascot_set_sizes">
+                                                <select id="rx_ms_roam_try" value={chosen.id}
+                                                        onChange={(ev) => setTryId(ev.target.value)}>
+                                                    {acts.map((a) => <option key={a.id} value={a.id}>{name(a.id)}</option>)}
+                                                </select>
+                                                <button className="btn btn-sm btn-light"
+                                                        onClick={() => send({ type: "roamForce", id: chosen.id })}>
+                                                    <i className="fa fa-play" /> {_t("Do it")}
+                                                </button>
+                                            </div>
+                                            <p className="rx_mascot_set_desc rx_mascot_set_desc--flush">
+                                                {_t("The ones that play with the screen look at it first, and only happen when Jev finds something for them (a link to eat, a face, a video).")}
+                                            </p>
+                                        </>
+                                    );
+                                })()}
                             </fieldset>
                         </section>
                     )}

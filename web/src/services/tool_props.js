@@ -69,8 +69,10 @@ function glowTexture(THREE) {
     return tex;
 }
 
-/** The normalized bone the manifest names, on `vrm`. */
+/** The normalized bone the manifest names, on `vrm`; "root" is the avatar's
+ *  own root (a prop standing on the floor with them: a sunbed, a kart). */
 function boneNode(vrm, bone) {
+    if (bone === "root") return vrm?.scene || null;
     return vrm?.humanoid?.getNormalizedBoneNode?.(bone) || null;
 }
 

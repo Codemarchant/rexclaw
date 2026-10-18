@@ -70,6 +70,11 @@ export const HOTKEY_ACTIONS = [
         label: "Show / hide the avatar controls",
     },
     {
+        id: "mascot.roam", group: "mascot", combo: "Ctrl+Alt+R", desktop: true,
+        label: "Roam the desktop",
+        hint: "Between calls the companion wanders the whole screen. Clicks pass through them while they roam.",
+    },
+    {
         id: "mascot.settings", group: "mascot", combo: "Ctrl+Alt+O", desktop: true,
         label: "Open the mascot settings window",
         hint: "Works with the controls hidden too — the same window as the island's ⚙ and the tray entry.",

@@ -15,6 +15,7 @@
 const { app, BrowserWindow, Menu, Notification, Tray, dialog, globalShortcut, ipcMain,
         nativeImage, session, shell, systemPreferences } = require("electron");
 const { execFile, execFileSync, spawn } = require("child_process");
+const { startWindowFeed } = require("./roam_windows");
 const http = require("http");
 const https = require("https");
 const net = require("net");
@@ -55,6 +56,8 @@ let tray = null;
 let cursorTimer = null;          // mascot cursor feed interval (ghost / cursor-follow)
 let cursorFeedGhost = false;     // ghost mode on (page-owned; shell mirrors for the feed)
 let cursorFeedFollow = false;    // page wants the feed for gaze cursor-follow
+let roamState = null;            // mascot roaming the desktop: {prevBounds, displayId, stopFeed, ...}
+let mascotRoamPref = false;      // the page's "Roam the desktop" toggle, mirrored for the tray
 let quitting = false;
 let hotkeyAccelerators = [];     // accelerators currently held OS-wide
 
@@ -648,7 +651,9 @@ function createMascotWindow(resume) {
     const rememberBounds = () => {
         clearTimeout(saveTimer);
         saveTimer = setTimeout(() => {
-            if (mascotWindow && !mascotWindow.isDestroyed()) {
+            // Roaming fills the screen; the spot to come back to is the one
+            // from before it (roamState.prevBounds).
+            if (mascotWindow && !mascotWindow.isDestroyed() && !roamState) {
                 saveSettings({ mascotBounds: mascotWindow.getBounds() });
             }
         }, 300);
@@ -658,6 +663,9 @@ function createMascotWindow(resume) {
     mascotWindow.on("closed", () => {
         clearTimeout(saveTimer);
         stopCursorFeed();
+        if (roamState) saveSettings({ mascotBounds: roamState.prevBounds });
+        stopRoam();
+        mascotRoamPref = false;
         mascotWindow = null;
         rebuildTrayMenu();
         // However the mascot went away (pop-back IPC, Alt+F4, crash), never
@@ -690,7 +698,8 @@ function requestMascotPopBack() {
 
 /** Snap the mascot to a corner of whichever display it currently occupies. */
 function alignMascot(corner) {
-    if (!mascotWindow || mascotWindow.isDestroyed()) return;
+    // A roaming companion already has the whole screen.
+    if (!mascotWindow || mascotWindow.isDestroyed() || roamState) return;
     const { screen } = require("electron");
     const b = mascotWindow.getBounds();
     const wa = screen.getDisplayMatching(b).workArea;
@@ -715,6 +724,12 @@ function moveMascotToNextDisplay() {
     const b = mascotWindow.getBounds();
     const current = screen.getDisplayMatching(b);
     const idx = displays.findIndex((d) => d.id === current.id);
+    if (roamState) {
+        // Roaming moves to the next screen whole, and the page lands there
+        // with a fresh entrance.
+        fitRoamWindow(displays[(Math.max(0, idx) + 1) % displays.length]);
+        return;
+    }
     const target = displays[(Math.max(0, idx) + 1) % displays.length].workArea;
     const wa = current.workArea;
     const frac = (pos, start, span, size) => (span > size ? Math.min(1, Math.max(0, (pos - start) / (span - size))) : 0);
@@ -898,6 +913,188 @@ ipcMain.handle("mascot-drag-end", () => {
     }
     mascotDragSize = null;
     return true;
+});
+
+// ---------------------------------------------------------------------------
+// Roaming the desktop (mascot roam mode)
+// ---------------------------------------------------------------------------
+// Between calls the companion can leave its little window and wander the
+// whole screen: the overlay grows to the display's work area (taskbar left
+// alone, so it never sits over it) and the page moves the character around
+// inside it, click-through like ghost mode. The shell's part is the window
+// itself, where the other apps' windows are (roam_windows.js, Windows only),
+// whether the user is around (system idle time) and, for the screen-aware
+// tricks, a still frame of the screen.
+
+function roamDisplay() {
+    const { screen } = require("electron");
+    return screen.getAllDisplays().find((d) => d.id === roamState?.displayId)
+        || screen.getDisplayMatching(mascotWindow.getBounds());
+}
+
+/** Fill `display`'s work area and tell the page where it now is. */
+function fitRoamWindow(display) {
+    if (!roamState || !mascotWindow || mascotWindow.isDestroyed()) return;
+    roamState.displayId = display.id;
+    const wa = display.workArea;
+    mascotWindow.setResizable(true);
+    mascotWindow.setBounds({ x: wa.x, y: wa.y, width: wa.width, height: wa.height });
+    mascotWindow.setResizable(false);
+    mascotWindow.webContents.send("roam-area", { width: wa.width, height: wa.height, displayId: display.id });
+    pushRoamEnv();
+}
+
+/** The latest window list, in the page's coordinates (DIP from the work
+ *  area's top-left), plus the foreground window and the user's idle time.
+ *  The foreground window counts as fullscreen when it covers its whole
+ *  display (a game, a video): the page steps aside for those. */
+function pushRoamEnv() {
+    if (!roamState || !mascotWindow || mascotWindow.isDestroyed()) return;
+    const { screen, powerMonitor } = require("electron");
+    const display = roamDisplay();
+    const wa = display.workArea;
+    const snap = roamState.snapshot || { fg: null, windows: [] };
+    let fullscreen = false;
+    const windows = [];
+    const minimized = [];
+    for (const w of snap.windows || []) {
+        if (w.min) { minimized.push(w.id); continue; }
+        let r = { x: w.l, y: w.t, width: w.r - w.l, height: w.b - w.t };
+        try { r = screen.screenToDipRect(null, r); } catch (e) { /* not Windows: already DIP */ }
+        if (w.id === snap.fg) {
+            const d = screen.getDisplayMatching(r).bounds;
+            fullscreen = r.x <= d.x + 1 && r.y <= d.y + 1
+                && r.x + r.width >= d.x + d.width - 1 && r.y + r.height >= d.y + d.height - 1;
+        }
+        windows.push({
+            id: w.id, title: w.title, maximized: !!w.max,
+            x: r.x - wa.x, y: r.y - wa.y, width: r.width, height: r.height,
+        });
+    }
+    let idle = 0;
+    try { idle = powerMonitor.getSystemIdleTime(); } catch (e) { /* unsupported */ }
+    mascotWindow.webContents.send("roam-env", { fg: snap.fg, fullscreen, windows, minimized, idle });
+}
+
+function stopRoam() {
+    if (!roamState) return null;
+    const state = roamState;
+    roamState = null;
+    try { state.stopFeed(); } catch (e) { /* gone */ }
+    clearInterval(state.envTimer);
+    if (state.onDisplays) {
+        const { screen } = require("electron");
+        screen.removeListener("display-metrics-changed", state.onDisplays);
+        screen.removeListener("display-removed", state.onDisplays);
+    }
+    return state;
+}
+
+ipcMain.handle("roam-start", () => {
+    if (!mascotWindow || mascotWindow.isDestroyed()) return null;
+    const { screen } = require("electron");
+    if (!roamState) {
+        const display = screen.getDisplayMatching(mascotWindow.getBounds());
+        roamState = { prevBounds: mascotWindow.getBounds(), displayId: display.id, snapshot: null };
+        roamState.stopFeed = startWindowFeed((snap) => {
+            if (!roamState) return;
+            roamState.snapshot = snap;
+            pushRoamEnv();
+        });
+        // Idle time moves on its own; the window list only when it changes.
+        roamState.envTimer = setInterval(pushRoamEnv, 2000);
+        // A resolution change or an unplugged monitor: refit (or fall back
+        // to wherever the window ended up).
+        roamState.onDisplays = () => setTimeout(() => {
+            if (roamState) fitRoamWindow(roamDisplay());
+        }, 300);
+        screen.on("display-metrics-changed", roamState.onDisplays);
+        screen.on("display-removed", roamState.onDisplays);
+    }
+    const display = roamDisplay();
+    fitRoamWindow(display);
+    rebuildTrayMenu();
+    const wa = display.workArea;
+    return { width: wa.width, height: wa.height, displayId: display.id, platform: process.platform };
+});
+
+ipcMain.handle("roam-stop", () => {
+    const state = stopRoam();
+    if (state && mascotWindow && !mascotWindow.isDestroyed()) {
+        mascotWindow.setResizable(true);
+        mascotWindow.setBounds(state.prevBounds);
+        mascotWindow.setResizable(false);
+    }
+    rebuildTrayMenu();
+    return true;
+});
+
+// Hearing what's playing (a roaming companion dances to your music): the
+// page's next getDisplayMedia, within a few seconds of this, is granted the
+// roaming display with system audio, no picker — Windows only, the one
+// platform with loopback audio. The page keeps only the audio, analysed on
+// the spot (models/roam_ears.js); nothing is recorded or sent.
+let roamAudioArmAt = 0;
+ipcMain.handle("roam-audio-arm", () => {
+    if (!roamState || process.platform !== "win32") return false;
+    roamAudioArmAt = Date.now();
+    return true;
+});
+
+/** The roam audio grant, if one is armed: true when it answered. */
+async function grantRoamAudio(callback) {
+    if (!roamState || !roamAudioArmAt || Date.now() - roamAudioArmAt > 4000) return false;
+    roamAudioArmAt = 0;
+    const { desktopCapturer } = require("electron");
+    const display = roamDisplay();
+    const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } });
+    const src = sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
+    if (!src) { callback(null); return true; }
+    callback({ video: src, audio: "loopback" });
+    return true;
+}
+
+// The page's toggle, mirrored so the tray checkbox shows it (the tray is
+// the way out of a click-through companion with the controls hidden).
+ipcMain.handle("roam-pref", (event, on) => {
+    mascotRoamPref = !!on;
+    rebuildTrayMenu();
+    return mascotRoamPref;
+});
+
+// One still of the roaming display for the screen-aware tricks, at Jev's
+// largest side (1568 px, see server/screen_pointer.py). Only on platforms
+// where it needs no prompt: macOS with Screen Recording already granted,
+// Linux on X11 (Wayland would raise the portal picker every time).
+ipcMain.handle("roam-capture", async () => {
+    if (!roamState || !mascotWindow || mascotWindow.isDestroyed()) return null;
+    if (process.platform === "darwin"
+        && systemPreferences.getMediaAccessStatus("screen") !== "granted") return null;
+    if (process.platform === "linux" && (process.env.XDG_SESSION_TYPE === "wayland" || process.env.WAYLAND_DISPLAY)) {
+        return null;
+    }
+    const { desktopCapturer } = require("electron");
+    const display = roamDisplay();
+    try {
+        const sources = await desktopCapturer.getSources({
+            types: ["screen"], thumbnailSize: { width: 1568, height: 1568 },
+        });
+        const src = sources.find((s) => String(s.display_id) === String(display.id))
+            || (sources.length === 1 ? sources[0] : null);
+        if (!src || src.thumbnail.isEmpty()) return null;
+        const size = src.thumbnail.getSize();
+        const b = display.bounds, wa = display.workArea;
+        return {
+            dataUrl: "data:image/jpeg;base64," + src.thumbnail.toJPEG(88).toString("base64"),
+            width: size.width, height: size.height,
+            // The frame covers the whole display; the page's origin is the
+            // work area's corner.
+            frame: { x: b.x - wa.x, y: b.y - wa.y, width: b.width, height: b.height },
+        };
+    } catch (e) {
+        console.warn("[roam] capture failed:", e.message);
+        return null;
+    }
 });
 
 // ---------------------------------------------------------------------------
@@ -1309,6 +1506,16 @@ function trayMenuTemplate() {
             type: "checkbox",
             checked: !!loadSettings().mascotHideIdle,
             click: (item) => setMascotHideIdle(item.checked),
+        },
+        {
+            // Page-owned like ghost mode, so the click goes to the page
+            // (the hotkey's path). A roaming companion is click-through:
+            // this is one way back, with the hotkey and the settings window.
+            label: "Roam the desktop",
+            type: "checkbox",
+            checked: mascotOpen && mascotRoamPref,
+            enabled: mascotOpen,
+            click: () => dispatchHotkeyAction("mascot.roam"),
         },
         { type: "separator" },
         mascotOpen
@@ -1727,7 +1934,8 @@ ipcMain.handle("mascot-pin", (event, flag) => {
 });
 
 ipcMain.handle("mascot-size", (event, size) => {
-    if (!mascotWindow || mascotWindow.isDestroyed()) return false;
+    // Roaming holds the whole work area until it stops.
+    if (!mascotWindow || mascotWindow.isDestroyed() || roamState) return false;
     // "Whole screen" preset: fill the current display's work area (taskbar
     // excluded) — no caps, no corner anchoring, the window simply becomes
     // the screen. Scroll-to-resize from there shrinks it back as usual.
@@ -1925,7 +2133,10 @@ if (!app.requestSingleInstanceLock()) {
             // system audio is Windows-only; other platforms record silent.
             session.defaultSession.setDisplayMediaRequestHandler(
                 (request, callback) => {
-                    showScreenSharePicker(request, callback).catch(() => callback(null));
+                    grantRoamAudio(callback).then((done) => {
+                        if (!done) return showScreenSharePicker(request, callback);
+                        return undefined;
+                    }).catch(() => callback(null));
                 },
             );
             // Downloads (the audio player's ⋮ → Download, download links,
@@ -1981,7 +2192,13 @@ if (!app.requestSingleInstanceLock()) {
         app.quit();
     });
 
-    app.on("before-quit", () => { quitting = true; stopServer(); });
+    app.on("before-quit", () => {
+        quitting = true;
+        // Back to the remembered spot for next time, and the window feed off.
+        if (roamState) saveSettings({ mascotBounds: roamState.prevBounds });
+        stopRoam();
+        stopServer();
+    });
     // Accelerators are held process-wide — hand them back so a restart (or
     // another app) can claim them again.
     app.on("will-quit", () => { globalShortcut.unregisterAll(); hotkeyAccelerators = []; });
