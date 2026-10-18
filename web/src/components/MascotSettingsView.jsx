@@ -529,11 +529,11 @@ export default function MascotSettingsView() {
                             <h3><i className="fa fa-paw" /> {_t("Roaming")}</h3>
                             <fieldset disabled={!alive}>
                                 {check("rx_ms_roam", _t("Roam the desktop"),
-                                    _t("Between calls your companion leaves the window and wanders the whole screen: along the bottom and over your windows, sitting on them, napping while you're away, doodling. Clicks pass through them. A call brings them back."),
+                                    _t("Between calls your companion leaves the window and wanders the whole screen: along the bottom and over your windows, sitting on them, napping while you're away, doodling. Clicks pass through them. A call brings them back. On Windows they hear whether anything is playing (the sound stays on this computer), so a stream or a video you're watching keeps them awake."),
                                     mascot?.roam,
                                     (v) => send({ type: "set", key: "roam", value: v }))}
                                 {check("rx_ms_roam_tricks", _t("Play with what's on the screen"),
-                                    _t("Every twenty seconds or so while they roam, a screenshot goes to Jev to find links, videos, pictures and the like, so they can eat a link or sit on a video. Needs a TypeSafe API key and the jev-preview model. Whatever is on the screen goes in those screenshots, so turn this off before opening anything private. On Windows they also hear what's playing, to dance to your music; that sound stays on this computer."),
+                                    _t("Every twenty seconds or so while they roam, a screenshot goes to Jev to find links, videos, pictures and the like, so they can eat a link or sit on a video. Needs a TypeSafe API key and the jev-preview model. Whatever is on the screen goes in those screenshots, so turn this off before opening anything private. On Windows they also dance to your music and jump at loud sounds."),
                                     mascot?.roamTricks,
                                     (v) => send({ type: "set", key: "roamTricks", value: v }))}
                                 <label>{_t("Size while roaming")}</label>
@@ -545,6 +545,16 @@ export default function MascotSettingsView() {
                                             {label}
                                         </button>
                                     ))}
+                                </div>
+                                <div className="rx_mascot_set_item">
+                                    <label htmlFor="rx_ms_roam_nap">{_t("Nap after")}</label>
+                                    {/* MascotView checks these against ROAM_NAP_MINUTES. */}
+                                    <select id="rx_ms_roam_nap" value={mascot?.roamNap ?? 5}
+                                            onChange={(ev) => send({ type: "roamNap", value: Number(ev.target.value) })}>
+                                        {[0, 2, 5, 10, 20, 30].map((m) => (
+                                            <option key={m} value={m}>{m ? _t("%s min away", m) : _t("Never")}</option>
+                                        ))}
+                                    </select>
                                 </div>
                                 {mascot?.roamLive && (mascot.roamActions || []).length > 0 && (() => {
                                     const acts = [...mascot.roamActions].sort((a, b) => a.id.localeCompare(b.id));

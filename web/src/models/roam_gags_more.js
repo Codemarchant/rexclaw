@@ -741,7 +741,7 @@ export const MORE_GAG_ACTIONS = [
     { id: "moustache", group: "trick", weight: 12, cooldown: 240, when: (d) => faces(d).length > 0, run: moustache },
     { id: "cursor_ride", group: "travel", weight: 5, cooldown: 240, when: (d) => d.onFloor, run: cursorRide },
     // Music on: a dance is one of the things they do, not the only one.
-    { id: "music_dance", group: "dance", weight: (d) => (d.music ? 30 : 0), cooldown: 90, when: (d) => ground(d) && d.music, run: musicDance },
+    { id: "music_dance", group: "dance", weight: (d) => (d.music ? 30 : 0), cooldown: 90, when: (d) => d.tricks && ground(d) && d.music, run: musicDance },
     { id: "air_guitar", group: "dance", weight: 0, cooldown: 300, when: () => false, run: airGuitar },
     { id: "leaf_jump", group: "weather", weight: 8, cooldown: 240, when: (d) => d.onFloor && autumn(), run: leafJump },
     { id: "snowballs", group: "weather", weight: 8, cooldown: 240, when: (d) => d.onFloor && winter(), run: snowballs },

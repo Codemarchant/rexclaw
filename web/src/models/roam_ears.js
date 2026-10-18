@@ -1,8 +1,9 @@
 // A roaming companion's ears (models/roam_director.js): what the computer is
 // playing, heard through the desktop app's system-audio loopback (Windows),
 // analysed right here and nowhere else — nothing is recorded or sent. It
-// tells the director three things: music is playing (and its beats), a
-// sudden loud sound, a bass drop.
+// tells the director that something is playing at all (you're there,
+// watching), music is playing (and its beats), a sudden loud sound, a
+// bass drop.
 //
 // Beats are the classic energy detector (Frédéric Patin, "Beat Detection
 // Algorithms", GameDev.net 2003): a beat when the low-end energy jumps past
@@ -28,14 +29,16 @@ const LOUD_RATIO = 5;            // a sound 5× the last two seconds' level…
 const LOUD_MIN = 0.12;           // …and loud in itself
 const DROP_RATIO = 2.2;          // low end 2.2× its last 8 s while music plays
 const DROP_GAP_MS = 60000;
+const TICK_HZ = 60;              // how often it listens (the measurement's rate)
 
 export class RoamEars {
     constructor({ onMusic, onBeat, onStartle, onDrop }) {
         this.on = { onMusic, onBeat, onStartle, onDrop };
         this.music = false;
+        this.playingAt = 0;       // last time something was playing (performance.now)
         this._stream = null;
         this._ctx = null;
-        this._raf = 0;
+        this._timer = 0;
     }
 
     /** Start listening; resolves false where there's nothing to listen to
@@ -67,7 +70,6 @@ export class RoamEars {
         const lowEnergy = [];     // [t, share of quiet moments in the second before], not silent ones
         let lastBeat = 0, lastDrop = 0;
         const tick = () => {
-            this._raf = requestAnimationFrame(tick);
             const t = performance.now();
             an.getFloatTimeDomainData(wave);
             let s = 0;
@@ -97,6 +99,10 @@ export class RoamEars {
             while (lowEnergy.length && t - lowEnergy[0][0] > MUSIC_WINDOW_S * 1000) lowEnergy.shift();
             const quiet = lowEnergy.reduce((a, h) => a + h[1], 0) / Math.max(1, lowEnergy.length);
             const music = beats.length >= MUSIC_MIN_BEATS && lowEnergy.length > 0 && quiet < LOW_ENERGY_MAX;
+            // Sound through most of the last five seconds: something is
+            // playing (a stream, a video, music), not just a notification.
+            const five = hist.filter((h) => t - h[0] <= 5000);
+            if (five.length > 60 && five.filter((h) => h[2] > SILENCE).length > five.length / 2) this.playingAt = t;
             if (music !== this.music) {
                 this.music = music;
                 this.on.onMusic?.(music);
@@ -107,12 +113,14 @@ export class RoamEars {
                 this.on.onDrop?.();
             }
         };
-        this._raf = requestAnimationFrame(tick);
+        // A fixed TICK_HZ, not the display's frame rate: the music cut was
+        // measured at it, and a 144 Hz screen would walk 2.4× the history.
+        this._timer = setInterval(tick, 1000 / TICK_HZ);
         return true;
     }
 
     stop() {
-        cancelAnimationFrame(this._raf);
+        clearInterval(this._timer);
         this._stream?.getTracks().forEach((t) => t.stop());
         this._stream = null;
         this._ctx?.close().catch(() => {});

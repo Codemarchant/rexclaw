@@ -99,9 +99,11 @@ const LOOK_PAD = { close: 0.35, icon: 0.2, taskbar: 0.2, button: 0.15, tab: 0.08
 const STEALABLE = { close: 3, tab: 3, button: 2, address: 1 };
 // Away long enough that coming back gets a hello (twice the nap's).
 const AWAY_S = 600;
-// Napping: after five minutes without input, Microsoft Teams' "Away"
-// threshold, and awake again as soon as there is any.
+// Napping: by default after five minutes away, Microsoft Teams' "Away"
+// threshold (the settings window's "Nap after" sets it; ROAM_NAP_MINUTES),
+// and awake again as soon as there is any input.
 const SLEEP_IDLE_S = 300;
+export const ROAM_NAP_MINUTES = [0, 2, 5, 10, 20, 30];   // 0: never
 
 // Two looks count as the same screen below this mean difference of a 32×18
 // grey thumbnail (0-255 per pixel; by eye: a blinking caret or a clock
@@ -142,9 +144,11 @@ export class RoamDirector {
      *  around). root: the overlay root (CSS vars for the island). under /
      *  over: effect layers. bridge: window.rexclawDesktop. */
     /** agentId: the companion (their memories). onCallRequest: the
-     *  page starts a call (the "call me?" sign was clicked). */
+     *  page starts a call (the "call me?" sign was clicked). nap: minutes
+     *  away before a nap (0: never). */
     constructor({ renderer, host, root, under, over, follow, bridge, agentName = "", agentId = null, tricks = true,
-        size = 1, onCallRequest = null }) {
+        size = 1, nap = SLEEP_IDLE_S / 60, onCallRequest = null }) {
+        this.napS = nap > 0 ? nap * 60 : Infinity;
         this.r = renderer;
         this.host = host;
         this.root = root;
@@ -204,17 +208,16 @@ export class RoamDirector {
         // Roaming starts between calls: an hour of this without one and
         // they sulk (the tantrum).
         this._lonelySince = now();
-        // Listening to what plays (Windows; only with the screen-aware
-        // tricks on, the same consent as looking at the screen).
-        if (this.tricks) {
-            this.ears = new RoamEars({
-                onMusic: (on) => { this.music = on; },
-                onBeat: () => { this._lastBeat = now(); },
-                onStartle: () => this._react("startle"),
-                onDrop: () => { if (this.music) this._react("air_guitar"); },
-            });
-            this.ears.start(this.bridge).catch(() => {});
-        }
+        // Listening to what plays (Windows; the sound stays on this
+        // computer): something playing counts as you being there (idleS).
+        // Reacting to it, dancing and jumping, is one of the tricks.
+        this.ears = new RoamEars({
+            onMusic: (on) => { this.music = on; },
+            onBeat: () => { this._lastBeat = now(); },
+            onStartle: () => { if (this.tricks) this._react("startle"); },
+            onDrop: () => { if (this.tricks && this.music) this._react("air_guitar"); },
+        });
+        this.ears.start(this.bridge).catch(() => {});
         this._applySize();
         this.host.style.opacity = "0";
         this._raf = requestAnimationFrame((t) => this._tick(t));
@@ -258,7 +261,7 @@ export class RoamDirector {
         if (this.world.fullscreen && this.ctx && !this._hidden) this._interrupt("hide");
         // Back at the keyboard: a napping companion wakes up — and after a
         // long time away, comes over to say hello.
-        if (this.world.idle >= AWAY_S) this._wasAway = true;
+        if (this.idleS >= AWAY_S) this._wasAway = true;
         if (this.world.idle < 2) {
             if (this._napping) this._interrupt("wake");
             if (this._wasAway) {
@@ -294,8 +297,17 @@ export class RoamDirector {
         this.cursor = { x: c.x, y: c.y, movedAt: moved ? now() : this.cursor.movedAt };
     }
 
-    setPrefs({ tricks, size, agentName }) {
+    /** Seconds you've been away: since your last input, or since the
+     *  computer last played something for a while, whichever is less (a
+     *  stream you're watching counts as you being there). */
+    get idleS() {
+        const heard = this.ears?.playingAt ? (now() - this.ears.playingAt) / 1000 : Infinity;
+        return Math.min(this.world.idle, heard);
+    }
+
+    setPrefs({ tricks, size, nap, agentName }) {
         if (tricks !== undefined) this.tricks = !!tricks;
+        if (nap !== undefined) this.napS = nap > 0 ? nap * 60 : Infinity;
         if (agentName !== undefined) this.agentName = agentName;
         if (size !== undefined && size !== this.sizeIdx) {
             this.sizeIdx = size;
@@ -1504,11 +1516,11 @@ const ACTIONS = [
     { id: "portal", group: "travel", weight: 6, cooldown: 90, when: (d) => d.b.mode === "ground", run: RoamDirector.prototype.portalTrip },
     { id: "peek", group: "peek", weight: 5, cooldown: 150, when: (d) => d.onFloor, run: RoamDirector.prototype.peek },
     { id: "doodle", group: "art", weight: 6, cooldown: 90, when: (d) => d.b.mode === "ground", run: RoamDirector.prototype.doodle },
-    // After midnight a minute of quiet is enough.
+    // After midnight a fifth of it is enough (a minute, by default).
     { id: "nap", group: "rest", weight: 60, cooldown: 30,
-      when: (d) => d.onFloor && (d.world.idle >= SLEEP_IDLE_S || (lateNight() && d.world.idle >= 60)), run: RoamDirector.prototype.nap },
+      when: (d) => d.onFloor && (d.idleS >= d.napS || (lateNight() && d.idleS >= d.napS / 5)), run: RoamDirector.prototype.nap },
     // Naps happen on the floor: down off a ledge first.
-    { id: "drop_to_nap", group: "travel", weight: 60, when: (d) => d.onLedge && d.world.idle >= SLEEP_IDLE_S, run: RoamDirector.prototype.dropDown },
+    { id: "drop_to_nap", group: "travel", weight: 60, when: (d) => d.onLedge && d.idleS >= d.napS, run: RoamDirector.prototype.dropDown },
     { id: "eat_link", group: "trick", weight: 30, cooldown: 60, when: (d) => d.seen("link").length > 0, run: RoamDirector.prototype.eatLink },
     { id: "steal", group: "trick", weight: 26, cooldown: 90, when: (d) => Object.keys(STEALABLE).some((k) => d.seen(k).length > 0), run: RoamDirector.prototype.stealClose },
     { id: "watch_video", group: "trick", weight: 26, cooldown: 90, when: (d) => d.seen("video").some((f) => f.rect.y > d.body * 0.6), run: RoamDirector.prototype.watchVideo },

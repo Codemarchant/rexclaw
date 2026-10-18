@@ -15,7 +15,7 @@ import { EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
 import { backgroundPickerEntries, currentBackgroundKey, resolveDefaultBackground } from "../lib/background_picker";
 import { stage } from "../models/stage";
 import { backgroundMusic } from "../models/background_music";
-import { RoamDirector, ROAM_SIZES } from "../models/roam_director";
+import { RoamDirector, ROAM_SIZES, ROAM_NAP_MINUTES } from "../models/roam_director";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 import KaraokeOverlay from "./KaraokeOverlay.jsx";
 
@@ -126,6 +126,11 @@ export default function MascotView() {
     const [roamSize, setRoamSize] = useState(() => {
         const v = Number(loadMascotPrefs().roamSize);
         return Number.isInteger(v) && v >= 0 && v < ROAM_SIZES.length ? v : 1;
+    });
+    // Minutes away before a nap (ROAM_NAP_MINUTES; 0 never), 5 by default.
+    const [roamNap, setRoamNap] = useState(() => {
+        const v = Number(loadMascotPrefs().roamNap);
+        return ROAM_NAP_MINUTES.includes(v) ? v : 5;
     });
     // Tray "Hide avatar controls": the island doesn't render at all — not
     // even on hover. Escape hatches stay in the tray (uncheck it, pop back).
@@ -576,6 +581,7 @@ export default function MascotView() {
                 under: root.querySelector(".rx_roam_under"), over: root.querySelector(".rx_roam_over"),
                 follow: root.querySelector(".rx_roam_follow"),
                 agentName: currentAgent?.name || "", agentId: currentAgent?.id ?? null, tricks: roamTricks, size: roamSize,
+                nap: roamNap,
                 // Their "call me?" sign, clicked.
                 onCallRequest: () => startOrResumeRef.current?.(),
             });
@@ -609,8 +615,8 @@ export default function MascotView() {
 
     // Pref changes reach a running director live.
     useEffect(() => {
-        roamRef.current?.setPrefs({ tricks: roamTricks, size: roamSize, agentName: currentAgent?.name || "" });
-    }, [roamTricks, roamSize, currentAgent]);
+        roamRef.current?.setPrefs({ tricks: roamTricks, size: roamSize, nap: roamNap, agentName: currentAgent?.name || "" });
+    }, [roamTricks, roamSize, roamNap, currentAgent]);
 
     // The tray's checkbox mirrors the toggle.
     useEffect(() => { window.rexclawDesktop?.setRoamPref?.(roam); }, [roam]);
@@ -850,6 +856,7 @@ export default function MascotView() {
                 roam,
                 roamTricks,
                 roamSize,
+                roamNap,
                 roamLive,
                 // For the settings window's "Try one now": every roam
                 // action and whether it could run this moment.
@@ -1033,6 +1040,13 @@ export default function MascotView() {
                     saveMascotPref({ roamSize: v });
                     return;
                 }
+                case "roamNap": {
+                    const v = Number(msg.value);
+                    if (!ROAM_NAP_MINUTES.includes(v)) return;
+                    setRoamNap(v);
+                    saveMascotPref({ roamNap: v });
+                    return;
+                }
                 case "set": {
                     const want = !!msg.value;
                     if (msg.key === "roam" && want !== roam) toggleRoam();
@@ -1067,7 +1081,7 @@ export default function MascotView() {
     useEffect(() => { settingsSync.current.publish(); },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [ghost, ghostFade, cursorFollow, pinned, fullBody, sizeIdx, customSize, backdrop, currentAgent,
-         roam, roamTricks, roamSize, roamLive,
+         roam, roamTricks, roamSize, roamNap, roamLive,
          sv.selectedOutfitId, sv.activeBackground, agents, selectedAgentId, sv.status, sv.muted, shareKey,
          stg.status, stg.song?.id, stg.mode, stg.error,
          bgm.status, bgm.track?.url, bgm.playlist?.name, bgm.by, bgm.volume, bgm.error]);

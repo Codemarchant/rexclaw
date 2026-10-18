@@ -1123,11 +1123,11 @@ export const JA = {
   "Fade to": "フェード時の不透明度",
   "Roaming": "お散歩",
   "Roam the desktop": "デスクトップをお散歩",
-  "Between calls your companion leaves the window and wanders the whole screen: along the bottom and over your windows, sitting on them, napping while you're away, doodling. Clicks pass through them. A call brings them back.":
-    "通話の合間、コンパニオンがウィンドウを出て画面じゅうを歩き回ります。画面の下やウィンドウの上を歩き、腰かけたり、留守中に昼寝したり、落書きしたり。クリックはコンパニオンを素通りします。通話が始まるとウィンドウに戻ります。",
+  "Between calls your companion leaves the window and wanders the whole screen: along the bottom and over your windows, sitting on them, napping while you're away, doodling. Clicks pass through them. A call brings them back. On Windows they hear whether anything is playing (the sound stays on this computer), so a stream or a video you're watching keeps them awake.":
+    "通話の合間、コンパニオンがウィンドウを出て画面じゅうを歩き回ります。画面の下やウィンドウの上を歩き、腰かけたり、留守中に昼寝したり、落書きしたり。クリックはコンパニオンを素通りします。通話が始まるとウィンドウに戻ります。Windows では何かが再生中かどうかを聞き取るので（音はこのパソコンの外には出ません）、配信や動画を見ているあいだは起きています。",
   "Play with what's on the screen": "画面のものであそぶ",
-  "Every twenty seconds or so while they roam, a screenshot goes to Jev to find links, videos, pictures and the like, so they can eat a link or sit on a video. Needs a TypeSafe API key and the jev-preview model. Whatever is on the screen goes in those screenshots, so turn this off before opening anything private. On Windows they also hear what's playing, to dance to your music; that sound stays on this computer.":
-    "お散歩中は20秒ほどごとにスクリーンショットを Jev に送り、リンクや動画、画像などを探します。リンクを食べたり動画の上に座ったりできるようになります。TypeSafe の API キーと jev-preview モデルが必要です。画面に映っているものはすべてスクリーンショットに含まれるので、見られたくないものを開く前にオフにしてください。Windows では再生中の音も聞いて音楽に合わせて踊ります。音はこのパソコンの外には出ません。",
+  "Every twenty seconds or so while they roam, a screenshot goes to Jev to find links, videos, pictures and the like, so they can eat a link or sit on a video. Needs a TypeSafe API key and the jev-preview model. Whatever is on the screen goes in those screenshots, so turn this off before opening anything private. On Windows they also dance to your music and jump at loud sounds.":
+    "お散歩中は20秒ほどごとにスクリーンショットを Jev に送り、リンクや動画、画像などを探します。リンクを食べたり動画の上に座ったりできるようになります。TypeSafe の API キーと jev-preview モデルが必要です。画面に映っているものはすべてスクリーンショットに含まれるので、見られたくないものを開く前にオフにしてください。Windows では音楽に合わせて踊ったり、大きな音にびっくりしたりもします。",
   "help!": "たすけて！",
   "100%!": "100%！",
   "NOPE": "ダメ！",
@@ -1140,6 +1140,9 @@ export const JA = {
   "KEEP OUT": "立入禁止",
   "…ok fine": "…もういいよ",
   "Size while roaming": "お散歩中のサイズ",
+  "Nap after": "お昼寝まで",
+  "%s min away": "離席 %s 分",
+  "Never": "しない",
   "Stop roaming: back into the window": "お散歩をやめてウィンドウに戻る",
   "Roam the desktop between calls": "通話の合間にデスクトップをお散歩",
   "Between calls the companion wanders the whole screen. Clicks pass through them while they roam.":
