@@ -11,8 +11,6 @@ import {
     everyFrame, dropDown, ground, lookedAt,
 } from "./roam_gags";
 
-// Not freestyle-2 or -5: their conversion came out as one still pose,
-// arms near the T, every key the same.
 const DANCES = ["freestyle-1", "freestyle-3", "freestyle-4", "girl-groove",
     "hip-hop", "house", "locking", "pop-groove"].map((n) => `/assets/vrma/dances/${n}.vrma`);
 // Seasons by month (northern hemisphere; the app has no location) and
