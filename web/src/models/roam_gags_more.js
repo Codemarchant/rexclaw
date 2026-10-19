@@ -23,6 +23,12 @@ const DANCES = ["freestyle-1", "freestyle-3", "freestyle-4", "girl-groove",
 const MUSIC_SONG_S = 197;
 const MUSIC_FLOOR = 0.2;
 const MUSIC_RECOVER_S = 300;
+// What's heard stops counting once the odds are at their floor (~2.3
+// songs): an hour of music wears it off no more than ten minutes do.
+const MUSIC_CAP_S = MUSIC_SONG_S * Math.log2(1 / MUSIC_FLOOR);
+// Music starting with the dance at least this fresh (a first track, or
+// after a good break) is an event: the dance comes next.
+const MUSIC_START_FRESH = 0.5;
 // A tantrum needs this long out roaming since the last call…
 const LONELY_MS = 60 * 60 * 1000;
 // …and kaiju steps shake the screen this hard (px, by eye).
@@ -41,19 +47,25 @@ function musicHeard(d) {
     const h = d._musicHeard;
     if (!h) return 0;
     const dt = (performance.now() - h.at) / 1000;
-    return d.music ? h.s + dt : h.s * 0.5 ** (dt / MUSIC_RECOVER_S);
+    return d.music ? Math.min(MUSIC_CAP_S, h.s + dt) : h.s * 0.5 ** (dt / MUSIC_RECOVER_S);
 }
 
 /** Music started or stopped (roam_ears.js): what was heard so far is
- *  settled, and goes on from there. */
+ *  settled, and goes on from there. Started with the dance still fresh,
+ *  they react to it at once. */
 export function noteMusic(d, on) {
-    d._musicHeard = { s: musicHeard(d), at: performance.now() };
+    const s = musicHeard(d);
+    const started = on && !d.music;
+    d._musicHeard = { s, at: performance.now() };
     d.music = on;
+    if (started && d.tricks && freshness(s) >= MUSIC_START_FRESH) d._react("music_dance");
 }
+
+const freshness = (s) => Math.max(MUSIC_FLOOR, 0.5 ** (s / MUSIC_SONG_S));
 
 /** The music dance's share of its weight now. */
 function musicFresh(d) {
-    return Math.max(MUSIC_FLOOR, 0.5 ** (musicHeard(d) / MUSIC_SONG_S));
+    return freshness(musicHeard(d));
 }
 
 // ── when the window under them goes ──────────────────────────────────────

@@ -286,11 +286,14 @@ export class RoamDirector {
     }
 
     /** Something happened that they react to at once (a loud sound, the
-     *  bass dropping): it runs next, cutting short what they're doing,
+     *  bass dropping, music starting): it runs next, cutting short what they're doing,
      *  unless they're asleep or already in the middle of a big moment. */
     _react(id) {
         if (!this.running || this._napping || this._forced) return;
         if (this.b.mode !== "ground" || this._currentId === "music_dance" && id !== "air_guitar") return;
+        // Nor the crew's set pieces or a holiday: those play out.
+        const cur = ACTIONS.find((x) => x.id === this._currentId);
+        if (cur?.group === "rexclaw" || cur?.group === "holiday") return;
         // Not every loud moment of a film: a reaction keeps its cooldown.
         const a = ACTIONS.find((x) => x.id === id);
         if (now() - (this._cooldowns.get(id) ?? -Infinity) < (a?.cooldown || 0) * 1000) return;
