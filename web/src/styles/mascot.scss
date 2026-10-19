@@ -512,7 +512,8 @@ html.rx_mascot_mode {
 .rx_mascot.is-roam-faded .rx_roam_follow { opacity: var(--ghost-fade, 0.15); }
 // One under the cursor (MascotView): over its own fade-ins and -outs.
 .rx_roam_under > .is-ghost-near,
-.rx_roam_over > .is-ghost-near { opacity: var(--ghost-fade, 0.15) !important; }
+.rx_roam_over > .is-ghost-near,
+.rx_roam_group > .is-ghost-near { opacity: var(--ghost-fade, 0.15) !important; }
 
 .rx_roam_under > *,
 .rx_roam_over > *,
@@ -1045,4 +1046,494 @@ $roam-comic-font: "Impact", "Haettenschweiler", "Arial Black", sans-serif;
         aspect-ratio: 1;
         object-fit: cover;
     }
+}
+
+// Weather, seasons, holidays (models/roam_gags_seasons.js).
+.rx_roam_cloud--storm {
+    background:
+        radial-gradient(circle at 28% 60%, #374151 0 30%, transparent 31%),
+        radial-gradient(circle at 54% 40%, #4b5563 0 37%, transparent 38%),
+        radial-gradient(circle at 76% 62%, #374151 0 29%, transparent 30%);
+}
+
+.rx_roam_bolt {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+
+    polyline {
+        fill: none;
+        stroke: #f8fafc;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+        filter: drop-shadow(0 0 4px #93c5fd) drop-shadow(0 0 12px #60a5fa);
+    }
+}
+
+.rx_roam_flash--bolt { background: #dbeafe; }
+
+.rx_roam_hail {
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #fff, #cbd5e1 75%);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.rx_roam_wind {
+    .rx_roam_gust {
+        position: absolute;
+        border-top: 2px solid rgba(255, 255, 255, 0.75);
+        border-radius: 50%;
+        filter: drop-shadow(0 0 1px rgba(15, 23, 42, 0.6));
+    }
+
+    .rx_roam_scrap {
+        position: absolute;
+        line-height: 1;
+    }
+}
+
+.rx_roam_fling,
+.rx_roam_token {
+    line-height: 1;
+    text-align: center;
+}
+
+.rx_roam_fog .rx_roam_fog_bank {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(226, 232, 240, 0.8), rgba(226, 232, 240, 0.35) 55%, transparent 72%);
+    filter: blur(14px);
+}
+
+.rx_roam_glow {
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 214, 120, 0.85) 0 10%, rgba(255, 180, 70, 0.4) 35%, transparent 70%);
+    mix-blend-mode: screen;
+}
+
+.rx_roam_snowfall .rx_roam_flake {
+    position: absolute;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 3px rgba(15, 23, 42, 0.45);
+}
+
+// The whole screen, so it melts down onto the floor.
+.rx_roam_snowman {
+    transform-origin: 50% 100%;
+
+    > * { position: absolute; }
+
+    // Packed snow: lit from the top left, blue in the shade, a soft
+    // contact shadow; the grain turns as it rolls.
+    .rx_roam_snowball {
+        border-radius: 50%;
+        overflow: hidden;
+        background: radial-gradient(circle at 34% 28%, #ffffff 0 18%, #f1f5f9 45%, #cbd5e1 78%, #94a3b8);
+        box-shadow: inset -6px -10px 14px rgba(100, 116, 139, 0.35), 0 6px 6px -4px rgba(15, 23, 42, 0.35);
+
+        .rx_roam_snowball_grain {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background:
+                radial-gradient(circle at 22% 30%, rgba(148, 163, 184, 0.55) 0 3%, transparent 4%),
+                radial-gradient(circle at 70% 22%, rgba(148, 163, 184, 0.45) 0 2.5%, transparent 3.5%),
+                radial-gradient(circle at 58% 64%, rgba(148, 163, 184, 0.5) 0 3%, transparent 4%),
+                radial-gradient(circle at 30% 74%, rgba(255, 255, 255, 0.9) 0 4%, transparent 5%),
+                radial-gradient(circle at 80% 56%, rgba(255, 255, 255, 0.8) 0 3%, transparent 4%),
+                radial-gradient(circle at 44% 46%, rgba(148, 163, 184, 0.35) 0 2%, transparent 3%);
+        }
+    }
+
+    .rx_roam_snowman_dress {
+        overflow: visible;
+
+        .part {
+            opacity: 0;
+            transform-box: fill-box;
+            transform-origin: center;
+        }
+
+        .twig {
+            fill: none;
+            stroke: #5b3a1e;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .coal circle { fill: #1f2937; }
+        .coal .shine { fill: rgba(255, 255, 255, 0.55); }
+        .ridge { fill: none; stroke: #c2410c; stroke-width: 1.5; stroke-linecap: round; }
+        .scarf { fill: #dc2626; }
+        .stripe { stroke: #fef2f2; stroke-width: 3; }
+
+        .tail {
+            transform-box: fill-box;
+            transform-origin: 30% 0;
+            animation: rx-roam-scarf 1.8s ease-in-out infinite alternate;
+        }
+
+        .hat { fill: #111827; }
+        .band { fill: #b91c1c; }
+    }
+}
+
+@keyframes rx-roam-scarf {
+    from { rotate: -6deg; }
+    to { rotate: 8deg; }
+}
+
+.rx_roam_ice {
+    border-radius: 50%;
+    background: linear-gradient(180deg, rgba(240, 249, 255, 0.95), rgba(125, 211, 252, 0.7));
+    box-shadow: 0 0 10px rgba(186, 230, 253, 0.8), inset 0 2px 0 rgba(255, 255, 255, 0.9);
+    transform-origin: center;
+}
+
+.rx_roam_drip {
+    border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+}
+
+.rx_roam_run {
+    border-radius: 3px;
+    background: linear-gradient(rgba(186, 230, 253, 0), rgba(186, 230, 253, 0.9));
+}
+
+.rx_roam_petals .rx_roam_petal {
+    position: absolute;
+    border-radius: 80% 0 80% 0;
+    background: linear-gradient(135deg, #fff1f5, #f9a8d4);
+    box-shadow: 0 0 2px rgba(190, 24, 93, 0.35);
+}
+
+.rx_roam_egg {
+    border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+    box-shadow: inset -3px -4px 0 rgba(0, 0, 0, 0.12), 0 2px 3px rgba(0, 0, 0, 0.3);
+    transform-origin: bottom;
+}
+
+.rx_roam_ghost {
+    filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.35));
+
+    svg { width: 100%; height: 100%; overflow: visible; transform-origin: 50% 0; }
+    .sheet { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 2; }
+    .eye, .mouth { fill: #111827; }
+}
+
+.rx_roam_present {
+    border-radius: 4px;
+    background:
+        linear-gradient(90deg, transparent 43%, #fde047 43% 57%, transparent 57%),
+        linear-gradient(#dc2626, #b91c1c);
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.35);
+    transform-origin: bottom;
+
+    .rx_roam_present_lid {
+        position: absolute;
+        left: -6%;
+        top: -14%;
+        width: 112%;
+        height: 22%;
+        border-radius: 4px;
+        background:
+            linear-gradient(90deg, transparent 43%, #fde047 43% 57%, transparent 57%),
+            #ef4444;
+        box-shadow: 0 2px 3px rgba(0, 0, 0, 0.3);
+    }
+}
+
+.rx_roam_spark {
+    border-radius: 50%;
+    mix-blend-mode: screen;
+}
+
+// Two flat arms meeting in a rounded elbow: one thick stroke, outlined,
+// with three painted bands and a line of grain.
+.rx_roam_boomerang {
+    filter: drop-shadow(0 4px 3px rgba(0, 0, 0, 0.4));
+
+    svg { width: 100%; height: 100%; overflow: visible; }
+
+    path {
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .edge { stroke: #5b3416; stroke-width: 19; }
+    .wood { stroke: url(#rxWood); stroke-width: 15; }
+    .paint { stroke: #fef3c7; stroke-width: 15; stroke-linecap: butt; stroke-dasharray: 0 22 5 20 5 20 5 100; }
+    .grain { stroke: rgba(91, 52, 22, 0.45); stroke-width: 1.5; }
+}
+
+// Cartoon faces (roam_gags_more.js).
+// What they're dreaming of (the food, cut from the screen), in a cloud.
+.rx_roam_thought {
+    transform-origin: 15% 100%;
+    border-radius: 46% 54% 50% 50% / 55% 50% 50% 45%;
+    background: #fff;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+    box-sizing: border-box;
+
+    .rx_roam_thought_img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 40%;
+    }
+
+    .rx_roam_thought_puff {
+        position: absolute;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+
+        &--1 { left: 8%; bottom: -14%; width: 14%; height: 14%; }
+        &--2 { left: 0; bottom: -28%; width: 8%; height: 8%; }
+    }
+}
+
+.rx_roam_emanata {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+
+    path {
+        fill: none;
+        stroke: #111827;
+        stroke-width: 3;
+        stroke-linecap: round;
+        filter: drop-shadow(0 0 2px #fff);
+    }
+}
+
+.rx_roam_hearteye {
+    line-height: 1;
+    text-align: center;
+    color: #f43f5e;
+    text-shadow: 0 0 2px #fff, 0 0 8px rgba(244, 63, 94, 0.7);
+}
+
+// The crew's world (models/roam_gags_rexclaw.js, roam_fx_rexclaw.js).
+.rx_roam_sea {
+    // The crest's lower half is the water's own colour: the body starts
+    // under it.
+    background: linear-gradient(to bottom, transparent 0 12px, #0e7490 12px, #164e63);
+
+    .rx_roam_sea_crest {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 24px;
+        background-repeat: repeat-x;
+        background-size: 120px 24px;
+    }
+
+    &--front {
+        opacity: 0.7;
+        background: linear-gradient(to bottom, transparent 0 12px, #0891b2 12px, #0e7490);
+    }
+}
+
+.rx_roam_actor {
+    transform-origin: center;
+    will-change: transform;
+
+    > svg { width: 100%; height: 100%; overflow: visible; }
+}
+
+.rx_roam_ship {
+    filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.35));
+
+    .sail {
+        transform-box: fill-box;
+        transform-origin: 50% 0;
+        animation: rx-roam-billow 2.4s ease-in-out infinite alternate;
+    }
+
+    .flag {
+        transform-box: fill-box;
+        transform-origin: 0 50%;
+        animation: rx-roam-flag 0.7s ease-in-out infinite alternate;
+    }
+
+    .lamp { filter: drop-shadow(0 0 6px #fde68a); }
+}
+
+@keyframes rx-roam-billow {
+    from { scale: 1 1; }
+    to { scale: 1.035 1.01; }
+}
+
+@keyframes rx-roam-flag {
+    from { skew: 0deg -4deg; scale: 1 1; }
+    to { skew: 0deg 6deg; scale: 0.94 1; }
+}
+
+.rx_roam_shark {
+    filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.35));
+
+    .jaw-shut, .eye-wink { display: none; }
+    &.is-shut .jaw-open { display: none; }
+    &.is-shut .jaw-shut { display: inline; }
+    &.is-wink .eye-open { display: none; }
+    &.is-wink .eye-wink { display: inline; }
+}
+
+.rx_roam_whale {
+    filter: drop-shadow(0 10px 12px rgba(15, 23, 42, 0.35));
+
+    .fluke {
+        transform-box: fill-box;
+        transform-origin: 100% 50%;
+        animation: rx-roam-fluke 1.4s ease-in-out infinite alternate;
+    }
+
+    .flipper {
+        transform-box: fill-box;
+        transform-origin: 80% 0;
+        animation: rx-roam-fluke 1.1s ease-in-out infinite alternate-reverse;
+    }
+}
+
+@keyframes rx-roam-fluke {
+    from { rotate: -10deg; }
+    to { rotate: 10deg; }
+}
+
+.rx_roam_kraken_eye {
+    .lid {
+        transform-box: fill-box;
+        transform-origin: 50% 0;
+        transition: scale 0.25s ease;
+    }
+
+    &.is-squint .lid { scale: 1 1.9; }
+}
+
+.rx_roam_tentacle {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    filter: drop-shadow(0 4px 5px rgba(0, 0, 0, 0.35));
+
+    .body { fill: #6d28d9; stroke: #4c1d95; stroke-width: 2; stroke-linejoin: round; }
+    .belly { fill: none; stroke: #c084fc; stroke-linecap: round; stroke-linejoin: round; opacity: 0.6; }
+    .suckers circle { fill: #f5d0fe; stroke: #a855f7; stroke-width: 1.5; }
+}
+
+.rx_roam_ink {
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(17, 12, 32, 0.9), rgba(30, 20, 60, 0.6) 55%, transparent 72%);
+    filter: blur(2px);
+}
+
+.rx_roam_crown {
+    transform-origin: 50% 100%;
+    border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+    background:
+        radial-gradient(ellipse at 50% 100%, transparent 0 34%, rgba(186, 230, 253, 0.95) 36% 46%, transparent 48%),
+        radial-gradient(ellipse at 50% 100%, rgba(224, 242, 254, 0.5), transparent 70%);
+}
+
+.rx_roam_coin {
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #fef9c3 0 12%, #facc15 35%, #ca8a04 70%, #a16207);
+    box-shadow: inset 0 0 0 2px rgba(161, 98, 7, 0.8), 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.rx_roam_shot--cannonball {
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #6b7280, #111827 70%);
+}
+
+.rx_roam_chest {
+    filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.4));
+
+    .lid {
+        transform-box: fill-box;
+        transform-origin: 50% 100%;
+    }
+}
+
+.rx_roam_goldglow {
+    border-radius: 50%;
+    background:
+        repeating-conic-gradient(rgba(253, 224, 71, 0.55) 0 10deg, transparent 10deg 30deg),
+        radial-gradient(circle, rgba(254, 240, 138, 0.9), transparent 60%);
+    mask: radial-gradient(circle, black 30%, transparent 68%);
+    mix-blend-mode: screen;
+}
+
+.rx_roam_map {
+    filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.45));
+    border-radius: 6px;
+    background:
+        radial-gradient(ellipse at 50% 50%, #fdf3d7 40%, #f1dca8 80%, #d9b878),
+        #f5e6c0;
+
+    > svg { width: 100%; height: 100%; overflow: visible; }
+
+    .frame { fill: none; stroke: #7c4a1e; stroke-width: 2; stroke-dasharray: 10 4 2 4; }
+    .wins rect { fill: rgba(124, 74, 30, 0.08); stroke: #7c4a1e; stroke-width: 1.6; }
+    .route { fill: none; stroke: #b91c1c; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 1 9; }
+    .you { fill: #1d4ed8; }
+    .x { fill: none; stroke: #b91c1c; stroke-width: 5; stroke-linecap: round; }
+    .rose circle { fill: none; stroke: #7c4a1e; stroke-width: 1.5; }
+    .rose path { fill: #7c4a1e; }
+    .rose text { fill: #7c4a1e; font: 700 1em Georgia, serif; text-anchor: middle; }
+    .seal { fill: #b91c1c; opacity: 0.85; }
+
+    .rx_roam_map_roll {
+        position: absolute;
+        top: -4%;
+        width: 4%;
+        height: 108%;
+        border-radius: 8px;
+        background: linear-gradient(90deg, #c9a465, #f5e6c0 45%, #b88f4f);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+
+        &--l { left: -2%; }
+        &--r { right: -2%; }
+    }
+}
+
+.rx_roam_trail {
+    background: repeating-linear-gradient(90deg, #b91c1c 0 8px, transparent 8px 20px);
+    border-radius: 3px;
+    opacity: 0.85;
+}
+
+.rx_roam_crew {
+    filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.35));
+
+    // Rex: claws snipping while he reports.
+    &.is-snip .claw-l, &.is-snip .claw-r {
+        transform-box: fill-box;
+        animation: rx-roam-snip 0.32s ease-in-out infinite alternate;
+    }
+
+    .claw-l { transform-origin: 100% 100%; }
+    .claw-r { transform-origin: 0 100%; animation-direction: alternate-reverse; }
+
+    // The Admiral: wings beating in flight, folded on a perch.
+    .wing-front, .wing-back { transform-box: fill-box; transform-origin: 90% 90%; }
+    &.is-flying .wing-front, &.is-flying .wing-back { animation: rx-roam-flap 0.26s ease-in-out infinite alternate; }
+    &.is-flying .wing-back { animation-direction: alternate-reverse; }
+}
+
+@keyframes rx-roam-snip {
+    from { rotate: 0deg; }
+    to { rotate: -16deg; }
+}
+
+@keyframes rx-roam-flap {
+    from { rotate: -35deg; }
+    to { rotate: 25deg; }
 }

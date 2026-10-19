@@ -28,7 +28,10 @@ import { _t } from "../lib/i18n";
 import { RoamWorld } from "./roam_world";
 import { RoamFx, DOODLE_KINDS } from "./roam_fx";
 import { GAG_ACTIONS, installGags } from "./roam_gags";
-import { MORE_GAG_ACTIONS, installMoreGags, lateNight } from "./roam_gags_more";
+import { MORE_GAG_ACTIONS, installMoreGags, noteMusic } from "./roam_gags_more";
+import { SEASON_GAG_ACTIONS, installSeasonGags } from "./roam_gags_seasons";
+import { REXCLAW_GAG_ACTIONS, installRexclawGags } from "./roam_gags_rexclaw";
+import { lateNight, toNewYearS } from "./roam_seasons";
 import { RoamEars } from "./roam_ears";
 
 const VRMA = "/assets/vrma";
@@ -104,6 +107,9 @@ const AWAY_S = 600;
 // and awake again as soon as there is any input.
 const SLEEP_IDLE_S = 300;
 export const ROAM_NAP_MINUTES = [0, 2, 5, 10, 20, 30];   // 0: never
+// The New Year's countdown starts this long before midnight: the walk to
+// the middle of the screen, then ten seconds counted down.
+const NEW_YEAR_LEAD_S = 16;
 
 // Two looks count as the same screen below this mean difference of a 32×18
 // grey thumbnail (0-255 per pixel; by eye: a blinking caret or a clock
@@ -212,7 +218,7 @@ export class RoamDirector {
         // computer): something playing counts as you being there (idleS).
         // Reacting to it, dancing and jumping, is one of the tricks.
         this.ears = new RoamEars({
-            onMusic: (on) => { this.music = on; },
+            onMusic: (on) => noteMusic(this, on),
             onBeat: () => { this._lastBeat = now(); },
             onStartle: () => { if (this.tricks) this._react("startle"); },
             onDrop: () => { if (this.tricks && this.music) this._react("air_guitar"); },
@@ -268,6 +274,14 @@ export class RoamDirector {
                 this._wasAway = false;
                 this._forced ||= "welcome_back";
             }
+        }
+        // New Year's Eve: the countdown starts on time, whatever they're
+        // doing (asleep, they sleep through it).
+        const toNewYear = toNewYearS();
+        if (toNewYear <= NEW_YEAR_LEAD_S && toNewYear > 2 && !this._countedDown && !this._napping) {
+            this._countedDown = true;
+            this._forced = "new_year_fireworks";
+            this._interrupt("forced");
         }
     }
 
@@ -829,6 +843,8 @@ export class RoamDirector {
         this._resetGag();
         if (this.b.mode === "pinned" || this.b.mode === "scripted") this._toAir();
         this.r.roamWalk(false);
+        // Front on again, whichever way the action left them turned.
+        this._face(0);
     }
 
     /** Whatever a gag reshaped goes back: props away, the normal box. */
@@ -852,6 +868,7 @@ export class RoamDirector {
         this.clipRect = null;
         this.behindAll = false;
         this.r.setRoamShot?.("full");
+        this.r.roamEyeScale?.(1);
         this.host.style.filter = "";
         if (this.scale !== 1 && this.b.mode !== "air") {
             this.scale = 1;
@@ -1071,9 +1088,12 @@ export class RoamDirector {
         mc.fillStyle = "#808080";
         mc.fillRect((this.box.left - cap.frame.x) * sx, (this.box.top - cap.frame.y) * sy, this.box.width * sx, this.box.height * sy);
         // The screen hasn't changed since the last look (an idle desktop, a
-        // page being read): what Jev found then is still there, no new ask.
+        // page being read): what Jev found then is still there, no new ask —
+        // unless a trick has used some of it. A new ask finds others (each
+        // look picks a different one of a kind), or the same ones again.
         const sig = screenSignature(masked);
-        if (this._look && this._lastSig && sigDiff(sig, this._lastSig) < SAME_SCREEN) {
+        if (this._look && this._lastSig && sigDiff(sig, this._lastSig) < SAME_SCREEN
+            && !this._look.found.some((f) => f.used)) {
             const fg = this.world.foreground;
             Object.assign(this._look, { at: now(), fgId: this.world.fg, fgRect: fg ? { ...fg } : null });
             return;
@@ -1521,15 +1541,25 @@ const ACTIONS = [
       when: (d) => d.onFloor && (d.idleS >= d.napS || (lateNight() && d.idleS >= d.napS / 5)), run: RoamDirector.prototype.nap },
     // Naps happen on the floor: down off a ledge first.
     { id: "drop_to_nap", group: "travel", weight: 60, when: (d) => d.onLedge && d.idleS >= d.napS, run: RoamDirector.prototype.dropDown },
-    { id: "eat_link", group: "trick", weight: 30, cooldown: 60, when: (d) => d.seen("link").length > 0, run: RoamDirector.prototype.eatLink },
-    { id: "steal", group: "trick", weight: 26, cooldown: 90, when: (d) => Object.keys(STEALABLE).some((k) => d.seen(k).length > 0), run: RoamDirector.prototype.stealClose },
-    { id: "watch_video", group: "trick", weight: 26, cooldown: 90, when: (d) => d.seen("video").some((f) => f.rect.y > d.body * 0.6), run: RoamDirector.prototype.watchVideo },
-    { id: "admire_picture", group: "trick", weight: 18, cooldown: 60, when: (d) => d.seen("picture").some((f) => f.rect.y > d.body * 0.6 && f.rect.width > d.body * 0.4), run: RoamDirector.prototype.admirePicture },
-    { id: "slide", group: "trick", weight: 16, cooldown: 90, when: (d) => d.seen("scrollbar").some((f) => f.rect.y > d.body * 0.6), run: RoamDirector.prototype.slideScrollbar },
-    { id: "bath", group: "trick", weight: 14, cooldown: 120, when: (d) => d.seen("search").some((f) => f.rect.y > d.body * 0.5 && f.rect.width > d.body * 0.35), run: RoamDirector.prototype.bathSearch },
-    // The props, memes and big moments (models/roam_gags.js, roam_gags_more.js).
+    // Tricks are grouped by kind (trick_grab: they take something;
+    // trick_perch: they get on or in something; trick_face, trick_read,
+    // trick_blast in the gag tables): one can follow another, not one of
+    // its own kind.
+    { id: "eat_link", group: "trick_grab", weight: 26, cooldown: 90, when: (d) => d.seen("link").length > 0, run: RoamDirector.prototype.eatLink },
+    { id: "steal", group: "trick_grab", weight: 20, cooldown: 90, when: (d) => Object.keys(STEALABLE).some((k) => d.seen(k).length > 0), run: RoamDirector.prototype.stealClose },
+    { id: "watch_video", group: "trick_perch", weight: 26, cooldown: 90, when: (d) => d.seen("video").some((f) => f.rect.y > d.body * 0.6), run: RoamDirector.prototype.watchVideo },
+    { id: "admire_picture", group: "trick_perch", weight: 18, cooldown: 60, when: (d) => d.seen("picture").some((f) => f.rect.y > d.body * 0.6 && f.rect.width > d.body * 0.4), run: RoamDirector.prototype.admirePicture },
+    { id: "slide", group: "trick_perch", weight: 16, cooldown: 90, when: (d) => d.seen("scrollbar").some((f) => f.rect.y > d.body * 0.6), run: RoamDirector.prototype.slideScrollbar },
+    { id: "bath", group: "trick_perch", weight: 14, cooldown: 120, when: (d) => d.seen("search").some((f) => f.rect.y > d.body * 0.5 && f.rect.width > d.body * 0.35), run: RoamDirector.prototype.bathSearch },
+    // The props, memes and big moments (models/roam_gags.js, roam_gags_more.js),
+    // the weather, seasons and holidays (roam_gags_seasons.js), the crew's
+    // world (roam_gags_rexclaw.js).
     ...GAG_ACTIONS,
     ...MORE_GAG_ACTIONS,
+    ...SEASON_GAG_ACTIONS,
+    ...REXCLAW_GAG_ACTIONS,
 ];
 installGags(RoamDirector.prototype);
 installMoreGags(RoamDirector.prototype);
+installSeasonGags(RoamDirector.prototype);
+installRexclawGags(RoamDirector.prototype);

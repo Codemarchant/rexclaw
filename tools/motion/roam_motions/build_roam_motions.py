@@ -867,6 +867,97 @@ def skate(b, legs):
     return loop
 
 
+@clip("push", 1.2)
+def push(b, legs):
+    """Rolling a snowball along: bent over it, both palms on its back,
+    shoving in turn. The app plays its arms over the walk loop too."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 1.2
+        hands = {}
+        for side, s, ph in (("L", -1, 0.0), ("R", 1, 0.5)):
+            shove = wave(t, L, ph)
+            hands[side] = at(b.hips, right=0.13 * s, up=-0.12, fwd=0.4 + 0.04 * shove)
+        return mix(rest, Pose(
+            spine=rot(pitch=30), chest=rot(pitch=10), head=rot(pitch=-22),
+            hips_off=V(up=-0.06, fwd=-0.05),
+            arm_L=arm("L", hands["L"], V(up=0.75, fwd=0.45), V(right=1), V(right=-1, up=-0.3, fwd=-0.6)),
+            arm_R=arm("R", hands["R"], V(up=0.75, fwd=0.45), V(right=-1), V(right=1, up=-0.3, fwd=-0.6)),
+            fingers_L=dict(FLAT), fingers_R=dict(FLAT),
+            look=at(b.hips, up=-0.3, fwd=0.8), look_weight=0.4,
+        ), 1.0)
+    return loop
+
+
+@clip("pat", 1.0)
+def pat(b, legs):
+    """Shaping something in front of them: bent a little, patting it with
+    flat hands in turn, palms down."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 1.0
+        hands = {}
+        for side, s, ph in (("L", -1, 0.0), ("R", 1, 0.5)):
+            lift = max(0.0, wave(t, L, ph))
+            hands[side] = at(b.hips, right=0.11 * s, up=0.0 + 0.08 * lift, fwd=0.3)
+        return mix(rest, Pose(
+            spine=rot(pitch=20), chest=rot(pitch=6), head=rot(pitch=-14),
+            hips_off=V(up=-0.03),
+            arm_L=arm("L", hands["L"], V(fwd=1, right=0.15), V(right=1), V(right=-1, up=-1, fwd=-0.2)),
+            arm_R=arm("R", hands["R"], V(fwd=1, right=-0.15), V(right=-1), V(right=1, up=-1, fwd=-0.2)),
+            fingers_L=dict(FLAT), fingers_R=dict(FLAT),
+            look=at(b.hips, up=0.1, fwd=0.6), look_weight=0.5,
+        ), 1.0)
+    return loop
+
+
+@clip("lantern_carry", 2.4)
+def lantern_carry(b, legs):
+    """Carrying a lantern low at the side by its bail: the right arm down
+    and a little forward, the fist knuckles-up so the lantern hangs below
+    it, a slow sway; peering ahead into the dark. The app plays its arms
+    over the walk loop too."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 2.4
+        hand = at(b.sh_R, right=0.11, up=-0.36, fwd=0.2) + V(fwd=0.01 * wave(t, L))
+        return mix(rest, Pose(
+            arm_R=rod_arm("R", hand, V(up=1), V(right=-1, fwd=0.35), V(right=1, up=-0.2, fwd=-1)),
+            fingers_R=dict(FIST),
+            head=rot(pitch=4, yaw=3 * wave(t, L / 2)), spine=rot(pitch=3),
+            look=at(b.head, up=-0.25, fwd=1.6), look_weight=0.3,
+        ), 1.0)
+    return loop
+
+
+with_props("lantern_carry", "lantern")
+
+
+@clip("pet", 1.6)
+def pet(b, legs):
+    """Reaching out to stroke something: the right hand out and up, palm
+    down, stroking to and fro; leaning in, the head tilted fondly, the
+    left hand at the chest."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 1.6
+        s = wave(t, L)
+        hand = at(b.sh_R, right=-0.07 + 0.07 * s, up=-0.16 + 0.02 * abs(s), fwd=0.38)
+        return mix(rest, Pose(
+            spine=rot(pitch=8, yaw=-6), chest=rot(pitch=3), head=rot(roll=10, pitch=-4),
+            arm_R=arm("R", hand, V(fwd=1, up=-0.1), V(right=-1), V(right=1, up=-1, fwd=-0.1)),
+            fingers_R=dict(FLAT),
+            arm_L=arm("L", at(b.chest, right=-0.06, up=-0.05, fwd=0.12), V(right=1, up=0.3), V(up=1),
+                      V(right=-1, up=-0.8, fwd=-0.2)),
+            fingers_L=dict(RELAXED_FINGERS),
+        ), 1.0)
+    return loop
+
+
 @clip("juggle", 1.2)
 def juggle(b, legs):
     """Juggling: hands at the waist out front bobbing in turn, palms up,
@@ -1453,6 +1544,214 @@ def make_boombox(b, legs):
     return tm._join(parts, "boombox")
 
 
+def _ball(name, x, y, z, r, color, rough=0.6, emit=None, sy=1.0):
+    import bmesh
+
+    def b(bm):
+        bmesh.ops.create_uvsphere(bm, u_segments=16, v_segments=10, radius=1.0)
+        for v in bm.verts:
+            vx, vy, vz = v.co
+            v.co = tm._g(x + vx * r, y + vz * r * sy, z + vy * r)
+    o = tm._mesh_object(name, b)
+    o.data.materials.append(tm._material(name, color, rough=rough, emit=emit))
+    return o
+
+
+def make_icecream(b, legs):
+    """A cone along the thumb, two scoops on top (the umbrella pose holds it
+    up at the chest)."""
+    parts = [
+        _cyl("icecream_cone", 0.006, 0.034, -0.05, 0.11, (0.82, 0.58, 0.3), segments=14, rough=0.8),
+        _ball("icecream_scoop0", 0.0, 0.13, 0.0, 0.038, (0.98, 0.72, 0.8), sy=0.85),
+        _ball("icecream_scoop1", 0.004, 0.185, 0.002, 0.033, (0.97, 0.93, 0.8), sy=0.9),
+        _ball("icecream_cherry", 0.0, 0.226, 0.0, 0.011, (0.85, 0.06, 0.12), rough=0.3),
+    ]
+    obj = tm._join(parts, "icecream")
+    _point("icecream", "drip", 0.0, 0.105, 0.03).parent = obj
+    return obj
+
+
+def make_waterpistol(b, legs):
+    """A pump water blaster along the thumb (the aim pose shoulders it):
+    tank on top, grip down, a long nozzle."""
+    blue, orange, yellow = (0.15, 0.45, 0.95), (0.98, 0.5, 0.1), (0.98, 0.85, 0.15)
+    parts = [
+        _cyl("blaster_body", 0.032, 0.032, -0.16, 0.2, blue, rough=0.35),
+        _cyl("blaster_tank", 0.045, 0.045, -0.12, 0.06, (0.55, 0.85, 1.0), rough=0.1, z=0.07),
+        _cyl("blaster_nozzle", 0.012, 0.01, 0.2, 0.34, orange, rough=0.35),
+        _cyl("blaster_pump", 0.024, 0.024, 0.06, 0.16, yellow, rough=0.4, z=-0.045),
+        _box("blaster_grip", (0.03, 0.04, 0.09), (0.0, -0.08, -0.06), orange, rough=0.4),
+    ]
+    obj = tm._join(parts, "waterpistol")
+    _point("waterpistol", "muzzle", 0.0, 0.34, 0.0).parent = obj
+    return obj
+
+
+def _tube(name, path, radius, color, seg=10, rough=0.4, metal=0.0):
+    """A round wire along `path` (glTF points), `radius` thick."""
+    def b(bm):
+        rings = []
+        n = len(path) - 1
+        for i, p in enumerate(path):
+            t = (path[min(n, i + 1)] - path[max(0, i - 1)]).normalized()
+            ref = Vector((0.0, 0.0, 1.0)) if abs(t.z) < 0.9 else Vector((1.0, 0.0, 0.0))
+            e1 = (ref - t * t.dot(ref)).normalized()
+            e2 = t.cross(e1)
+            rings.append([bm.verts.new(tm._g(*(p + (e1 * math.cos(a) + e2 * math.sin(a)) * radius)))
+                          for a in (2 * math.pi * k / seg for k in range(seg))])
+        for lo, hi in zip(rings, rings[1:]):
+            for k in range(seg):
+                bm.faces.new([lo[k], lo[(k + 1) % seg], hi[(k + 1) % seg], hi[k]])
+    o = tm._mesh_object(name, b)
+    o.data.materials.append(tm._material(name, color, rough=rough, metal=metal))
+    return o
+
+
+def make_lantern(b, legs):
+    """A hurricane lantern hanging from the fist by its wire bail (the
+    lantern pose holds it low at the side): a brass cap and base, a glass
+    globe in a four-post cage, the flame lit inside."""
+    brass, dark = (0.78, 0.56, 0.2), (0.22, 0.16, 0.1)
+    # The bail: a half ring over the cap, its top in the fist.
+    bail = [Vector((0.034 * math.cos(a), -0.05 + 0.034 * math.sin(a), 0.0)) for a in (math.pi * k / 12 for k in range(13))]
+    parts = [
+        _tube("lantern_bail", bail, 0.0022, dark, metal=0.6, rough=0.3),
+        _cyl("lantern_vent", 0.01, 0.012, -0.072, -0.058, brass, metal=0.85, rough=0.25),
+        _cyl("lantern_cap", 0.013, 0.046, -0.094, -0.07, brass, metal=0.85, rough=0.25),
+        _cyl("lantern_rim", 0.048, 0.048, -0.1, -0.093, dark, metal=0.6, rough=0.35),
+        _ball("lantern_globe", 0.0, -0.155, 0.0, 0.039, (1.0, 0.9, 0.62), rough=0.08, emit=(0.95, 0.72, 0.36), sy=1.45),
+        _ball("lantern_flame", 0.0, -0.158, 0.0, 0.011, (1.0, 0.85, 0.4), emit=(1.0, 0.82, 0.4), sy=1.9),
+        _cyl("lantern_wick", 0.006, 0.006, -0.19, -0.172, dark, rough=0.6),
+        _cyl("lantern_base", 0.05, 0.046, -0.232, -0.205, brass, metal=0.85, rough=0.25),
+        _cyl("lantern_foot", 0.052, 0.052, -0.238, -0.232, dark, metal=0.6, rough=0.35),
+    ]
+    for k in range(4):
+        a = math.pi / 4 + k * math.pi / 2
+        parts.append(_cyl(f"lantern_post{k}", 0.0028, 0.0028, -0.205, -0.1, dark, segments=6, metal=0.6, rough=0.35,
+                          x=0.045 * math.cos(a), z=0.045 * math.sin(a)))
+    obj = tm._join(parts, "lantern")
+    _point("lantern", "light", 0.0, -0.155, 0.0).parent = obj
+    return obj
+
+
+def _ear(name, s, R, Hd, y0, z0, outer, inner, tuft):
+    """One cat ear on the reference crown (the santa hat's ellipsoid): its
+    own object, its origin at the base so the app can twitch it."""
+    import bmesh
+    th = math.radians(36)
+    # On the crown's surface, a little sunk into the hair.
+    p = Vector((s * R * math.sin(th) * 0.96, y0 + Hd * math.cos(th) * 0.96, z0 + 0.012))
+    n = Vector((s * math.sin(th) / R, math.cos(th) / Hd, 0.0)).normalized()
+    up = (n + Vector((s * 0.14, 0.0, 0.0))).normalized()
+    fwd = Vector((0.0, 0.0, 1.0))
+    side = up.cross(fwd).normalized()
+
+    def shell(bm, w, d, h, lift, front):
+        rings = []
+        for i in range(7):
+            t = i / 6
+            k = (1 - t) ** 0.9
+            rings.append([bm.verts.new(tm._g(*(side * (w * k * math.cos(a)) + up * (lift + h * t)
+                                                  + fwd * (front + d * k * math.sin(a) + 0.009 * t * t))))
+                          for a in (2 * math.pi * j / 14 for j in range(14))])
+        for lo, hi in zip(rings, rings[1:]):
+            for j in range(14):
+                bm.faces.new([lo[j], lo[(j + 1) % 14], hi[(j + 1) % 14], hi[j]])
+        bm.faces.new(list(reversed(rings[0])))
+
+    out = tm._mesh_object(f"{name}_outer", lambda bm: shell(bm, 0.034, 0.011, 0.078, 0.0, 0.0))
+    out.data.materials.append(tm._material(f"{name}_outer", outer, rough=0.9))
+    inn = tm._mesh_object(f"{name}_inner", lambda bm: shell(bm, 0.02, 0.005, 0.06, 0.008, 0.008))
+    inn.data.materials.append(tm._material(f"{name}_inner", inner, rough=0.7))
+    tufts = []
+    for j, dx in enumerate((-0.008, 0.0, 0.008)):
+        def tb(bm, dx=dx, j=j):
+            bmesh.ops.create_cone(bm, cap_ends=True, segments=6, radius1=0.0035, radius2=0.0, depth=0.03)
+            lean = (side * dx * 1.5 + up).normalized()
+            for v in bm.verts:
+                vx, vy, vz = v.co
+                q = side * (dx + vx) + fwd * (0.014 + vy) + lean * (0.012 + (vz + 0.5) * 0.03 + 0.004 * j)
+                v.co = tm._g(*q)
+        t = tm._mesh_object(f"{name}_tuft{j}", tb)
+        t.data.materials.append(tm._material(f"{name}_tuft{j}", tuft, rough=0.9))
+        tufts.append(t)
+    ear = tm._join([out, inn, *tufts], name)
+    # Origin at the base: the vertices are about it, the object there.
+    ear.location = tm._g(*p)
+    return ear
+
+
+def make_catears(b, legs):
+    """A cat-ear headband in the head's frame, on the santa hat's reference
+    crown so the app fits it to each avatar's hair the same way: a thin
+    band over the top, two cupped ears with pink insides and pale tufts."""
+    R, Hd, y0, z0 = HAT_R, HAT_DOME, HAT_BRIM_Y, HAT_BRIM_Z
+    arc = [Vector((R * math.sin(a) * 0.99, y0 + Hd * math.cos(a) * 0.99, z0 + 0.012))
+           for a in (math.radians(-96 + 192 * k / 24) for k in range(25))]
+    band = _tube("catears_band", arc, 0.0045, (0.08, 0.08, 0.09), seg=8, rough=0.35)
+    fur, pink, pale = (0.14, 0.13, 0.15), (0.98, 0.62, 0.72), (0.96, 0.92, 0.9)
+    for s, tag in ((1, "earl"), (-1, "earr")):
+        _ear(f"catears_{tag}", s, R, Hd, y0, z0, fur, pink, pale).parent = band
+    return band
+
+
+# The Santa hat's own measures (glTF, the head's frame): its brim's centre
+# and radius and how high its crown rises over the brim. The app fits these
+# to each avatar's hair (props.json `fit`, avatar_renderer _fitCrown).
+HAT_BRIM_Y, HAT_BRIM_Z = 0.12, -0.01
+HAT_R, HAT_DOME = 0.118, 0.10
+
+
+def make_santahat(b, legs):
+    """A Santa hat in the head's frame: a soft crown over the top of the
+    head (a dome, so a full head of hair stays under it), the tip flopping
+    back and down to a bobble, a white brim round it."""
+    import bmesh
+    y0, z0, R, Hd = HAT_BRIM_Y, HAT_BRIM_Z, HAT_R, HAT_DOME
+
+    def crown(bm):
+        bmesh.ops.create_uvsphere(bm, u_segments=24, v_segments=12, radius=1.0)
+        for v in list(bm.verts):
+            if v.co.z < -0.02:
+                bm.verts.remove(v)
+        for v in bm.verts:
+            vx, vy, vz = v.co
+            v.co = tm._g(vx * R, y0 + max(0.0, vz) * Hd, z0 + vy * R)
+    c = tm._mesh_object("santahat_crown", crown)
+    red = tm._material("santahat_crown", (0.82, 0.06, 0.1), rough=0.8)
+    red.use_backface_culling = False
+    c.data.materials.append(red)
+
+    # The tip: rings along a curve from the crown's top, up and back, then
+    # flopping down behind, thinning to the bobble.
+    p0 = Vector((0.0, y0 + Hd * 0.8, z0 - 0.02))
+    p1 = Vector((0.01, y0 + Hd + 0.08, z0 - 0.1))
+    p2 = Vector((0.03, y0 + Hd - 0.03, z0 - 0.21))
+    n, seg = 12, 16
+    path = [((1 - s) ** 2) * p0 + 2 * (1 - s) * s * p1 + (s ** 2) * p2 for s in (i / n for i in range(n + 1))]
+
+    def tail(bm):
+        rings = []
+        for i, p in enumerate(path):
+            t = (path[min(n, i + 1)] - path[max(0, i - 1)]).normalized()
+            e1 = (Vector((1.0, 0.0, 0.0)) - t * t.x).normalized()
+            e2 = t.cross(e1)
+            r = 0.072 * (1 - i / n) + 0.012 * (i / n)
+            rings.append([bm.verts.new(tm._g(*(p + (e1 * math.cos(a) + e2 * math.sin(a)) * r)))
+                          for a in (2 * math.pi * k / seg for k in range(seg))])
+        for lo, hi in zip(rings, rings[1:]):
+            for k in range(seg):
+                bm.faces.new([lo[k], lo[(k + 1) % seg], hi[(k + 1) % seg], hi[k]])
+    t = tm._mesh_object("santahat_tip", tail)
+    t.data.materials.append(red)
+
+    # The brim's caps sit inside the head and the crown.
+    brim = _cyl("santahat_brim", R + 0.008, R + 0.008, y0 - 0.02, y0 + 0.022, (0.97, 0.97, 0.95), segments=24, rough=0.95, z=z0)
+    tip = path[-1]
+    parts = [c, t, brim, _ball("santahat_bobble", tip.x, tip.y, tip.z, 0.028, (0.97, 0.97, 0.95), rough=0.95)]
+    return tm._join(parts, "santahat")
+
+
 # id → (builder, bone, grip). Grips are in the bone's normalized frame.
 ROAM_PROPS = {
     "umbrella": (make_umbrella, "rightHand", lambda: rod_grip("R")),
@@ -1469,6 +1768,19 @@ ROAM_PROPS = {
     "sunglasses": (make_sunglasses, "head", lambda: {"position": [0, 0, 0], "rotation": [0, 0, 0, 1]}),
     "sunbed": (make_sunbed, "root", lambda: {"position": [0, 0, 0], "rotation": [0, 0, 0, 1]}),
     "kart": (make_kart, "root", lambda: {"position": [0, 0, 0], "rotation": [0, 0, 0, 1]}),
+    "icecream": (make_icecream, "rightHand", lambda: rod_grip("R")),
+    "waterpistol": (make_waterpistol, "rightHand", lambda: rod_grip("R")),
+    "lantern": (make_lantern, "rightHand", lambda: rod_grip("R")),
+    "santahat": (make_santahat, "head", lambda: {
+        "position": [0, 0, 0], "rotation": [0, 0, 0, 1],
+        "fit": {"kind": "crown", "brim": [0.0, HAT_BRIM_Y, HAT_BRIM_Z], "radius": HAT_R + 0.008, "height": HAT_DOME},
+    }),
+    # The same crown, fitted the same way; the ears keep their own shape.
+    "catears": (make_catears, "head", lambda: {
+        "position": [0, 0, 0], "rotation": [0, 0, 0, 1],
+        "fit": {"kind": "crown", "brim": [0.0, HAT_BRIM_Y, HAT_BRIM_Z], "radius": HAT_R, "height": HAT_DOME,
+                "uniform": ["catears_earl", "catears_earr"]},
+    }),
 }
 BONE_KEY = {"rightHand": "right_hand", "leftHand": "left_hand", "upperChest": "upper_chest", "head": "head", "hips": "hips"}
 
@@ -1507,8 +1819,11 @@ def main():
     wanted = list(tm.WANTED) or ["all"]
     # Props: built (and exported, with props.json) whenever a clip that
     # shows one is built, or for `props`.
-    want_props = "props" in wanted or "all" in wanted or any(PROP_CLIPS.get(c) for c in wanted)
-    wanted = list(CLIPS) if "all" in wanted else [c for c in wanted if c != "props"]
+    # Prop ids among them: only those GLBs are written (props.json still
+    # lists every prop), so the others aren't re-exported for nothing.
+    only = [w for w in wanted if w in ROAM_PROPS]
+    want_props = bool(only) or "props" in wanted or "all" in wanted or any(PROP_CLIPS.get(c) for c in wanted)
+    wanted = list(CLIPS) if "all" in wanted else [c for c in wanted if c != "props" and c not in ROAM_PROPS]
     props = {}
     if want_props:
         os.makedirs(os.path.join(OUT_DIR, "props"), exist_ok=True)
@@ -1517,9 +1832,11 @@ def main():
             obj = build(body, legs)
             # A grip of None: the prop sits where its pose puts it (guitar).
             g = grip() if grip else guitar_grip(body)
-            if tm.EXPORT:
+            if tm.EXPORT and (not only or pid in only):
                 export_prop(obj, os.path.join(OUT_DIR, "props", f"{pid}.glb"))
             manifest[pid] = {"file": f"props/{pid}.glb", "bone": bone, "position": g["position"], "rotation": g["rotation"]}
+            if g.get("fit"):
+                manifest[pid]["fit"] = g["fit"]
             if bone != "root":
                 tm.attach_preview_prop(rig, obj, BONE_KEY[bone], g["position"], g["rotation"])
             props[pid] = obj

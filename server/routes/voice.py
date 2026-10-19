@@ -437,7 +437,7 @@ ROAM_LOOKS = {
     "text": "paragraph of text",
     "face": "face of a person in a photo or video",
     "icon": "desktop shortcut icon with its name under it",
-    "taskbar": "app icon in the taskbar",
+    "taskbar": "pinned app icon in the taskbar",
     "tab": "tab in a web browser's tab strip",
     "button": "button",
     "address": "address bar of a web browser",
@@ -445,6 +445,9 @@ ROAM_LOOKS = {
     "ad": "advertisement or ad banner",
     "error": "error message or red error text",
     "emoji": "emoji",
+    "cat": "cat in a photo or video",
+    "animal": "dog, rabbit, bird or other animal (not a cat) in a photo or video",
+    "food": "photo of food or a meal",
 }
 # A screen holds many of most of these and a Box finds one, so each is
 # asked for so that only one fits (TypeSafe's Box docs). Most get one of
@@ -456,7 +459,13 @@ ROAM_WHICH_FOR = {
     "close": ("the {} nearest the top-right corner",),
     "video": ("the largest {}",), "scrollbar": ("the largest {}",), "progress": ("the largest {}",),
     "error": ("the largest {}",), "search": ("the topmost {}",), "address": ("the topmost {}",),
-    "tab": ("the leftmost {}", "the rightmost {}"), "taskbar": ("the leftmost {}", "the rightmost {}"),
+    "cat": ("the largest {}",), "animal": ("the largest {}",), "food": ("the largest {}",),
+    "tab": ("the leftmost {}", "the rightmost {}"),
+    # A taskbar's icons are all alike; counted from either end, a different
+    # one each look (the leftmost alone was always the Start button).
+    "taskbar": tuple(f"{w}, not counting the Start button or search" for w in (
+        "the leftmost {}", "the rightmost {}", "the second {} from the left", "the third {} from the left",
+        "the fourth {} from the left", "the second {} from the right", "the third {} from the right")),
 }
 # Small things get Jev's second look (screen_pointer.locate; one image
 # request each): their cut-outs need the edges. Big ones only need roughly

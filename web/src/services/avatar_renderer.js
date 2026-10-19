@@ -84,6 +84,9 @@ const FULL_FOV = 35;
 const ROAM_FOV = FACE_FOV;
 const ROAM_BODY_FRAC = 0.62;
 const ROAM_FOOT_FRAC = 0.04;
+// A fitted hat's brim sits this share of the way from the head bone up to
+// the top of the hair: about the hairline, over the eyes (by eye).
+const ROAM_CROWN_BAND = 0.62;
 // Bones a carried thing overrides in the walk loop (roamWalk upperUrl).
 const ROAM_ARM_BONES = ["Shoulder", "UpperArm", "LowerArm", "Hand", "ThumbMetacarpal", "ThumbProximal",
     "ThumbDistal", "IndexProximal", "IndexIntermediate", "IndexDistal", "MiddleProximal",
@@ -5310,6 +5313,7 @@ class AvatarRenderer {
         if (!spec || !this.vrm || !this.libs) return null;
         const h = await this._ensureToolProps().attach(this.vrm, `/assets/vrma/roam/${spec.file}`, spec);
         if (!h) return null;
+        if (spec.fit?.kind === "crown") this._fitCrown(h, spec.fit);
         h.pointPx = (name) => {
             const node = h.obj.getObjectByName(`${id}_${name}`);
             const host = this.activeCanvas;
@@ -5318,6 +5322,59 @@ class AvatarRenderer {
             return { x: ((v.x + 1) / 2) * host.clientWidth, y: ((1 - v.y) / 2) * host.clientHeight };
         };
         return h;
+    }
+
+    /** Sit a hat (props.json `fit: {kind: "crown"}`, made for the authoring
+     *  avatar's head) on this avatar's own hair. The head's vertices as
+     *  posed now, in the head bone's frame, give the top of the hair and,
+     *  ROAM_CROWN_BAND of the way up to it, the hair's girth; the brim goes
+     *  round that girth (its 90th percentile, so a ponytail sticking out
+     *  doesn't count), the crown up past the top. */
+    _fitCrown(h, fit) {
+        const { THREE } = this.libs;
+        const head = h.obj.parent;
+        if (!head || !this.vrm?.scene) return;
+        this.vrm.scene.updateMatrixWorld(true);
+        const inv = head.matrixWorld.clone().invert();
+        const v = new THREE.Vector3();
+        const pts = [];
+        this.vrm.scene.traverse((o) => {
+            if (!o.isMesh || !o.geometry?.attributes?.position) return;
+            for (let p = o; p; p = p.parent) if (p === h.obj) return;
+            const n = o.geometry.attributes.position.count;
+            const step = Math.max(1, Math.floor(n / 15000));
+            for (let i = 0; i < n; i += step) {
+                o.getVertexPosition(i, v);
+                v.applyMatrix4(o.matrixWorld).applyMatrix4(inv);
+                if (v.y > 0 && Math.abs(v.x) < 0.3 && Math.abs(v.z) < 0.3) pts.push(v.clone());
+            }
+        });
+        if (pts.length < 50) return;
+        let top = 0;
+        for (const p of pts) top = Math.max(top, p.y);
+        const band = top * ROAM_CROWN_BAND;
+        let ring = pts.filter((p) => Math.abs(p.y - band) < 0.012);
+        if (ring.length < 12) ring = pts.filter((p) => Math.abs(p.y - band) < 0.03);
+        if (ring.length < 6) return;
+        const cx = ring.reduce((s, p) => s + p.x, 0) / ring.length, cz = ring.reduce((s, p) => s + p.z, 0) / ring.length;
+        const radii = ring.map((p) => Math.hypot(p.x - cx, p.z - cz)).sort((a, b) => a - b);
+        const r = radii[Math.floor(radii.length * 0.9)];
+        const k = THREE.MathUtils.clamp((r * 1.04) / fit.radius, 0.6, 2.2);
+        const ky = THREE.MathUtils.clamp(((top - band) * 1.12) / fit.height, 0.6, 2.6);
+        h.fit = { x: k, y: ky, z: k };
+        // Parts that keep their own shape (cat ears): the crown's stretch
+        // taken back off them.
+        for (const name of fit.uniform || []) h.obj.getObjectByName(name)?.scale.set(1, k / ky, 1);
+        // The brim's centre (the prop's own point, turned as the prop is)
+        // onto the ring's.
+        const brim = new THREE.Vector3(...fit.brim).applyQuaternion(h.obj.quaternion);
+        h.obj.position.set(cx - brim.x * k, band - brim.y * ky, cz - brim.z * k);
+    }
+
+    /** The eyes' size (1: as made): their bones scaled, so eyes skinned to
+     *  them bulge (a cartoon double take). No eye bones, no change. */
+    roamEyeScale(k) {
+        for (const name of ["leftEye", "rightEye"]) this.vrm?.humanoid?.getRawBoneNode?.(name)?.scale.setScalar(k);
     }
 
     /** This frame of the avatar as a 2D canvas the host's CSS size (the

@@ -937,8 +937,16 @@ function fitRoamWindow(display) {
     if (!roamState || !mascotWindow || mascotWindow.isDestroyed()) return;
     roamState.displayId = display.id;
     const wa = display.workArea;
+    const want = { x: wa.x, y: wa.y, width: wa.width, height: wa.height };
     mascotWindow.setResizable(true);
-    mascotWindow.setBounds({ x: wa.x, y: wa.y, width: wa.width, height: wa.height });
+    mascotWindow.setBounds(want);
+    // Onto a display with another scale factor, Windows rescales the window
+    // by the change once it lands there, so the first move comes out the
+    // wrong size: set it again from where it now is.
+    const got = mascotWindow.getBounds();
+    if (got.x !== want.x || got.y !== want.y || got.width !== want.width || got.height !== want.height) {
+        mascotWindow.setBounds(want);
+    }
     mascotWindow.setResizable(false);
     mascotWindow.webContents.send("roam-area", { width: wa.width, height: wa.height, displayId: display.id });
     pushRoamEnv();

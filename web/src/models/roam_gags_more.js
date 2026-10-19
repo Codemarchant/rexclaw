@@ -10,17 +10,19 @@ import {
     ROAM, LIB, TOOL, rand, pick, clamp, bonePage, headPage, centre, faces, floorSpot, besideIt,
     everyFrame, dropDown, ground, lookedAt,
 } from "./roam_gags";
+import { season, night } from "./roam_seasons";
 
 const DANCES = ["freestyle-1", "freestyle-3", "freestyle-4", "girl-groove",
     "hip-hop", "house", "locking", "pop-groove"].map((n) => `/assets/vrma/dances/${n}.vrma`);
-// Seasons by month (northern hemisphere; the app has no location) and
-// night by the clock.
-const month = () => new Date().getMonth();
-const hour = () => new Date().getHours();
-const autumn = () => [8, 9, 10].includes(month());
-const winter = () => [11, 0, 1].includes(month());
-const night = () => hour() >= 19 || hour() < 5;
-const lateNight = () => hour() < 5;
+// The music dance is fresh when music starts, and wears off as it plays on:
+// its odds halve with every song's length of music heard, one song being
+// 197 s (the average song released in 2020; UCLA's analysis of Spotify),
+// down to MUSIC_FLOOR of them. What was heard fades in the quiet with a
+// MUSIC_RECOVER_S half-life (by eye: the gaps between tracks barely
+// count, a quarter of an hour off and it's new again).
+const MUSIC_SONG_S = 197;
+const MUSIC_FLOOR = 0.2;
+const MUSIC_RECOVER_S = 300;
 // A tantrum needs this long out roaming since the last call…
 const LONELY_MS = 60 * 60 * 1000;
 // …and kaiju steps shake the screen this hard (px, by eye).
@@ -32,6 +34,27 @@ const ROCKETABLE = { ad: 3, error: 3, picture: 1, button: 1, icon: 1 };
 const THROW_OFF = 7;
 
 const ledgeOrFloor = (d) => d.b.mode === "ground";
+
+/** Seconds of music heard lately (d._musicHeard, kept by onMusic in the
+ *  director): growing while it plays, fading while it doesn't. */
+function musicHeard(d) {
+    const h = d._musicHeard;
+    if (!h) return 0;
+    const dt = (performance.now() - h.at) / 1000;
+    return d.music ? h.s + dt : h.s * 0.5 ** (dt / MUSIC_RECOVER_S);
+}
+
+/** Music started or stopped (roam_ears.js): what was heard so far is
+ *  settled, and goes on from there. */
+export function noteMusic(d, on) {
+    d._musicHeard = { s: musicHeard(d), at: performance.now() };
+    d.music = on;
+}
+
+/** The music dance's share of its weight now. */
+function musicFresh(d) {
+    return Math.max(MUSIC_FLOOR, 0.5 ** (musicHeard(d) / MUSIC_SONG_S));
+}
 
 // ── when the window under them goes ──────────────────────────────────────
 
@@ -443,6 +466,182 @@ async function skatePointer(ctx) {
     this.fx.comic(_t("click!"), end, y0 - this.body * 1.1, { size: 22, color: "#ffffff" });
 }
 
+// ── the cute and the hungry ──────────────────────────────────────────────
+// Points on the face from the head bone, in metres on the authoring
+// avatar (tools/motion: the eyes 7 cm up, the mouth half that, the crown
+// 17 cm), for avatars without eye bones and for what has no bone at all.
+
+// The double take's eye bulge, as extra size on the eye bones (by eye).
+const EYE_POP = 0.4;
+// A cat ear's flick, out and back (radians, by eye).
+const EAR_FLICK = 0.3;
+
+function eyesPage(d) {
+    const l = bonePage(d, "leftEye"), r = bonePage(d, "rightEye");
+    if (l && r) return l.x < r.x ? [l, r] : [r, l];
+    const h = headPage(d), m = d.m.pxPerM;
+    return [{ x: h.x - 0.03 * m, y: h.y - 0.07 * m }, { x: h.x + 0.03 * m, y: h.y - 0.07 * m }];
+}
+
+function mouthPage(d) {
+    const [l, r] = eyesPage(d);
+    return { x: (l.x + r.x) / 2, y: (l.y + r.y) / 2 + 0.045 * d.m.pxPerM };
+}
+
+/** A cat on the screen: cat ears on, a "meow?" at it — and the cat meows
+ *  back. */
+async function catChat(ctx) {
+    const f = pick(this.seen("cat"));
+    if (!f || !ground(this)) return;
+    f.used = true;
+    const c = centre(f.rect);
+    if (this.onFloor) await besideIt(this, c, f.rect.width / 2 + this.body * 0.5, ctx);
+    this._face(c.x - this.b.x);
+    this.r.lookAtPoint?.(c, 10000);
+    // A cat-ear headband (fitted to their hair), the ears flicking now and
+    // then, each on its own.
+    const band = await this.prop("catears");
+    const ears = ["catears_earl", "catears_earr"].map((n, i) => ({ node: band?.obj.getObjectByName(n), side: i ? -1 : 1, at: 0 }));
+    const t0 = performance.now();
+    const twitch = everyFrame(this, () => {
+        const t = performance.now() - t0;
+        for (const e of ears) {
+            if (!e.node) continue;
+            if (t > e.at + 2600) e.at = t + Math.random() * 2400;
+            const k = (t - e.at) / 260;
+            e.node.rotation.z = k > 0 && k < 1 ? e.side * EAR_FLICK * Math.sin(k * Math.PI) : 0;
+        }
+    });
+    this.onEnd(twitch);
+    const me = (t) => { const h = headPage(this); this.fx.say(t, h.x, h.y - this.body * 0.14, 1500); };
+    const cat = (t) => this.fx.say(t, c.x, f.rect.y + f.rect.height * 0.2, 1500);
+    me(_t("meow?"));
+    await this._play(LIB("Thinking"), ctx, { maxMs: 1600 });
+    cat(_t("mrrp!"));
+    await this._wait(1700, ctx);
+    me(_t("meow meow!"));
+    await this._play(LIB("Jump"), ctx, { maxMs: 1600 });
+    cat(_t("MEOW."));
+    await this._wait(1700, ctx);
+    this.fx.hearts(c.x, f.rect.y + 10);
+    const h = headPage(this);
+    this.fx.hearts(h.x, h.y - this.body * 0.1);
+    this.r.setEmotion?.("happy", { explicit: false });
+    await this._play(LIB("Clapping"), ctx);
+}
+
+/** A cute animal on the screen: heart eyes, "awww!", and over to pet it,
+ *  the animal wiggling happily under their hand. */
+async function petAnimal(ctx) {
+    const f = pick([...this.seen("animal"), ...this.seen("cat")]);
+    if (!f || !ground(this)) return;
+    f.used = true;
+    const c = centre(f.rect);
+    const { width } = this.world.area;
+    this._face(0);
+    this.r.lookAtPoint?.(c, 3000);
+    const eyes = this.fx.heartEyes(...eyesPage(this), this.body * 0.06);
+    const follow = everyFrame(this, () => eyes.move(...eyesPage(this)));
+    this.onEnd(() => { follow(); eyes.stop(); });
+    let h = headPage(this);
+    this.fx.say(_t("awww!"), h.x, h.y - this.body * 0.14, 1600);
+    this.fx.hearts(h.x, h.y - this.body * 0.1);
+    this.r.setEmotion?.("happy", { explicit: false });
+    await this._play(LIB("Blush"), ctx, { maxMs: 2200 });
+    follow();
+    eyes.stop();
+    // Over beside it, the stroking hand on its middle (as punchFace goes
+    // up beside a face).
+    const dir = c.x - f.rect.width / 2 - this.body * 0.45 > 0 ? 1 : -1;
+    const cut = this._cutOut(f.rect);
+    await this._vanish();
+    const floorY = this.world.floor().y;
+    const y = c.y + this.body * 0.72;
+    this.b.x = clamp(c.x - dir * (f.rect.width * 0.3 + this.body * 0.3), this.body * 0.2, width - this.body * 0.2);
+    if (y < floorY) {
+        this.b.mode = "scripted";
+        this.b.y = y;
+    } else {
+        this._stand(this.world.floor(), this.b.x);
+    }
+    this.r.roamFace(dir * Math.PI / 2);
+    await this._play(ROAM("pet"), ctx, { loop: true });
+    await this._appear(() => {}, ctx);
+    this._patch = this.fx.patch(f.rect, cut.color);
+    const st = this.fx.sticker(cut.src, f.rect);
+    this.onEnd(() => st.remove());
+    st.wiggle();
+    const purr = setInterval(() => this.fx.hearts(c.x + rand(-0.3, 0.3) * f.rect.width, c.y - f.rect.height * 0.3), 800);
+    this.onEnd(() => clearInterval(purr));
+    await this._wait(rand(3500, 5000), ctx);
+    clearInterval(purr);
+    st.remove();
+    h = headPage(this);
+    this.fx.say(_t("good friend!"), h.x, h.y - this.body * 0.14, 1500);
+    await this._wait(900, ctx);
+    if (this.b.mode === "scripted") await dropDown(this, ctx, { vx: -dir * this.m.pxPerM * 0.5 });
+}
+
+/** Food on the screen: AWOOGA! — a double take, their own eyes bulging
+ *  (the eye bones, boinging out and wobbling), mouth open, surprise lines,
+ *  drool, the food in a thought bubble — then they tear it off the page
+ *  and eat it. */
+async function foodAwooga(ctx) {
+    const f = pick(this.seen("food"));
+    if (!f || !ground(this)) return;
+    const c = centre(f.rect);
+    const dish = this._cutOut(f.rect);
+    this._face(0);
+    this.r.lookAtPoint?.(c, 5000);
+    this.r.setEmotion?.("surprised", { explicit: false });
+    const h = headPage(this);
+    this.fx.emanata(h.x, h.y - this.body * 0.04, this.body * 0.2);
+    this.fx.comic(_t("AWOOGA!"), h.x, h.y - this.body * 0.34, { size: 46, color: "#f472b6", ms: 1700 });
+    // Out with a jolt, then a wobble dying away (a damped spring); EYE_POP
+    // at the most.
+    const t0 = performance.now();
+    let k = 1;
+    const boing = everyFrame(this, () => {
+        const t = (performance.now() - t0) / 1000;
+        k = 1 + EYE_POP * (1 - Math.exp(-t * 7)) + 0.45 * EYE_POP * Math.exp(-t * 2.5) * Math.sin(t * 24);
+        this.r.roamEyeScale?.(k);
+    });
+    const at = () => { const q = headPage(this); return { x: q.x + this.body * 0.08, y: q.y - this.body * 0.16 }; };
+    const bubble = this.fx.thought(dish.src, at().x, at().y, this.body * 0.36);
+    const follow = everyFrame(this, () => { const p = at(); bubble.move(p.x, p.y); });
+    const drool = setInterval(() => {
+        const m = mouthPage(this);
+        this.fx.drip(m.x + rand(-3, 3), m.y, this.b.y, "#bae6fd");
+    }, 500);
+    const stop = () => { boing(); follow(); clearInterval(drool); bubble.stop(); this.r.roamEyeScale?.(1); };
+    this.onEnd(stop);
+    await this._play(LIB("Surprised"), ctx, { maxMs: 1800 });
+    this.fx.hearts(c.x, f.rect.y + 10);
+    await this._wait(1500, ctx);
+    boing();
+    const k0 = k;
+    await this._tween(260, (s) => this.r.roamEyeScale?.(k0 + (1 - k0) * s));
+    stop();
+    const { sticker, color } = await this._grab(f, ctx);
+    this._face(0);
+    await this._play(ROAM("eat"), ctx, { loop: true });
+    this.held.dy = -0.02;
+    for (let i = 1; i <= 6; i++) {
+        await this._wait(480, ctx);
+        sticker.bite(1 - i / 6);
+        const hp = this._bonesPx(this.held.bones);
+        if (hp) this.fx.crumbs(this.box.left + hp.x, this.box.top + hp.y, color);
+    }
+    sticker.remove();
+    this.held = null;
+    this._rest();
+    const q = headPage(this);
+    this.fx.say(_t("yum!"), q.x, q.y - this.body * 0.14, 1400);
+    this.fx.hearts(q.x, q.y - this.body * 0.1);
+    this.r.setEmotion?.("happy", { explicit: false });
+    await this._wait(1200, ctx);
+}
+
 // ── sound ────────────────────────────────────────────────────────────────
 
 /** Music's on: out comes a boombox, pulsing to the beat, and a dance. */
@@ -534,20 +733,22 @@ async function leafJump(ctx) {
     await this._play(ROAM("land"), ctx);
 }
 
-/** Winter: snowballs at the windows. */
+/** Winter: snowballs at a face Jev found on the screen. */
 async function snowballs(ctx) {
-    if (!this.onFloor) return;
-    const { width, height } = this.world.area;
-    const targets = this.world.windows.filter((w) => !w.maximized && w.y > 20)
-        .map((w) => ({ x: clamp(w.x + w.width * rand(0.2, 0.8), 20, width - 20), y: w.y + rand(8, 30) }));
+    const f = pick(faces(this));
+    if (!f || !this.onFloor) return;
+    f.used = true;
+    const face = centre(f.rect);
+    await besideIt(this, face, this.body * 1.6, ctx);
     for (let i = 0; i < 3; i++) {
-        const to = pick(targets) || { x: rand(width * 0.1, width * 0.9), y: rand(height * 0.1, height * 0.4) };
+        const to = { x: face.x + rand(-0.2, 0.2) * f.rect.width, y: face.y + rand(-0.15, 0.15) * f.rect.height };
         this._face(to.x - this.b.x);
         const swing = this._play(ROAM("throw"), ctx).catch(() => {});
         await this._wait(480, ctx);
         const hand = bonePage(this, "rightHand") || headPage(this);
         await this.fx.projectile("snowball", hand, to, { ms: 650, lift: 90 });
         this.fx.snowSplat(to.x, to.y);
+        if (i === 0) this.fx.comic(_t("POOF!"), to.x, f.rect.y - 10, { size: 30, color: "#f8fafc" });
         await swing;
     }
     this._rest();
@@ -713,7 +914,7 @@ async function cloneCopy(ctx) {
 export function installMoreGags(proto) {
     Object.assign(proto, {
         helpSign, suckedAway, monkeyBars, hideInPhoto, magnifier, adAttack, swimVideo, scorecard, bonkError,
-        emojiJuggle, moustache, cursorRide, musicDance, startle, airGuitar, welcomeBack, leafJump, snowballs,
+        emojiJuggle, moustache, cursorRide, catChat, petAnimal, foodAwooga, musicDance, startle, airGuitar, welcomeBack, leafJump, snowballs,
         fireflyNight, kaiju, glitchOut, tantrum, paparazzi, cloneCopy,
     });
 }
@@ -723,35 +924,42 @@ const scene = (d, s) => d._look?.scene === s;
 // helpSign / suckedAway / startle / welcome_back aren't picked: the
 // director starts them when the thing happens (a window gone, a loud
 // sound, you back). They're listed so "Try one now" has them.
+// The tricks' groups (trick_*) are kinds of trick: two tricks can follow
+// each other, two of a kind can't.
 export const MORE_GAG_ACTIONS = [
     { id: "help_sign", group: "react", weight: 0, when: () => false, run: helpSign },
     { id: "sucked_away", group: "react", weight: 0, when: () => false, run: suckedAway },
     { id: "startle", group: "react", weight: 0, cooldown: 300, when: () => false, run: startle },
     { id: "welcome_back", group: "react", weight: 0, when: () => false, run: welcomeBack },
-    { id: "monkey_bars", group: "trick", weight: 24, cooldown: 120, when: (d) => lookedAt(d, "progress"), run: monkeyBars },
-    { id: "hide_in_photo", group: "trick", weight: 12, cooldown: 180, when: (d) => lookedAt(d, "picture"), run: hideInPhoto },
-    { id: "magnifier", group: "trick", weight: (d) => (scene(d, "reading") ? 22 : 10), cooldown: 150, when: (d) => d.onFloor && lookedAt(d, "text"), run: magnifier },
-    { id: "ad_attack", group: "trick", weight: 26, cooldown: 120, when: (d) => d.onFloor && lookedAt(d, "ad"), run: adAttack },
-    { id: "rocket", group: "trick", weight: (d) => (lookedAt(d, "ad", "error") ? 20 : 8), cooldown: 240,
+    { id: "monkey_bars", group: "trick_perch", weight: 24, cooldown: 120, when: (d) => lookedAt(d, "progress"), run: monkeyBars },
+    { id: "hide_in_photo", group: "trick_perch", weight: 12, cooldown: 180, when: (d) => lookedAt(d, "picture"), run: hideInPhoto },
+    { id: "magnifier", group: "trick_read", weight: (d) => (scene(d, "reading") ? 18 : 8), cooldown: 150, when: (d) => d.onFloor && lookedAt(d, "text"), run: magnifier },
+    { id: "ad_attack", group: "trick_blast", weight: 26, cooldown: 120, when: (d) => d.onFloor && lookedAt(d, "ad"), run: adAttack },
+    { id: "rocket", group: "trick_blast", weight: (d) => (lookedAt(d, "ad", "error") ? 20 : 10), cooldown: 240,
         when: (d) => d.onFloor && lookedAt(d, ...Object.keys(ROCKETABLE)), run: rocketLauncher },
-    { id: "swim", group: "trick", weight: (d) => (scene(d, "video") ? 24 : 10), cooldown: 180, when: (d) => lookedAt(d, "video"), run: swimVideo },
+    { id: "swim", group: "trick_perch", weight: (d) => (scene(d, "video") ? 24 : 10), cooldown: 180, when: (d) => lookedAt(d, "video"), run: swimVideo },
     { id: "scorecard", group: "emote", weight: (d) => (scene(d, "coding") ? 14 : 0), cooldown: 300, when: ground, run: scorecard },
-    { id: "bonk_error", group: "trick", weight: 30, cooldown: 90, when: (d) => d.onFloor && lookedAt(d, "error"), run: bonkError },
-    { id: "emoji_juggle", group: "trick", weight: 18, cooldown: 150, when: (d) => lookedAt(d, "emoji"), run: emojiJuggle },
-    { id: "moustache", group: "trick", weight: 12, cooldown: 240, when: (d) => faces(d).length > 0, run: moustache },
+    { id: "bonk_error", group: "trick_blast", weight: 30, cooldown: 90, when: (d) => d.onFloor && lookedAt(d, "error"), run: bonkError },
+    { id: "emoji_juggle", group: "trick_grab", weight: 18, cooldown: 150, when: (d) => lookedAt(d, "emoji"), run: emojiJuggle },
+    { id: "moustache", group: "trick_face", weight: 12, cooldown: 240, when: (d) => faces(d).length > 0, run: moustache },
     { id: "cursor_ride", group: "travel", weight: 5, cooldown: 240, when: (d) => d.onFloor, run: cursorRide },
-    // Music on: a dance is one of the things they do, not the only one.
-    { id: "music_dance", group: "dance", weight: (d) => (d.music ? 30 : 0), cooldown: 90, when: (d) => d.tricks && ground(d) && d.music, run: musicDance },
+    // A cat, an animal or food on the screen is a rare find: when there is
+    // one, it's what they go for (the weights outrun the rest of the pool).
+    { id: "cat_chat", group: "trick_cute", weight: 80, cooldown: 180, when: (d) => ground(d) && lookedAt(d, "cat"), run: catChat },
+    { id: "pet_animal", group: "trick_cute", weight: (d) => (lookedAt(d, "animal") ? 80 : 30), cooldown: 180, when: (d) => ground(d) && lookedAt(d, "animal", "cat"), run: petAnimal },
+    { id: "food_awooga", group: "trick_grab", weight: 90, cooldown: 150, when: (d) => ground(d) && lookedAt(d, "food"), run: foodAwooga },
+    // Music on: a dance is one of the things they do, not the only one,
+    // and less of one the longer it's been playing.
+    { id: "music_dance", group: "dance", weight: (d) => (d.music ? 30 * musicFresh(d) : 0), cooldown: 90, when: (d) => d.tricks && ground(d) && d.music, run: musicDance },
     { id: "air_guitar", group: "dance", weight: 0, cooldown: 300, when: () => false, run: airGuitar },
-    { id: "leaf_jump", group: "weather", weight: 8, cooldown: 240, when: (d) => d.onFloor && autumn(), run: leafJump },
-    { id: "snowballs", group: "weather", weight: 8, cooldown: 240, when: (d) => d.onFloor && winter(), run: snowballs },
-    { id: "fireflies", group: "weather", weight: 6, cooldown: 300, when: (d) => ledgeOrFloor(d) && night(), run: fireflyNight },
+    // By the season (models/roam_seasons.js): rarer out of it, not never.
+    { id: "leaf_jump", group: "season", weight: () => 8 * season("leaves"), cooldown: 240, when: (d) => d.onFloor, run: leafJump },
+    { id: "snowballs", group: "trick_face", weight: () => 14 * season("snow"), cooldown: 240, when: (d) => d.onFloor && faces(d).length > 0, run: snowballs },
+    { id: "fireflies", group: "season", weight: () => 6 * season("fireflies"), cooldown: 300, when: (d) => ledgeOrFloor(d) && night(), run: fireflyNight },
     { id: "kaiju", group: "surprise", weight: 0.7, cooldown: 2400, when: (d) => d.onFloor, run: kaiju },
     { id: "glitch", group: "surprise", weight: 1.5, cooldown: 1200, when: (d) => d.onFloor, run: glitchOut },
     { id: "tantrum", group: "rest", weight: 30, cooldown: 3600,
       when: (d) => d.onFloor && d.world.idle < 60 && performance.now() - (d._lonelySince || 0) > LONELY_MS, run: tantrum },
-    { id: "paparazzi", group: "meme", weight: 2, cooldown: 900, when: (d) => d.onFloor, run: paparazzi },
+    { id: "paparazzi", group: "meme", weight: 1, cooldown: 900, when: (d) => d.onFloor, run: paparazzi },
     { id: "clone", group: "meme", weight: 2, cooldown: 900, when: (d) => d.onFloor, run: cloneCopy },
 ];
-
-export { lateNight };

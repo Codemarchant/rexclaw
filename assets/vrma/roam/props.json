@@ -208,5 +208,104 @@
       0,
       1
     ]
+  },
+  "icecream": {
+    "file": "props/icecream.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "waterpistol": {
+    "file": "props/waterpistol.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "lantern": {
+    "file": "props/lantern.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "santahat": {
+    "file": "props/santahat.glb",
+    "bone": "head",
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "fit": {
+      "kind": "crown",
+      "brim": [
+        0.0,
+        0.12,
+        -0.01
+      ],
+      "radius": 0.126,
+      "height": 0.1
+    }
+  },
+  "catears": {
+    "file": "props/catears.glb",
+    "bone": "head",
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "fit": {
+      "kind": "crown",
+      "brim": [
+        0.0,
+        0.12,
+        -0.01
+      ],
+      "radius": 0.118,
+      "height": 0.1,
+      "uniform": [
+        "catears_earl",
+        "catears_earr"
+      ]
+    }
   }
 }

@@ -465,10 +465,11 @@ export default function MascotView() {
             // Their props and leftovers elsewhere on the screen (a pillow
             // fort, a dug-up mound, a stolen tab) fade by themselves under
             // the cursor, so what's beneath shows. Ones that fill the screen
-            // (a flash, the layer a line is drawn on) don't.
+            // (a flash, the layer a line is drawn on) don't; a screen-wide
+            // group (a snowman's pieces) fades piece by piece.
             if (roamLive) {
                 const most = (window.innerWidth * window.innerHeight) / 4;
-                for (const e of rootRef.current?.querySelectorAll(".rx_roam_under > *, .rx_roam_over > *") || []) {
+                for (const e of rootRef.current?.querySelectorAll(".rx_roam_under > *, .rx_roam_over > *, .rx_roam_group > *") || []) {
                     const r = e.getBoundingClientRect();
                     e.classList.toggle("is-ghost-near", r.width * r.height < most
                         && c.x >= r.left && c.x <= r.right && c.y >= r.top && c.y <= r.bottom);

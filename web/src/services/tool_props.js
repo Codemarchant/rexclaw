@@ -343,7 +343,10 @@ export class ToolProps {
             // Ease-out-back on the way in for a little pop.
             const s = h.value;
             const k = h.target > 0 ? 1 + 2.2 * (s - 1) ** 3 + 1.2 * (s - 1) ** 2 : s * s;
-            h.obj.scale.setScalar(Math.max(0, k));
+            // `fit`: a prop sized to this avatar ({x, y, z}, a hat on its hair).
+            const f = h.fit;
+            if (f) h.obj.scale.set(Math.max(0, k) * f.x, Math.max(0, k) * f.y, Math.max(0, k) * f.z);
+            else h.obj.scale.setScalar(Math.max(0, k));
             if (h.value === 0) h.obj.visible = false;
         }
         for (const orb of this._orbs) {

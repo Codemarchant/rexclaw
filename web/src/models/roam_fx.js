@@ -154,6 +154,10 @@ export class RoamFx {
                 apply();
             },
             setScale: (v) => { scale = v; apply(); },
+            /** A happy wiggle, a few times over (petted). */
+            wiggle: () => s.animate([{ scale: "1 1", rotate: "0deg" }, { scale: "1.05 .95", rotate: "-2deg" },
+                { scale: ".97 1.04", rotate: "2deg" }, { scale: "1 1", rotate: "0deg" }],
+            { duration: 650, iterations: 7, easing: "ease-in-out" }),
             /** Knocked sideways (`dir` ±1) and wobbling back: punched. */
             knock: (dir) => s.animate([
                 { transform: "translate(0,0) rotate(0) scale(1,1)" },
@@ -315,18 +319,19 @@ export class RoamFx {
         { duration: ms, fill: "forwards" }).finished.then(() => this._remove(b), () => {});
     }
 
-    /** A little storm cloud raining on (x, y); move() follows the head. */
-    rainCloud(x, y, width) {
-        const c = this._track(el("rx_roam_cloud", this.follow));
+    /** A little storm cloud raining on (x, y); move() follows the head.
+     *  `storm`: darker, raining harder; `drops: false`, no rain (hail). */
+    rainCloud(x, y, width, { storm = false, drops = true } = {}) {
+        const c = this._track(el(`rx_roam_cloud${storm ? " rx_roam_cloud--storm" : ""}`, this.follow));
         const h = width * 0.45;
         place(c, x - width / 2, y - h, width, h);
         c.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "scale(1)" }], { duration: 500, fill: "forwards" });
         const rain = el("rx_roam_rain", c);
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < (drops ? (storm ? 30 : 16) : 0); i++) {
             const d = el("rx_roam_drop", rain, "span");
             d.style.left = `${8 + Math.random() * 84}%`;
             d.animate([{ transform: "translateY(0)", opacity: 0.9 }, { transform: `translateY(${width * 1.6}px)`, opacity: 0.2 }],
-                { duration: 520 + Math.random() * 260, delay: Math.random() * 600, iterations: Infinity, easing: "linear" });
+                { duration: (storm ? 380 : 520) + Math.random() * 260, delay: Math.random() * 600, iterations: Infinity, easing: "linear" });
         }
         return {
             move: (nx, ny) => { c.style.left = `${nx - width / 2}px`; c.style.top = `${ny - h}px`; },
@@ -513,10 +518,12 @@ export class RoamFx {
             { duration: 500, fill: "forwards" }).finished.then(() => this._remove(e), () => {});
     }
 
-    /** A potato hitting at (x, y): a mash splat that slides and fades. */
-    splat(x, y, size = 70) {
+    /** A potato hitting at (x, y): a mash splat that slides and fades
+     *  (`color`: something else that went splat). */
+    splat(x, y, size = 70, color = null) {
         const s = this._track(el("rx_roam_splat", this.over));
         place(s, x - size / 2, y - size / 2, size, size);
+        if (color) s.style.background = color;
         s.animate([{ transform: "scale(.2)", opacity: 1 }, { transform: "scale(1.1)", opacity: 1, offset: 0.08 },
             { transform: "scale(1) translateY(0)", opacity: 1, offset: 0.2 }, { transform: "scale(1) translateY(30px)", opacity: 0 }],
         { duration: 4200, fill: "forwards" }).finished.then(() => this._remove(s), () => {});
@@ -988,8 +995,513 @@ export class RoamFx {
         }
     }
 
+    // ── weather, seasons, holidays (models/roam_gags_seasons.js) ─────────
+
+    get _w() { return this.over.clientWidth || window.innerWidth; }
+    get _h() { return this.over.clientHeight || window.innerHeight; }
+
+    /** The whole screen darkened behind the character (a storm), until stop(). */
+    dim(alpha) {
+        const d = this._track(el("rx_roam_dim", this.under));
+        Object.assign(d.style, { inset: "0", background: `rgba(15, 23, 42, ${alpha})` });
+        d.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 900, fill: "forwards" });
+        return { stop: () => this._fadeOut(d, 900) };
+    }
+
+    /** A lightning bolt from (x0, y0) down to (x1, y1), jagged, with a fork,
+     *  and the screen lit up by it. */
+    lightning(x0, y0, x1, y1) {
+        const svg = this._track(document.createElementNS(SVG_NS, "svg"));
+        svg.setAttribute("class", "rx_roam_bolt");
+        this.over.appendChild(svg);
+        const jag = (ax, ay, bx, by, n, amp) => {
+            const pts = [[ax, ay]];
+            for (let i = 1; i < n; i++) {
+                const s = i / n;
+                pts.push([ax + (bx - ax) * s + (Math.random() - 0.5) * amp, ay + (by - ay) * s]);
+            }
+            pts.push([bx, by]);
+            return pts;
+        };
+        const main = jag(x0, y0, x1, y1, 12, 70);
+        const k = main[5 + Math.floor(Math.random() * 3)];
+        const fork = jag(k[0], k[1], k[0] + (Math.random() < 0.5 ? -1 : 1) * (80 + Math.random() * 120), k[1] + (y1 - k[1]) * 0.45, 5, 40);
+        for (const [pts, wd] of [[main, 4], [fork, 2.2]]) {
+            const p = document.createElementNS(SVG_NS, "polyline");
+            p.setAttribute("points", pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" "));
+            p.style.strokeWidth = `${wd}px`;
+            svg.appendChild(p);
+        }
+        svg.animate([{ opacity: 1 }, { opacity: 0.15, offset: 0.25 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }],
+            { duration: 520, fill: "forwards" }).finished.then(() => this._remove(svg), () => {});
+        const f = this._track(el("rx_roam_flash rx_roam_flash--bolt", this.over));
+        Object.assign(f.style, { inset: "0" });
+        f.animate([{ opacity: 0.55 }, { opacity: 0.1, offset: 0.3 }, { opacity: 0.4, offset: 0.45 }, { opacity: 0 }],
+            { duration: 520, fill: "forwards" }).finished.then(() => this._remove(f), () => {});
+    }
+
+    /** A hailstone falling from (x, y0) to y1, bouncing off what it hits. */
+    hailstone(x, y0, y1) {
+        const s = this._track(el("rx_roam_hail", this.over));
+        const size = 5 + Math.random() * 4;
+        place(s, x - size / 2, y0, size, size);
+        const fall = Math.max(60, y1 - y0 - size);
+        const fallMs = fall / 1.3;   // px per ms (by eye: quicker than the rain)
+        const f = fallMs / (fallMs + 420);
+        const dx = (Math.random() - 0.5) * 50, up = 14 + Math.random() * 24;
+        s.animate([{ transform: "translate(0,0)", opacity: 1 },
+            { transform: `translate(0, ${fall}px)`, offset: f, easing: "ease-out" },
+            { transform: `translate(${dx * 0.6}px, ${fall - up}px)`, offset: f + (1 - f) * 0.45, easing: "ease-in" },
+            { transform: `translate(${dx}px, ${fall}px)`, opacity: 0 }],
+        { duration: fallMs + 420, fill: "forwards" }).finished.then(() => this._remove(s), () => {});
+    }
+
+    /** Wind across the whole screen toward `dir` (±1): streaks of air and
+     *  leaves and scraps in it until stop(); gust() is one big blow. */
+    wind(dir) {
+        const box = this._track(el("rx_roam_wind", this.over));
+        Object.assign(box.style, { inset: "0" });
+        const W = this._w, H = this._h;
+        const streak = (fast) => {
+            const s = el("rx_roam_gust", box);
+            const len = 80 + Math.random() * 160;
+            place(s, dir > 0 ? -len : W, Math.random() * H, len, 10);
+            s.animate([{ transform: "translateX(0)", opacity: 0 }, { opacity: 0.8, offset: 0.2 }, { opacity: 0.8, offset: 0.7 },
+                { transform: `translateX(${dir * (W + len)}px)`, opacity: 0 }],
+            { duration: (fast ? 450 : 900) + Math.random() * 400, fill: "forwards" }).finished.then(() => s.remove(), () => {});
+        };
+        const scrap = () => {
+            const s = el("rx_roam_scrap", box, "span");
+            s.textContent = pick(["🍃", "🍂", "🍃", "📄"]);
+            place(s, dir > 0 ? -40 : W + 10, H * (0.3 + Math.random() * 0.65), 30, 30);
+            s.style.fontSize = `${18 + Math.random() * 14}px`;
+            const lift = 60 + Math.random() * 160;
+            s.animate([{ transform: "translate(0,0) rotate(0deg)" },
+                { transform: `translate(${dir * W * 0.5}px, ${-lift}px) rotate(${dir * 540}deg)`, offset: 0.5 },
+                { transform: `translate(${dir * (W + 60)}px, ${-lift * 0.3}px) rotate(${dir * 1080}deg)` }],
+            { duration: 1800 + Math.random() * 1200, fill: "forwards" }).finished.then(() => s.remove(), () => {});
+        };
+        const tick = setInterval(() => {
+            streak(false);
+            if (Math.random() < 0.25) scrap();
+        }, 140);
+        return {
+            gust: () => {
+                for (let i = 0; i < 18; i++) setTimeout(() => streak(true), i * 30);
+                for (let i = 0; i < 5; i++) setTimeout(scrap, i * 90);
+            },
+            stop: () => { clearInterval(tick); this._fadeOut(box, 1200); },
+        };
+    }
+
+    /** Throw `text` (an emoji) from `from` to `to` along an arc, tumbling
+     *  `spin` turns. Resolves on arrival. */
+    async fling(text, from, to, { ms = 1200, spin = 1, lift = null, size = 40 } = {}) {
+        const s = this._track(el("rx_roam_fling", this.over, "span"));
+        s.textContent = text;
+        place(s, from.x - size / 2, from.y - size / 2, size, size);
+        s.style.fontSize = `${size}px`;
+        const up = lift ?? Math.min(220, Math.hypot(to.x - from.x, to.y - from.y) * 0.25);
+        const frames = [];
+        for (let i = 0; i <= 20; i++) {
+            const k = i / 20;
+            const x = (to.x - from.x) * k, y = (to.y - from.y) * k - Math.sin(Math.PI * k) * up;
+            frames.push({ transform: `translate(${x}px, ${y}px) rotate(${spin * 360 * k}deg)` });
+        }
+        try { await s.animate(frames, { duration: ms, fill: "forwards" }).finished; } catch (e) { /* cleared */ }
+        this._remove(s);
+    }
+
+    /** Fog rolling in over the screen below `top`, until stop(). */
+    fog(top) {
+        const box = this._track(el("rx_roam_fog", this.over));
+        const W = this._w, H = this._h;
+        place(box, 0, top, W, H - top);
+        for (let i = 0; i < 9; i++) {
+            const b = el("rx_roam_fog_bank", box);
+            const w = W * (0.4 + Math.random() * 0.4);
+            Object.assign(b.style, { left: `${Math.random() * W - w * 0.3}px`, top: `${Math.random() * 70}%`, width: `${w}px`, height: `${(H - top) * 0.5}px` });
+            const drift = (Math.random() < 0.5 ? -1 : 1) * W * (0.1 + Math.random() * 0.15);
+            b.animate([{ transform: "translateX(0)" }, { transform: `translateX(${drift}px)` }],
+                { duration: 14000 + Math.random() * 12000, iterations: Infinity, direction: "alternate", easing: "ease-in-out" });
+        }
+        box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 2500, fill: "forwards" });
+        return { stop: () => this._fadeOut(box, 2500) };
+    }
+
+    /** A warm glow `size` px across (a lantern); move() puts it at a point. */
+    glow(size) {
+        const g = this._track(el("rx_roam_glow", this.over));
+        place(g, -size, -size, size, size);
+        g.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, fill: "forwards" });
+        g.animate([{ transform: "scale(1)" }, { transform: "scale(1.06)" }], { duration: 180, iterations: Infinity, direction: "alternate", composite: "add" });
+        return {
+            move: (x, y) => { g.style.left = `${x - size / 2}px`; g.style.top = `${y - size / 2}px`; },
+            stop: () => this._fadeOut(g, 600),
+        };
+    }
+
+    /** Snow falling gently over the whole screen until stop(). */
+    snowfall() {
+        const box = this._track(el("rx_roam_snowfall", this.over));
+        Object.assign(box.style, { inset: "0" });
+        const H = this._h;
+        for (let i = 0; i < 60; i++) {
+            const f = el("rx_roam_flake", box, "span");
+            const size = 3 + Math.random() * 5;
+            Object.assign(f.style, { left: `${Math.random() * 100}%`, top: "-10px", width: `${size}px`, height: `${size}px` });
+            const sway = (Math.random() - 0.5) * 80;
+            f.animate([{ transform: "translate(0, 0)" }, { transform: `translate(${sway}px, ${H * 0.5}px)`, offset: 0.5 },
+                { transform: `translate(${-sway * 0.5}px, ${H + 20}px)` }],
+            { duration: 7000 + Math.random() * 6000, delay: -Math.random() * 12000, iterations: Infinity, easing: "linear" });
+        }
+        box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 1500, fill: "forwards" });
+        return { stop: () => this._fadeOut(box, 1500) };
+    }
+
+    /** A snowman, built a piece at a time: ball(size) is a snowball to
+     *  roll and stack (moveTo(centre x, bottom y, turn), setSize, settle),
+     *  dress(...) what goes on it once stacked; leave() lets it melt away a
+     *  while later. */
+    snowman() {
+        // A group: its pieces fade one by one under the cursor (ghost mode),
+        // not the screen-wide box they're in.
+        const box = this._track(el("rx_roam_snowman rx_roam_group", this.under));
+        Object.assign(box.style, { inset: "0" });
+        return {
+            ball: (size) => {
+                const b = el("rx_roam_snowball", box);
+                const grain = el("rx_roam_snowball_grain", b);
+                let s = size, cx = -9999, bottom = -9999, turn = 0;
+                const apply = () => {
+                    place(b, cx - s / 2, bottom - s, s, s);
+                    grain.style.rotate = `${turn.toFixed(1)}deg`;
+                };
+                return {
+                    get x() { return cx; },
+                    get y() { return bottom; },
+                    setSize: (v) => { s = v; apply(); },
+                    moveTo: (x, y, deg) => { cx = x; bottom = y; if (deg !== undefined) turn = deg; apply(); },
+                    settle: () => b.animate([{ transform: "scale(1.08, .88)", transformOrigin: "50% 100%" }, { transform: "scale(1)", transformOrigin: "50% 100%" }],
+                        { duration: 300, easing: "ease-out" }),
+                };
+            },
+            dress: (x, floorY, base, mid, head, sink = 0.15) => {
+                const midBottom = floorY - base * (1 - sink), cM = midBottom - mid / 2;
+                const headBottom = midBottom - mid * (1 - sink), cH = headBottom - head / 2, topH = headBottom - head;
+                const W = mid * 2.6, top = topH - head * 1.05, H = floorY - top, left = x - W / 2;
+                const X = (v) => (v - left).toFixed(1), Y = (v) => (v - top).toFixed(1);
+                const svg = document.createElementNS(SVG_NS, "svg");
+                svg.setAttribute("class", "rx_roam_snowman_dress");
+                svg.setAttribute("viewBox", `0 0 ${W.toFixed(1)} ${H.toFixed(1)}`);
+                place(svg, left, top, W, H);
+                box.appendChild(svg);
+                const twig = (s) => {
+                    // From the middle ball's side, up and out, with two
+                    // twiglets — drawn for each side, not mirrored.
+                    const sx = x + s * mid * 0.42, sy = cM - mid * 0.05;
+                    const ex = x + s * mid * 1.12, ey = cM - mid * 0.62;
+                    const kx = x + s * mid * 0.85, ky = cM - mid * 0.4;
+                    return `M${X(sx)} ${Y(sy)} Q${X(x + s * mid * 0.75)} ${Y(cM - mid * 0.18)} ${X(ex)} ${Y(ey)}`
+                        + ` M${X(kx)} ${Y(ky)} L${X(kx + s * mid * 0.05)} ${Y(ky - mid * 0.24)}`
+                        + ` M${X(x + s * mid * 1.0)} ${Y(cM - mid * 0.52)} L${X(x + s * mid * 1.2)} ${Y(cM - mid * 0.5)}`;
+                };
+                const coal = (cx, cy, r) => `<circle cx="${X(cx)}" cy="${Y(cy)}" r="${r.toFixed(1)}"/>`
+                    + `<circle class="shine" cx="${X(cx - r * 0.3)}" cy="${Y(cy - r * 0.3)}" r="${(r * 0.3).toFixed(1)}"/>`;
+                const smile = [-2, -1, 0, 1, 2].map((i) => coal(x + i * head * 0.1, cH + head * 0.2 + (1 - (i / 2.2) ** 2) * head * 0.07, head * 0.03)).join("");
+                const tailX = x + mid * 0.22, neck = headBottom + head * 0.02;
+                svg.innerHTML = `
+                    <defs><linearGradient id="rxCarrot" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ea580c"/><stop offset="1" stop-color="#fb923c"/></linearGradient></defs>
+                    <g class="part" data-part="arms"><path class="twig" style="stroke-width:${(mid * 0.045).toFixed(1)}px" d="${twig(-1)} ${twig(1)}"/></g>
+                    <g class="part coal" data-part="buttons">${coal(x, cM - mid * 0.12, mid * 0.045)}${coal(x, cM + mid * 0.1, mid * 0.045)}${coal(x, cM + mid * 0.3, mid * 0.045)}</g>
+                    <g class="part coal" data-part="eyes">${coal(x - head * 0.18, cH - head * 0.08, head * 0.06)}${coal(x + head * 0.18, cH - head * 0.08, head * 0.06)}</g>
+                    <g class="part" data-part="nose"><path fill="url(#rxCarrot)" d="M${X(x - head * 0.05)} ${Y(cH + head * 0.01)} L${X(x + head * 0.46)} ${Y(cH + head * 0.1)} L${X(x - head * 0.04)} ${Y(cH + head * 0.13)} Z"/>
+                        <path class="ridge" d="M${X(x + head * 0.1)} ${Y(cH + head * 0.04)} l${(head * 0.02).toFixed(1)} ${(head * 0.06).toFixed(1)} M${X(x + head * 0.24)} ${Y(cH + head * 0.06)} l${(head * 0.015).toFixed(1)} ${(head * 0.05).toFixed(1)}"/></g>
+                    <g class="part coal" data-part="smile">${smile}</g>
+                    <g class="part" data-part="scarf">
+                        <rect class="scarf" x="${X(x - mid * 0.4)}" y="${Y(neck - head * 0.1)}" width="${(mid * 0.8).toFixed(1)}" height="${(head * 0.2).toFixed(1)}" rx="${(head * 0.08).toFixed(1)}"/>
+                        <g class="tail"><path class="scarf" d="M${X(tailX)} ${Y(neck)} L${X(tailX + mid * 0.16)} ${Y(neck)} L${X(tailX + mid * 0.2)} ${Y(neck + mid * 0.5)} L${X(tailX + mid * 0.02)} ${Y(neck + mid * 0.52)} Z"/>
+                        <path class="stripe" d="M${X(tailX + mid * 0.02)} ${Y(neck + mid * 0.18)} L${X(tailX + mid * 0.18)} ${Y(neck + mid * 0.18)} M${X(tailX + mid * 0.02)} ${Y(neck + mid * 0.34)} L${X(tailX + mid * 0.19)} ${Y(neck + mid * 0.34)}"/></g></g>
+                    <g class="part" data-part="hat" transform="rotate(-9 ${X(x)} ${Y(topH)})">
+                        <ellipse class="hat" cx="${X(x)}" cy="${Y(topH - head * 0.04)}" rx="${(head * 0.5).toFixed(1)}" ry="${(head * 0.09).toFixed(1)}"/>
+                        <rect class="hat" x="${X(x - head * 0.32)}" y="${Y(topH - head * 0.7)}" width="${(head * 0.64).toFixed(1)}" height="${(head * 0.67).toFixed(1)}" rx="${(head * 0.04).toFixed(1)}"/>
+                        <rect class="band" x="${X(x - head * 0.32)}" y="${Y(topH - head * 0.2)}" width="${(head * 0.64).toFixed(1)}" height="${(head * 0.1).toFixed(1)}"/></g>`;
+                return {
+                    show: (name) => {
+                        const g = svg.querySelector(`[data-part="${name}"]`);
+                        if (!g) return;
+                        g.style.opacity = "1";
+                        g.animate(name === "hat"
+                            ? [{ translate: `0 ${(-head).toFixed(1)}px`, opacity: 0 }, { translate: "0 0", opacity: 1, offset: 0.7 }, { translate: `0 ${(-head * 0.08).toFixed(1)}px` }, { translate: "0 0" }]
+                            : [{ scale: 0.3, opacity: 0 }, { scale: 1.12, opacity: 1, offset: 0.6 }, { scale: 1 }],
+                        { duration: name === "hat" ? 600 : 360, easing: "ease-out" });
+                    },
+                };
+            },
+            // Melts: down into the floor, a while after it's done.
+            leave: () => setTimeout(() => {
+                if (!this._live.has(box)) return;
+                box.animate([{ transform: "scaleY(1)" }, { transform: "scaleY(.2)" }], { duration: 4000, easing: "ease-in", fill: "forwards" });
+                this._fadeOut(box, 4000);
+            }, 20000),
+        };
+    }
+
+    /** An icy patch along a surface at y from x0 to x1, until stop(). */
+    ice(x0, x1, y) {
+        const i = this._track(el("rx_roam_ice", this.under));
+        place(i, x0, y - 10, x1 - x0, 12);
+        i.animate([{ opacity: 0, transform: "scaleX(.3)" }, { opacity: 1, transform: "scaleX(1)" }], { duration: 700, fill: "forwards" });
+        return { stop: () => this._fadeOut(i, 1200) };
+    }
+
+    /** A drop falling from (x, y) to floorY (melting ice cream). */
+    drip(x, y, floorY, color = "#fbcfe8") {
+        const d = this._track(el("rx_roam_drip", this.over));
+        place(d, x - 3, y, 6, 8);
+        d.style.background = color;
+        const fall = Math.max(10, floorY - y - 6);
+        d.animate([{ transform: "translateY(0) scaleY(.6)" }, { transform: "translateY(4px) scaleY(1.2)", offset: 0.25 },
+            { transform: `translateY(${fall}px) scaleY(1)`, offset: 0.9 }, { transform: `translateY(${fall}px) scale(1.8, .3)`, opacity: 0 }],
+        { duration: 300 + fall * 1.2, easing: "ease-in", fill: "forwards" }).finished.then(() => this._remove(d), () => {});
+    }
+
+    /** A jet of water from `from` to `to` over `ms`. Resolves when the last
+     *  of it lands. */
+    async squirt(from, to, { ms = 1000 } = {}) {
+        const lift = Math.min(120, Math.hypot(to.x - from.x, to.y - from.y) * 0.12);
+        const flight = 420;
+        const jobs = [];
+        const t0 = performance.now();
+        while (performance.now() - t0 < ms) {
+            const d = this._track(el("rx_roam_drop2", this.over));
+            const size = 5 + Math.random() * 4;
+            place(d, from.x - size / 2, from.y - size / 2, size, size);
+            const frames = [];
+            for (let i = 0; i <= 10; i++) {
+                const k = i / 10;
+                frames.push({ transform: `translate(${(to.x - from.x) * k}px, ${(to.y - from.y) * k - Math.sin(Math.PI * k) * lift}px)` });
+            }
+            jobs.push(d.animate(frames, { duration: flight, easing: "linear", fill: "forwards" }).finished
+                .then(() => this._remove(d), () => {}));
+            await new Promise((r) => setTimeout(r, 35));
+        }
+        await Promise.all(jobs);
+    }
+
+    /** Water running down from (x, y) (a soaked window). */
+    runs(x, y) {
+        for (let i = 0; i < 4; i++) {
+            const d = this._track(el("rx_roam_run", this.over));
+            place(d, x + (Math.random() - 0.5) * 50, y, 4, 10);
+            d.animate([{ transform: "translateY(0)", opacity: 0.9 }, { transform: `translateY(${40 + Math.random() * 60}px)`, opacity: 0 }],
+                { duration: 1500 + Math.random() * 1200, delay: Math.random() * 300, easing: "ease-in", fill: "forwards" })
+                .finished.then(() => this._remove(d), () => {});
+        }
+    }
+
+    /** Blossom drifting down over the whole screen until stop(). */
+    petals() {
+        const box = this._track(el("rx_roam_petals", this.over));
+        Object.assign(box.style, { inset: "0" });
+        const W = this._w, H = this._h;
+        for (let i = 0; i < 44; i++) {
+            const p = el("rx_roam_petal", box, "span");
+            const size = 8 + Math.random() * 7;
+            Object.assign(p.style, { left: `${Math.random() * 110 - 10}%`, top: "-20px", width: `${size}px`, height: `${size * 0.7}px` });
+            const sway = W * (0.05 + Math.random() * 0.12);
+            p.animate([{ transform: "translate(0, 0) rotate(0deg)" },
+                { transform: `translate(${sway}px, ${H * 0.5}px) rotate(${200 + Math.random() * 200}deg)`, offset: 0.5 },
+                { transform: `translate(${sway * 0.4}px, ${H + 30}px) rotate(${500 + Math.random() * 300}deg)` }],
+            { duration: 8000 + Math.random() * 6000, delay: -Math.random() * 12000, iterations: Infinity, easing: "linear" });
+        }
+        box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 1500, fill: "forwards" });
+        return { stop: () => this._fadeOut(box, 1800) };
+    }
+
+    /** A painted egg standing on y at x; collect(to) flies it into a hand. */
+    egg(x, y, size) {
+        const e = this._track(el("rx_roam_egg", this.under));
+        place(e, x - size * 0.38, y - size, size * 0.76, size);
+        const [c1, c2] = [pick(INKS), pick(INKS)];
+        e.style.background = `repeating-linear-gradient(0deg, ${c1} 0 18%, #fff7ed 18% 26%, ${c2} 26% 44%, #fff7ed 44% 52%)`;
+        e.animate([{ transform: "scale(0)" }, { transform: "scale(1)" }], { duration: 400, delay: Math.random() * 400, easing: "cubic-bezier(.3,1.5,.5,1)", fill: "both" });
+        return {
+            x,
+            collect: (to) => {
+                const dx = to.x - x, dy = to.y - (y - size / 2);
+                e.animate([{ transform: "translate(0,0) scale(1)" }, { transform: `translate(${dx}px, ${dy}px) scale(.4)`, opacity: 0 }],
+                    { duration: 450, easing: "ease-in", fill: "forwards" }).finished.then(() => this._remove(e), () => {});
+                this.stars(to.x, to.y, 4);
+            },
+            remove: () => this._fadeOut(e, 300),
+        };
+    }
+
+    /** `text` (an emoji) standing on y at x, `size` px tall, until remove(). */
+    token(text, x, y, size) {
+        const t = this._track(el("rx_roam_token", this.under, "span"));
+        t.textContent = text;
+        place(t, x - size / 2, y - size, size, size);
+        t.style.fontSize = `${size}px`;
+        t.animate([{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 500, fill: "forwards" });
+        return { remove: () => this._fadeOut(t, 600) };
+    }
+
+    /** A bedsheet ghost `w` × `h` px; moveTo(x, bottom, dir) places it,
+     *  whisk() whips the sheet up and away. */
+    ghost(w, h) {
+        const g = this._track(el("rx_roam_ghost", this.over));
+        place(g, -w * 2, -h * 2, w, h);
+        g.innerHTML = '<svg viewBox="0 0 100 150"><path class="sheet" d="M50 4 C82 4 94 32 94 62 L94 132 C88 146 80 132 74 144 C68 132 60 146 54 136 C48 146 40 132 34 144 C28 132 20 146 14 134 C10 140 6 136 6 130 L6 62 C6 32 18 4 50 4 Z"/>'
+            + '<ellipse class="eye" cx="36" cy="54" rx="7" ry="10"/><ellipse class="eye" cx="64" cy="54" rx="7" ry="10"/>'
+            + '<ellipse class="mouth" cx="50" cy="82" rx="9" ry="12"/></svg>';
+        g.firstChild.animate([{ transform: "rotate(-3deg)" }, { transform: "rotate(3deg)" }], { duration: 900, iterations: Infinity, direction: "alternate", easing: "ease-in-out" });
+        return {
+            moveTo: (x, bottom, dir = 1) => {
+                g.style.left = `${x - w / 2}px`;
+                g.style.top = `${bottom - h}px`;
+                g.style.transform = dir < 0 ? "scaleX(-1)" : "";
+            },
+            whisk: () => {
+                g.animate([{ translate: "0 0", rotate: "0deg", opacity: 1 }, { translate: `${w * 0.6}px ${-h * 1.2}px`, rotate: "40deg", opacity: 0 }],
+                    { duration: 700, easing: "ease-in", fill: "forwards" }).finished.then(() => this._remove(g), () => {});
+            },
+            remove: () => this._fadeOut(g, 300),
+        };
+    }
+
+    /** A wrapped present `size` px on the floor at (x, y), dropped in;
+     *  open() pops the lid off in a shower of confetti. */
+    present(x, y, size) {
+        const p = this._track(el("rx_roam_present", this.under));
+        place(p, x - size / 2, y - size, size, size);
+        const lid = el("rx_roam_present_lid", p);
+        p.animate([{ transform: `translateY(-${size * 4}px)` }, { transform: "translateY(0)", offset: 0.7 },
+            { transform: "translateY(-8%) scaleY(1.04)", offset: 0.85 }, { transform: "translateY(0)" }],
+        { duration: 800, easing: "ease-in", fill: "forwards" });
+        return {
+            open: () => {
+                lid.animate([{ transform: "translate(0,0) rotate(0)" }, { transform: `translate(${size * 0.6}px, ${-size * 1.6}px) rotate(70deg)`, opacity: 0 }],
+                    { duration: 900, easing: "ease-out", fill: "forwards" });
+                this.confetti(x, y - size, 50);
+                this.stars(x, y - size * 1.1, 6);
+                setTimeout(() => { if (this._live.has(p)) this._fadeOut(p, 1200); }, 6000);
+            },
+            remove: () => this._fadeOut(p, 400),
+        };
+    }
+
+    /** A firework: a spark up from the bottom of the screen to (x, y), and
+     *  the burst. */
+    firework(x, y, bottom) {
+        const color = pick(INKS);
+        const s = this._track(el("rx_roam_spark", this.over));
+        place(s, x - 3, bottom, 6, 6);
+        s.style.background = color;
+        s.animate([{ transform: "translateY(0)", opacity: 1 }, { transform: `translateY(${y - bottom}px)`, opacity: 1 }],
+            { duration: 700, easing: "cubic-bezier(.2,.7,.4,1)", fill: "forwards" }).finished.then(() => {
+            this._remove(s);
+            this.pop(x, y, 90);
+            for (let i = 0; i < 30; i++) {
+                const p = this._track(el("rx_roam_spark", this.over));
+                place(p, x - 2.5, y - 2.5, 5, 5);
+                p.style.background = color;
+                p.style.boxShadow = `0 0 6px 2px ${color}`;
+                const a = (i / 30) * Math.PI * 2, r = 70 + Math.random() * 60;
+                p.animate([{ transform: "translate(0,0)", opacity: 1 },
+                    { transform: `translate(${Math.cos(a) * r}px, ${Math.sin(a) * r}px)`, opacity: 0.9, offset: 0.55 },
+                    { transform: `translate(${Math.cos(a) * r * 1.1}px, ${Math.sin(a) * r * 1.1 + 40}px)`, opacity: 0 }],
+                { duration: 1400 + Math.random() * 400, easing: "ease-out", fill: "forwards" }).finished.then(() => this._remove(p), () => {});
+            }
+        }, () => {});
+    }
+
+    /** A boomerang `size` px across; moveTo() puts its centre and turn.
+     *  The classic shape: two flat arms meeting in a rounded elbow, wood
+     *  with painted bands. */
+    boomerang(size) {
+        const b = this._track(el("rx_roam_boomerang", this.over));
+        place(b, 0, 0, size, size);
+        const d = "M14 76 C18 52 30 32 50 26 C70 32 82 52 86 76";
+        b.innerHTML = '<svg viewBox="0 0 100 100"><defs><linearGradient id="rxWood" x1="0" y1="0" x2="0" y2="1">'
+            + '<stop offset="0" stop-color="#e3a35b"/><stop offset="1" stop-color="#a5622a"/></linearGradient></defs>'
+            + `<path class="edge" d="${d}"/><path class="wood" d="${d}"/>`
+            + `<path class="paint" pathLength="100" d="${d}"/><path class="grain" d="M22 66 C26 50 36 38 50 33 C64 38 74 50 78 66"/></svg>`;
+        return {
+            moveTo: (x, y, deg) => {
+                b.style.left = `${x - size / 2}px`;
+                b.style.top = `${y - size / 2}px`;
+                b.style.rotate = `${deg.toFixed(0)}deg`;
+            },
+            remove: () => this._remove(b),
+        };
+    }
+
+    // ── cartoon faces (the cute and the hungry, roam_gags_more.js) ───────
+
+    /** A thought bubble over (x, y) with `src` (a picture) in it, the
+     *  little puffs trailing down to the head; move() follows the head. */
+    thought(src, x, y, size) {
+        const t = this._track(el("rx_roam_thought", this.follow));
+        place(t, 0, 0, size, size * 0.8);
+        // In px of its own size: a % padding is of the layer's (the
+        // screen's) width and squeezes the picture to nothing.
+        t.style.padding = `${(size * 0.1).toFixed(1)}px`;
+        const img = el("rx_roam_thought_img", t, "img");
+        img.src = src;
+        for (const k of [1, 2]) el(`rx_roam_thought_puff rx_roam_thought_puff--${k}`, t);
+        t.animate([{ scale: 0, opacity: 0 }, { scale: 1.08, opacity: 1, offset: 0.7 }, { scale: 1, opacity: 1 }],
+            { duration: 420, easing: "ease-out", fill: "forwards" });
+        const at = (nx, ny) => { t.style.left = `${nx - size * 0.15}px`; t.style.top = `${ny - size * 1.1}px`; };
+        at(x, y);
+        return { move: at, stop: () => this._fadeOut(t, 300) };
+    }
+
+    /** Surprise lines bursting round (x, y) over the top of the head: the
+     *  comics' emanata, `n` strokes `r` px out. */
+    emanata(x, y, r, n = 9) {
+        const box = this._track(document.createElementNS(SVG_NS, "svg"));
+        box.setAttribute("class", "rx_roam_emanata");
+        this.follow.appendChild(box);
+        let d = "";
+        for (let i = 0; i < n; i++) {
+            const a = Math.PI * (1.05 + (0.9 * i) / (n - 1));
+            const r0 = r * 0.72, r1 = r * (1.05 + 0.15 * (i % 2));
+            d += `M${(x + Math.cos(a) * r0).toFixed(1)} ${(y + Math.sin(a) * r0).toFixed(1)} L${(x + Math.cos(a) * r1).toFixed(1)} ${(y + Math.sin(a) * r1).toFixed(1)} `;
+        }
+        const p = document.createElementNS(SVG_NS, "path");
+        p.setAttribute("d", d);
+        box.appendChild(p);
+        box.animate([{ opacity: 0 }, { opacity: 1, offset: 0.2 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }],
+            { duration: 900, fill: "forwards" }).finished.then(() => this._remove(box), () => {});
+    }
+
+    /** Hearts for eyes, beating, at `l`, `r`; move() follows, stop() ends. */
+    heartEyes(l, r, size) {
+        const make = () => {
+            const h = this._track(el("rx_roam_hearteye", this.follow, "span"));
+            h.textContent = "♥";
+            h.style.fontSize = `${size}px`;
+            place(h, 0, 0, size, size);
+            h.animate([{ scale: 0.2 }, { scale: 1.3 }, { scale: 1 }], { duration: 400, fill: "forwards" });
+            h.animate([{ scale: 1 }, { scale: 1.25 }, { scale: 1 }], { duration: 600, delay: 400, iterations: Infinity, composite: "accumulate" });
+            return h;
+        };
+        const hs = [make(), make()];
+        const at = (h, p) => { h.style.left = `${p.x - size / 2}px`; h.style.top = `${p.y - size / 2}px`; };
+        at(hs[0], l);
+        at(hs[1], r);
+        return {
+            move: (nl, nr) => { at(hs[0], nl); at(hs[1], nr); },
+            stop: () => hs.forEach((h) => this._fadeOut(h, 250)),
+        };
+    }
+
     clear() {
         for (const e of this._live) e.remove();
         this._live.clear();
     }
 }
+
+export { el, place, pick as fxPick, INKS, SVG_NS };

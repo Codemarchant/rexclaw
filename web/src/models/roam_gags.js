@@ -11,6 +11,7 @@
 // video, and never on a video call: that is a real person, live.
 
 import { _t } from "../lib/i18n";
+import { season } from "./roam_seasons";
 
 const VRMA = "/assets/vrma";
 const ROAM = (n) => `${VRMA}/roam/${n}.vrma`;
@@ -886,8 +887,11 @@ async function goFishing(ctx) {
     p?.fade(300);
     this._rest();
     if (seat.ledge) {
-        const still = this.world.refresh(seat.ledge, this.body * 0.55, this.b.x);
+        const still = this.world.refresh(seat.ledge, this.body * 0.55, seat.x);
         if (still) {
+            // Up onto their feet where they sat (the feet were still where
+            // they stood before the portal, and the body eased back there).
+            this.b.x = seat.x;
             this._unpin(still);
             this._face(0);
             await this._wait(600, ctx);
@@ -1092,31 +1096,33 @@ const scene = (d, s, w, boost) => (d._look?.scene === s ? w * boost : w);
 
 // Same table shape as the director's (its _pick reads `weight` as a
 // number or as a function of the director).
+// The weather follows the season (models/roam_seasons.js); the tricks are
+// grouped by kind (roam_director.js).
 export const GAG_ACTIONS = [
-    { id: "sunbathe", group: "rest", weight: 7, cooldown: 300, when: (d) => d.onFloor, run: sunbathe },
-    { id: "rain", group: "weather", weight: 6, cooldown: 240, when: ground, run: rainyDay },
+    { id: "sunbathe", group: "rest", weight: () => 7 * season("sun"), cooldown: 300, when: (d) => d.onFloor, run: sunbathe },
+    { id: "rain", group: "weather", weight: () => 6 * season("rain"), cooldown: 240, when: ground, run: rainyDay },
     { id: "dust", group: "meme", weight: 3, cooldown: 600, when: ground, run: dustAway },
     { id: "kart", group: "vehicle", weight: 4, cooldown: 300, when: (d) => d.onFloor, run: kartDrive },
-    { id: "climb", group: "travel", weight: 5, cooldown: 120, when: (d) => d.onFloor, run: climbWall },
+    { id: "climb", group: "travel", weight: 8, cooldown: 120, when: (d) => d.onFloor, run: climbWall },
     { id: "depth", group: "walk", weight: 5, cooldown: 180, when: (d) => d.onFloor, run: depthWalk },
-    { id: "screensaver", group: "meme", weight: 2, cooldown: 900, when: ground, run: screensaver },
-    { id: "thumbnail", group: "meme", weight: 2, cooldown: 900, when: ground, run: thumbnailMeme },
+    { id: "screensaver", group: "meme", weight: 3, cooldown: 900, when: ground, run: screensaver },
+    { id: "thumbnail", group: "meme", weight: 1, cooldown: 900, when: ground, run: thumbnailMeme },
     { id: "paper_plane", group: "art", weight: 4, cooldown: 150, when: ground, run: paperPlane },
     { id: "selfie", group: "art", weight: 3, cooldown: 400, when: (d) => ground(d) && d.tricks, run: selfie },
     { id: "giant", group: "surprise", weight: 1, cooldown: 1800, when: (d) => d.onFloor, run: giant },
     { id: "jump_scare", group: "surprise", weight: 0.5, cooldown: 3600, when: ground, run: jumpScare },
-    { id: "hoover", group: "trick", weight: (d) => scene(d, "reading", 22, 2), cooldown: 120, when: (d) => d.onFloor && lookedAt(d, "text"), run: hooverText },
-    { id: "show_and_run", group: "trick", weight: 14, cooldown: 150, when: (d) => lookedAt(d, "picture", "link", "search", "close", "tab", "button"), run: showAndRun },
-    { id: "bury", group: "trick", weight: 10, cooldown: 300, when: (d) => !d._buried && lookedAt(d, "picture", "link", "close", "tab", "button", "icon"), run: buryTreasure },
-    { id: "dig_up", group: "trick", weight: 60, when: (d) => d.onFloor && d._buried && performance.now() - d._buried.at > DIG_UP_AFTER_MS, run: digUp },
-    { id: "fishing", group: "trick", weight: (d) => (d.seen("icon").length ? 26 : 12), cooldown: 150, when: (d) => lookedAt(d, "icon", "taskbar", "close", "link", "picture", "tab", "button"), run: goFishing },
+    { id: "hoover", group: "trick_read", weight: (d) => scene(d, "reading", 22, 2), cooldown: 120, when: (d) => d.onFloor && lookedAt(d, "text"), run: hooverText },
+    { id: "show_and_run", group: "trick_grab", weight: 14, cooldown: 150, when: (d) => lookedAt(d, "picture", "link", "search", "close", "tab", "button"), run: showAndRun },
+    { id: "bury", group: "trick_grab", weight: 10, cooldown: 300, when: (d) => !d._buried && lookedAt(d, "picture", "link", "close", "tab", "button", "icon"), run: buryTreasure },
+    { id: "dig_up", group: "trick_grab", weight: 60, when: (d) => d.onFloor && d._buried && performance.now() - d._buried.at > DIG_UP_AFTER_MS, run: digUp },
+    { id: "fishing", group: "trick_grab", weight: (d) => (d.seen("icon").length ? 20 : 8), cooldown: 300, when: (d) => lookedAt(d, "icon", "taskbar", "close", "link", "picture", "tab", "button"), run: goFishing },
     { id: "balloons", group: "travel", weight: 4, cooldown: 400, when: ground, run: balloonRide },
     { id: "web_swing", group: "travel", weight: 5, cooldown: 240, when: ground, run: webSwing },
-    { id: "dive", group: "trick", weight: (d) => scene(d, "pictures", 14, 2), cooldown: 120, when: (d) => ground(d) && lookedAt(d, "picture", "video"), run: diveIn },
-    { id: "lie_on_top", group: "trick", weight: (d) => scene(d, "video", 14, 2), cooldown: 120, when: (d) => lookedAt(d, "picture", "video"), run: lieOnTop },
-    { id: "spud_gun", group: "trick", weight: 14, cooldown: 180, when: (d) => d.onFloor && faces(d).length > 0, run: spudGun },
-    { id: "fireball", group: "trick", weight: 12, cooldown: 180, when: (d) => d.onFloor && faces(d).length > 0, run: fireball },
-    { id: "punch", group: "trick", weight: 12, cooldown: 180, when: (d) => faces(d).length > 0, run: punchFace },
+    { id: "dive", group: "trick_perch", weight: (d) => scene(d, "pictures", 14, 2), cooldown: 120, when: (d) => ground(d) && lookedAt(d, "picture", "video"), run: diveIn },
+    { id: "lie_on_top", group: "trick_perch", weight: (d) => scene(d, "video", 14, 2), cooldown: 120, when: (d) => lookedAt(d, "picture", "video"), run: lieOnTop },
+    { id: "spud_gun", group: "trick_face", weight: 14, cooldown: 180, when: (d) => d.onFloor && faces(d).length > 0, run: spudGun },
+    { id: "fireball", group: "trick_face", weight: 12, cooldown: 180, when: (d) => d.onFloor && faces(d).length > 0, run: fireball },
+    { id: "punch", group: "trick_face", weight: 10, cooldown: 180, when: (d) => faces(d).length > 0, run: punchFace },
 ];
 
 // Shared with the second batch (models/roam_gags_more.js).
