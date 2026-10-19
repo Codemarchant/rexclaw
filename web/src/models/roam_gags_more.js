@@ -58,6 +58,8 @@ export function noteMusic(d, on) {
     const started = on && !d.music;
     d._musicHeard = { s, at: performance.now() };
     d.music = on;
+    // Stopped before they could get to it: nothing to dance to.
+    if (!on && d._pendingReact === "music_dance") d._pendingReact = null;
     if (started && d.tricks && freshness(s) >= MUSIC_START_FRESH) d._react("music_dance");
 }
 

@@ -290,13 +290,18 @@ export class RoamDirector {
      *  unless they're asleep or already in the middle of a big moment. */
     _react(id) {
         if (!this.running || this._napping || this._forced) return;
-        if (this.b.mode !== "ground" || this._currentId === "music_dance" && id !== "air_guitar") return;
-        // Nor the crew's set pieces or a holiday: those play out.
-        const cur = ACTIONS.find((x) => x.id === this._currentId);
-        if (cur?.group === "rexclaw" || cur?.group === "holiday") return;
+        if (this._currentId === "music_dance" && id !== "air_guitar") return;
         // Not every loud moment of a film: a reaction keeps its cooldown.
         const a = ACTIONS.find((x) => x.id === id);
         if (now() - (this._cooldowns.get(id) ?? -Infinity) < (a?.cooldown || 0) * 1000) return;
+        // In mid-air (falling in, flung), or in one of the crew's set pieces
+        // or a holiday (those play out): music starting waits for after
+        // (the brain picks it up); a startle or a drop just passes.
+        const cur = ACTIONS.find((x) => x.id === this._currentId);
+        if (this.b.mode !== "ground" || cur?.group === "rexclaw" || cur?.group === "holiday") {
+            if (id === "music_dance") this._pendingReact = id;
+            return;
+        }
         this._forced = id;
         this._interrupt("forced");
     }
@@ -772,6 +777,12 @@ export class RoamDirector {
                 if (!entered) {
                     await this._entrance(ctx);
                     entered = true;
+                }
+                // A reaction that waited for them to land (or for a set
+                // piece to end): now.
+                if (this._pendingReact && this.b.mode === "ground") {
+                    this._forced ||= this._pendingReact;
+                    this._pendingReact = null;
                 }
                 if (!this._forced) await this._wait(rand(PAUSE_MIN_MS, PAUSE_MAX_MS) * (this._sinceLanding() < 1500 ? 0.4 : 1), ctx);
                 await this._maybeLook(ctx);

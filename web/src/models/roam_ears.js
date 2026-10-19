@@ -24,6 +24,10 @@ const HISTORY_S = 1;             // Patin's averaging window
 const MUSIC_WINDOW_S = 6;        // "music" = beats keep coming over this long…
 const MUSIC_MIN_BEATS = 6;       // …at least this many of them…
 const LOW_ENERGY_MAX = 0.2;      // …and under this share of quiet moments (see above)
+// Music stays music until that's been untrue for a whole window: on the
+// edge of the cut (a track just starting, a quiet bar) one beat sliding
+// out of the window flipped it off and back many times a second.
+const MUSIC_HOLD_S = MUSIC_WINDOW_S;
 const SILENCE = 0.004;           // RMS below this is quiet
 const LOUD_RATIO = 5;            // a sound 5× the last two seconds' level…
 const LOUD_MIN = 0.12;           // …and loud in itself
@@ -68,7 +72,7 @@ export class RoamEars {
         const hist = [];          // [t, lowEnergy, rms] over the last 8 s
         const beats = [];
         const lowEnergy = [];     // [t, share of quiet moments in the second before], not silent ones
-        let lastBeat = 0, lastDrop = 0;
+        let lastBeat = 0, lastDrop = 0, lastMusic = 0;
         const tick = () => {
             const t = performance.now();
             an.getFloatTimeDomainData(wave);
@@ -98,7 +102,9 @@ export class RoamEars {
             if (mean >= SILENCE) lowEnergy.push([t, second.filter((h) => h[2] < mean / 2).length / second.length]);
             while (lowEnergy.length && t - lowEnergy[0][0] > MUSIC_WINDOW_S * 1000) lowEnergy.shift();
             const quiet = lowEnergy.reduce((a, h) => a + h[1], 0) / Math.max(1, lowEnergy.length);
-            const music = beats.length >= MUSIC_MIN_BEATS && lowEnergy.length > 0 && quiet < LOW_ENERGY_MAX;
+            if (beats.length >= MUSIC_MIN_BEATS && lowEnergy.length > 0 && quiet < LOW_ENERGY_MAX) lastMusic = t;
+            // On at once; off only once it's been gone MUSIC_HOLD_S.
+            const music = lastMusic > 0 && t - lastMusic < MUSIC_HOLD_S * 1000;
             // Sound through most of the last five seconds: something is
             // playing (a stream, a video, music), not just a notification.
             const five = hist.filter((h) => t - h[0] <= 5000);
