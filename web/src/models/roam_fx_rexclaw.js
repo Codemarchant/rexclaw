@@ -416,7 +416,7 @@ Object.assign(RoamFx.prototype, {
      *  the top of the screen; roll() rolls it up again. */
     treasureMap(windows, from, to) {
         const W = this._w, H = this._h;
-        const mw = Math.min(W * 0.46, 620), mh = mw * 0.62;
+        const mw = Math.min(W * 0.3, 400), mh = mw * 0.62;
         const m = this._track(el("rx_roam_map", this.over));
         place(m, W / 2 - mw / 2, H * 0.08, mw, mh);
         const pad = mw * 0.08, iw = mw - 2 * pad, ih = mh - 2 * pad;

@@ -320,12 +320,13 @@ export class RoamFx {
     }
 
     /** A little storm cloud raining on (x, y); move() follows the head.
-     *  `storm`: darker, raining harder; `drops: false`, no rain (hail). */
+     *  `storm`: darker, raining harder; `drops: false`, no rain (hail).
+     *  Partly see-through, so the windows under it stay readable. */
     rainCloud(x, y, width, { storm = false, drops = true } = {}) {
         const c = this._track(el(`rx_roam_cloud${storm ? " rx_roam_cloud--storm" : ""}`, this.follow));
         const h = width * 0.45;
         place(c, x - width / 2, y - h, width, h);
-        c.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "scale(1)" }], { duration: 500, fill: "forwards" });
+        c.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 0.8, transform: "scale(1)" }], { duration: 500, fill: "forwards" });
         const rain = el("rx_roam_rain", c);
         for (let i = 0; i < (drops ? (storm ? 30 : 16) : 0); i++) {
             const d = el("rx_roam_drop", rain, "span");
@@ -339,11 +340,12 @@ export class RoamFx {
         };
     }
 
-    /** A warm sun glow at (x, y) while sunbathing. */
+    /** A warm sun glow at (x, y) while sunbathing; half see-through, so
+     *  the windows under it stay readable. */
     sun(x, y, size) {
         const s = this._track(el("rx_roam_sun", this.under));
         place(s, x - size / 2, y - size / 2, size, size);
-        s.animate([{ opacity: 0, transform: "scale(.5)" }, { opacity: 1, transform: "scale(1)" }], { duration: 900, fill: "forwards" });
+        s.animate([{ opacity: 0, transform: "scale(.5)" }, { opacity: 0.5, transform: "scale(1)" }], { duration: 900, fill: "forwards" });
         s.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], { duration: 30000, iterations: Infinity, composite: "add" });
         return { stop: () => this._fadeOut(s, 900) };
     }

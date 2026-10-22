@@ -1321,7 +1321,8 @@ $roam-comic-font: "Impact", "Haettenschweiler", "Arial Black", sans-serif;
 // The crew's world (models/roam_gags_rexclaw.js, roam_fx_rexclaw.js).
 .rx_roam_sea {
     // The crest's lower half is the water's own colour: the body starts
-    // under it.
+    // under it. See-through, so the windows under the sea stay readable.
+    opacity: 0.4;
     background: linear-gradient(to bottom, transparent 0 12px, #0e7490 12px, #164e63);
 
     .rx_roam_sea_crest {
@@ -1335,7 +1336,7 @@ $roam-comic-font: "Impact", "Haettenschweiler", "Arial Black", sans-serif;
     }
 
     &--front {
-        opacity: 0.7;
+        opacity: 0.35;
         background: linear-gradient(to bottom, transparent 0 12px, #0891b2 12px, #0e7490);
     }
 }
