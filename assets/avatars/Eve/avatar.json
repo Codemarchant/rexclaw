@@ -5,6 +5,7 @@
   "physical_description": "A petite, slender young woman with a delicate build, fair skin, and a small soft face that rests in a faint calm expression. Large blue eyes and long straight silver-grey hair with bangs across the forehead, worn in a high side ponytail. Gentle and soft rather than heavily stylized or mature.",
   "main_outfit_name": "Lab coat",
   "main_outfit_description": "A professional white lab coat worn over a crisp white collared dress shirt, with a slim dark grey necktie. The coat falls to about knee-length, has notched lapels, three front buttons, and side pockets - giving it that classic researcher silhouette. Underneath, the legs are covered by dark navy trousers.",
+  "pose_tuning": {"arm_spread": -4},
   "outfits": [
     {
       "name": "Cozy Winter casual",
@@ -19,7 +20,8 @@
     {
       "name": "Gothic witch ensemble",
       "vrm": "eve_red_wizard_dress.vrm",
-      "description": "Halloween themed outfit, wide-brimmed pointed black witch hat. Crimson red quilted bodice with pearl accents, cinched at the waist by a wide black belt with gold buckle. Layered skirt with a draped red overskirt opening over a black underskirt. Long black opera gloves, black tights, and black Mary Jane shoes."
+      "description": "Halloween themed outfit, wide-brimmed pointed black witch hat. Crimson red quilted bodice with pearl accents, cinched at the waist by a wide black belt with gold buckle. Layered skirt with a draped red overskirt opening over a black underskirt. Long black opera gloves, black tights, and black Mary Jane shoes.",
+      "pose_tuning": {"arm_spread": 2}
     },
     {
       "name": "Swimsuit",
@@ -39,7 +41,8 @@
     {
       "name": "Sailor school uniform",
       "vrm": "eve_schoolgirl_uniform.vrm",
-      "description": "Japanese school uniform — a navy sailor seifuku layered under a knit cardigan, a very standard winter-term school look in navy and white softened by the grey knit. An oversized light-grey cable-knit cardigan worn open at the top with the lower buttons done up, patch pockets and ribbed trim, sleeves reaching past the wrists, over a navy sailor blouse with the classic broad square collar edged in double white stripes and a long navy necktie hanging over the cardigan. Knife-pleated navy skirt above the knee with two distinctive white stripes banding the lower third, charcoal knee-high socks with a stretch of bare leg, brown penny loafers, and thin-framed rectangular glasses. For school-days energy, study sessions, or a studious daily look."
+      "description": "Japanese school uniform — a navy sailor seifuku layered under a knit cardigan, a very standard winter-term school look in navy and white softened by the grey knit. An oversized light-grey cable-knit cardigan worn open at the top with the lower buttons done up, patch pockets and ribbed trim, sleeves reaching past the wrists, over a navy sailor blouse with the classic broad square collar edged in double white stripes and a long navy necktie hanging over the cardigan. Knife-pleated navy skirt above the knee with two distinctive white stripes banding the lower third, charcoal knee-high socks with a stretch of bare leg, brown penny loafers, and thin-framed rectangular glasses. For school-days energy, study sessions, or a studious daily look.",
+      "pose_tuning": {"arm_spread": -4}
     },
     {
       "name": "Gym athleisure fit",

@@ -3,6 +3,7 @@ import { _t } from "../lib/i18n";
 import { morphLabel } from "../lib/morph_names";
 import { avatarRenderer } from "../services/avatar_renderer";
 import { FACE_TUNING, feelingParts } from "../services/face_motion";
+import { IDLE_EVENTS } from "../services/idle_motion";
 import AvatarCanvas from "./AvatarCanvas";
 
 // What the preview buttons play: the face director's feelings (the ids the
@@ -147,8 +148,22 @@ const labelOf = (id) => (id.startsWith("shape:") ? id.slice(6) : _t(LABELS[id] |
  *  own shapes chosen for a part, and per feeling and level its own setup —
  *  the built-in parts kept or dropped, parts and shapes added at weights
  *  of its own — or null for none. */
-export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapValue, onApply, onClose }) {
+// The look's body tuning (pose_tuning): the arm spread, degrees either side
+// of the hang measured from the mesh (server/avatar_packs.py
+// POSE_ARM_SPREAD_RANGE), and per idle event whether the idle plays it.
+const ARM_SPREAD_MIN = -10;
+const ARM_SPREAD_MAX = 25;
+// The idle events' names and tooltips, by IDLE_EVENTS id.
+const IDLE_EVENT_TEXT = {
+    weight_shift: ["Weight shifts",
+        "Now and then, when standing idle, the companion moves their weight onto one leg, or out and back, and the hips sway with it. Turn it off to keep the weight on both legs (a hand on the hip still leans onto its side)."],
+    hand_on_hip: ["Hand on hip",
+        "Now and then, when standing idle, the companion rests a hand on the hip. Turn it off for a model the pose doesn't suit."],
+};
+
+export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapValue, poseValue, onApply, onClose }) {
     const [draft, setDraft] = useState(() => ({ ...(value || {}) }));
+    const [pose, setPose] = useState(() => ({ ...(poseValue || {}) }));
     const [map, setMap] = useState(() => loadMap(mapValue));
     const [names, setNames] = useState([]);       // the model's morph names
     const [auto, setAuto] = useState({});         // what rexclaw finds per part by itself
@@ -158,7 +173,7 @@ export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapVal
     const [shapes, setShapes] = useState([]);
     const [error, setError] = useState(null);
     const [expanded, setExpanded] = useState(false);
-    const [closeUp, setCloseUp] = useState(true);
+    const [view, setView] = useState("face");     // the preview's framing: face | head | full
     const [playing, setPlaying] = useState(null);   // { label, used: Set, head }
     const last = useRef(null);   // the last thing played, replayed after a slider moves
 
@@ -183,7 +198,7 @@ export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapVal
                 if (idleUrl) await r.loadVRMA(idleUrl).catch(() => {});
                 if (!live) return;
                 r.setFaceDirector(true);
-                r.setCloseUp(true);
+                r.setCloseUp("face");
                 setSizes(r.faceTuningSizes());
                 setShapes(r.faceTuningShapes());
                 setNames(r.faceMorphNames());
@@ -200,6 +215,7 @@ export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapVal
             live = false;
             r.setCloseUp(null);
             r.setFaceTuningPreview(null);
+            r.setPoseTuningPreview(null);
             r.setFaceMapPreview(null);
             r._face?.clear({ snap: true });
             r.setEmotion?.("neutral", { explicit: false });
@@ -216,6 +232,16 @@ export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapVal
         avatarRenderer.setFaceTuningPreview(draft);
     }, [draft]);
 
+    useEffect(() => {
+        avatarRenderer.setPoseTuningPreview(pose);
+    }, [pose]);
+    const spread = pose.arm_spread ?? 0;
+    // Moving the arms shows the whole figure: they are out of a close-up.
+    const setSpread = (v) => {
+        setPose((p) => ({ ...p, arm_spread: Math.round(Math.max(ARM_SPREAD_MIN, Math.min(ARM_SPREAD_MAX, v))) }));
+        setView("full");
+    };
+
     // The mapping plays live too; a part's size follows the shapes chosen.
     useEffect(() => {
         avatarRenderer.setFaceMapPreview(cleanMap(map) || { channels: {}, feelings: {} });
@@ -225,10 +251,10 @@ export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapVal
         }
     }, [map]);
 
-    // The canvas host changes size with the layout: re-frame the face.
+    // The canvas host changes size with the layout: re-frame the view.
     useEffect(() => {
-        if (sizes) avatarRenderer.setCloseUp(closeUp);
-    }, [closeUp, expanded, sizes]);
+        if (sizes) avatarRenderer.setCloseUp(view);
+    }, [view, expanded, sizes]);
 
     const play = (thing) => {
         last.current = thing;
@@ -277,7 +303,10 @@ export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapVal
     const apply = () => {
         const out = {};
         for (const [k, v] of Object.entries(draft)) if (v !== 1) out[k] = v;
-        onApply(out, cleanMap(map));
+        const body = {};
+        if (spread) body.arm_spread = spread;
+        for (const { id } of IDLE_EVENTS) if (pose[id] === false) body[id] = false;
+        onApply(out, cleanMap(map), body);
     };
 
     // A part's own shapes: an object sets them ({} = off), undefined goes
@@ -302,6 +331,7 @@ export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapVal
     const resetAll = () => {
         setDraft({});
         setMap({ channels: {}, feelings: {} });
+        setPose({});
         setPicking(null);
     };
 
@@ -343,7 +373,7 @@ export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapVal
         <div className="rx_dialog_backdrop" onMouseDown={onClose}>
             <div className={`rx_dialog rx_dialog--face_tuning${expanded ? " is-expanded" : ""}`}
                  role="dialog" aria-modal="true" onMouseDown={(ev) => ev.stopPropagation()}>
-                <h4>{_t("Tune face")}{title ? ` — ${title}` : ""}</h4>
+                <h4>{_t("Tune model")}{title ? ` — ${title}` : ""}</h4>
                 {!expanded && (
                     <p className="small">
                         {_t("How strongly each part of the face moves on this model. 1 plays the "
@@ -357,10 +387,17 @@ export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapVal
                         <div className="rx_face_tuning_stage">
                             <AvatarCanvas size="mini" />
                             <div className="rx_face_tuning_view">
-                                <button className="btn btn-sm btn-light" onClick={() => setCloseUp((v) => !v)}
-                                        title={_t("Switch between the face close up and head and shoulders")}>
-                                    <i className={`fa ${closeUp ? "fa-search-minus" : "fa-search-plus"}`} />
-                                </button>
+                                {[
+                                    ["face", "fa-smile-o", "Face close up"],
+                                    ["head", "fa-user", "Head and shoulders"],
+                                    ["full", "fa-male", "Full body"],
+                                ].map(([id, icon, label]) => (
+                                    <button key={id} className={`btn btn-sm ${view === id ? "btn-primary" : "btn-light"}`}
+                                            onClick={() => setView(id)}
+                                            title={`${_t(label)} — ${_t("drag to turn, scroll to zoom")}`}>
+                                        <i className={`fa ${icon}`} />
+                                    </button>
+                                ))}
                                 <button className="btn btn-sm btn-light" onClick={() => setExpanded((v) => !v)}
                                         title={expanded ? _t("Back to the normal size") : _t("Pop out: a bigger preview beside the sliders")}>
                                     <i className={`fa ${expanded ? "fa-compress" : "fa-expand"}`} />
@@ -404,6 +441,53 @@ export default function FaceTuningDialog({ title, vrmUrl, idleUrl, value, mapVal
                     <div className="rx_face_tuning_sliders">
                         {error && <p className="text-danger">{error}</p>}
                         {!sizes && !error && <p className="text-muted">{_t("Loading the model…")}</p>}
+                        {sizes && (
+                            <div className="rx_face_tuning_group">
+                                <h5>{_t("Body")}</h5>
+                                <div className="rx_face_tuning_row">
+                                    <span />
+                                    <label htmlFor="rx_ft_arm_spread"
+                                           title={_t("How far the arms hang out from the body when standing idle, in degrees on top of what rexclaw measures for this model. Raise it if the hands or arms go through the hips or a skirt; lower it if they hang too wide. Not used when the avatar has its own idle animation.")}>
+                                        {_t("Arm spread")}
+                                    </label>
+                                    <input id="rx_ft_arm_spread" type="range" min={ARM_SPREAD_MIN} max={ARM_SPREAD_MAX}
+                                           step="1" value={spread} onChange={(ev) => setSpread(Number(ev.target.value))} />
+                                    <input type="number" min={ARM_SPREAD_MIN} max={ARM_SPREAD_MAX} step="1"
+                                           value={spread} onChange={(ev) => setSpread(Number(ev.target.value) || 0)} />
+                                    <span>°</span>
+                                </div>
+                            </div>
+                        )}
+                        {sizes && (
+                            <div className="rx_face_tuning_group">
+                                <h5 title={_t("What the companion does now and then while standing idle, for this model. Not used when the avatar has its own idle animation.")}>
+                                    {_t("Procedural idle events")}
+                                </h5>
+                                {IDLE_EVENTS.map(({ id, perHour }) => {
+                                    const on = pose[id] !== false;
+                                    const [label, help] = IDLE_EVENT_TEXT[id];
+                                    return (
+                                        <div key={id} style={{ display: "flex", alignItems: "center" }}>
+                                            <button className="btn btn-sm btn-link" title={_t("Play")} disabled={!on}
+                                                    onClick={() => {
+                                                        setView("full");
+                                                        avatarRenderer.playIdleEvent(id);
+                                                    }}>
+                                                <i className="fa fa-play" />
+                                            </button>
+                                            <label className="rx_check" style={{ margin: 0 }} title={_t(help)}>
+                                                <input type="checkbox" checked={on}
+                                                       onChange={(ev) => setPose((p) => ({ ...p, [id]: ev.target.checked }))} />
+                                                <span>{_t(label)}</span>
+                                            </label>
+                                            <span className="text-muted small" style={{ marginLeft: "0.5rem" }}>
+                                                {_t("about %s an hour", Math.round(perHour))}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                         {sizes && FACE_TUNING.map(({ group, channels }) => {
                             // A part the model can't show stays listed when its
                             // shapes can be chosen, so they can be added.

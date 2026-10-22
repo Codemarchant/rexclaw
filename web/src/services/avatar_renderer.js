@@ -39,7 +39,8 @@ import {
     emotionDecayEnabled,
     emotionSettleTarget,
 } from "../models/avatar_catalog";
-import { IdleMotion } from "./idle_motion";
+import { IdleMotion, IDLE_EVENTS } from "./idle_motion";
+import { IdlePose } from "./idle_pose";
 import { FaceMotion } from "./face_motion";
 import { LookPost } from "./look_post";
 import { ArtStyle } from "./art_style";
@@ -160,14 +161,16 @@ const BACKGROUND_PRESETS = {
 //   standing person, not a swaying drunk.
 const IDLE_SHOULDER_DOWN = 1.15;        // ~66deg, brings arms down from T-pose
 // Resting elbow flex. A hanging arm is NOT straight — this was 0.15 rad
-// (8.6 deg), which reads as a mannequin's arm and is most of why the arms
-// looked like they snapped between positions with nothing bending. The
-// authored reference idles sit at 29-35 deg on this same axis and sign;
-// 24 is a relaxed human elbow without the stylisation.
-const IDLE_ELBOW_BEND = 0.42;
-// Arms hang slightly FORWARD of the body, never in the coronal plane.
-// Same sign both sides — fore/aft is not a mirrored axis (the reference
-// rig has the same sign on both legs for the equivalent offset).
+// (8.6 deg), which read as a mannequin's arm. No study reports the elbow
+// of a person standing relaxed, so it is measured off the authored
+// reference idles: their six arms sit at 7–16° in two of them and 29–35°
+// in the third, median 15°. (It was 24° — the third's stylisation — while
+// the arms hung off the torso.)
+const IDLE_ELBOW_BEND = 0.26;
+// The body-relative upper-arm pose below (this pitch, IDLE_SHOULDER_DOWN)
+// is only the starting point now: idle_pose.js hangArm replaces it with a hang set
+// against gravity once the torso is posed. Same sign both sides — fore/aft
+// is not a mirrored axis.
 const IDLE_ARM_REST_PITCH = -0.15;
 
 // Relaxed hand pose. VRM normalized fingers curl on rotation.z with sign
@@ -179,6 +182,22 @@ const IDLE_FINGER_CURL_INTERMEDIATE = 0.36;
 const IDLE_FINGER_CURL_DISTAL = 0.30;
 const IDLE_THUMB_OPPOSE = 0.28;          // thumb out from palm
 const IDLE_THUMB_CURL = 0.10;
+// The thumb coming across to the index in a rub: the reference's thumb
+// turns in by 19–26° at its two base joints, so +0.45 rad of curl, with
+// half its opposition given up to get there.
+const IDLE_THUMB_ACROSS_CURL = 0.45;
+const IDLE_THUMB_ACROSS_OPPOSE = 0.5;
+// A full fist on top of the rest curl (the engine's `fist`, 0..1 per
+// joint), measured off the reference squeeze at its peak: the middle
+// joints close +78–90°, and the knuckles least at the index, more toward
+// the little finger (+12° index, +31 middle, +23 ring, +37–62 little) —
+// a loose idle fist, not a clenched one. The end joint follows the middle
+// one by the hand's own coupling, 0.77 of it at the index, 0.75 middle
+// and ring, 0.57 little (Mentzel et al. 2011), which lands the index on
+// the reference's +62°. Per finger: index, middle, ring, little.
+const IDLE_FIST_PROXIMAL = [0.21, 0.54, 0.40, 0.85];
+const IDLE_FIST_INTERMEDIATE = 1.45;
+const IDLE_FIST_DISTAL = [0.77, 0.75, 0.75, 0.57].map((k) => k * 1.45);
 
 // Speaking-state amplifiers. Multiplied INTO the idle amplitudes when the
 // avatar is "speaking" (audio intensity > ~0.1). Tuned to look animated but
@@ -843,8 +862,9 @@ class AvatarRenderer {
         // Face director's face and head (face_motion.js), base avatar only.
         this._face = new FaceMotion(this, EMOTION_STATES);
         this._faceTuningPreview = null;   // the tuning dialog's live values (faceTuning)
+        this._poseTuningPreview = null;   // …and its body values (poseTuning)
         this._faceMapPreview = null;      // the tuning dialog's face_map draft (faceMap)
-        this._closeUp = null;             // the tuning dialog's view (setCloseUp); null while it's closed
+        this._closeUp = null;             // the tuning dialog's view: "face" | "head" | "full" (setCloseUp); null while it's closed
         this._rawSpeakingIntensity = 0;   // set by setSpeakingIntensity()
         this._speakingIntensity = 0;      // smoothed for animation
         this._fullBody = false;           // false = face shot, true = full-body + orbit
@@ -1193,6 +1213,13 @@ class AvatarRenderer {
         this.vrm = vrm;
         this._armSign = undefined;  // reset — re-detected on first _applyIdle tick
         this._fingerCurl = undefined;  // re-detected per VRM (1.0 rigs may curl on a non-Z axis)
+        // The body measurements are this model's: its arm hang, body scan
+        // and hand-on-hip spot. Kept across a swap, every later outfit hung
+        // its arms at the first model's angle.
+        this._armHang = undefined;
+        this._bodyScan = undefined;
+        this._hipSpots = undefined;
+        this._idleOn = undefined;   // the new look's idle event switches, told on its first idle frame
         this.mixer = new THREE.AnimationMixer(vrm.scene);
 
         // Wire look-at if the VRM has a lookAt module.
@@ -2008,7 +2035,6 @@ class AvatarRenderer {
         setTimeout(() => { try { action.stop(); } catch (e) { /* */ } }, 200);
     }
 
-
     // ------------------------------------------------------------------
     // Combo (two-character) gestures
     // ------------------------------------------------------------------
@@ -2605,6 +2631,10 @@ class AvatarRenderer {
         // Fresh per-model animation state — the detectors re-run on the new rig.
         peer._armSign = undefined;
         peer._fingerCurl = undefined;
+        peer._armHang = undefined;
+        peer._bodyScan = undefined;
+        peer._hipSpots = undefined;
+        peer._idleOn = undefined;
         peer._gestureAction = null;
         peer._currentGestureUrl = null;
         peer._gestureClips.clear();
@@ -5462,8 +5492,8 @@ class AvatarRenderer {
      *  `shot` overrides the view's own face/full toggle — the auto-follow
      *  director asks for "face" or "full" by name (see _autoShotOrbit). */
     _cameraPreset(shot = null) {
-        // The tuning dialog frames the face whatever the view behind it.
-        const wantFull = shot ? shot === "full" : this._fullBody && this._closeUp === null;
+        // The tuning dialog frames its own view whatever the one behind it.
+        const wantFull = shot ? shot === "full" : this._closeUp ? this._closeUp === "full" : this._fullBody;
         // The heights were captured at load, standing on the floor at the
         // model's own size; a group call's Ctrl + drag (_bindCtrlDrag) can
         // raise and resize a character since, so they are carried along.
@@ -5561,7 +5591,7 @@ class AvatarRenderer {
 
         // Close-up for face tuning: the face alone, centred just under the
         // eyes (the eye bone where the rig has one).
-        if (this._closeUp) {
+        if (this._closeUp === "face") {
             const eye = this.vrm?.humanoid?.getRawBoneNode?.("leftEye");
             const eyeY = eye ? eye.getWorldPosition(new this.libs.THREE.Vector3()).y : headY + 0.06;
             const y = eyeY - 0.03;
@@ -5823,7 +5853,22 @@ class AvatarRenderer {
             || actor._gestureAction?.isRunning()
             || actor._moving
             || dancing);
+        // The look can switch idle events off (pose_tuning[id] false, see
+        // IDLE_EVENTS) — told to the engine when one changes, the tuning
+        // dialog's tickboxes included.
+        const idleOn = (actor._idleOn ||= {});
+        for (const { id } of IDLE_EVENTS) {
+            const on = this.poseTuning(id, actor, true) !== false;
+            if (idleOn[id] !== on) {
+                idleOn[id] = on;
+                actor._idle?.setEventAllowed(id, on);
+            }
+        }
         actor._idle?.update(delta, speak, posing);
+        // A hand moment's smile goes to the face director (see MOMENT_*).
+        for (const cue of actor._idle?.takeCues?.() || []) {
+            if (cue.kind === "smile") (actor === this ? this._face : actor._face)?.idleSmile?.(cue);
+        }
         const sig = actor._idle?.sig;
         if (!sig) return;
 
@@ -5902,11 +5947,8 @@ class AvatarRenderer {
                     sig.chestPitch * 0.4, 0, sig.chestRoll * 0.4,
                 );
             }
-            // Arms drift on independent noise, not mirrored waves.
             const ls = get("leftUpperArm");
             const rs = get("rightUpperArm");
-            const armSwayL = sig.armL * bodyGain;
-            const armSwayR = sig.armR * bodyGain;
             // Auto-detect arm orientation once per VRM load.
             // We can't rely on world-space X position because both standard and
             // non-standard models place the left shoulder at ~+0.1 X. Instead,
@@ -5932,43 +5974,42 @@ class AvatarRenderer {
                 }
             }
             const _as = actor._armSign ?? 1;
-            // Shoulders: the breath's lift, plus the top link of the drag
-            // chain. Unlike the sideways sway — symmetric noise, where the
-            // sign is invisible — the lift is directional, so it goes
+            // Shoulders: the breath's lift. It is directional, so it goes
             // through the detected arm sign (+_as lowers the arm, so −_as
             // raises the shoulder) and mirrors for the right. Without that,
             // a rig with the opposite convention would shrug DOWN on every
             // inhale.
             const lShoulder = get("leftShoulder");
             const rShoulder = get("rightShoulder");
-            if (lShoulder) lShoulder.rotation.set(sig.shoulderDragL, 0, -_as * sig.shoulderLift);
-            if (rShoulder) rShoulder.rotation.set(sig.shoulderDragR, 0, _as * sig.shoulderLift);
+            if (lShoulder) lShoulder.rotation.set(0, 0, -_as * sig.shoulderLift);
+            if (rShoulder) rShoulder.rotation.set(0, 0, _as * sig.shoulderLift);
 
-            // The chain proper: x swings the arm fore and aft, and each
-            // joint's value is a spring one step slower than the joint above
-            // it — so the shoulder leads, the upper arm follows, the elbow
-            // after that and the wrist lags last. That stagger (overlapping
-            // action) is what a limb of flesh does and what a limb of
-            // synchronised sine waves never does. Hanging arms also move far
-            // more fore-and-aft than sideways, so this plane carries most of
-            // the motion; the z terms stay as the small lateral drift.
-            if (ls) ls.rotation.set(IDLE_ARM_REST_PITCH + sig.armPitchL * bodyGain, 0,
-                _as * IDLE_SHOULDER_DOWN + armSwayL);
-            if (rs) rs.rotation.set(IDLE_ARM_REST_PITCH + sig.armPitchR * bodyGain, 0,
-                -_as * IDLE_SHOULDER_DOWN - armSwayR);
+            // The upper arms, body-relative: a fallback for a rig hangArm
+            // can't pose (it replaces these once the torso is final).
+            if (ls) ls.rotation.set(IDLE_ARM_REST_PITCH + sig.armPitchL * bodyGain, 0, _as * IDLE_SHOULDER_DOWN);
+            if (rs) rs.rotation.set(IDLE_ARM_REST_PITCH + sig.armPitchR * bodyGain, 0, -_as * IDLE_SHOULDER_DOWN);
 
+            // The elbow's bend takes the arm settle's flex on top of the
+            // rest bend (y is the bend axis on this rig; x is the forearm's
+            // roll, which carries the settle's twist via sig.elbow*).
             const lElbow = get("leftLowerArm");
             const rElbow = get("rightLowerArm");
-            if (lElbow) lElbow.rotation.set(sig.elbowL * bodyGain, -IDLE_ELBOW_BEND, armSwayL * 0.5);
-            if (rElbow) rElbow.rotation.set(sig.elbowR * bodyGain,  IDLE_ELBOW_BEND, -armSwayR * 0.5);
+            if (lElbow) lElbow.rotation.set(sig.elbowL * bodyGain, -(IDLE_ELBOW_BEND + sig.flexL), 0);
+            if (rElbow) rElbow.rotation.set(sig.elbowR * bodyGain,  IDLE_ELBOW_BEND + sig.flexR, 0);
 
-            // Wrists are the end of the chain and lag everything. Tiny, but
-            // a hand that stays rigid while the forearm moves is one of the
-            // things the eye picks up without being able to name it.
+            // Wrists: the settle's and a rub's FLEXION, which bends the hand
+            // toward the palm — the same axis the fingers curl on, so it
+            // rides the detected curl axis below.
             const lWrist = get("leftHand");
             const rWrist = get("rightHand");
-            if (lWrist) lWrist.rotation.set(sig.handL, 0, 0);
-            if (rWrist) rWrist.rotation.set(sig.handR, 0, 0);
+            if (lWrist) lWrist.rotation.set(0, 0, 0);
+            if (rWrist) rWrist.rotation.set(0, 0, 0);
+            const curl = actor._fingerCurl;
+            if (curl) {
+                const ax = curl.axis;
+                if (lWrist) lWrist.rotation[ax] += curl.sign * sig.wristL;
+                if (rWrist) rWrist.rotation[ax] += (ax === "y" ? curl.sign : -curl.sign) * sig.wristR;
+            }
 
             // Auto-detect the finger-curl axis. VRM 0.x rigs conventionally
             // curl fingers via rotation.z (Blender bone-roll convention), but
@@ -6062,32 +6103,51 @@ class AvatarRenderer {
             // the soles flat on the floor. Locked legs were a big part of
             // the old "stiff" read, and feet tilted a couple of degrees off
             // the floor were most of the rest.
+            // The pitches go through the rig's facing: a knee bends toward
+            // the back of the leg, which is +x on a +Z-facing (VRM 1.0) rig
+            // and −x on a −Z-facing (VRM 0.x) one — the same flip the
+            // dance groove makes. Without it a 0.x knee hyperextends.
+            const fz = actor.vrm.meta?.metaVersion === "0" ? -1 : 1;
             const lUpperLeg = get("leftUpperLeg");
             const rUpperLeg = get("rightUpperLeg");
             const lLowerLeg = get("leftLowerLeg");
             const rLowerLeg = get("rightLowerLeg");
-            if (lUpperLeg) lUpperLeg.rotation.set(sig.hipPitchL, sig.hipYawL, 0);
-            if (rUpperLeg) rUpperLeg.rotation.set(sig.hipPitchR, sig.hipYawR, 0);
-            if (lLowerLeg) lLowerLeg.rotation.set(sig.kneeL, 0, 0);
-            if (rLowerLeg) rLowerLeg.rotation.set(sig.kneeR, 0, 0);
-            // Both ankles counter the hip roll the same way round, not
-            // mirrored: this cancels a rotation shared by the whole body, so
-            // it is the same correction on each side.
+            if (lUpperLeg) lUpperLeg.rotation.set(fz * sig.hipPitchL, sig.hipYawL, 0);
+            if (rUpperLeg) rUpperLeg.rotation.set(fz * sig.hipPitchR, sig.hipYawR, 0);
+            if (lLowerLeg) lLowerLeg.rotation.set(fz * sig.kneeL, 0, 0);
+            if (rLowerLeg) rLowerLeg.rotation.set(fz * sig.kneeR, 0, 0);
+            // The exact negation of the hip and knee pitches, so the soles
+            // sit flat. This is the NEUTRAL stance; plantFeet (idle_pose.js)
+            // reads the ankles off it and then solves the legs back onto
+            // those spots under the frame's weight shift.
             const lFoot = get("leftFoot");
             const rFoot = get("rightFoot");
-            // Constant: the exact negation of the hip and knee pitches, so
-            // the soles sit flat. Nothing here varies, and nothing above the
-            // ankle in this chain varies either, so the feet are genuinely
-            // motionless — not "nearly still", identical every frame.
-            if (lFoot) lFoot.rotation.set(sig.footPitchL, 0, 0);
-            if (rFoot) rFoot.rotation.set(sig.footPitchR, 0, 0);
+            if (lFoot) lFoot.rotation.set(fz * sig.footPitchL, 0, 0);
+            if (rFoot) rFoot.rotation.set(fz * sig.footPitchR, 0, 0);
+            const limbs = (this._limbs ||= new IdlePose(this.libs.THREE));
+            limbs.plantFeet(actor, get, sig, fz);
+            // With the torso final, hang the upper arms off gravity (this
+            // replaces the body-relative angles set above for them), wider
+            // or closer by the look's own arm spread.
+            const spread = this.poseTuning("arm_spread", actor);
+            limbs.hangArm(actor, get, "left", sig.armPitchL, fz, spread);
+            limbs.hangArm(actor, get, "right", sig.armPitchR, fz, spread);
 
             // Relaxed hand pose. Flat T-pose hands read as mannequin; a soft
             // curl across all four fingers + an opposed thumb is the "loose
             // grip on nothing" rest pose humans default to. Skipped if a
             // gesture is animating (we already bailed at the top of this fn).
-            this._applyRelaxedHand(actor, "left");
-            this._applyRelaxedHand(actor, "right");
+            // The engine's hand fidgets (squeeze, thumb rub, ripple) ride
+            // on top of it.
+            this._applyRelaxedHand(actor, "left", sig.fingersL);
+            this._applyRelaxedHand(actor, "right", sig.fingersR);
+            // Now and then a hand goes to the hip (the engine's hipL/hipR,
+            // 0..1 on the way there and back): an IK pose blended over this
+            // one, after the pelvis has moved so the hand rides with it. A
+            // side the pose can't be worked out for on this model is handed
+            // back: the engine drops the event and the side.
+            if (sig.hipL > 0.001 && !limbs.handOnHip(actor, get, "left", sig.hipL, fz)) actor._idle?.blockHip(0);
+            if (sig.hipR > 0.001 && !limbs.handOnHip(actor, get, "right", sig.hipR, fz)) actor._idle?.blockHip(1);
 
             const head = get("head");
             if (head) {
@@ -6137,7 +6197,16 @@ class AvatarRenderer {
                     ) * cf.blend;
                 }
             }
-        } catch (e) { /* non-fatal */ }
+        } catch (e) {
+            // Non-fatal — the frame keeps what it posed so far — but not
+            // silent: a throw here skips the rest of the pose every frame
+            // (a hand never reaching the hip while the weight still
+            // shifts), so the first one per model is reported.
+            if (actor._idleError !== actor.vrm) {
+                actor._idleError = actor.vrm;
+                console.warn("[voice] idle pose error (the rest of the pose is skipped):", e);
+            }
+        }
     }
 
     /** Apply a relaxed-curl pose to one hand. VRM 0.x rigs conventionally
@@ -6147,12 +6216,18 @@ class AvatarRenderer {
      *  thumb opposition is handled separately because the thumb has its own
      *  axes (the existing y/z dual rotation is a reasonable default and
      *  worth refining only if thumbs look off after the finger fix lands).
-     *  Bones missing from a particular VRM are silently skipped. */
-    _applyRelaxedHand(actor, side, squeeze = 0) {
+     *  Bones missing from a particular VRM are silently skipped.
+     *
+     *  `fx` is the engine's hand fidget for this hand (idle_motion.js):
+     *  `curl` [index, middle, ring, little] deepens each finger's resting
+     *  curl by that fraction, `fist` [knuckle, middle, end] closes those
+     *  joints of every finger that far toward a full fist (IDLE_FIST_*),
+     *  `hook` adds a bend at the index's middle
+     *  joint (the finger the thumb rubs against), `thumb` 0..1 brings the
+     *  thumb across toward it. */
+    _applyRelaxedHand(actor, side, fx = null) {
         const h = actor.vrm?.humanoid;
         if (!h) return;
-        // An occasional squeeze deepens the resting curl and releases it.
-        const grip = 1 + squeeze;
         const sideSign = side === "left" ? 1 : -1;
         // Detected curl axis/sign is for the LEFT hand; right hand flips
         // sign for x/z axes (body mirror) and keeps it for y (longitudinal).
@@ -6166,24 +6241,39 @@ class AvatarRenderer {
             ["Intermediate", IDLE_FINGER_CURL_INTERMEDIATE],
             ["Distal", IDLE_FINGER_CURL_DISTAL],
         ];
-        for (const finger of ["index", "middle", "ring", "little"]) {
+        const fingers = ["index", "middle", "ring", "little"];
+        for (let f = 0; f < fingers.length; f++) {
+            const grip = 1 + (fx?.curl[f] ?? 0);
+            const fist = fx?.fist;
+            const closed = {
+                Proximal: IDLE_FIST_PROXIMAL[f] * (fist?.[0] ?? 0),
+                Intermediate: IDLE_FIST_INTERMEDIATE * (fist?.[1] ?? 0),
+                Distal: IDLE_FIST_DISTAL[f] * (fist?.[2] ?? 0),
+            };
             for (const [seg, curlAmt] of segments) {
-                const bone = h.getNormalizedBoneNode?.(`${side}${cap(finger)}${seg}`);
+                const bone = h.getNormalizedBoneNode?.(`${side}${cap(fingers[f])}${seg}`);
                 if (bone) {
+                    const hook = f === 0 && seg === "Intermediate" ? (fx?.hook ?? 0) : 0;
                     bone.rotation.set(0, 0, 0);
-                    bone.rotation[axis] = mirrorSign * curlAmt * grip;
+                    bone.rotation[axis] = mirrorSign * (curlAmt * grip + closed[seg] + hook);
                 }
             }
         }
-        for (const seg of ["Proximal", "Intermediate", "Distal"]) {
+        // The thumb, on three-vrm's names for it — metacarpal, proximal,
+        // distal (a VRM 0.x thumbProximal arrives as the metacarpal). This
+        // looked for proximal/intermediate/distal: there is no "thumb
+        // intermediate", so the opposition landed on the thumb's two finger
+        // joints, and its base — where opposition actually happens — was
+        // never set, keeping whatever a clip last left there. Opposition
+        // at the base; the gentle curl at the two joints (everyday thumb
+        // posture is 4–5° at each, Ingram et al. 2008). A rub brings it
+        // across by leaving its opposition and curling in.
+        const t = fx?.thumb ?? 0;
+        const base = h.getNormalizedBoneNode?.(`${side}ThumbMetacarpal`);
+        if (base) base.rotation.set(0, sideSign * IDLE_THUMB_OPPOSE * (1 - IDLE_THUMB_ACROSS_OPPOSE * t), 0);
+        for (const seg of ["Proximal", "Distal"]) {
             const bone = h.getNormalizedBoneNode?.(`${side}Thumb${seg}`);
-            if (bone) {
-                bone.rotation.set(
-                    0,
-                    sideSign * IDLE_THUMB_OPPOSE / grip,   // thumb closes IN as the fist tightens
-                    sideSign * IDLE_THUMB_CURL * grip,
-                );
-            }
+            if (bone) bone.rotation.set(0, 0, sideSign * (IDLE_THUMB_CURL + IDLE_THUMB_ACROSS_CURL * t));
         }
     }
 
@@ -6393,14 +6483,19 @@ class AvatarRenderer {
         this._peers.get(peerId)?._face.listening(on);
     }
 
+    /** The avatar payload's entry for the look (main or outfit) whose VRM
+     *  `actor` has on screen, or undefined. */
+    _lookFor(actor = this) {
+        const payload = actor === this ? this._currentAvatarPayload : actor.avatarPayload;
+        return payload?.outfits?.find((o) => o.vrm_url === actor._loadedVrmUrl);
+    }
+
     /** The loaded look's strength for a face channel or an own-emotion
      *  expression (`emotion:<state>`) — face_motion.js FACE_TUNING. The
      *  tuning dialog's live values win while it is open; otherwise the
      *  avatar payload's entry for the VRM on screen. 1 = as rigged. */
     faceTuning(id, actor = this) {
-        const payload = actor === this ? this._currentAvatarPayload : actor.avatarPayload;
-        const t = (actor === this && this._faceTuningPreview)
-            || payload?.outfits?.find((o) => o.vrm_url === actor._loadedVrmUrl)?.face_tuning;
+        const t = (actor === this && this._faceTuningPreview) || this._lookFor(actor)?.face_tuning;
         const v = t?.[id];
         return Number.isFinite(v) && v >= 0 ? v : 1;
     }
@@ -6411,13 +6506,50 @@ class AvatarRenderer {
         this._faceTuningPreview = tuning || null;
     }
 
+    /** The loaded look's body tuning (pose_tuning) — `arm_spread`, degrees
+     *  added to the procedural idle's measured arm hang (0 = as measured),
+     *  and per idle event (IDLE_EVENTS: `weight_shift`, `hand_on_hip`)
+     *  false to switch it off. The tuning dialog's live values win while
+     *  it is open; `dflt` when the look doesn't set it. */
+    poseTuning(id, actor = this, dflt = 0) {
+        const t = (actor === this && this._poseTuningPreview) || this._lookFor(actor)?.pose_tuning;
+        const v = t?.[id];
+        return Number.isFinite(v) || typeof v === "boolean" ? v : dflt;
+    }
+
+    /** The tuning dialog's body values, null to go back to the saved ones. */
+    setPoseTuningPreview(tuning) {
+        this._poseTuningPreview = tuning || null;
+    }
+
+    /** The tuning dialog's ▶ for a procedural idle event (IDLE_EVENTS):
+     *  play it now, or as soon as the body is free (the engine waits a
+     *  moment rather than cut into a fidget). */
+    playIdleEvent(kind) {
+        if (!this._idle || !IDLE_EVENTS.some((e) => e.id === kind)) return;
+        const I = this._idle;
+        // Say why when it can't play, rather than doing nothing.
+        const why = [];
+        if (this._idleOn?.[kind] === false) why.push("it is off for this look");
+        else if (kind === "hand_on_hip" && I._hipBlocked?.every(Boolean)) why.push("it can't be worked out on this model");
+        if (this.idleClipAction?.isRunning()) why.push("the avatar's own idle animation has the body");
+        if (this._layerAction?.isRunning()) why.push("a motion-library clip is playing");
+        if (this._gestureAction?.isRunning()) why.push("a gesture is playing");
+        if (this._moving) why.push("the avatar is walking");
+        // Left pending, it would fire unasked the moment the body is free.
+        if (why.length) {
+            console.log(`[voice] ${kind} can't play now: ${why.join("; ")}`);
+            return;
+        }
+        I.playEvent(kind);
+    }
+
     /** The look's own face shapes (face_map: { channels, feelings }), the
      *  tuning dialog's draft while it is open, or null to auto-detect. The
      *  same object while nothing changes, so the face caches by it. */
     faceMap(actor = this) {
         if (actor === this && this._faceMapPreview) return this._faceMapPreview;
-        const payload = actor === this ? this._currentAvatarPayload : actor.avatarPayload;
-        const m = payload?.outfits?.find((o) => o.vrm_url === actor._loadedVrmUrl)?.face_map;
+        const m = this._lookFor(actor)?.face_map;
         return m && (m.channels || m.feelings) ? m : null;
     }
 
@@ -6451,10 +6583,15 @@ class AvatarRenderer {
 
     /** The face tuning view: true = the face fills the frame, false = head
      *  and shoulders, null = the dialog is closed (back to the normal shot). */
-    setCloseUp(on) {
-        this._closeUp = on == null ? null : !!on;
-        if (this._orbitControls) this._orbitControls.minDistance = on ? CLOSE_UP_MIN_DISTANCE : 1.2;
+    setCloseUp(view) {
+        // true / false are the old face close-up / head and shoulders.
+        this._closeUp = view == null ? null : view === true ? "face" : view === false ? "head" : view;
+        // The dialog's camera is the user's to move: orbit (drag to turn,
+        // wheel to zoom) whatever the view behind it, re-aimed at each new
+        // framing. Back to the view's own once the dialog closes.
+        this._disableOrbit();
         this._applyCameraPreset();
+        if (this._closeUp || this._fullBody) this._enableOrbit();
     }
 
     /** The look-at's four range maps (inner/outer/down/up): how far, in

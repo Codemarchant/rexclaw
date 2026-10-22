@@ -150,20 +150,16 @@ def avatar_payload(con, avatar_id):
     ).fetchall()
 
     from . import portraits
-    # Face tuning belongs to the model, so it rides each look (the renderer
-    # picks the loaded VRM's). {} = the face director's own numbers.
-    def face_tuning(row):
+    # Tuning belongs to the model, so it rides each look (the renderer picks
+    # the loaded VRM's): face_tuning ({} = the face director's own numbers),
+    # face_map (the look's own face shapes; {} = auto-detected) and
+    # pose_tuning (arm spread, hand on hip; {} = as measured).
+    def look_json(row, col):
         try:
-            return json.loads(row['face_tuning'] or '{}')
-        except ValueError:
-            return {}
-
-    # The look's own shapes for the face (face_map); {} = auto-detected.
-    def face_map(row):
-        try:
-            return json.loads(row['face_map'] or '{}')
+            return json.loads(row[col] or '{}')
         except (ValueError, IndexError):
             return {}
+
     outfits = [{
         'id': 0,
         'name': (av['main_outfit_name'] or '').strip() or MAIN_OUTFIT_FALLBACK_NAME,
@@ -171,8 +167,9 @@ def avatar_payload(con, avatar_id):
         'is_default': True,
         'portrait_url': portraits.portrait_url(av['vrm_path']),
         'fullbody_url': portraits.fullbody_url(av['vrm_path']),
-        'face_tuning': face_tuning(av),
-        'face_map': face_map(av),
+        'face_tuning': look_json(av, 'face_tuning'),
+        'face_map': look_json(av, 'face_map'),
+        'pose_tuning': look_json(av, 'pose_tuning'),
     }]
     for o in outfit_rows:
         if not o['vrm_path']:
@@ -184,8 +181,9 @@ def avatar_payload(con, avatar_id):
             'is_default': False,
             'portrait_url': portraits.portrait_url(o['vrm_path']),
             'fullbody_url': portraits.fullbody_url(o['vrm_path']),
-            'face_tuning': face_tuning(o),
-            'face_map': face_map(o),
+            'face_tuning': look_json(o, 'face_tuning'),
+            'face_map': look_json(o, 'face_map'),
+            'pose_tuning': look_json(o, 'pose_tuning'),
         })
     backgrounds = [background_payload(b) for b in bg_rows]
     default_bg = next((b for b in bg_rows if b['is_default']), None)

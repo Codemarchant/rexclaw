@@ -1,6 +1,6 @@
 // English for the Japanese blend shape names that MMD's standard face set
 // defines (and that most Booth / VRChat avatars carry, SoulFlame VRM
-// Exporter keeping them by name), so the Tune face pickers can be read and
+// Exporter keeping them by name), so the Tune model pickers can be read and
 // searched without Japanese. Shown beside the name, never instead of it.
 const MMD_NAMES = {
     // Brows (眉)

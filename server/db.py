@@ -1536,6 +1536,11 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN imagine_quality TEXT NOT NULL DEFAULT 'auto'",
     "ALTER TABLE config ADD COLUMN tool_animations INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE agents ADD COLUMN enable_point_tool INTEGER NOT NULL DEFAULT 1",
+    # Per-look body tuning (JSON {"arm_spread": degrees}) from the pack
+    # manifest's `pose_tuning` — the main look's on avatars, each outfit's
+    # on its row. NULL = the procedural idle's own measured hang.
+    "ALTER TABLE avatars ADD COLUMN pose_tuning TEXT",
+    "ALTER TABLE avatar_outfits ADD COLUMN pose_tuning TEXT",
 )
 
 

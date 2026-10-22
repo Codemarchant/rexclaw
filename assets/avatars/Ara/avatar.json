@@ -9,7 +9,8 @@
     {
       "name": "Festive Christmas dress",
       "vrm": "ara_christmas_fit.vrm",
-      "description": "Knit red sweater-dress with off-the-shoulder white collar, long sleeves with wide white cuffs, and two small white buttons at the chest. A thin black belt cinches the waist, accented by a small white bow. The flared skirt has a wide white fluffy hem with a small holly leaf embroidery near the bottom right. White thigh-high stockings and brown lace-up boots complete the cozy holiday look."
+      "description": "Knit red sweater-dress with off-the-shoulder white collar, long sleeves with wide white cuffs, and two small white buttons at the chest. A thin black belt cinches the waist, accented by a small white bow. The flared skirt has a wide white fluffy hem with a small holly leaf embroidery near the bottom right. White thigh-high stockings and brown lace-up boots complete the cozy holiday look.",
+      "pose_tuning": {"arm_spread": 3}
     },
     {
       "name": "Celestial gothic ensemble",

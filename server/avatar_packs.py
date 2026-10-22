@@ -37,9 +37,16 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
           "parts": {"smile": 0.6},       // play these channels and
           "shapes": {"はぁと": 1}}}}      // these shapes at these weights
       },
+      "pose_tuning": {"arm_spread": 4},  // optional; per-look degrees added to
+                                         // the procedural idle's measured arm
+                                         // hang (+ wider, − closer; −10…25);
+                                         // "weight_shift" / "hand_on_hip": false
+                                         // stops the idle shifting its weight /
+                                         // putting a hand on the hip
       "outfits": [
         {"name": "Winter", "vrm": "kira_winter.vrm", "description": "…",
-         "face_tuning": {}, "face_map": {}}  // optional; the outfit model's own
+         "face_tuning": {}, "face_map": {}, "pose_tuning": {}}  // optional; the
+                                         // outfit model's own
       ],
       "gestures": [
         {"enum": "wave_hello", "vrma": "wave.vrma", "description": "…",
@@ -188,6 +195,36 @@ def _face_tuning(value):
     return json.dumps(out, sort_keys=True) if out else None
 
 
+# pose_tuning: arm_spread (degrees) widens (+) or narrows (−) the
+# procedural idle's arm hang on top of the angle measured from the mesh;
+# each idle event (web idle_motion.js IDLE_EVENTS) is a bool, default true,
+# false to keep the procedural idle from playing it on a model it doesn't
+# suit.
+POSE_ARM_SPREAD_RANGE = (-10.0, 25.0)
+POSE_IDLE_EVENTS = ("weight_shift", "hand_on_hip")
+
+
+def _pose_tuning(value):
+    """A look's `pose_tuning` → the JSON stored on its row, or None when
+    there is nothing to change. arm_spread is clamped to
+    POSE_ARM_SPREAD_RANGE and dropped at 0; an idle event is kept only when
+    false (true is the default)."""
+    if not isinstance(value, dict):
+        return None
+    out = {}
+    try:
+        lo, hi = POSE_ARM_SPREAD_RANGE
+        spread = round(max(lo, min(hi, float(value.get("arm_spread", 0)))), 1)
+        if spread:
+            out["arm_spread"] = spread
+    except (TypeError, ValueError):
+        pass
+    for event in POSE_IDLE_EVENTS:
+        if value.get(event) is False:
+            out[event] = False
+    return json.dumps(out, sort_keys=True) if out else None
+
+
 def _face_shapes(value, cap):
     """{morph: weight} → the weights above 0, capped; None when not a dict."""
     if not isinstance(value, dict):
@@ -282,26 +319,27 @@ def _upsert_avatar(con, pack_key, vals):
             " vrm_path = ?, vrma_idle_path = ?, emotion_decay = ?, fidgets = ?,"
             " fidget_interval = ?, restrict_base_gestures = ?, base_gestures = ?,"
             " physical_description = ?, main_outfit_name = ?, main_outfit_description = ?,"
-            " face_tuning = ?, face_map = ?, music_library = ?, active = 1 WHERE id = ?",
+            " face_tuning = ?, face_map = ?, pose_tuning = ?, music_library = ?, active = 1 WHERE id = ?",
             (pack_key, vals["name"], vals["description"], vals["sequence"],
              vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
              vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
              vals["base_gestures"], vals["physical_description"],
              vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
-             vals["face_map"], vals["music_library"], row["id"]),
+             vals["face_map"], vals["pose_tuning"], vals["music_library"], row["id"]),
         )
         return row["id"]
     cur = con.execute(
         "INSERT INTO avatars (pack_key, name, description, sequence, vrm_path, vrma_idle_path,"
         " emotion_decay, fidgets, fidget_interval, restrict_base_gestures, base_gestures,"
         " physical_description, main_outfit_name, main_outfit_description, face_tuning,"
-        " face_map, music_library) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " face_map, pose_tuning, music_library)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (pack_key, vals["name"], vals["description"], vals["sequence"],
          vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
          vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
          vals["base_gestures"], vals["physical_description"],
          vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
-         vals["face_map"], vals["music_library"]),
+         vals["face_map"], vals["pose_tuning"], vals["music_library"]),
     )
     return cur.lastrowid
 
@@ -343,6 +381,7 @@ def _scan_pack(con, pack_dir, url_root):
         "main_outfit_description": _text_or_none(manifest.get("main_outfit_description")),
         "face_tuning": _face_tuning(manifest.get("face_tuning")),
         "face_map": _face_map(manifest.get("face_map")),
+        "pose_tuning": _pose_tuning(manifest.get("pose_tuning")),
         "music_library": 0 if manifest.get("music_library") is False else 1,
     })
 
@@ -394,10 +433,10 @@ def _scan_pack(con, pack_dir, url_root):
             continue
         con.execute(
             "INSERT INTO avatar_outfits (avatar_id, name, sequence, vrm_path, outfit_description,"
-            " face_tuning, face_map) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " face_tuning, face_map, pose_tuning) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (avatar_id, str(o.get("name") or f"Outfit {i + 1}"), (i + 1) * 10,
              path, o.get("description") or None, _face_tuning(o.get("face_tuning")),
-             _face_map(o.get("face_map"))),
+             _face_map(o.get("face_map")), _pose_tuning(o.get("pose_tuning"))),
         )
 
     seen_enums = set()

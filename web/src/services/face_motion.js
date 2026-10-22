@@ -185,7 +185,7 @@ const FACE_ACCENTS = {
     { Blush: 1 }, { blush: 1 }, { 照れ: 1 }, { 赤面: 1 }],
 };
 // A look's own mapping (face_map.channels) replaces the options above with
-// shapes picked in Tune face. These channels play one of them at a time.
+// shapes picked in Tune model. These channels play one of them at a time.
 const FACE_SIDED = new Set(["wink", "smirk"]);
 // How a mapped shape is treated in update, by the channel it was mapped to:
 // a mouth one yields to the lip-sync like MOUTH_SHAPE, an open-mouth one
@@ -210,7 +210,7 @@ export function feelingParts(feeling, level) {
         ...(level === 2 ? at("arrive").map(([part]) => ({ part, arrive: true })) : []),
     ];
 }
-// Per-look tuning (the avatar editor's Tune face): a strength per channel,
+// Per-look tuning (the avatar editor's Tune model): a strength per channel,
 // 1 = the numbers above on the shapes the model's author drew, and per
 // own-emotion expression (`emotion:<state>`, set_emotion's cap). Models
 // that share VRoid's shape names do not share their sizes — the same
@@ -1322,6 +1322,17 @@ export class FaceMotion {
             }
         }
         return max;
+    }
+
+    /** The idle's hand moment (idle_motion.js MOMENT_*): a soft smile on
+     *  this model's own smile channel — the mouth only, never the whole-face
+     *  `happy` — in over `rise`, held, out over `fall` (seconds). It mixes
+     *  like any item, and stands aside for an emotion the same way. */
+    idleSmile({ weight, rise, hold, fall }) {
+        const got = this._channel(this._rigFor(), "smile", weight);
+        if (!got) return;
+        const now = performance.now() / 1000;
+        this.items.push({ ...got, start: now, rise, hold, fall, burst: false });
     }
 
     /** The tuning dialog: one channel alone at full strength (its tuning

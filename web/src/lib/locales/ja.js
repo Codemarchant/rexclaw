@@ -713,7 +713,6 @@ export const JA = {
   "OpenAI's raw PCM is 24 kHz 16-bit mono, and starts playing a little sooner.":
     "OpenAI の Raw PCM は 24 kHz・16 ビット・モノラルで、少し早く再生が始まります。",
   "24000 for OpenAI.": "OpenAI は 24000。",
-  "OpenAI voice (marin, cedar, coral, alloy...)": "OpenAI の声（marin、cedar、coral、alloy など）",
   // Speech-to-speech setups (server/pipeline/realtime.py)
   "OpenAI Realtime": "OpenAI Realtime",
   "OpenAI's speech-to-speech models: one model hears you and answers in its own voice, billed per token. Web search and code run through delegate_task on this setup's brain.":
@@ -1105,7 +1104,6 @@ export const JA = {
   "Pop out avatar": "アバターをポップアウト",
   "Emotions & gestures": "感情とジェスチャー",
   "Companion & call": "コンパニオンと通話",
-  "Share screen": "画面共有",
   "Pop back in": "アプリウィンドウに戻す",
   "Transcript window": "トランスクリプトウィンドウ",
   "Play on the desktop avatar right away, call or no call.":
@@ -1301,7 +1299,6 @@ export const JA = {
   "Screen height": "画面の高さ",
   "Set the height to this display's full height (taskbar excluded)":
     "高さをこのディスプレイいっぱいに設定（タスクバーを除く）",
-  "Outfit": "衣装",
   "Placement": "配置",
   "Snap to corner": "コーナーに配置",
   "Next monitor": "次のモニターへ",
@@ -1504,8 +1501,7 @@ export const JA = {
     "「コア」記憶（名前、好み、進行中のプロジェクトなど）として、毎セッションのプロンプトにそのまま常時挿入される件数の上限です。必要に応じて検索されるリコール記憶には影響しません。上限を上げるとプロフィールをより長く固定できますが、プロンプトのトークン消費が増えます。下げるとセッションを軽量に保てます。上限に達すると、単に一番古いコア記憶を忘れるのではなく、何を忘れるべきかコンパニオン自身の判断で考えるよう促されます。",
   "Code execution (text)": "コード実行（テキスト）",
 
-  // History tab
-  "History": "履歴",
+  // History tab (its title is "History" — above)
 
   // Confirm dialog
   "Are you sure?": "本当によろしいですか？",
@@ -2180,6 +2176,125 @@ export const JA = {
   "Sort: name": "並び順: 名前",
   "Sort: created": "並び順: 作成順",
 
+  // ── Avatar editor: Tune model dialog (FaceTuningDialog) ───────────────
+  "Tune model": "モデルを調整",
+  "How strongly the face moves on this model, which of its shapes it uses, and how far its arms hang out when standing — for a model whose expressions come out too big or too small, that has its own, or whose arms go through its body or clothes":
+    "このモデルで顔がどれだけ動くか、どのシェイプを使うか、立っているときに腕をどれだけ開くか — 表情が大きすぎる・小さすぎるモデル、独自のシェイプを持つモデル、腕が体や服を貫通するモデル向けです",
+  "How strongly each part of the face moves on this model. 1 plays the shapes as the model's author drew them. Auto-tune scales down the parts this model draws bigger than a typical VRoid model. Play a part, a feeling or a gesture to see it; the sliders it uses light up.":
+    "このモデルで顔の各パーツがどれだけ動くかを設定します。1 はモデル作者が作ったとおりのシェイプです。「自動調整」は、一般的な VRoid モデルより大きく動くパーツを小さくします。パーツ・気持ち・ジェスチャーを再生すると確認でき、使われているスライダーが光ります。",
+  "No match": "一致なし",
+  "Add a shape… (search by name or meaning)": "シェイプを追加…（名前か意味で検索）",
+  "Could not load this model.": "このモデルを読み込めませんでした。",
+  "Off: this part shows nothing on this model.": "オフ: このモデルではこのパーツは何も表示しません。",
+  "Your shapes, in place of what rexclaw finds:": "rexclaw が見つけるものの代わりに使う、あなたのシェイプ:",
+  "Not on this model. Add its shapes to use it.": "このモデルにはありません。使うにはシェイプを追加してください。",
+  "Found by name": "名前で検出",
+  "From the model's own emotion expressions (their eye or mouth half).":
+    "モデル自身の感情表情から（目または口の半分）。",
+  "From the model's expression": "モデルの表情から",
+  "Face close up": "顔のアップ",
+  "Head and shoulders": "胸から上",
+  "drag to turn, scroll to zoom": "ドラッグで回転、スクロールでズーム",
+  "Back to the normal size": "通常サイズに戻す",
+  "Pop out: a bigger preview beside the sliders": "ポップアウト: スライダーの横に大きなプレビュー",
+  "no face part on this model": "このモデルに該当する顔パーツなし",
+  "Nothing played yet.": "まだ何も再生していません。",
+  "Play this feeling at level %s": "この気持ちをレベル %s で再生",
+  "Levels: 1 light, 2 clear, 3 peak. A slider scales its part at every level.":
+    "レベル: 1 軽め、2 はっきり、3 ピーク。スライダーはすべてのレベルでそのパーツを拡大縮小します。",
+  "Loading the model…": "モデルを読み込み中…",
+  "Body": "体",
+  "Arm spread": "腕の開き",
+  "Procedural idle events": "自動待機モーション",
+  "What the companion does now and then while standing idle, for this model. Not used when the avatar has its own idle animation.":
+    "待機中に立っているとき、このモデルでときどき行う動作です。アバターに独自の待機アニメーションがある場合は使われません。",
+  "Hand on hip": "腰に手を当てる",
+  "Weight shifts": "重心移動",
+  "Now and then, when standing idle, the companion moves their weight onto one leg, or out and back, and the hips sway with it. Turn it off to keep the weight on both legs (a hand on the hip still leans onto its side).":
+    "待機中に立っているとき、ときどき片足に重心を移したり、少し移して戻したりし、それに合わせて腰が揺れます。オフにすると重心は両足のままです（腰に手を当てるときは、その側に体重を預けます）。",
+  "about %s an hour": "1時間に約 %s 回",
+  "Now and then, when standing idle, the companion rests a hand on the hip. Turn it off for a model the pose doesn't suit.":
+    "待機中に立っているとき、ときどき腰に手を当てます。このポーズが合わないモデルではオフにしてください。",
+  "How far the arms hang out from the body when standing idle, in degrees on top of what rexclaw measures for this model. Raise it if the hands or arms go through the hips or a skirt; lower it if they hang too wide. Not used when the avatar has its own idle animation.":
+    "待機中に立っているとき、腕を体からどれだけ離して下ろすか（このモデルに対して rexclaw が測った角度に加える度数）。手や腕が腰やスカートを貫通するなら上げ、開きすぎなら下げてください。アバターに独自の待機アニメーションがある場合は使われません。",
+  "This model": "このモデル",
+  "Typical": "一般的",
+  "Not on this model": "このモデルにはありません",
+  "Choose this part's shapes on the model": "このパーツに使うモデルのシェイプを選ぶ",
+  "Back to the shapes rexclaw finds by itself": "rexclaw が自動で見つけるシェイプに戻す",
+  "Automatic": "自動",
+  "This part shows nothing on this model": "このモデルではこのパーツを何も表示しない",
+  "Feelings": "気持ち",
+  "What each feeling shows at each level. Keep or drop its built-in parts, and add parts or the model's own shapes at weights of your own: heart or star eyes, say, which look broken half-way, so give them 1.":
+    "各気持ちが各レベルで何を表示するか。組み込みのパーツを残すか外し、パーツやモデル自身のシェイプを好きな強さで追加できます。たとえばハートや星の目は途中の値だと崩れて見えるので 1 にしてください。",
+  "own at level": "独自設定のレベル",
+  "Play this feeling at this level": "この気持ちをこのレベルで再生",
+  "Built-in parts": "組み込みパーツ",
+  "as it arrives": "表れるとき",
+  "none": "なし",
+  "Add a part…": "パーツを追加…",
+  "Individual shapes": "個別のシェイプ",
+  "The model's own shapes behind the parts above, for a part made of several: the smiling eyes move both the eyes and the brows, for example. These multiply with the part's slider.":
+    "上のパーツの元になっているモデル自身のシェイプです（複数のシェイプでできたパーツ用。たとえば笑顔の目は目と眉の両方を動かします）。パーツのスライダーと掛け合わされます。",
+  "Scale down the parts this model draws bigger than a typical VRoid model":
+    "一般的な VRoid モデルより大きく動くパーツを小さくする",
+  "Auto-tune": "自動調整",
+  "Everything back to the model as rexclaw finds it: every slider to 1, the parts' own shapes and the feelings' setups cleared":
+    "すべてを rexclaw が見つけたモデルの状態に戻します: スライダーはすべて 1、パーツ独自のシェイプと気持ちの設定はクリア",
+  "Reset": "リセット",
+  // feelings the face director plays (ids)
+  "warm": "あたたかい",
+  "happy": "うれしい",
+  "teasing": "からかい",
+  "excited": "わくわく",
+  "proud": "得意げ",
+  "puzzled": "困惑",
+  "surprised": "びっくり",
+  "embarrassed": "照れ",
+  "huffy": "むっ",
+  "worried": "心配",
+  "scared": "こわい",
+  "sad": "かなしい",
+  "annoyed": "いらいら",
+  // gestures the preview plays
+  "Nod": "うなずき",
+  "a yes: a nod with the brows raised": "肯定: 眉を上げてうなずく",
+  "head nod": "頭のうなずき",
+  "Shake": "首振り",
+  "a no: a head shake with the brows knitted": "否定: 眉をひそめて首を横に振る",
+  "head shake": "頭の首振り",
+  "Wink": "ウィンク",
+  "a wink at the end of the line": "セリフの最後にウィンク",
+  "Glance": "視線そらし",
+  "looking away to think: up and aside for a few seconds, as when asked something or puzzled":
+    "考えるために目をそらす: 何かを聞かれたときや困ったときのように、数秒間上の横を見る",
+  "Level 1 · light": "レベル 1 · 軽め",
+  "Level 2 · clear (stays under a level-3 peak)": "レベル 2 · はっきり（レベル 3 のピークの下でも続く）",
+  "Level 3 · peak (a few seconds over level 2, then fades back)": "レベル 3 · ピーク（レベル 2 の上に数秒、その後戻る）",
+  // face parts (face_motion.js FACE_TUNING)
+  "Brows": "眉",
+  "Raised": "上げ",
+  "Knitted": "ひそめ",
+  "Worried": "困り眉",
+  "Eyes": "目",
+  "Widened": "見開き",
+  "Smiling eyes": "笑顔の目",
+  "Soft eyes": "穏やかな目",
+  "Sad eyes": "悲しい目",
+  "Angry eyes": "怒りの目",
+  "Eye movement": "目の動き",
+  "Mouth": "口",
+  "Smile": "ほほえみ",
+  "Smirk": "にやり",
+  "Pout": "口をとがらせる",
+  "Grin": "にっこり",
+  "Sad mouth": "悲しい口",
+  "Tense mouth": "こわばった口",
+  "Angry mouth": "怒りの口",
+  "Shocked mouth": "驚きの口",
+  "Blush": "赤面",
+  "Their own emotions (set_emotion)": "モデル自身の感情（set_emotion）",
+
   // ── Avatar editor: collapsible list rows ──────────────────────────────
   "partner:": "パートナー:",
   "Revert this entry to how it was when you opened it (a new entry is removed)":
@@ -2273,7 +2388,6 @@ export const JA = {
     "Rexclaw は多くの方々の成果の上に成り立っています。ライセンスは各プロジェクトの表記に従い、全文は依存関係そのものに同梱されています。",
   "Avatars & animation": "アバターとアニメーション",
   "Motion library": "モーションライブラリ",
-  "Voice activation": "音声起動",
   "Minecraft sidecar": "Minecraft サイドカー",
   "pixiv Inc. The built-in gesture clips. Commercial use permitted with credit.":
     "pixiv Inc.。組み込みのジェスチャークリップ。クレジット表記により商用利用可。",

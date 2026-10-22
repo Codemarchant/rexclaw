@@ -556,16 +556,18 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     const isPackFile = (ref) => ref && !ref.startsWith("/");
     const fileUrl = (ref) => (ref.startsWith("/") ? ref : `/avatars/${pack_key}/${ref}`);
 
-    // Tune face: the dialog for one look — { title, vrm, value, apply }.
-    // Tuning belongs to the model, so the main look and each outfit carry
-    // their own `face_tuning`; Apply puts it in the draft like any edit.
+    // Tune model: the dialog for one look — { title, vrm, value, map, pose,
+    // apply }. Tuning belongs to the model, so the main look and each outfit
+    // carry their own `face_tuning`, `face_map` and `pose_tuning` (the arm
+    // spread, idle events switched off); Apply puts them in the draft like
+    // any edit.
     const [tuning, setTuning] = useState(null);
-    const tuneButton = (title, vrm, value, map, apply) => (
+    const tuneButton = (title, vrm, value, map, pose, apply) => (
         <button className="btn btn-sm btn-light" disabled={!vrm || !pack_key}
-                title={_t("How strongly the face moves on this model, and which of its shapes it uses — for a model whose expressions come out too big or too small, or that has its own")}
-                onClick={() => setTuning({ title, vrm, value, map, apply })}>
-            <i className="fa fa-sliders" /> {_t("Tune face")}
-            {(value && Object.keys(value).length) || map ? " •" : ""}
+                title={_t("How strongly the face moves on this model, which of its shapes it uses, and how far its arms hang out when standing — for a model whose expressions come out too big or too small, that has its own, or whose arms go through its body or clothes")}
+                onClick={() => setTuning({ title, vrm, value, map, pose, apply })}>
+            <i className="fa fa-sliders" /> {_t("Tune model")}
+            {(value && Object.keys(value).length) || map || (pose && Object.keys(pose).length) ? " •" : ""}
         </button>
     );
     // Two portrait kinds per VRM, both sidecars beside it (POST
@@ -689,7 +691,8 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                 </span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: "0.6rem" }}>
                     {tuneButton(manifest.main_outfit_name || manifest.name, manifest.vrm, manifest.face_tuning,
-                        manifest.face_map, (t, map) => setM({ face_tuning: t, face_map: map }))}
+                        manifest.face_map, manifest.pose_tuning,
+                        (t, map, pose) => setM({ face_tuning: t, face_map: map, pose_tuning: pose }))}
                     {canGeneratePortrait && (
                         <PortraitMenu filename={manifest.vrm}
                                       busy={generating === manifest.vrm || generating === "*"}
@@ -814,8 +817,8 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                                                   [_t("Full-body portrait"), () => generateOne(o.vrm, "fullbody")],
                                               ]} />
                             )}
-                            {tuneButton(o.name, o.vrm, o.face_tuning, o.face_map,
-                                (t, map) => setList("outfits", i, { face_tuning: t, face_map: map }))}
+                            {tuneButton(o.name, o.vrm, o.face_tuning, o.face_map, o.pose_tuning,
+                                (t, map, pose) => setList("outfits", i, { face_tuning: t, face_map: map, pose_tuning: pose }))}
                         </div>
                         {rowButtons}
                     </div>
@@ -1253,8 +1256,8 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
             {tuning && (
                 <FaceTuningDialog title={tuning.title} vrmUrl={fileUrl(tuning.vrm)}
                                   idleUrl={manifest.vrma_idle ? fileUrl(manifest.vrma_idle) : null}
-                                  value={tuning.value} mapValue={tuning.map}
-                                  onApply={(t, map) => { tuning.apply(t, map); setTuning(null); }}
+                                  value={tuning.value} mapValue={tuning.map} poseValue={tuning.pose}
+                                  onApply={(t, map, pose) => { tuning.apply(t, map, pose); setTuning(null); }}
                                   onClose={() => setTuning(null)} />
             )}
         </>
