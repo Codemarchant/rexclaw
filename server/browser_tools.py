@@ -120,8 +120,10 @@ SCREENSHOT_TOOL = {
         "stale content. "
         "Use it when you need the raw capture itself (create_video "
         "source material, local_task input, or the user wants the shot "
-        "saved); when they just want their screen or camera view READ, "
-        "call analyze_screen instead - it captures and analyzes in one step."
+        "saved). Whenever YOU want to look - at their screen, at them, at "
+        "something they show you - call analyze_screen instead, even when "
+        "they word it as 'take the pic' or 'screenshot this': it captures "
+        "and analyzes in one step."
     ),
     "parameters": {
         "type": "object",
