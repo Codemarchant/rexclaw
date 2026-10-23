@@ -260,6 +260,16 @@ const TOUCH_TUNING = {
     bustScale: 0.35,      // wind / tap strength on bust chains (never collided, see above)
 };
 const TOUCH_NO_COLLIDE_RE = /bust/i;   // spring chains the cursor sphere passes through
+// A toy's breeze (models/toys: a fan, a hair dryer), as gravity power per
+// m/s of air, capped; each strand flutters ±30 % on its own phase. By eye:
+// a fan's 1 m/s clearly streams VRoid hair, a hair dryer at the head tops
+// out. Clothing gets a lower cap and only sways: its pull stays within
+// TOY_WIND_SWAY of straight down.
+const TOY_WIND_GAIN = 0.6;
+const TOY_WIND_MAX = 2.0;
+const TOY_WIND_MAX_BODY = 0.8;
+const TOY_WIND_SWAY = 30 * Math.PI / 180;
+const TOY_WIND_FLUTTER = 0.3;
 
 // Lighting presets. Each is a key light (the only shadow caster), an
 // optional low fill, a hemisphere sky/ground pair, a flat ambient and an
@@ -950,6 +960,7 @@ class AvatarRenderer {
         this._xrFrameCallbacks = new Set(); // per-XR-frame consumers (controllers, touch detection)
         this._xrSessionListeners = new Set(); // VR add-ons notified on session start/end (vr_manager)
         this._preVRMUpdateCallbacks = new Set(); // run after animation poses bones, before vrm.update (ragdoll write-back)
+        this._frameCallbacks = new Set();   // flat-mode, once everything is posed, before the draw (the toys)
         this._xrHandColliderGroup = null; // runtime spring-bone collider group for the VR hands (see attachSpringBoneColliders)
         // Look prefs (lib/render_prefs.js): lighting rig + cursor touch physics.
         this._lights = null;              // { ambient, key, rim, fill, hemi } built in _buildLightRig
@@ -1372,8 +1383,12 @@ class AvatarRenderer {
      *  motions do; the built-in gestures stay on the spot) leaves the avatar
      *  standing where the clip ended instead of easing back to where it
      *  started — see _commitTravel. Only honoured inside a 3D scene. */
-    async playGesture(url, { loop = false, auto = false, keepTravel = false } = {}) {
+    async playGesture(url, { loop = false, auto = false, keepTravel = false, toy = false } = {}) {
         if (!this.vrm || !this.mixer || !url) return;
+        // Busy with a toy (toyBusy, set by models/toys/scene_stage.js): the
+        // toy routine's clips own the body; anything else would cut it off
+        // mid-sip. The face still follows setEmotion.
+        if (this.toyBusy && !toy) return;
         // Locomotion owns the body while walking — drop body gestures rather
         // than fight the walk clip for bones (face/emotion blendshapes still
         // apply; they're expressionManager-level).
@@ -1483,7 +1498,8 @@ class AvatarRenderer {
      *  keep `_gestureAction` set (and `isRunning()`) through the fade so
      *  procedural idle stays suppressed mid-crossfade, then stop+clear it.
      *  No-op when nothing is playing. */
-    stopGesture() {
+    stopGesture({ toy = false } = {}) {
+        if (this.toyBusy && !toy) return;
         // Combos ride _gestureAction for the base clip, so the fade below
         // covers them too — this additionally retires the partner character
         // and cancels a combo still downloading. No-op when none is active.
@@ -1497,7 +1513,7 @@ class AvatarRenderer {
      *  wave or a two-character dance short; auto-played clips themselves
      *  don't count, so emotions still replace each other freely. */
     isGestureBusy() {
-        if (this._perf) return true;
+        if (this._perf || this.toyBusy) return true;
         if (this._comboPartner || this._comboLivePeer) return true;
         const action = this._gestureAction;
         return !!(action && !this._gestureAuto && action.isRunning());
@@ -2057,7 +2073,7 @@ class AvatarRenderer {
      *  the browser HTTP cache makes replays cheap without holding tens of MB
      *  of geometry between plays. */
     async playComboGesture(combo) {
-        if (!this.vrm || !this.mixer) return false;
+        if (!this.vrm || !this.mixer || this.toyBusy) return false;
         if (!combo?.vrma_url || !combo?.partner_vrm_url || !combo?.partner_vrma_url) return false;
         // Already performing (or still loading) THIS combo: nothing to
         // restage. Starting is idempotent on purpose — two companions
@@ -2752,14 +2768,16 @@ class AvatarRenderer {
     setPeerSpeakingIntensity(peerId, value) {
         const peer = this._peers.get(peerId);
         if (peer) peer._rawSpeakingIntensity = Math.max(0, Math.min(1, value || 0));
+        // Anyone in the call talking holds the toys' idle play off too.
+        if (peer && peer._rawSpeakingIntensity > 0.1) this.lastSpeechAt = Date.now();
     }
 
-    setPeerEmotion(peerId, name, { settle = false } = {}) {
+    setPeerEmotion(peerId, name, { settle = false, marks = true } = {}) {
         const peer = this._peers.get(peerId);
         if (!peer || !EMOTION_STATES[name]) return;
         // Mood marks as on the base avatar (setEmotion): every deliberate
-        // change, not the automatic settle.
-        if (!settle) this._peerMoodMarks(peer)?.show(name);
+        // change, not the automatic settle (nor a toy's moment: `marks`).
+        if (!settle && marks) this._peerMoodMarks(peer)?.show(name);
         peer._currentEmotion = name;
         peer._emotionTransitionProgress = 0;
         peer._emotionTransitionStart = null;
@@ -2781,9 +2799,11 @@ class AvatarRenderer {
     /** Play a VRMA gesture on a peer. Mirrors playGesture's crossfade
      *  choreography, scoped to the peer's mixer/idle action. Combos are
      *  base-avatar-only (the dispatcher falls back to the solo clip). */
-    async playPeerGesture(peerId, url, { loop = false, auto = false } = {}) {
+    async playPeerGesture(peerId, url, { loop = false, auto = false, toy = false } = {}) {
         const peer = this._peers.get(peerId);
         if (!peer?.vrm || !peer.mixer || !url) return;
+        // Busy with a toy, as the base avatar's playGesture.
+        if (peer.toyBusy && !toy) return;
         // This peer may currently be borrowed as a combo partner — a fresh
         // gesture on it retires the whole combo first (both characters),
         // mirroring how a new base gesture replaces a running combo.
@@ -2921,14 +2941,15 @@ class AvatarRenderer {
     isPeerGestureBusy(peerId) {
         const peer = this._peers.get(peerId);
         if (!peer) return false;
+        if (peer.toyBusy) return true;
         if (this._comboLivePeer?.peer === peer) return true;
         const action = peer._gestureAction;
         return !!(action && !peer._gestureAuto && action.isRunning());
     }
 
-    stopPeerGesture(peerId) {
+    stopPeerGesture(peerId, { toy = false } = {}) {
         const peer = this._peers.get(peerId);
-        if (!peer) return;
+        if (!peer || (peer.toyBusy && !toy)) return;
         // Borrowed as a combo partner: 'idle' retires the whole combo (both
         // characters return to their spots) — same as stopGesture on base.
         if (this._comboLivePeer?.peer === peer) {
@@ -3409,7 +3430,7 @@ class AvatarRenderer {
         actor._returnFacingY = null;
         // Movement owns the body: ease out any in-flight gesture first
         // (for the base this also retires a running combo).
-        if (actor === this) this.stopGesture();
+        if (actor === this) this.stopGesture({ toy: true });
         else this.stopPeerGesture(actor.id);
         const action = await this._ensureWalkAction(actor);
         if (!action) return;             // load failed — slide without the clip
@@ -3565,9 +3586,11 @@ class AvatarRenderer {
         let speed = MOVE_SPEED;
         const leg = actor === this && this._moveTarget ? this._staging?.walk : null;
         if (leg) {
+            // A toy's run (toyWalkTo `rate`) scales the stroll.
+            const rate = leg.rate || 1;
             const cap = Math.max(STAGE_MIN_SPEED,
-                STAGE_SPEED * Math.min(1, targetDist / STAGE_SLOW_RADIUS));
-            leg.speed = Math.min(cap, (leg.speed || 0) + STAGE_ACCEL * delta);
+                STAGE_SPEED * rate * Math.min(1, targetDist / STAGE_SLOW_RADIUS));
+            leg.speed = Math.min(cap, (leg.speed || 0) + STAGE_ACCEL * rate * delta);
             speed = leg.speed;
         }
         actor._walkAction?.setEffectiveTimeScale(speed / MOVE_SPEED);
@@ -3903,6 +3926,64 @@ class AvatarRenderer {
         this._moveActorId = "base";
         st.walk = { startedAt: performance.now(), speed: 0 };
         this.walkTo(leg.x, leg.z);
+    }
+
+    /** Toys (models/toys/scene_stage.js): walk the companion to a floor spot
+     *  as one staged leg, at `rate` × the stroll — the camera holds still
+     *  while they cross to it, as for move_around. False where they can't
+     *  walk about (VR, roaming, a group call, a song). */
+    /** Whether toyWalkTo can walk them anywhere now (not in a group call's
+     *  row, a song, VR or roaming). */
+    get toyCanWalk() { return !!this.vrm && !this._xrActive && !this._roam && !this._peers.size && !this._perf; }
+
+    /** Whether toy routines are on hold: VR (no frame callbacks run there to
+     *  play them out) or a Manga Diary photoshoot (it poses the body). */
+    get toyPaused() { return this._xrActive || !!this._photoShoot; }
+
+    toyWalkTo(x, z, rate = 1) {
+        if (!this.toyCanWalk) return false;
+        const st = (this._staging ||= { close: false, walk: null, queue: [], pauseUntil: 0, yOffset: 0, baseY: null });
+        this._followCam = false;
+        st.queue = [];
+        st.close = false;
+        st.pauseUntil = 0;
+        this._moveActorId = "base";
+        st.walk = { startedAt: performance.now(), speed: 0, rate };
+        this.walkTo(x, z);
+        return true;
+    }
+
+    /** Still on the way somewhere (toyWalkTo, walkTo). */
+    get toyWalking() { return !!(this._moving || this._moveTarget); }
+
+    /** Turn to a floor point where they stand (eased, as after a walk). */
+    toyFace(x, z) {
+        if (!this.vrm) return;
+        const p = this.vrm.scene.position;
+        if (Math.hypot(x - p.x, z - p.z) < 0.05) return;
+        this._returnFacingY = Math.atan2(x - p.x, z - p.z);
+    }
+
+    toyFaceCamera() { this._faceCamera(this); }
+
+    /** The flat view's camera and what it orbits round (null without orbit). */
+    toyCamera() {
+        if (!this.camera || !this._orbitControls) return null;
+        return { position: this.camera.position, target: this._orbitControls.target, fov: this.camera.fov, aspect: this.camera.aspect };
+    }
+
+    /** The view's own framing again, round where the companion stands now
+     *  (after a toy stage widened the shot). */
+    toyReframe() {
+        if (!this._xrActive && !this._roam) this._applyCameraPreset();
+    }
+
+    /** Move the orbit camera (a toy stage widening the shot). */
+    setToyCamera(position, target) {
+        if (!this._orbitControls) return;
+        this.camera.position.copy(position);
+        this._orbitControls.target.copy(target);
+        this._camFollowPos = null;
     }
 
     /** Turn an actor to the camera where it stands (same ease the end of a
@@ -4846,10 +4927,16 @@ class AvatarRenderer {
         if (!this._stageCam) this._stageCam = { restore: this._cameraOrbit(), orbitWasOn: !!this._orbitControls };
         this._stageCam.shot = null;
         this._disableOrbit();
+        // The shoot poses the body itself: a toy routine lets go of it
+        // (toyHalt, set by models/toys/scene_stage.js), and none starts
+        // till it's over (toyPaused).
+        this._photoShoot = true;
+        this.toyHalt?.();
         return true;
     }
 
     endPhotoShoot() {
+        this._photoShoot = false;
         if (this._stageCam && !this._stageCam.shot) this._endStageCamera();
     }
 
@@ -5137,6 +5224,9 @@ class AvatarRenderer {
      *  (look alive immediately) + slow release (no whiplash on interrupt). */
     setSpeakingIntensity(value) {
         this._rawSpeakingIntensity = Math.max(0, Math.min(1, value || 0));
+        // When they were last audibly talking (the toys hold off idle play
+        // round it); past the same 0.1 that counts as speaking above.
+        if (this._rawSpeakingIntensity > 0.1) this.lastSpeechAt = Date.now();
     }
 
     /** Reset all transient expression state to a clean neutral baseline.
@@ -5475,6 +5565,9 @@ class AvatarRenderer {
         } else {
             this._disableOrbit();
         }
+        // A fresh shot always has them facing it, wherever they were turned
+        // (to a toy, a goal) when the view changed.
+        this._faceCamera(this);
     }
 
     /** Returns the active camera framing, auto-fitted to the loaded VRM's
@@ -5691,14 +5784,15 @@ class AvatarRenderer {
         this._orbitControls = null;
     }
 
-    setEmotion(name, { explicit = true, settle = false } = {}) {
+    setEmotion(name, { explicit = true, settle = false, marks = true } = {}) {
         if (!EMOTION_STATES[name]) return;
         // Mood marks pop for every deliberate change — the LLM's set_emotion
         // or the manual buttons (those pass explicit: false; `explicit` only
-        // means LLM-driven) — but not for the automatic settle below.
-        if (!settle) this._moodMarks?.show(name);
+        // means LLM-driven) — but not for the automatic settle below, nor
+        // for a face that only goes with play (`marks: false`, the toys).
+        if (!settle && marks) this._moodMarks?.show(name);
         this._currentEmotion = name;
-        if (!settle) this._playMoodAmbience(name);
+        if (!settle && marks) this._playMoodAmbience(name);
         // Decay: settle back toward neutral after the reaction beat unless
         // the avatar's config opts out. Every call cancels the previous
         // pending settle, so a happy → angry transition isn't clobbered back
@@ -6349,11 +6443,15 @@ class AvatarRenderer {
         const amb = this._ambientExpressions(actor);
         const speaking = ["aa", "ih", "ou", "ee", "oh"]
             .some((v) => (actor._currentVowels[v] || 0) > 0.01);
+        // A toy's bite or catch (toyMouth), while they aren't talking.
+        const toy = !speaking && actor._toyMouth && performance.now() < actor._toyMouth.until
+            ? actor._toyMouth.v : null;
         for (const canonical of ["aa", "ih", "ou", "ee", "oh"]) {
-            if (ge && !speaking && ge.has(canonical)) continue;
+            if (ge && !speaking && !toy && ge.has(canonical)) continue;
             // Use the discovered alias if available, fall back to canonical name.
             const exprName = vm?.[canonical] ?? canonical;
-            const live = (actor._currentVowels[canonical] || 0) * (m[canonical] ?? 1);
+            let live = (actor._currentVowels[canonical] || 0) * (m[canonical] ?? 1);
+            if (toy?.[canonical]) live = Math.max(live, toy[canonical]);
             exp.setValue(exprName, amb?.has(canonical)
                 ? Math.max(exp.getValue?.(exprName) || 0, live)
                 : live);
@@ -6916,7 +7014,12 @@ class AvatarRenderer {
             this._toolProps.update(delta,
                 this.renderer.getDrawingBufferSize(this._sizeScratch ||= new this.libs.THREE.Vector2()).y);
         }
-        if (!this._xrActive) this._updatePortraitBlur();
+        if (!this._xrActive) {
+            for (const cb of this._frameCallbacks) {
+                try { cb(delta, now); } catch (e) { console.error("[voice] frame callback failed", e); }
+            }
+            this._updatePortraitBlur();
+        }
         this._draw();
     }
 
@@ -7327,6 +7430,7 @@ class AvatarRenderer {
                 for (const m of mats) if (m) m.needsUpdate = true;
             });
         }
+        this._applyLightLevels(preset);
         for (const vrm of this._allVrms()) this._applyAvatarLook(vrm.scene);
         this._updateLightRig();
     }
@@ -7402,6 +7506,12 @@ class AvatarRenderer {
         };
         aim(lights.key, preset.key);
         aim(lights.fill, preset.fill);
+        // Lamps on: the room's light eases down (setToyDim), a step a frame.
+        const want = this._toyDim ?? 1, now = this._toyDimNow ?? 1;
+        if (want !== now) {
+            this._toyDimNow = Math.abs(want - now) < 0.02 ? want : now + Math.sign(want - now) * 0.02;
+            this._applyLightLevels(preset);
+        }
         const catcher = this._shadowCatcher;
         if (catcher) {
             catcher.visible = !!preset.shadow && !!this.vrm && !this._room && !this._xrActive;
@@ -7764,7 +7874,13 @@ class AvatarRenderer {
 
     _updateCursorTouch(delta) {
         const t = this._touch;
-        if (!t || !(delta > 0)) return;
+        if (!(delta > 0)) return;
+        // A toy's breeze works without the cursor collider (touch physics
+        // may be off).
+        if (!t) {
+            if (this._toyWind || this._toyForcing) this._applySpringForces(null, false, false, delta);
+            return;
+        }
         const { THREE } = this.libs;
         const tune = this._touchTuning;
         const s = this._touchScratch ||= {
@@ -7838,19 +7954,44 @@ class AvatarRenderer {
         const tapActive = t.tapT < tune.tapDuration;
         if (tapActive) t.tapT += delta;
         const windActive = t.wind.lengthSq() > 0;
-        if (!windActive && !tapActive) {
-            if (t.forcing) {
+        if (!windActive && !tapActive && !this._toyWind) {
+            if (t.forcing || this._toyForcing) {
                 this._restoreTouchGravity();
                 t.forcing = false;
+                this._toyForcing = false;
             }
             return;
         }
         t.forcing = true;
+        this._applySpringForces(t, windActive, tapActive, delta);
+    }
+
+    /** Every spring joint's gravity this frame: its own, plus the cursor's
+     *  wind and tap (`t`, the touch state, when there is one), plus the
+     *  toys' breeze (_toyWind). */
+    _applySpringForces(t, windActive, tapActive, delta) {
+        const { THREE } = this.libs;
+        const tune = this._touchTuning;
+        const s = this._touchScratch ||= {
+            anchor: new THREE.Vector3(), normal: new THREE.Vector3(), hit: new THREE.Vector3(),
+            plane: new THREE.Plane(), ray: new THREE.Raycaster(), ndc: new THREE.Vector2(),
+            jointPos: new THREE.Vector3(), g: new THREE.Vector3(), tmp: new THREE.Vector3(),
+        };
+        const toyWind = this._toyWind;
+        if (!toyWind && !windActive && !tapActive) {
+            if (this._toyForcing) { this._restoreTouchGravity(); this._toyForcing = false; }
+            return;
+        }
+        this._toyForcing = !!toyWind;
+        this._toyWindT = (this._toyWindT || 0) + delta;
         const windR2 = tune.windRadius * tune.windRadius;
         for (const v of this._allVrms()) {
             const mgr = v.springBoneManager;
             if (!mgr) continue;
+            const head = toyWind ? v.humanoid?.getRawBoneNode?.("head") : null;
+            let i = 0;
             for (const joint of mgr.joints) {
+                i++;
                 let base = this._touchBase.get(joint);
                 if (!base) {
                     base = {
@@ -7862,18 +8003,44 @@ class AvatarRenderer {
                 }
                 s.jointPos.setFromMatrixPosition(joint.bone.matrixWorld);
                 s.g.copy(base.dir).multiplyScalar(base.power);
-                if (windActive) {
+                if (windActive && t) {
                     const d2 = s.jointPos.distanceToSquared(t.host.position);
                     const w = Math.exp(-d2 / windR2) * base.scale;
                     if (w > 0.01) s.g.addScaledVector(t.wind, w);
                 }
-                if (tapActive) {
+                if (tapActive && t) {
                     s.tmp.subVectors(s.jointPos, t.tapPos);
                     const d = s.tmp.length();
                     if (d < tune.tapRadius && d > 1e-4) {
                         const env = 1 - t.tapT / tune.tapDuration;
                         s.g.addScaledVector(s.tmp.divideScalar(d),
                             tune.tapPower * env * (1 - d / tune.tapRadius) * base.scale);
+                    }
+                }
+                // A toy's breeze (a fan, a hair dryer) on every chain. Hair
+                // takes it as it comes; anything else (a skirt, a coat's
+                // tails, ribbons; the chest scaled down as for the cursor)
+                // only sways: never blown upward, and pulled no further off
+                // hanging straight down than TOY_WIND_SWAY.
+                if (toyWind && head) {
+                    const w = toyWind(s.jointPos);
+                    if (w) {
+                        const hair = this._isHairJoint(joint, head);
+                        s.tmp.set(w.x, hair ? w.y : Math.min(0, w.y), w.z);
+                        const sp = s.tmp.length();
+                        if (sp > 0.05) {
+                            // Strands don't all lift at once: each flutters on
+                            // its own phase.
+                            const flutter = 1 + TOY_WIND_FLUTTER * Math.sin(this._toyWindT * 11 + i * 1.7);
+                            const power = Math.min(hair ? TOY_WIND_MAX : TOY_WIND_MAX_BODY, sp * TOY_WIND_GAIN) * flutter
+                                * (hair ? 1 : base.scale);
+                            s.g.addScaledVector(s.tmp, power / sp);
+                            if (!hair) {
+                                const side = Math.hypot(s.g.x, s.g.z);
+                                const down = Math.max(-s.g.y, side / Math.tan(TOY_WIND_SWAY));
+                                s.g.y = -down;
+                            }
+                        }
                     }
                 }
                 const p = s.g.length();
@@ -7886,6 +8053,49 @@ class AvatarRenderer {
                 }
             }
         }
+    }
+
+    /** True for a spring joint hanging off the head (hair, ears, a hat's
+     *  ribbons), cached per joint. */
+    _isHairJoint(joint, head) {
+        const cache = (this._hairJoints ||= new WeakMap());
+        let v = cache.get(joint);
+        if (v === undefined) {
+            v = false;
+            for (let o = joint.bone; o; o = o.parent) if (o === head) { v = true; break; }
+            cache.set(joint, v);
+        }
+        return v;
+    }
+
+    /** A breeze from the toys (models/toys): fn(worldPos) → {x, y, z} m/s,
+     *  or null; null clears it. */
+    setToyWind(fn) {
+        this._toyWind = fn || null;
+    }
+
+    /** The toys (models/toys): the mouth held in a vowel shape for `ms` (a
+     *  bite, a lick, a catch), e.g. {aa: 0.8}; speech still wins it. */
+    toyMouth(shape, ms, peerId = null) {
+        const actor = peerId == null ? this : this._peers.get(peerId);
+        if (actor) actor._toyMouth = { v: shape, until: performance.now() + ms };
+    }
+
+    /** The toys' lamps (models/toys): the room's own light (the preset's
+     *  ambient, key, fill and sky) at `k` of itself, eased there over about
+     *  half a second; 1 is the preset as it is. */
+    setToyDim(k) {
+        this._toyDim = Math.max(0, Math.min(1, k ?? 1));
+    }
+
+    /** The preset's intensities scaled by the lamps' dim (setToyDim). */
+    _applyLightLevels(preset) {
+        const { ambient, key, fill, hemi } = this._lights;
+        const k = this._toyDimNow ?? 1;
+        ambient.intensity = preset.ambient.intensity * k;
+        if (preset.key) key.intensity = preset.key.intensity * k;
+        if (preset.fill) fill.intensity = preset.fill.intensity * k;
+        if (preset.hemi) hemi.intensity = preset.hemi.intensity * k;
     }
 
     /** Put every joint's authored gravity back once the wind has died. */
@@ -7984,6 +8194,14 @@ class AvatarRenderer {
     addPreVRMUpdateCallback(cb) {
         this._preVRMUpdateCallbacks.add(cb);
         return () => this._preVRMUpdateCallbacks.delete(cb);
+    }
+
+    /** Register a per-frame callback in the flat view, run once the avatar is
+     *  posed and updated, just before the frame is drawn (the toys move and
+     *  follow the hands there). Returns an unsubscribe fn. */
+    addFrameCallback(cb) {
+        this._frameCallbacks.add(cb);
+        return () => this._frameCallbacks.delete(cb);
     }
 
     /** Register a per-XR-frame callback (controllers, touch detection). Runs

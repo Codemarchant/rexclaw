@@ -5,13 +5,15 @@ import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES } from "../lib/mascot_link";
 import { AMBIENCE_OPTIONS, ART_STYLE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 import { EMOTIONS, GESTURES } from "../models/avatar_catalog";
 import MascotSongsTab from "./MascotSongsTab.jsx";
+import MascotToysTab from "./MascotToysTab.jsx";
 
 /** Mascot settings window (/#mascot-settings) — the mascot's full control
  *  panel in one friendly place, opened from the overlay island's ⚙ or the
  *  tray's "Full mascot settings" (the only in-app path when the controls
- *  island is hidden). Two tabs: Settings (call controls first, then
- *  behavior/placement/visibility) and Emotions & gestures (the same manual
- *  triggers as the full-screen view, played on the desktop avatar).
+ *  island is hidden). Tabs: Settings (call controls first, then
+ *  behavior/placement/visibility), Emotions & gestures (the same manual
+ *  triggers as the full-screen view, played on the desktop avatar), Songs
+ *  and Toys (the mascot's only toy box).
  *
  *  Two kinds of controls, two transports:
  *  - Overlay-owned state (the call, prefs, emotions/gestures) lives in the
@@ -203,6 +205,10 @@ export default function MascotSettingsView() {
                         <button className={"btn btn-sm " + (tab === "songs" ? "btn-primary" : "btn-light")}
                                 onClick={() => setTab("songs")}>
                             <i className="fa fa-music" /> {_t("Songs")}
+                        </button>
+                        <button className={"btn btn-sm " + (tab === "toys" ? "btn-primary" : "btn-light")}
+                                onClick={() => setTab("toys")}>
+                            <i className="fa fa-gift" /> {_t("Toys")}
                         </button>
                     </div>
                     {!alive && (
@@ -656,6 +662,7 @@ export default function MascotSettingsView() {
                 </>}
 
                 {tab === "songs" && <MascotSongsTab mascot={mascot} alive={alive} send={send} />}
+                {tab === "toys" && <MascotToysTab mascot={mascot} alive={alive} send={send} />}
             </div>
         </div>
     );

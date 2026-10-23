@@ -374,6 +374,777 @@ def throw(b, legs):
     return one
 
 
+# ── toys ────────────────────────────────────────────────────────────────
+# Playing with the toy box (web/src/models/toys/brains.js): picking a toy
+# up, holding, catching and throwing it, the basketball shot, a beach-ball
+# volley, a fan's breeze, a hair dryer,
+# smoke, a hug, blowing bubbles, reading a note, a hot pepper, opening a
+# chest, a bonk on the head. Written to assets/vrma/toys/. The toy itself
+# is placed by the app between the hands (or in the right one), so these
+# only have to bring the hands where a toy would be; the moments the app
+# attaches or lets go of it are noted per clip (brains.js GRAB_MS /
+# RELEASE_MS).
+
+TOYS_DIR = os.path.join(tm.REPO, "assets", "vrma", "toys")
+TOY_CLIPS = set()
+
+
+def toy_clip(cid, dur):
+    TOY_CLIPS.add(cid)
+    return clip(cid, dur)
+
+
+def hold_pose(b, gap=0.12):
+    """Something held in both hands in front of the chest, palms to its
+    sides `gap` out from its middle (0.12: a ball 0.22 m across; SMALL_GAP:
+    a snack, a cup)."""
+    return Pose(
+        spine=rot(pitch=3), chest=rot(), upper_chest=rot(), neck=rot(), head=rot(pitch=4),
+        arm_L=arm("L", at(b.chest, right=-gap, up=-0.14, fwd=0.3), V(fwd=1, up=0.3), V(up=1),
+                  V(right=-1, up=-0.5, fwd=-0.3)),
+        arm_R=arm("R", at(b.chest, right=gap, up=-0.14, fwd=0.3), V(fwd=1, up=0.3), V(up=1),
+                  V(right=1, up=-0.5, fwd=-0.3)),
+        fingers_L=dict(CLAW), fingers_R=dict(CLAW),
+        hips=rot(), hips_off=V(), foot_L=V(), foot_R=V(), feet_free=0,
+    )
+
+
+# Small things (brains.js SMALL_R, under 15 cm across): the hands' middles
+# this far out from theirs, so the palms close on a donut-sized snack.
+SMALL_GAP = 0.065
+
+
+def floor_reach(b, legs, ahead=0.36, height=0.14, gap=0.11):
+    """Squatting, trunk well over, both hands down to something on the
+    floor `ahead` in front of the feet, its sides `gap` out."""
+    # Hand targets are in the armature's own space: the floor between the
+    # feet is its origin.
+    hips_off = V(up=-0.5, fwd=-0.1)
+    return Pose(
+        hips=rot(pitch=8), hips_off=hips_off,
+        spine=rot(pitch=34), chest=rot(pitch=16), upper_chest=rot(pitch=10), neck=rot(pitch=-4), head=rot(pitch=-8),
+        arm_L=arm("L", V(right=-gap, up=height, fwd=ahead), V(up=-1, fwd=0.5), V(fwd=1, right=0.2),
+                  V(right=-1, up=0.2, fwd=-0.4)),
+        arm_R=arm("R", V(right=gap, up=height, fwd=ahead), V(up=-1, fwd=0.5), V(fwd=1, right=-0.2),
+                  V(right=1, up=0.2, fwd=-0.4)),
+        fingers_L=dict(OPEN), fingers_R=dict(OPEN),
+    )
+
+
+def picking_up(b, legs, gap, floor_gap):
+    """Squat, both hands to the floor, close them (≈0.62 s), and up with it
+    held at the chest (ends on the hold)."""
+    rest, hold = standing(b), hold_pose(b, gap)
+    reach = floor_reach(b, legs, gap=floor_gap)
+    grip = add(reach, fingers_L={"index": 0.3, "middle": 0.32, "ring": 0.34, "little": 0.36},
+               fingers_R={"index": 0.3, "middle": 0.32, "ring": 0.34, "little": 0.36})
+
+    def one(t):
+        p = blend(rest, reach, seg(t, 0.0, 0.55))
+        p = blend(p, grip, seg(t, 0.55, 0.66, ease=smooth))
+        return blend(p, hold, seg(t, 0.72, 1.4))
+    return one
+
+
+@toy_clip("pickup", 1.4)
+def toy_pickup(b, legs):
+    return picking_up(b, legs, 0.12, 0.11)
+
+
+@toy_clip("pickup_small", 1.4)
+def toy_pickup_small(b, legs):
+    return picking_up(b, legs, SMALL_GAP, SMALL_GAP)
+
+
+def holding(b, gap):
+    """Holding it at the chest, a small bob and sway."""
+    hold = hold_pose(b, gap)
+
+    def loop(t):
+        L = 2.0
+        return add(hold, hips=rot(roll=0.8 * wave(t, L)), spine=rot(yaw=2 * wave(t, L, 0.3)),
+                   arm_L={"hand": V(up=0.006 * wave(t, L / 2))}, arm_R={"hand": V(up=0.006 * wave(t, L / 2))},
+                   head=rot(roll=1.5 * wave(t, L, 0.6)))
+    return loop
+
+
+@toy_clip("hold", 2.0)
+def toy_hold(b, legs):
+    return holding(b, 0.12)
+
+
+@toy_clip("hold_small", 2.0)
+def toy_hold_small(b, legs):
+    return holding(b, SMALL_GAP)
+
+
+def catching(b, gap):
+    """Hands up and out to meet it (≈0.26 s), then in to the chest."""
+    rest, hold = standing(b), hold_pose(b, gap)
+    reach = Pose(
+        spine=rot(pitch=-2), head=rot(pitch=-4),
+        arm_L=arm("L", at(b.chest, right=-gap - 0.01, up=0.04, fwd=0.44), V(fwd=1, up=0.6), V(up=1, right=0.3),
+                  V(right=-1, up=-0.6, fwd=-0.2)),
+        arm_R=arm("R", at(b.chest, right=gap + 0.01, up=0.04, fwd=0.44), V(fwd=1, up=0.6), V(up=1, right=-0.3),
+                  V(right=1, up=-0.6, fwd=-0.2)),
+        fingers_L=dict(OPEN), fingers_R=dict(OPEN), hips_off=V(fwd=0.015),
+    )
+
+    def one(t):
+        p = blend(rest, reach, seg(t, 0.0, 0.24, ease=smooth))
+        return blend(p, hold, seg(t, 0.3, 0.9))
+    return one
+
+
+@toy_clip("catch", 0.9)
+def toy_catch(b, legs):
+    return catching(b, 0.12)
+
+
+@toy_clip("catch_small", 0.9)
+def toy_catch_small(b, legs):
+    return catching(b, SMALL_GAP)
+
+
+@toy_clip("shoot", 1.3)
+def toy_shoot(b, legs):
+    """A one-handed set shot from the held ball: dip, the ball to the set
+    point above the right eye, up onto the toes and the arm out up and
+    forward, released at ≈0.56 s, the wrist flicking over and holding."""
+    hold, rest = hold_pose(b), standing(b)
+    dip = add(hold, hips_off=V(up=-0.09, fwd=-0.01), spine=rot(pitch=4))
+    setpt = Pose(
+        hips_off=V(up=-0.07), spine=rot(pitch=-2), head=rot(pitch=-10),
+        arm_R=arm("R", at(b.head, right=0.07, up=0.13, fwd=0.14), V(up=1, fwd=0.2), V(right=-1, fwd=0.2),
+                  V(right=0.3, up=-0.4, fwd=1)),
+        arm_L=arm("L", at(b.head, right=-0.06, up=0.2, fwd=0.17), V(up=1, fwd=0.3), V(fwd=-1),
+                  V(right=-1, up=-0.3, fwd=0.4)),
+        fingers_R=dict(OPEN), fingers_L=dict(OPEN),
+    )
+    release = Pose(
+        hips_off=V(up=0.04), spine=rot(pitch=-4), head=rot(pitch=-14),
+        arm_R=arm("R", at(b.sh_R, right=-0.06, up=0.5, fwd=0.32), V(up=1, fwd=0.5), V(right=-1),
+                  V(right=0.2, up=-0.2, fwd=1)),
+        arm_L=arm("L", at(b.head, right=-0.12, up=0.22, fwd=0.2), V(up=1, fwd=0.3), V(fwd=-1),
+                  V(right=-1, up=-0.3, fwd=0.4)),
+        fingers_R=dict(OPEN), fingers_L=dict(OPEN),
+    )
+    # The follow-through: the wrist flicked over, fingers pointing down at
+    # the basket.
+    follow = Pose(release, hips_off=V(),
+                  arm_R=arm("R", at(b.sh_R, right=-0.06, up=0.48, fwd=0.34), V(fwd=1, up=-0.6), V(right=-1),
+                            V(right=0.2, up=-0.2, fwd=1)))
+
+    def one(t):
+        p = blend(hold, dip, seg(t, 0.0, 0.22, ease=smooth))
+        p = blend(p, setpt, seg(t, 0.2, 0.42, ease=smooth))
+        p = blend(p, release, seg(t, 0.42, 0.56, ease=smooth))
+        p = blend(p, follow, seg(t, 0.56, 0.68, ease=smooth))
+        return blend(p, rest, seg(t, 0.9, 1.3))
+    return one
+
+
+@toy_clip("toss", 1.3)
+def toy_toss(b, legs):
+    """An underhand toss from the held ball: swing down between the knees,
+    up and out (let go ≈0.52 s), hands following through."""
+    hold, rest = hold_pose(b), standing(b)
+
+    def both(base, right, up, fwd, fdir):
+        return dict(
+            arm_L=arm("L", at(base, right=-right, up=up, fwd=fwd), fdir, V(up=1, right=0.2), V(right=-1, up=-0.4, fwd=-0.3)),
+            arm_R=arm("R", at(base, right=right, up=up, fwd=fwd), fdir, V(up=1, right=-0.2), V(right=1, up=-0.4, fwd=-0.3)))
+    low = Pose(hips_off=V(up=-0.12, fwd=-0.02), spine=rot(pitch=18), head=rot(pitch=-10),
+               fingers_L=dict(CLAW), fingers_R=dict(CLAW), **both(b.hips, 0.11, -0.08, 0.28, V(fwd=1, up=-0.5)))
+    out = Pose(hips_off=V(up=0.01, fwd=0.02), spine=rot(pitch=-2), head=rot(pitch=-4),
+               fingers_L=dict(OPEN), fingers_R=dict(OPEN), **both(b.chest, 0.11, 0.0, 0.46, V(fwd=1, up=0.8)))
+    high = Pose(spine=rot(pitch=-4), **both(b.head, 0.13, 0.08, 0.34, V(fwd=0.6, up=1)))
+
+    def one(t):
+        p = blend(hold, low, seg(t, 0.0, 0.34, ease=smooth))
+        p = blend(p, out, seg(t, 0.34, 0.52, ease=smooth))
+        p = blend(p, high, seg(t, 0.52, 0.7, ease=smooth))
+        return blend(p, rest, seg(t, 0.85, 1.3))
+    return one
+
+
+@toy_clip("breeze", 3.0)
+def toy_breeze(b, legs):
+    """Face into a fan's breeze: chest open, chin up, arms a little out and
+    back, palms to the wind."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 3.0
+        return mix(rest, Pose(
+            hips=rot(roll=1.2 * wave(t, L)), spine=rot(pitch=-3), upper_chest=rot(pitch=-5),
+            neck=rot(pitch=-4), head=rot(pitch=-12, roll=3 * wave(t, L, 0.3)),
+            arm_L=arm("L", at(b.hips, right=-0.3, up=0.04 + 0.01 * wave(t, L, 0.5), fwd=-0.02), V(up=-1, right=-0.4), V(fwd=1),
+                      V(right=-1, up=0.1, fwd=-0.6)),
+            arm_R=arm("R", at(b.hips, right=0.3, up=0.04 + 0.01 * wave(t, L, 0.5), fwd=-0.02), V(up=-1, right=0.4), V(fwd=1),
+                      V(right=1, up=0.1, fwd=-0.6)),
+            fingers_L=dict(OPEN), fingers_R=dict(OPEN),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("dry_hair", 1.6)
+def toy_dry_hair(b, legs):
+    """Fingers in the hair at both sides of the head, ruffling it in the
+    hair dryer's air, the head rolling with it."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 1.6
+        ruffle = wave(t, L / 4)
+        curl = {"index": 0.4 + 0.25 * ruffle, "middle": 0.42 + 0.25 * ruffle, "ring": 0.44 + 0.25 * ruffle,
+                "little": 0.46 + 0.25 * ruffle, "thumb": 0.2, "thumb_op": 0.3, "spread": 1.0}
+        return mix(rest, Pose(
+            neck=rot(roll=-4 * wave(t, L)), head=rot(roll=-8 * wave(t, L), pitch=6),
+            arm_L=arm("L", at(b.head, right=-0.12, up=0.07 + 0.015 * ruffle, fwd=0.0), V(up=1, fwd=-0.2), V(fwd=1),
+                      V(right=-1, up=0.2, fwd=0.4)),
+            arm_R=arm("R", at(b.head, right=0.12, up=0.07 - 0.015 * ruffle, fwd=0.0), V(up=1, fwd=-0.2), V(fwd=1),
+                      V(right=1, up=0.2, fwd=0.4)),
+            fingers_L=curl, fingers_R=dict(curl),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("waft", 0.9)
+def toy_waft(b, legs):
+    """Clearing smoke from in front of the face: the right hand waves
+    across, the left at the chest, a little cough."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 0.9
+        sway = wave(t, L)
+        cough = max(0.0, wave(t, L, 0.1)) ** 4
+        return mix(rest, Pose(
+            spine=rot(pitch=4 + 6 * cough), head=rot(yaw=12, pitch=6 + 4 * cough),
+            arm_R=arm("R", at(b.head, right=0.02 + 0.09 * sway, up=-0.04, fwd=0.24), V(up=1, right=-0.2 * sway), V(right=-1, fwd=-0.3),
+                      V(right=1, up=-1, fwd=0.1)),
+            fingers_R=dict(OPEN),
+            arm_L=arm("L", at(b.chest, right=-0.02, up=-0.06, fwd=0.14), V(right=1, up=0.3), V(up=1),
+                      V(right=-1, up=-1, fwd=-0.1)),
+            fingers_L=dict(FIST),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("hug", 2.4)
+def toy_hug(b, legs):
+    """Arms wrapped round something held to the chest, swaying."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 2.4
+        s = wave(t, L)
+        return mix(rest, Pose(
+            hips=rot(roll=2.5 * s), spine=rot(yaw=6 * s, pitch=4), chest=rot(pitch=3),
+            neck=rot(roll=4 * s), head=rot(roll=8 * s, pitch=10),
+            arm_L=arm("L", at(b.chest, right=0.07, up=-0.12, fwd=0.2), V(right=1, fwd=-0.2), V(up=1),
+                      V(right=-1, up=-0.6, fwd=0.1)),
+            arm_R=arm("R", at(b.chest, right=-0.06, up=-0.06, fwd=0.22), V(right=-1, fwd=-0.2), V(up=1),
+                      V(right=1, up=-0.6, fwd=0.1)),
+            fingers_L=dict(CLAW), fingers_R=dict(CLAW),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("blow", 1.6)
+def toy_blow(b, legs):
+    """A bubble wand held up in the right fist, its ring in front of the
+    mouth; a breath in, and blown out through it."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 1.6
+        breath = wave(t, L)
+        return mix(rest, Pose(
+            upper_chest=rot(pitch=-2 * breath), head=rot(pitch=4 - 3 * breath),
+            arm_R=rod_arm("R", at(b.head, right=0.02, up=-0.13, fwd=0.22), V(up=1, fwd=0.1), V(right=-1, fwd=0.3),
+                          V(right=1, up=-0.8, fwd=0.2)),
+            fingers_R=dict(FIST),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("read", 3.0)
+def toy_read(b, legs):
+    """A note held open in both hands, read line by line."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 3.0
+        line = (t % 1.0) / 1.0
+        return mix(rest, Pose(
+            spine=rot(pitch=3), neck=rot(pitch=6), head=rot(pitch=14, yaw=-7 + 14 * line),
+            arm_L=arm("L", at(b.chest, right=-0.14, up=-0.08, fwd=0.3), V(up=1, right=0.2), V(right=1, fwd=-0.6),
+                      V(right=-1, up=-0.6, fwd=-0.2)),
+            arm_R=arm("R", at(b.chest, right=0.14, up=-0.08, fwd=0.3), V(up=1, right=-0.2), V(right=-1, fwd=-0.6),
+                      V(right=1, up=-0.6, fwd=-0.2)),
+            fingers_L={"thumb": 0.1, "thumb_op": 0.5, "index": 0.35, "middle": 0.38, "ring": 0.4, "little": 0.42},
+            fingers_R={"thumb": 0.1, "thumb_op": 0.5, "index": 0.35, "middle": 0.38, "ring": 0.4, "little": 0.42},
+            hips=rot(roll=0.6 * wave(t, L)),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("spicy", 0.6)
+def toy_spicy(b, legs):
+    """Too hot: fanning the mouth with both hands, hopping foot to foot."""
+    rest = standing(b)
+
+    def loop(t):
+        L = 0.6
+        flap = wave(t, L / 2)
+        hop = wave(t, L)
+        return mix(rest, Pose(
+            hips=rot(roll=3 * hop), hips_off=V(up=0.02 * abs(hop)),
+            head=rot(yaw=10 * wave(t, L, 0.25), pitch=-6),
+            arm_L=arm("L", at(b.head, right=-0.09, up=-0.08 + 0.03 * flap, fwd=0.17), V(up=1, right=-0.3), V(right=1, fwd=0.4),
+                      V(right=-1, up=-1, fwd=0.1)),
+            arm_R=arm("R", at(b.head, right=0.09, up=-0.08 + 0.03 * flap, fwd=0.17), V(up=1, right=0.3), V(right=-1, fwd=0.4),
+                      V(right=1, up=-1, fwd=0.1)),
+            fingers_L=dict(OPEN), fingers_R=dict(OPEN),
+            foot_L=V(up=0.06 * max(0.0, hop)), foot_R=V(up=0.06 * max(0.0, -hop)),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("open", 1.6)
+def toy_open(b, legs):
+    """Down to a little chest, fingers under the lid's front, flip it up
+    (open ≈0.7 s), and up with the arms out: ta-da."""
+    rest = standing(b)
+    under = floor_reach(b, legs, ahead=0.4, height=0.24, gap=0.13)
+    under = add(under, hips_off=V(up=0.08))
+    lift = Pose(
+        hips_off=V(up=-0.2), spine=rot(pitch=14), head=rot(pitch=-6),
+        arm_L=arm("L", at(b.chest, right=-0.18, up=-0.05, fwd=0.4), V(fwd=1, up=0.8), V(right=1),
+                  V(right=-1, up=-0.6, fwd=-0.2)),
+        arm_R=arm("R", at(b.chest, right=0.18, up=-0.05, fwd=0.4), V(fwd=1, up=0.8), V(right=-1),
+                  V(right=1, up=-0.6, fwd=-0.2)),
+        fingers_L=dict(OPEN), fingers_R=dict(OPEN),
+    )
+    tada = Pose(
+        spine=rot(pitch=-4), head=rot(pitch=-8),
+        arm_L=arm("L", at(b.sh_L, right=-0.38, up=0.3, fwd=0.12), V(up=0.6, right=-1), V(fwd=1),
+                  V(right=-0.4, up=-1, fwd=-0.2)),
+        arm_R=arm("R", at(b.sh_R, right=0.38, up=0.3, fwd=0.12), V(up=0.6, right=1), V(fwd=1),
+                  V(right=0.4, up=-1, fwd=-0.2)),
+        fingers_L=dict(OPEN), fingers_R=dict(OPEN),
+    )
+
+    def one(t):
+        p = blend(rest, under, seg(t, 0.0, 0.5))
+        p = blend(p, lift, seg(t, 0.55, 0.8, ease=smooth))
+        p = blend(p, tada, seg(t, 0.85, 1.15, ease=smooth))
+        return blend(p, rest, seg(t, 1.3, 1.6))
+    return one
+
+
+@toy_clip("rub_head", 1.8)
+def toy_rub_head(b, legs):
+    """Ow: the right hand rubbing the top of the head."""
+    rest = standing(b)
+
+    def rub(t):
+        a = 2 * math.pi * t / 0.3
+        return Pose(
+            spine=rot(pitch=4), neck=rot(pitch=6), head=rot(pitch=10, roll=-6),
+            arm_R=arm("R", at(b.head, right=0.03 + 0.02 * math.cos(a), up=0.16, fwd=0.03 + 0.02 * math.sin(a)),
+                      V(right=-1, up=0.2), V(fwd=1), V(right=1, up=0.3, fwd=-0.2)),
+            fingers_R=dict(FLAT),
+        )
+
+    def one(t):
+        p = blend(rest, rub(t), seg(t, 0.0, 0.3, ease=smooth))
+        return blend(p, rest, seg(t, 1.35, 1.8))
+    return one
+
+
+# Eating, a way per food (brains.js EAT_STYLES): a fingertip pinch, a pop
+# into the mouth, peeling, licking, munching along a slice, and a catch in
+# the mouth.
+PINCH = {"thumb": 0.3, "thumb_op": 0.6, "index": 0.45, "middle": 0.6, "ring": 0.7, "little": 0.75}
+
+
+@toy_clip("pop_in", 1.0)
+def toy_pop_in(b, legs):
+    """Something small from the held pose up into the mouth with the right
+    fingertips (in ≈0.42 s), the head tipping back to it, the left hand
+    down; then the arm back down."""
+    hold, rest = hold_pose(b), standing(b)
+    mouth = at(b.head, up=0.0, fwd=0.1)
+    up = Pose(
+        spine=rot(pitch=-1), neck=rot(pitch=-3), head=rot(pitch=-8),
+        arm_R=arm("R", mouth + V(right=0.02, up=-0.03, fwd=0.03), V(right=-1, up=0.2, fwd=0.5), V(up=1, fwd=0.2),
+                  V(right=1, up=-1, fwd=0.1)),
+        fingers_R=dict(PINCH),
+        arm_L=rest["arm_L"], fingers_L=dict(RELAXED_FINGERS),
+    )
+
+    def one(t):
+        p = blend(hold, up, seg(t, 0.0, 0.42, ease=smooth))
+        return blend(p, rest, seg(t, 0.55, 1.0))
+    return one
+
+
+@toy_clip("peel", 2.4)
+def toy_peel(b, legs):
+    """A banana upright in the left fist at the chest, the right fingers
+    pinching its tip and pulling a strip of peel down, three times (each
+    strip down by ≈0.6, 1.3 and 2.0 s), the eyes on it."""
+    rest = stand(b)
+    fist = at(b.chest, right=-0.03, up=-0.1, fwd=0.26)
+    tip = fist + V(up=0.17, right=0.01)
+    left = dict(
+        spine=rot(pitch=3), neck=rot(pitch=8), head=rot(pitch=16),
+        arm_L=arm("L", fist, V(right=1, fwd=0.2), V(up=1), V(right=-1, up=-0.6, fwd=-0.2)),
+        fingers_L=dict(FIST),
+    )
+
+    def right(hand):
+        return arm("R", hand, V(right=-1, up=0.3, fwd=0.2), V(up=1, fwd=0.2), V(right=1, up=-0.7, fwd=-0.1))
+
+    # Down the right side, the front, the left side of the fruit.
+    sides = [V(right=0.05), V(fwd=0.05), V(right=-0.03, fwd=0.04)]
+    hold = Pose(rest, **left)
+
+    def one(t):
+        p = hold
+        for i, side in enumerate(sides):
+            t0 = 0.1 + 0.7 * i
+            at_tip = Pose(left, arm_R=right(tip + side * 0.3), fingers_R=dict(PINCH))
+            pulled = Pose(left, arm_R=right(fist + side + V(up=0.01)), fingers_R=dict(PINCH))
+            p = blend(p, at_tip, seg(t, t0, t0 + 0.22, ease=smooth))
+            p = blend(p, pulled, seg(t, t0 + 0.25, t0 + 0.5, ease=smooth))
+        return blend(p, Pose(left, arm_R=right(fist + V(right=0.12, up=-0.04)), fingers_R=dict(RELAXED_FINGERS)),
+                     seg(t, 2.15, 2.4, ease=smooth))
+    return one
+
+
+@toy_clip("lick", 1.6)
+def toy_lick(b, legs):
+    """An ice cream cone in the right fist under the chin; the head comes
+    down to the scoop and licks up it once a loop."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 1.6
+        s = (t % L) / L
+        # Down to it (0.15-0.4), the lick up it (0.4-0.65), back (0.65-0.9).
+        down = seg(s, 0.15, 0.4, ease=smooth) * (1 - seg(s, 0.65, 0.9, ease=smooth))
+        up = seg(s, 0.4, 0.65, ease=smooth) * (1 - seg(s, 0.65, 0.9, ease=smooth))
+        return mix(rest, Pose(
+            spine=rot(pitch=3 + 3 * down), neck=rot(pitch=4 + 6 * down - 4 * up),
+            head=rot(pitch=6 + 10 * down - 12 * up, roll=3 * wave(t, L)),
+            arm_R=rod_arm("R", at(b.head, right=0.03, up=-0.16 + 0.02 * up, fwd=0.18), V(up=1, fwd=0.05),
+                          V(right=-1, fwd=0.3), V(right=1, up=-0.8, fwd=0.2)),
+            fingers_R=dict(FIST),
+            arm_L=arm("L", at(b.chest, right=-0.03, up=-0.16, fwd=0.14), V(right=1, up=0.2), V(up=1),
+                      V(right=-1, up=-0.8, fwd=-0.1)),
+            fingers_L=dict(RELAXED_FINGERS), hips=rot(roll=0.6 * wave(t, L)),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("toss_up", 0.9)
+def toy_toss_up(b, legs):
+    """Something small in the right hand flicked up over the head (let go
+    ≈0.3 s), the eyes going up after it."""
+    rest = standing(b)
+    low = Pose(
+        hips_off=V(up=-0.03), head=rot(pitch=4),
+        arm_R=arm("R", at(b.chest, right=0.1, up=-0.2, fwd=0.24), V(fwd=1, up=0.3), V(up=1, right=-0.3),
+                  V(right=1, up=-1, fwd=-0.1)),
+        fingers_R=dict(PINCH),
+    )
+    flick = Pose(
+        hips_off=V(up=0.01), head=rot(pitch=-18), neck=rot(pitch=-6),
+        arm_R=arm("R", at(b.chest, right=0.1, up=0.04, fwd=0.3), V(up=1, fwd=0.3), V(right=-1),
+                  V(right=1, up=-1, fwd=-0.1)),
+        fingers_R=dict(OPEN),
+    )
+
+    def one(t):
+        p = blend(rest, low, seg(t, 0.0, 0.18, ease=smooth))
+        p = blend(p, flick, seg(t, 0.18, 0.3, ease=smooth))
+        return blend(p, Pose(rest, head=rot(pitch=-20), neck=rot(pitch=-6)), seg(t, 0.45, 0.9))
+    return one
+
+
+@toy_clip("mouth_catch", 1.3)
+def toy_mouth_catch(b, legs):
+    """Under something small dropping toward them: knees dip, chin up, arms
+    out for balance, and the head snapping forward on it (≈0.55 s), then a
+    little bounce up."""
+    rest = standing(b)
+    ready = Pose(
+        hips_off=V(up=-0.06), spine=rot(pitch=-4), upper_chest=rot(pitch=-4),
+        neck=rot(pitch=-12), head=rot(pitch=-22),
+        arm_L=arm("L", at(b.hips, right=-0.3, up=0.04, fwd=0.06), V(up=-1, right=-0.6), V(fwd=1),
+                  V(right=-1, up=0.2, fwd=-0.4)),
+        arm_R=arm("R", at(b.hips, right=0.3, up=0.04, fwd=0.06), V(up=-1, right=0.6), V(fwd=1),
+                  V(right=1, up=0.2, fwd=-0.4)),
+        fingers_L=dict(OPEN), fingers_R=dict(OPEN),
+    )
+    chomp = Pose(ready, hips_off=V(up=-0.03), neck=rot(pitch=2), head=rot(pitch=8))
+    pop = Pose(rest, hips_off=V(up=0.02), head=rot(pitch=-4))
+
+    def one(t):
+        p = blend(rest, ready, seg(t, 0.0, 0.4, ease=smooth))
+        p = blend(p, chomp, seg(t, 0.48, 0.6, ease=smooth))
+        p = blend(p, pop, seg(t, 0.7, 0.95, ease=smooth))
+        return blend(p, rest, seg(t, 0.95, 1.3))
+    return one
+
+
+# Drinks and noodles (brains.js DRINK / bottleIt): what's in hand comes up
+# to the mouth once a loop, and the app tips it there.
+
+@toy_clip("slurp", 2.2)
+def toy_slurp(b, legs):
+    """A noodle bowl on the left palm at the chest, chopsticks in the right
+    fingers: down into the bowl (≈0.3-0.5 s), up to the mouth with the head
+    coming down to meet them (≈1.0 s), the slurp drawing them in (to ≈1.4
+    s), and back down."""
+    rest = stand(b)
+    bowl = at(b.chest, right=-0.02, up=-0.12, fwd=0.27)
+    mouth = at(b.head, right=0.02, up=-0.07, fwd=0.11)
+
+    def right(hand):
+        return arm("R", hand, V(right=-1, up=0.2, fwd=0.4), V(up=1, fwd=0.3), V(right=1, up=-0.8, fwd=-0.1))
+
+    def loop(t):
+        L = 2.2
+        s = t % L
+        dip = seg(s, 0.15, 0.45, ease=smooth) * (1 - seg(s, 0.5, 0.95, ease=smooth))
+        up = seg(s, 0.5, 0.95, ease=smooth) * (1 - seg(s, 1.45, 1.95, ease=smooth))
+        pull = seg(s, 1.0, 1.4, ease=smooth) * (1 - seg(s, 1.45, 1.95, ease=smooth))
+        lift = 0.05 * up
+        hand = bowl + V(right=0.06, up=0.1) + (bowl + V(up=0.02) - (bowl + V(right=0.06, up=0.1))) * dip
+        hand = hand + (mouth + V(up=0.02 * pull) - hand) * up
+        return mix(rest, Pose(
+            spine=rot(pitch=4 + 3 * up), neck=rot(pitch=6 + 6 * up - 4 * pull), head=rot(pitch=10 + 8 * up - 8 * pull),
+            arm_L=arm("L", bowl + V(up=lift, right=0.02 * up), V(up=1, right=0.2), V(right=1, fwd=-0.2),
+                      V(right=-1, up=-0.6, fwd=-0.2)),
+            fingers_L=dict(OPEN),
+            arm_R=right(hand), fingers_R=dict(PINCH),
+            hips=rot(roll=0.5 * wave(t, L)),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("sip", 5.0)
+def toy_sip(b, legs):
+    """A mug cradled in both hands at the chest; up to the lips (1.0-1.8 s),
+    a slow sip with the head tipping back a little (≈2.1 s), down again
+    (2.6-3.4 s), and held, warm, swaying a touch."""
+    rest = stand(b)
+    low = at(b.chest, up=-0.1, fwd=0.24)
+    lips = at(b.head, up=-0.09, fwd=0.11)
+
+    def hands(c):
+        return dict(
+            arm_L=arm("L", c + V(right=-0.045), V(right=1, fwd=0.3), V(up=1), V(right=-1, up=-0.7, fwd=-0.1)),
+            arm_R=arm("R", c + V(right=0.045), V(right=-1, fwd=0.3), V(up=1), V(right=1, up=-0.7, fwd=-0.1)),
+            fingers_L=dict(CLAW), fingers_R=dict(CLAW),
+        )
+
+    def loop(t):
+        L = 5.0
+        s = t % L
+        up = seg(s, 1.0, 1.8, ease=smooth) * (1 - seg(s, 2.6, 3.4, ease=smooth))
+        sip = seg(s, 1.8, 2.2, ease=smooth) * (1 - seg(s, 2.3, 2.6, ease=smooth))
+        c = low + (lips - low) * up + V(up=0.01 * sip)
+        return mix(rest, Pose(
+            spine=rot(pitch=3), neck=rot(pitch=4 + 4 * up - 4 * sip), head=rot(pitch=8 + 4 * up - 10 * sip, roll=2 * wave(t, L)),
+            hips=rot(roll=0.6 * wave(t, L)), **hands(c),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("swig", 1.8)
+def toy_swig(b, legs):
+    """A coffee to go in the right fist: up to the mouth (0.2-0.6 s), a quick
+    swig with the head back (≈0.8 s), down by 1.4 s."""
+    rest = stand(b)
+    low = at(b.chest, right=0.1, up=-0.13, fwd=0.24)
+    lips = at(b.head, right=0.02, up=-0.09, fwd=0.1)
+
+    def loop(t):
+        L = 1.8
+        s = t % L
+        up = seg(s, 0.2, 0.6, ease=smooth) * (1 - seg(s, 1.0, 1.4, ease=smooth))
+        back = seg(s, 0.6, 0.8, ease=smooth) * (1 - seg(s, 0.9, 1.1, ease=smooth))
+        hand = low + (lips - low) * up + V(up=0.02 * back)
+        return mix(rest, Pose(
+            neck=rot(pitch=2 - 6 * back), head=rot(pitch=4 - 12 * back),
+            arm_R=rod_arm("R", hand, V(up=1), V(right=-1, fwd=0.4), V(right=1, up=-0.8, fwd=0.1)),
+            fingers_R=dict(FIST),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("bottle", 4.0)
+def toy_bottle(b, legs):
+    """A water bottle in the right fist at the chest, the left hand twisting
+    its cap (off ≈0.85 s) and dropping away; up to the mouth with the head
+    back (from ≈1.5 s), three gulps, down by 3.1 s, and the back of the
+    left hand across the mouth."""
+    rest = stand(b)
+    low = at(b.chest, right=0.04, up=-0.12, fwd=0.25)
+    lips = at(b.head, right=0.02, up=-0.05, fwd=0.09)
+    cap = low + V(up=0.12)
+
+    def one(t):
+        twist = wave(t, 0.3) * seg(t, 0.2, 0.3) * (1 - seg(t, 0.8, 0.9))
+        up = seg(t, 1.0, 1.5, ease=smooth) * (1 - seg(t, 3.0, 3.4, ease=smooth))
+        gulp = max(0.0, wave(t - 1.8, 0.5)) * seg(t, 1.6, 1.7) * (1 - seg(t, 2.9, 3.0))
+        wipe = seg(t, 3.3, 3.55, ease=smooth) * (1 - seg(t, 3.75, 4.0, ease=smooth))
+        hand = low + (lips - low) * up
+        left_hand = cap + V(right=-0.005 * twist)
+        left_hand = left_hand + (at(b.hips, right=-0.2, up=0.1, fwd=0.05) - left_hand) * seg(t, 0.85, 1.2, ease=smooth)
+        left_hand = left_hand + (at(b.head, right=-0.02, up=-0.08, fwd=0.1) - left_hand) * wipe
+        return mix(rest, Pose(
+            spine=rot(pitch=-3 * up), neck=rot(pitch=-10 * up), head=rot(pitch=-22 * up + 2 * gulp),
+            arm_R=rod_arm("R", hand + V(up=0.03 * up), V(up=1 - 0.6 * up, fwd=-0.5 * up), V(right=-1, fwd=0.4),
+                          V(right=1, up=-0.8, fwd=0.1)),
+            fingers_R=dict(FIST),
+            arm_L=arm("L", left_hand, V(right=1, up=0.2 * (1 - wipe), fwd=0.2), V(up=1 - wipe, fwd=wipe),
+                      V(right=-1, up=-0.7, fwd=-0.1)),
+            fingers_L=dict(PINCH if t < 0.9 else RELAXED_FINGERS),
+        ), 1.0)
+    return one
+
+
+@toy_clip("clap_pop", 1.1)
+def toy_clap_pop(b, legs):
+    """Both hands up and apart in front of the face, eyes on a bubble, and
+    clapped together round it (≈0.45 s), then down."""
+    rest = standing(b)
+
+    def hands(gap, up):
+        return dict(
+            arm_L=arm("L", at(b.head, right=-gap, up=up, fwd=0.32), V(right=1, fwd=0.4), V(up=1, fwd=0.2),
+                      V(right=-1, up=-0.5, fwd=-0.2)),
+            arm_R=arm("R", at(b.head, right=gap, up=up, fwd=0.32), V(right=-1, fwd=0.4), V(up=1, fwd=0.2),
+                      V(right=1, up=-0.5, fwd=-0.2)),
+            fingers_L=dict(FLAT), fingers_R=dict(FLAT),
+        )
+    ready = Pose(spine=rot(pitch=-2), head=rot(pitch=-8), hips_off=V(up=-0.02), **hands(0.16, 0.0))
+    clap = Pose(spine=rot(pitch=-1), head=rot(pitch=-6), hips_off=V(up=-0.03), **hands(0.012, -0.01))
+
+    def one(t):
+        p = blend(rest, ready, seg(t, 0.0, 0.32, ease=smooth))
+        p = blend(p, clap, seg(t, 0.36, 0.45, ease=smooth))
+        return blend(p, rest, seg(t, 0.6, 1.1))
+    return one
+
+
+@toy_clip("warm_hands", 6.0)
+def toy_warm_hands(b, legs):
+    """Hands held out to a campfire, palms to its warmth, fingers spread and
+    flexing; once a loop rubbed together, then held out again."""
+    rest = stand(b)
+
+    def out_pose(t):
+        flex = 0.12 * (0.5 + 0.5 * wave(t, 1.5))
+        fingers = dict(OPEN, index=0.04 + flex, middle=0.06 + flex, ring=0.08 + flex, little=0.1 + flex)
+        return mix(rest, Pose(
+            hips=rot(roll=1.0 * wave(t, 3.0)), spine=rot(pitch=5), chest=rot(pitch=2), neck=rot(pitch=4),
+            head=rot(pitch=8, roll=2 * wave(t, 6.0)),
+            arm_L=arm("L", at(b.hips, right=-0.15, up=0.06 + 0.01 * wave(t, 3.0), fwd=0.36), V(up=1, fwd=0.4), V(right=1),
+                      V(right=-0.6, up=-1, fwd=-0.2)),
+            arm_R=arm("R", at(b.hips, right=0.15, up=0.06 + 0.01 * wave(t, 3.0, 0.25), fwd=0.36), V(up=1, fwd=0.4), V(right=-1),
+                      V(right=0.6, up=-1, fwd=-0.2)),
+            fingers_L=fingers, fingers_R=dict(fingers),
+        ), 1.0)
+
+    def rub_pose(t):
+        # Palm to palm in front of the stomach, rubbed (≈3 Hz, by eye).
+        rub = 0.025 * wave(t, 0.3)
+        return mix(rest, Pose(
+            hips=rot(roll=1.0 * wave(t, 3.0)), spine=rot(pitch=6), chest=rot(pitch=3), neck=rot(pitch=4), head=rot(pitch=10),
+            arm_L=arm("L", at(b.hips, right=-0.026, up=0.16 + rub, fwd=0.28), V(fwd=1, up=0.6), V(up=1),
+                      V(right=-1, up=-0.6, fwd=-0.2)),
+            arm_R=arm("R", at(b.hips, right=0.026, up=0.16 - rub, fwd=0.28), V(fwd=1, up=0.6), V(up=1),
+                      V(right=1, up=-0.6, fwd=-0.2)),
+            fingers_L=dict(FLAT), fingers_R=dict(FLAT),
+        ), 1.0)
+
+    def loop(t):
+        s = seg(t, 4.0, 4.4, ease=smooth) * (1 - seg(t, 5.4, 6.0, ease=smooth))
+        return blend(out_pose(t), rub_pose(t), s)
+    return loop
+
+
+@toy_clip("stargaze", 4.0)
+def toy_stargaze(b, legs):
+    """Gazing up at a sky of stars: chin up, chest open, hands clasped
+    behind the back, swaying a little and looking slowly about."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 4.0
+        return mix(rest, Pose(
+            hips=rot(roll=1.0 * wave(t, L)), spine=rot(pitch=-3), upper_chest=rot(pitch=-5),
+            neck=rot(pitch=-14, yaw=4 * wave(t, L, 0.1)), head=rot(pitch=-26 + 2 * wave(t, L / 2), yaw=8 * wave(t, L, 0.1), roll=3 * wave(t, L, 0.35)),
+            arm_L=arm("L", at(b.hips, right=-0.05, up=0.0, fwd=-0.17), V(right=1, up=-0.3), V(up=1, fwd=-0.3),
+                      V(right=-1, up=-0.2, fwd=-0.6)),
+            arm_R=arm("R", at(b.hips, right=0.04, up=0.01, fwd=-0.175), V(right=-1, up=-0.3), V(up=1, fwd=-0.3),
+                      V(right=1, up=-0.2, fwd=-0.6)),
+            fingers_L=dict(CLAW), fingers_R=dict(CLAW),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("peer_in", 3.0)
+def toy_peer_in(b, legs):
+    """Bent forward with the hands on the knees, looking into an aquarium,
+    the head tilting as the fish go by."""
+    rest = standing(b)
+
+    def loop(t):
+        L = 3.0
+        return mix(rest, Pose(
+            hips=rot(pitch=6, roll=0.8 * wave(t, L)), hips_off=V(up=-0.05 + 0.005 * wave(t, L / 2), fwd=-0.04),
+            spine=rot(pitch=16), chest=rot(pitch=8), upper_chest=rot(pitch=4),
+            neck=rot(pitch=-8), head=rot(pitch=-12, roll=6 * wave(t, L, 0.2), yaw=6 * wave(t, L, 0.45)),
+            arm_L=arm("L", at(b.hips, right=-0.12, up=-0.33, fwd=0.16), V(up=-1, fwd=0.3), V(right=1, fwd=0.2),
+                      V(right=-1, up=0.1, fwd=-0.4)),
+            arm_R=arm("R", at(b.hips, right=0.12, up=-0.33, fwd=0.16), V(up=-1, fwd=0.3), V(right=-1, fwd=0.2),
+                      V(right=1, up=0.1, fwd=-0.4)),
+            fingers_L=dict(CLAW), fingers_R=dict(CLAW),
+        ), 1.0)
+    return loop
+
+
+@toy_clip("sprinkle", 2.0)
+def toy_sprinkle(b, legs):
+    """A pinch of fish food: the right hand out over the water, palm down,
+    the pinch rubbed out (≈0.9 s, brains.js SPRINKLE_MS), back down."""
+    rest = standing(b)
+
+    def over(rub):
+        return Pose(
+            spine=rot(pitch=6), neck=rot(pitch=4), head=rot(pitch=12),
+            arm_R=arm("R", at(b.hips, right=0.06, up=0.14, fwd=0.4), V(fwd=1), V(right=-1),
+                      V(right=1, up=-0.6, fwd=-0.2)),
+            fingers_R=dict(PINCH, thumb_op=0.6 - 0.15 * rub, index=0.45 + 0.1 * rub),
+        )
+
+    def one(t):
+        # The fingers rubbing (≈6 a second, by eye) from 0.8 s to 1.45 s.
+        rub = max(0.0, wave(t, 0.16)) * seg(t, 0.8, 0.85) * (1 - seg(t, 1.4, 1.45))
+        p = blend(rest, over(rub), seg(t, 0.0, 0.6, ease=smooth))
+        return blend(p, rest, seg(t, 1.5, 2.0))
+    return one
+
+
 # ── prop poses ──────────────────────────────────────────────────────────
 # Poses that hold or sit in a prop. Props are built after the poses, from
 # the same landmarks (a kart's wheel where the drive pose's hands are), and
@@ -1849,7 +2620,9 @@ def main():
         fn = build(body, legs)
         act, n = tm.key_clip(rig, solver, f"roam_{cid}", dur, fn)
         if tm.EXPORT:
-            tm.export_vrma(rig, os.path.join(OUT_DIR, f"{cid}.vrma"))
+            out = TOYS_DIR if cid in TOY_CLIPS else OUT_DIR
+            os.makedirs(out, exist_ok=True)
+            tm.export_vrma(rig, os.path.join(out, f"{cid}.vrma"))
         if cam:
             for pid, obj in props.items():
                 for o in [obj, *obj.children_recursive]:

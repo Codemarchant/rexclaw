@@ -1,12 +1,64 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { notification } from "../lib/notification";
 
+/** A search box over `groups` ([{ label, items: [{ key, label, search }] }])
+ *  showing the chosen item's label; while it has focus a grouped list opens
+ *  under it, filtered by each item's `search` text. Picking one calls
+ *  `onPick(key)`; Enter picks the first match, Escape closes. */
+function MusicPicker({ groups, value, placeholder, title, disabled, onPick }) {
+    const [q, setQ] = useState("");
+    const [open, setOpen] = useState(false);
+    const box = useRef(null);
+    const needle = q.trim().toLowerCase();
+    const shown = groups
+        .map((g) => ({ ...g, items: needle ? g.items.filter((i) => i.search.includes(needle)) : g.items }))
+        .filter((g) => g.items.length);
+    const current = groups.flatMap((g) => g.items).find((i) => i.key === value);
+    const pick = (key) => {
+        onPick(key);
+        setQ("");
+        setOpen(false);
+        box.current?.blur();
+    };
+    return (
+        <div className="rx_bgm_pick">
+            <input ref={box} type="text" value={open ? q : current?.label ?? ""} disabled={disabled}
+                   placeholder={open && current ? current.label : placeholder} title={title}
+                   onFocus={() => { setQ(""); setOpen(true); }}
+                   onBlur={() => setTimeout(() => setOpen(false), 150)}
+                   onChange={(ev) => setQ(ev.target.value)}
+                   onKeyDown={(ev) => {
+                       if (ev.key === "Escape") box.current?.blur();
+                       else if (ev.key === "Enter" && shown.length) pick(shown[0].items[0].key);
+                   }} />
+            {open && (
+                <div className="rx_bgm_list">
+                    {shown.length ? shown.map((g) => (
+                        <div key={g.label}>
+                            <div className="rx_bgm_group">{g.label}</div>
+                            {g.items.map((i) => (
+                                <button key={i.key} type="button"
+                                        className={"rx_bgm_item" + (i.key === value ? " is-chosen" : "")}
+                                        onMouseDown={(ev) => ev.preventDefault()}
+                                        onClick={() => pick(i.key)}>
+                                    {i.label}
+                                </button>
+                            ))}
+                        </div>
+                    )) : <div className="rx_bgm_group">{_t("No match")}</div>}
+                </div>
+            )}
+        </div>
+    );
+}
+
 /** Background music in calls (models/background_music.js): pick a playlist
- *  or a track from the companion's music (playlists first, then their
- *  avatar's own tracks, then the music library), play or stop it, set the
- *  volume, play a link, and choose whether calls open with music. Shared by
+ *  or a track (playlists first, then the companion's avatar's own tracks,
+ *  then the whole music library, even when the avatar keeps the companion
+ *  to its own), play or stop it, set the volume, play a link, and choose
+ *  whether calls open with music and whether links are kept. Shared by
  *  the voice view's Stage panel (the music plays in that window) and the
  *  mascot settings' Songs tab (it plays in the overlay, so the handlers send
  *  commands there). `music` is the player's state snapshot; onPlay gets a
@@ -14,6 +66,7 @@ import { notification } from "../lib/notification";
 export default function BackgroundMusicControls({ agentId, music, onPlay, onStop, onVolume, disabled = false }) {
     const [lib, setLib] = useState({ tracks: [], playlists: [] });
     const [startOnCall, setStartOnCall] = useState(false);
+    const [keepDownloads, setKeepDownloads] = useState(false);
     const [pick, setPick] = useState("");
     const [link, setLink] = useState("");
     const [fetching, setFetching] = useState(false);
@@ -21,8 +74,12 @@ export default function BackgroundMusicControls({ agentId, music, onPlay, onStop
     const loading = music?.status === "loading" || fetching;
 
     useEffect(() => {
-        rpc("/api/music/tracks", { agent_id: agentId ?? null })
-            .then((r) => { setLib({ tracks: r.tracks || [], playlists: r.playlists || [] }); setStartOnCall(!!r.start_on_call); })
+        rpc("/api/music/tracks", { agent_id: agentId ?? null, whole_library: true })
+            .then((r) => {
+                setLib({ tracks: r.tracks || [], playlists: r.playlists || [] });
+                setStartOnCall(!!r.start_on_call);
+                setKeepDownloads(!!r.keep_downloads);
+            })
             .catch(() => setLib({ tracks: [], playlists: [] }));
     }, [agentId]);
     // Follow what is playing, whoever started it.
@@ -31,8 +88,16 @@ export default function BackgroundMusicControls({ agentId, music, onPlay, onStop
         else if (music?.track?.name) setPick(`t:${music.track.name}`);
     }, [music?.playlist?.name, music?.track?.name]);
 
-    const own = lib.tracks.filter((t) => t.source === "avatar");
-    const library = lib.tracks.filter((t) => t.source !== "avatar");
+    const asItem = (t) => ({ key: `t:${t.name}`, label: t.name,
+                             search: `${t.name} ${t.description || ""} ${t.credit || ""}`.toLowerCase() });
+    const groups = [
+        { label: _t("Playlists"), items: lib.playlists.map((p) => {
+            const name = p.source === "auto" ? _t(p.name) : p.name;
+            return { key: `p:${p.name}`, label: `${name} (${p.tracks.length})`, search: name.toLowerCase() };
+        }) },
+        { label: _t("This avatar"), items: lib.tracks.filter((t) => t.source === "avatar").map(asItem) },
+        { label: _t("Music library"), items: lib.tracks.filter((t) => t.source !== "avatar").map(asItem) },
+    ];
     const chosen = pick.startsWith("p:") ? lib.playlists.find((p) => p.name === pick.slice(2))
         : lib.tracks.find((t) => t.name === pick.slice(2));
 
@@ -57,36 +122,25 @@ export default function BackgroundMusicControls({ agentId, music, onPlay, onStop
             notification.add(e.message || _t("Could not save the setting"), { type: "danger" });
         }
     };
+    // The same setting as History → Recordings → Your sounds.
+    const saveKeepDownloads = async (keep) => {
+        setKeepDownloads(keep);
+        try {
+            await rpc("/api/audio/sounds/keep_downloads", { keep });
+        } catch (e) {
+            setKeepDownloads(!keep);
+            notification.add(e.message || _t("Could not save the setting"), { type: "danger" });
+        }
+    };
     const by = { you: _t("you"), scene: _t("this background"), call: _t("the call start") }[music?.by] ?? music?.by;
 
     return (
         <div className="rx_bgm">
-            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                <select value={pick} disabled={disabled || !(lib.tracks.length || lib.playlists.length)}
-                        style={{ flex: 1, minWidth: 0 }}
-                        title={_t("Playlists, then your avatar's own tracks, then the music library (History → Recordings → Your sounds, music kind).")}
-                        onChange={(e) => setPick(e.target.value)}>
-                    <option value="">{lib.tracks.length ? _t("Choose music…") : _t("No music yet")}</option>
-                    {lib.playlists.length > 0 && (
-                        <optgroup label={_t("Playlists")}>
-                            {lib.playlists.map((p) => (
-                                <option key={p.name} value={`p:${p.name}`}>
-                                    {p.source === "auto" ? _t(p.name) : p.name} ({p.tracks.length})
-                                </option>
-                            ))}
-                        </optgroup>
-                    )}
-                    {own.length > 0 && (
-                        <optgroup label={_t("This avatar")}>
-                            {own.map((t) => <option key={t.url} value={`t:${t.name}`}>{t.name}</option>)}
-                        </optgroup>
-                    )}
-                    {library.length > 0 && (
-                        <optgroup label={_t("Music library")}>
-                            {library.map((t) => <option key={t.url} value={`t:${t.name}`}>{t.name}</option>)}
-                        </optgroup>
-                    )}
-                </select>
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "flex-start" }}>
+                <MusicPicker groups={groups} value={pick} onPick={setPick}
+                             disabled={disabled || !(lib.tracks.length || lib.playlists.length)}
+                             placeholder={lib.tracks.length ? _t("Choose music…") : _t("No music yet")}
+                             title={_t("Playlists, then your avatar's own tracks, then the music library (History → Recordings → Your sounds, music kind).")} />
                 <button className="btn btn-sm btn-primary" disabled={disabled || !chosen || loading}
                         title={_t("Play")} onClick={() => onPlay(chosen)}>
                     <i className={loading ? "fa fa-spinner fa-spin" : "fa fa-play"} />
@@ -124,6 +178,12 @@ export default function BackgroundMusicControls({ agentId, music, onPlay, onStop
                 <input type="checkbox" checked={startOnCall} disabled={disabled}
                        onChange={(e) => saveStartOnCall(e.target.checked)} />
                 <span>{_t("Start music when a call starts")}</span>
+            </label>
+            <label className="rx_check" style={{ marginTop: "0.2rem" }}
+                   title={_t("When this is on, music from links (pasted here or found by a companion) and sounds companions download for voice messages are saved to your music library (History → Recordings → Your sounds) with a credit to their source, so you can pick them again. When off, each download is used once and then deleted. The same setting as in Recordings.")}>
+                <input type="checkbox" checked={keepDownloads} disabled={disabled}
+                       onChange={(e) => saveKeepDownloads(e.target.checked)} />
+                <span>{_t("Keep sounds companions download")}</span>
             </label>
         </div>
     );

@@ -1157,7 +1157,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
             <Section title={_t("Music")}
                      onAdd={() => addItem("music", { name: "", file: "", description: "", credit: "" })}>
                 <label className="rx_check" style={{ margin: "0.3rem 0" }}
-                       title={_t("On: in calls this avatar can play every track in the music library (History → Recordings → Your sounds, music kind, plus the built-in music) as well as its own tracks below. Off: only its own.")}>
+                       title={_t("On: in calls this avatar can play every track in the music library (History → Recordings → Your sounds, music kind, plus the built-in music) as well as its own tracks below. Off: the companion picks only from its own; you can still play anything from the ♪ panel.")}>
                     <input type="checkbox" checked={manifest.music_library !== false}
                            onChange={(ev) => setM({ music_library: ev.target.checked })} />
                     <span>{_t("Use the whole music library too")}</span>

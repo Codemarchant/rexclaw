@@ -1287,6 +1287,9 @@ class VoiceCallService {
                 },
                 stopGesture: () => renderer()?.stopGesture?.(),
                 isGestureBusy: () => !!renderer()?.isGestureBusy?.(),
+                // What a toy routine has them busy with (base avatar only:
+                // the toys play with the main companion).
+                toyBusy: () => renderer()?.toyBusy || null,
                 setOutfit: (u, i) => renderer()?.setOutfit?.(u, i),
                 resetExpression: () => renderer()?.resetExpression?.(),
                 setBackground: (bg) => renderer()?.setBackground?.(bg),
@@ -1383,6 +1386,7 @@ class VoiceCallService {
             },
             stopGesture: () => renderer()?.stopPeerGesture?.(id),
             isGestureBusy: () => !!renderer()?.isPeerGestureBusy?.(id),
+            toyBusy: () => renderer()?._peers?.get(id)?.toyBusy || null,
             setOutfit: (u, i) => renderer()?.setPeerOutfit?.(id, u, i),
             resetExpression: () => {},
             setBackground: (bg) => renderer()?.setBackground?.(bg),

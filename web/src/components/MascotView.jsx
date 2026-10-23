@@ -18,6 +18,9 @@ import { backgroundMusic } from "../models/background_music";
 import { RoamDirector, ROAM_SIZES, ROAM_NAP_MINUTES } from "../models/roam_director";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 import KaraokeOverlay from "./KaraokeOverlay.jsx";
+import { ToyBox, callMembers } from "../models/toys/toybox";
+import { ScreenStage } from "../models/toys/screen_stage";
+import { SceneStage } from "../models/toys/scene_stage";
 
 // Lyrics on the desktop: the note lane just under the window's top edge,
 // the lyrics just above the controls island (bottom 0.6rem, ~2.6rem tall).
@@ -165,6 +168,12 @@ export default function MascotView() {
     // past `roaming` going false, so ghost mode holds through the exit
     // (a transparent window still takes the clicks it doesn't ignore).
     const [roamLive, setRoamLive] = useState(false);
+    // The toy box (models/toys/): its toys go on the desktop while roaming
+    // (ScreenStage, run by the director), into the window's own 3D scene
+    // otherwise (SceneStage, made for the first toy picked).
+    const toyBox = useMemo(() => new ToyBox(), []);
+    const toys = useReactive(toyBox.state);
+    const toyStageRef = useRef(null);
 
     // Apply the restored toggles that need a side effect beyond their state.
     // The window is created always-on-top, so pin only needs a call when the
@@ -260,6 +269,19 @@ export default function MascotView() {
             el.removeEventListener("mouseleave", hide);
         };
     }, []);
+    // The exit, from the shell: a DOM mouseleave often never comes (out
+    // through the drag handle, after a window drag) and the bar stayed up.
+    // Ghost mode and roaming reveal from their own cursor stream instead.
+    useEffect(() => {
+        const bridge = window.rexclawDesktop;
+        if (controlsHidden || ghost || roamLive || !bridge?.setMascotHoverWatch) return undefined;
+        bridge.onMascotHover?.((inside) => rootRef.current?.classList.toggle("is-cursor-inside", inside));
+        bridge.setMascotHoverWatch(true);
+        return () => {
+            bridge.setMascotHoverWatch(false);
+            bridge.onMascotHover?.(() => {});
+        };
+    }, [controlsHidden, ghost, roamLive]);
 
     // Tray checkbox state: fetch once, then follow pushes.
     useEffect(() => {
@@ -443,6 +465,9 @@ export default function MascotView() {
             if (disposed || !c) return;
             if (wantFollow) avatarRenderer.setCursorFollow?.(c);
             roamRef.current?.setCursor(c);
+            // The desktop's toys hear the pointer even where it doesn't
+            // click: where to throw things back to.
+            toyStageRef.current?.cursorAt?.(c);
             if (!wantGhost) return;
             const hr = host()?.getBoundingClientRect();
             const overIsland = (() => {
@@ -451,16 +476,20 @@ export default function MascotView() {
                     && c.x >= island.left - 12 && c.x <= island.right + 12
                     && c.y >= island.top - 12 && c.y <= island.bottom + 12;
             })();
+            // The toys themselves (or one being carried) take the clicks.
+            if (toyStageRef.current?.hitTest?.(c.x, c.y)) {
+                setIgnore(false);
+                setFade(false);
+                return;
+            }
             // Roaming, the window is the whole screen: "inside" is the
-            // companion's own box (plus a margin), or the island hanging
-            // under them while it shows.
+            // companion's own box (plus a margin); no island shows then.
             let inside = !!c.inside;
             if (roamLive) {
-                const shown = rootRef.current?.classList.contains("is-cursor-inside");
-                inside = (!!hr && c.x >= hr.left - 24 && c.x <= hr.right + 24
-                    && c.y >= hr.top - 24 && c.y <= hr.bottom + 24) || (shown && overIsland);
+                inside = !!hr && c.x >= hr.left - 24 && c.x <= hr.right + 24
+                    && c.y >= hr.top - 24 && c.y <= hr.bottom + 24;
                 // Riding the pointer, it's always under them: no fade.
-                if (roamRef.current?.riding) inside = shown && overIsland;
+                if (roamRef.current?.riding) inside = false;
             }
             // Their props and leftovers elsewhere on the screen (a pillow
             // fort, a dug-up mound, a stolen tab) fade by themselves under
@@ -590,6 +619,13 @@ export default function MascotView() {
             bridge.onRoamEnv?.((env) => director.setEnv(env));
             bridge.onRoamArea?.((a) => director.setArea(a));
             director.start(area);
+            // The toys go out on the desktop now (any in the window's own
+            // scene are put away).
+            toyStageRef.current?.dispose();
+            const toyStage = new ScreenStage({ director, root });
+            director.toys = toyStage;
+            toyStageRef.current = toyStage;
+            toyBox.setStage(toyStage);
             setRoamLive(true);
         });
         return () => {
@@ -597,6 +633,12 @@ export default function MascotView() {
             roamTeardown.current = start.then(async () => {
                 if (!director) return;
                 roamRef.current = null;
+                if (director.toys) {
+                    director.toys.dispose();
+                    if (toyStageRef.current === director.toys) toyStageRef.current = null;
+                    director.toys = null;
+                    toyBox.setStage(null);
+                }
                 // A call is starting: no exit flourish to wait through.
                 await director.stop({ fast: ["connecting", "live"].includes(voice.state.status) });
                 bridge.onRoamEnv?.(() => {});
@@ -613,6 +655,37 @@ export default function MascotView() {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [roaming]);
+
+    // ---- the toy box ---------------------------------------------------------
+    // Toys are picked in the settings window's Toys tab. Out of roaming they
+    // play in the window's own 3D scene (full body, so there's a floor to
+    // drop them on); the stage is made for the first toy and kept until
+    // roaming starts or the window closes.
+    const ensureToyStage = () => {
+        if (toyBox.stage) return true;
+        if (roamLive || !avatarRenderer.scene || !avatarRenderer.libs) return false;
+        // An automatic camera aid, like the group-call switch: not saved.
+        if (!fullBody) {
+            setFullBody(true);
+            avatarRenderer.setFullBodyMode?.(true);
+        }
+        const stage = new SceneStage({ renderer: avatarRenderer, host: rootRef.current, kind: "mascot" });
+        toyStageRef.current = stage;
+        toyBox.setStage(stage);
+        return true;
+    };
+    useEffect(() => () => {
+        toyStageRef.current?.dispose();
+        toyStageRef.current = null;
+    }, []);
+    // Whose taste in food, and the live call they're told about toys in.
+    useEffect(() => { toyBox.companionKey = currentAgent?.id ?? currentAgent?.name ?? null; }, [currentAgent, toyBox]);
+    useEffect(() => {
+        toyBox.setCall(isLive ? () => callMembers(voice) : null);
+        return () => toyBox.setCall(null);
+    }, [isLive, toyBox]);
+    // Who spoke last: no wandering off to a toy mid-conversation.
+    useEffect(() => toyBox.setHeard(() => Math.max(voice.userVoiceAt(), avatarRenderer.lastSpeechAt || 0)), [toyBox]);
 
     // Pref changes reach a running director live.
     useEffect(() => {
@@ -812,8 +885,9 @@ export default function MascotView() {
 
     const cycleSize = () => applySizeIdx((sizeIdx + 1) % SIZES.length);
 
-    // Persist only here — the group-call effect above also flips full-body
-    // on, but that's an automatic camera aid, not a user choice to remember.
+    // Persist only here — the group-call effect above and the toy stage
+    // (ensureToyStage) also flip full-body on, but those are automatic
+    // camera aids, not user choices to remember.
     const toggleFullBody = () => {
         const next = !fullBody;
         setFullBody(next);
@@ -894,6 +968,9 @@ export default function MascotView() {
                 customGestures: (avatar?.custom_gestures || [])
                     .filter((g) => g.vrma_url)
                     .map((g) => ({ id: g.id, name: g.name, type: g.type, loop: !!g.loop })),
+                // The toy box, for the Toys tab (the catalog is a static
+                // import on both sides).
+                toys: { count: toyBox.state.count, idle: toyBox.state.idle, sounds: toyBox.state.sounds },
                 // Karaoke stage, for the Songs tab.
                 stage: {
                     status: stage.state.status,
@@ -1033,6 +1110,14 @@ export default function MascotView() {
                     else if (msg.action === "volume") backgroundMusic.setVolume(msg.volume);
                     return;
                 }
+                // The Toys tab: a pick is tossed over, as a click on a tray tile.
+                case "toy": if (ensureToyStage()) toyBox.toss(String(msg.id || "")); return;
+                case "toys":
+                    if (msg.action === "clear") toyBox.clear();
+                    else if (msg.action === "idle") toyBox.setIdlePlay(!!msg.value);
+                    else if (msg.action === "sounds") toyBox.setSounds(!!msg.value);
+                    settingsSync.current.publish();
+                    return;
                 case "roamForce": roamRef.current?.force?.(String(msg.id || "")); return;
                 case "roamSize": {
                     const v = Number(msg.value);
@@ -1082,7 +1167,7 @@ export default function MascotView() {
     useEffect(() => { settingsSync.current.publish(); },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [ghost, ghostFade, cursorFollow, pinned, fullBody, sizeIdx, customSize, backdrop, currentAgent,
-         roam, roamTricks, roamSize, roamNap, roamLive,
+         roam, roamTricks, roamSize, roamNap, roamLive, toys.count,
          sv.selectedOutfitId, sv.activeBackground, agents, selectedAgentId, sv.status, sv.muted, shareKey,
          stg.status, stg.song?.id, stg.mode, stg.error,
          bgm.status, bgm.track?.url, bgm.playlist?.name, bgm.by, bgm.volume, bgm.error]);
@@ -1262,12 +1347,12 @@ export default function MascotView() {
                     ))}
                 </div>
             )}
-            {!controlsHidden && <div className="rx_mascot_island" ref={islandRef}>
-                {!roamLive && (
-                    <span className="rx_mascot_drag" title={_t("Drag to move")}>
-                        <i className="fa fa-arrows" />
-                    </span>
-                )}
+            {/* Roaming, the island stays out of the way too: the tray menu,
+                the hotkeys and the settings window bring them back. */}
+            {!controlsHidden && !roamLive && <div className="rx_mascot_island" ref={islandRef}>
+                <span className="rx_mascot_drag" title={_t("Drag to move")}>
+                    <i className="fa fa-arrows" />
+                </span>
                 <span
                     className={
                         "rx_mascot_status"
@@ -1325,30 +1410,26 @@ export default function MascotView() {
                         </button>
                     ))
                     : <ShareButton buttonClass="" />}
-                {/* Window controls mean nothing while the companion roams the
-                    whole screen. */}
-                {!roamLive && <>
-                    <button className={fullBody ? "is-active" : ""} onClick={toggleFullBody}
-                            title={fullBody
-                                ? _t("Switch to face view")
-                                : _t("Switch to full body (drag to rotate, scroll to zoom, Shift + drag to move; in a group call, Shift + drag a companion to move just them, right-drag to turn, scroll while holding to resize)")}>
-                        <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
+                <button className={fullBody ? "is-active" : ""} onClick={toggleFullBody}
+                        title={fullBody
+                            ? _t("Switch to face view")
+                            : _t("Switch to full body (drag to rotate, scroll to zoom, Shift + drag to move; in a group call, Shift + drag a companion to move just them, right-drag to turn, scroll while holding to resize)")}>
+                    <i className={fullBody ? "fa fa-user" : "fa fa-male"} />
+                </button>
+                <button className={pinned ? "is-active" : ""} onClick={togglePin}
+                        title={_t("Always on top")}>
+                    <i className="fa fa-thumb-tack" />
+                </button>
+                {!!window.rexclawDesktop?.setMascotGhost && (
+                    <button className={ghost ? "is-active" : ""} onClick={toggleGhost}
+                            title={_t("Ghost mode — clicks pass through the window; the avatar steps out of the cursor's way")}>
+                        <i className="fa fa-low-vision" />
                     </button>
-                    <button className={pinned ? "is-active" : ""} onClick={togglePin}
-                            title={_t("Always on top")}>
-                        <i className="fa fa-thumb-tack" />
-                    </button>
-                    {!!window.rexclawDesktop?.setMascotGhost && (
-                        <button className={ghost ? "is-active" : ""} onClick={toggleGhost}
-                                title={_t("Ghost mode — clicks pass through the window; the avatar steps out of the cursor's way")}>
-                            <i className="fa fa-low-vision" />
-                        </button>
-                    )}
-                    <button onClick={cycleSize}
-                            title={_t("Cycle window size — or scroll on the avatar for fine control")}>
-                        <i className="fa fa-arrows-alt" />
-                    </button>
-                </>}
+                )}
+                <button onClick={cycleSize}
+                        title={_t("Cycle window size — or scroll on the avatar for fine control")}>
+                    <i className="fa fa-arrows-alt" />
+                </button>
                 {!!window.rexclawDesktop?.roamStart && (
                     <button className={roam ? "is-active" : ""} onClick={toggleRoam}
                             title={roam

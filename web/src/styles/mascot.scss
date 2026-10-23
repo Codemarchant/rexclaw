@@ -312,6 +312,7 @@ html.rx_mascot_mode {
 
     .rx_mascot_set_tabs {
         display: flex;
+        flex-wrap: wrap;
         gap: 0.4rem;
         margin-top: 0.75rem;
 
@@ -326,6 +327,13 @@ html.rx_mascot_mode {
         flex-wrap: wrap;
 
         .btn-light { border: 1px solid #cbd5e1; }
+    }
+
+    .rx_mascot_set_toy img {
+        width: 1.4rem;
+        height: 1.4rem;
+        object-fit: contain;
+        vertical-align: middle;
     }
 
     .rx_mascot_set_custom {

@@ -115,6 +115,7 @@ export class ToolDispatcher {
             playComboGesture: (c) => avatarRenderer.playComboGesture?.(c),
             stopGesture: () => avatarRenderer.stopGesture?.(),
             isGestureBusy: () => !!avatarRenderer.isGestureBusy?.(),
+            toyBusy: () => avatarRenderer.toyBusy || null,
             setOutfit: (u, i) => avatarRenderer.setOutfit?.(u, i),
             setBackground: (bg) => avatarRenderer.setBackground?.(bg),
             stageMove: (action) => avatarRenderer.stageMove?.(action),
@@ -733,6 +734,8 @@ export class ToolDispatcher {
         // that note stands on every call — framed on the mood changing, not
         // on how often, so a real surprise still gets marked.
         const notes = [];
+        const busy = url && this.avatarApi?.toyBusy?.();
+        if (busy) notes.push(`Your face changed; the gesture that goes with it didn't play, as you're busy ${busy} right now.`);
         if (repeat) notes.push("Emotion spam warning - the emotion just played was the same as your last set_emotion, set only recently.");
         if (this.faceDirector) {
             notes.push("Your face already shows the feeling of each line by itself. "
@@ -748,6 +751,10 @@ export class ToolDispatcher {
 
     _playGesture({ gesture }, { responseId = null } = {}) {
         if (!gesture) return { ok: false, error: "No gesture specified" };
+        // Busy with a toy (the avatar renderer's toyBusy): its routine owns
+        // the body until it's done.
+        const busy = this.avatarApi?.toyBusy?.();
+        if (busy) return { ok: false, note: `Not played: you're busy ${busy} right now.` };
         // As in _setEmotion: the companion's own choice owns this turn.
         this.avatarApi?.noteExpressionTool?.();
         // Reserved sentinel: stop any running gesture (notably a continuous
@@ -852,6 +859,8 @@ export class ToolDispatcher {
         if (!this.avatarApi?.stageMove) {
             return { ok: false, error: "Only the main companion of a call can move around." };
         }
+        const busy = this.avatarApi?.toyBusy?.();
+        if (busy) return { ok: false, note: `Not moved: you're busy ${busy} right now.` };
         this.avatarApi?.noteExpressionTool?.();
         const res = this.avatarApi.stageMove(action) || { ok: false, error: "The avatar is not on screen." };
         if (!res.ok) return res;

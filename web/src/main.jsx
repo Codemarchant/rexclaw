@@ -8,6 +8,7 @@ import "./styles/transcript.scss";
 import "./styles/text_full_view.scss";
 import "./styles/share_popover.scss";
 import "./styles/mascot.scss";
+import "./styles/toys.scss";
 import "./styles/memory_galaxy.scss";
 import "./styles/stage.scss";
 import "./styles/manga.scss";

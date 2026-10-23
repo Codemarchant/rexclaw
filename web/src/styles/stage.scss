@@ -270,6 +270,58 @@
     label { margin: 0; }
 }
 
+// Background music controls (BackgroundMusicControls.jsx), in both the
+// voice view's dark Stage panel and the light mascot settings: colours are
+// translucent so they read on either. The Stage panel is outside
+// .rx_settings, so its checkboxes need their own one-per-line rule.
+.rx_bgm {
+    .rx_check {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+        input { width: auto; margin: 0; }
+    }
+}
+.rx_bgm_pick {
+    flex: 1;
+    min-width: 0;
+
+    input { width: 100%; }
+}
+// In the flow, not floating: the Stage panel scrolls and would clip it.
+.rx_bgm_list {
+    max-height: 14rem;
+    overflow-y: auto;
+    margin-top: 0.25rem;
+    border: 1px solid rgba(127, 127, 127, 0.35);
+    border-radius: 0.3rem;
+    background: rgba(127, 127, 127, 0.08);
+}
+.rx_bgm_group {
+    padding: 0.3rem 0.5rem 0.1rem;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.6;
+}
+.rx_bgm_item {
+    display: block;
+    width: 100%;
+    padding: 0.2rem 0.5rem 0.2rem 0.9rem;
+    border: 0;
+    background: none;
+    color: inherit;
+    text-align: left;
+    font-size: 0.82rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &:hover, &:focus { background: rgba(59, 130, 246, 0.18); }
+    &.is-chosen { background: rgba(59, 130, 246, 0.3); }
+}
+
 .rx_stage_overlay {
     position: absolute;
     inset: 0;

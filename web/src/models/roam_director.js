@@ -33,6 +33,7 @@ import { SEASON_GAG_ACTIONS, installSeasonGags } from "./roam_gags_seasons";
 import { REXCLAW_GAG_ACTIONS, installRexclawGags } from "./roam_gags_rexclaw";
 import { lateNight, toNewYearS } from "./roam_seasons";
 import { RoamEars } from "./roam_ears";
+import { toySfx } from "./toys/sfx";
 
 const VRMA = "/assets/vrma";
 const CLIP = {
@@ -202,6 +203,11 @@ export class RoamDirector {
         this._captureFails = 0;
         this._zzz = null;
         this._last = 0;
+        // The toy box's desktop stage (models/toys/screen_stage.js), set by
+        // the page while one is out; its toys' reactions run as actions.
+        this.toys = null;
+        this._toyNext = null;
+        this._toyNow = null;
     }
 
     // ── public ───────────────────────────────────────────────────────────
@@ -220,7 +226,8 @@ export class RoamDirector {
         this.ears = new RoamEars({
             onMusic: (on) => noteMusic(this, on),
             onBeat: () => { this._lastBeat = now(); },
-            onStartle: () => { if (this.tricks) this._react("startle"); },
+            // Their own toys' bounces and squeaks don't startle them.
+            onStartle: () => { if (this.tricks && now() - toySfx.lastAt > 1500) this._react("startle"); },
             onDrop: () => { if (this.tricks && this.music) this._react("air_guitar"); },
         });
         this.ears.start(this.bridge).catch(() => {});
@@ -303,6 +310,32 @@ export class RoamDirector {
             return;
         }
         this._forced = id;
+        this._interrupt("forced");
+    }
+
+    /** Something happened with a toy (models/toys/react.js reaction `r`):
+     *  what they do about it runs next, cutting in on what they're doing —
+     *  but a set piece or a holiday plays out first, and a toy routine is
+     *  only cut short by something urgent (a toy coming at them). */
+    toyReact(r) {
+        if (!this.running || !this.toys) return;
+        const cur = ACTIONS.find((x) => x.id === this._currentId);
+        if (cur?.group === "rexclaw" || cur?.group === "holiday" || this._currentId === "new_year_fireworks") {
+            this._toyNext = r;
+            return;
+        }
+        const playing = this._toyNow;
+        if (playing) {
+            if (playing.toy === r.toy && playing.why === r.why) return;
+            // Bumping into them while they reach for it is the catch.
+            if (playing.toy === r.toy && playing.why === "thrown" && r.why === "hit") return;
+            if (!r.urgent && playing.urgent) { this._toyNext ||= r; return; }
+        }
+        this._toyNext = r;
+        // Something else already asked for ("Do it", a reaction that waited
+        // for a landing) runs first: the toy's turn comes after (_brain).
+        if (this._forced && this._forced !== "toy_react") return;
+        this._forced = "toy_react";
         this._interrupt("forced");
     }
 
@@ -784,11 +817,15 @@ export class RoamDirector {
                     this._forced ||= this._pendingReact;
                     this._pendingReact = null;
                 }
+                // A toy reaction that waited for a set piece to end.
+                if (this._toyNext && !this._forced && this.b.mode === "ground") this._forced = "toy_react";
                 if (!this._forced) await this._wait(rand(PAUSE_MIN_MS, PAUSE_MAX_MS) * (this._sinceLanding() < 1500 ? 0.4 : 1), ctx);
-                await this._maybeLook(ctx);
+                // (Not before a toy reaction: a look at the screen can take
+                // seconds, and the ball would be past them by then.)
+                if (this._forced !== "toy_react") await this._maybeLook(ctx);
                 const act = this._pick();
                 if (act) {
-                    if (this._pickedForced) await this._prepare(act, ctx);
+                    if (this._pickedForced && !act.noPrepare) await this._prepare(act, ctx);
                     this._lastGroup = act.group;
                     this._cooldowns.set(act.id, now());
                     this._currentId = act.id;
@@ -796,7 +833,7 @@ export class RoamDirector {
                     await act.run.call(this, ctx);
                     // Asked for ("Do it") and over at once: it found nothing
                     // to work with. A shrug says so, not nothing at all.
-                    if (this._pickedForced && now() - t0 < 150) {
+                    if (this._pickedForced && !act.noPrepare && now() - t0 < 150) {
                         this._face(0);
                         const h = this._bonesPx(["head"]);
                         this.fx.say("?", this.box.left + (h?.x ?? this.box.width / 2),
@@ -851,6 +888,8 @@ export class RoamDirector {
         if (this._bubbles) { this._bubbles.stop(); this._bubbles = null; }
         if (this.held && !this.held.keep) { this.held.sticker.fade(250); this.held = null; }
         if (this._patch) { const p = this._patch; this._patch = null; setTimeout(() => p.fade(600), 900); }
+        // A toy still in their hands drops where they are.
+        this.toys?.releaseHeld();
         // A window just went from under them: they stay put for that moment
         // (the brain plays it next).
         if (this._surfaceGag) return;
@@ -1011,7 +1050,8 @@ export class RoamDirector {
 
     /** Every action and whether it could run right now. */
     actionList() {
-        return ACTIONS.map((a) => ({ id: a.id, ready: this._ready(a) }));
+        // A toy reaction is only ever started by a toy.
+        return ACTIONS.filter((a) => !a.noPrepare).map((a) => ({ id: a.id, ready: this._ready(a) }));
     }
 
     _pick() {
@@ -1508,6 +1548,33 @@ export class RoamDirector {
         this._toAir();
     }
 
+    // ── toys (the toy box, models/toys/) ─────────────────────────────────
+
+    /** What just happened with a toy (toyReact). */
+    async toyReaction(ctx) {
+        const r = this._toyNext;
+        this._toyNext = null;
+        if (!r || !this.toys) return;
+        this._toyNow = r;
+        try {
+            await this.toys.run(r, ctx);
+        } finally {
+            this._toyNow = null;
+        }
+    }
+
+    /** A toy lying about catches their eye. */
+    async toyTime(ctx) {
+        const t = this.toys?.idlePick();
+        if (!t) return;
+        this._toyNow = { toy: t, why: "idle" };
+        try {
+            await this.toys.run({ toy: t, why: "idle" }, ctx);
+        } finally {
+            this._toyNow = null;
+        }
+    }
+
     /** A bath in a search box: sat down in it, bubbles. */
     async bathSearch(ctx) {
         const f = pick(this.seen("search"));
@@ -1565,6 +1632,11 @@ const ACTIONS = [
     { id: "admire_picture", group: "trick_perch", weight: 18, cooldown: 60, when: (d) => d.seen("picture").some((f) => f.rect.y > d.body * 0.6 && f.rect.width > d.body * 0.4), run: RoamDirector.prototype.admirePicture },
     { id: "slide", group: "trick_perch", weight: 16, cooldown: 90, when: (d) => d.seen("scrollbar").some((f) => f.rect.y > d.body * 0.6), run: RoamDirector.prototype.slideScrollbar },
     { id: "bath", group: "trick_perch", weight: 14, cooldown: 120, when: (d) => d.seen("search").some((f) => f.rect.y > d.body * 0.5 && f.rect.width > d.body * 0.35), run: RoamDirector.prototype.bathSearch },
+    // The toy box: a reaction (only ever run on its own, see toyReact) and
+    // playing with what's lying about, as keen as the toys make them.
+    { id: "toy_react", group: "toys", weight: 0, noPrepare: true, when: () => false, run: RoamDirector.prototype.toyReaction },
+    { id: "toy_time", group: "toys", weight: (d) => d.toys?.idleWeight() || 0, cooldown: 20,
+      when: (d) => d.b.mode === "ground" && (d.toys?.idleWeight() || 0) > 0, run: RoamDirector.prototype.toyTime },
     // The props, memes and big moments (models/roam_gags.js, roam_gags_more.js),
     // the weather, seasons and holidays (roam_gags_seasons.js), the crew's
     // world (roam_gags_rexclaw.js).

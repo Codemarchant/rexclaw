@@ -50,6 +50,13 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     // mode uses (with or without ghost being on); the page feeds it to the
     // avatar renderer so the eyes/head track the desktop cursor.
     setMascotCursorFollow: (on) => ipcRenderer.invoke("mascot-cursor-follow", !!on),
+    // Hover watch: the shell reports the cursor entering/leaving the window
+    // (on change), the reliable exit for hiding the controls island.
+    setMascotHoverWatch: (on) => ipcRenderer.invoke("mascot-hover-watch", !!on),
+    onMascotHover: (cb) => {
+        ipcRenderer.removeAllListeners("mascot-hover");
+        ipcRenderer.on("mascot-hover", (event, inside) => cb(!!inside));
+    },
     // Grab-the-character dragging: origin fetch + absolute position stream +
     // end (restores the non-resizable lock the drag temporarily lifts).
     mascotDragStart: () => ipcRenderer.invoke("mascot-drag-start"),

@@ -1,0 +1,294 @@
+// The toy box (components/ToyTray.jsx, models/toys/): the tray, and the toys
+// as the roaming desktop draws them (models/toys/screen_stage.js).
+
+.rx_toytray {
+    position: absolute;
+    z-index: 30;
+    width: min(360px, calc(100% - 1rem));
+    padding: 0.4rem;
+    border-radius: 0.9rem;
+    background: rgba(15, 23, 42, 0.82);
+    color: #e2e8f0;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+    font: 500 12px/1.2 "Segoe UI", Arial, sans-serif;
+    user-select: none;
+    pointer-events: auto;
+
+    button {
+        border: 0;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+    }
+
+    // The Voice view: bottom left, clear of the call controls.
+    &--full { left: 1rem; bottom: 5.5rem; }
+    // The roaming desktop: bottom middle, above the taskbar.
+    &--roam { left: 50%; bottom: 0.8rem; transform: translateX(-50%); }
+    // The mascot's window: over the island.
+    &--mascot { left: 50%; bottom: 3.4rem; transform: translateX(-50%); width: calc(100% - 0.8rem); }
+}
+
+.rx_toytray_head {
+    display: flex;
+    gap: 0.2rem;
+    margin-bottom: 0.35rem;
+}
+
+.rx_toytray_tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.15rem;
+    padding: 0.3rem 0.1rem;
+    font-size: 10.5px;
+    border-radius: 0.5rem;
+    opacity: 0.7;
+
+    &:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }
+    &.is-active { opacity: 1; background: rgba(255, 255, 255, 0.16); }
+
+    .rx_toytray--mascot & span { display: none; }
+}
+
+.rx_toytray_close {
+    flex: 0 0 auto;
+    width: 1.8rem;
+    border-radius: 0.5rem;
+    opacity: 0.7;
+
+    &:hover { opacity: 1; background: rgba(255, 255, 255, 0.08); }
+}
+
+.rx_toytray_grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.3rem;
+}
+
+.rx_toytray_tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.4rem 0.15rem 0.3rem;
+    border-radius: 0.6rem;
+    background: rgba(255, 255, 255, 0.06);
+    touch-action: none;
+    cursor: grab !important;
+
+    img {
+        width: 44px;
+        height: 44px;
+        pointer-events: none;
+        filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+        transition: transform 0.15s ease;
+    }
+
+    span {
+        font-size: 11px;
+        text-align: center;
+        line-height: 1.1;
+        min-height: 2.2em;
+    }
+
+    &:hover {
+        background: rgba(255, 255, 255, 0.14);
+        img { transform: scale(1.12) rotate(-4deg); }
+    }
+
+    &.is-active {
+        background: rgba(239, 68, 68, 0.35);
+        box-shadow: inset 0 0 0 2px rgba(248, 113, 113, 0.8);
+    }
+}
+
+.rx_toytray_foot {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.35rem;
+
+    button {
+        width: 1.9rem;
+        height: 1.7rem;
+        border-radius: 0.45rem;
+        opacity: 0.8;
+
+        &:hover:not(:disabled) { opacity: 1; background: rgba(255, 255, 255, 0.1); }
+        &:disabled { opacity: 0.3; cursor: default; }
+    }
+}
+
+.rx_toytray_hint {
+    flex: 1;
+    font-size: 11px;
+    opacity: 0.65;
+}
+
+// ── the desktop's toys ──────────────────────────────────────────────────
+
+.rx_toys {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.rx_toys_fx {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.rx_toys_hoop,
+.rx_toys_piece {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+}
+
+.rx_toy {
+    position: absolute;
+    left: 0;
+    top: 0;
+    will-change: transform;
+    filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.3));
+
+    > svg { width: 100%; height: 100%; overflow: visible; }
+
+    &.is-held { filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.35)); }
+
+    .rx_toy_blades {
+        transform-box: fill-box;
+        transform-origin: center;
+    }
+
+    &.is-on .rx_toy_blades { animation: rx-toy-spin 0.18s linear infinite; }
+    &.is-on .rx_toy_led { fill: #4ade80; }
+    &--fogger.is-puffing .rx_toy_led { fill: #f87171; }
+
+    .rx_toy_glow { opacity: 0; transition: opacity 0.3s ease; }
+    &.is-on .rx_toy_glow { opacity: 1; animation: rx-toy-flicker 0.4s ease-in-out infinite alternate; }
+
+    .rx_toy_lid {
+        transform-box: fill-box;
+        transform-origin: 50% 100%;
+        transition: transform 0.45s cubic-bezier(0.3, 1.6, 0.5, 1);
+    }
+
+    &.is-open .rx_toy_lid { transform: translateY(-14%) rotate(-24deg); }
+    &.is-open .rx_toy_glow { opacity: 0.9; animation: rx-toy-flicker 0.6s ease-in-out infinite alternate; }
+
+    &--disco.is-on .rx_toy_tiles { animation: rx-toy-tiles 1.4s linear infinite; }
+
+    // Lamps: wax rising and sinking, a flame's flicker, LEDs twinkling, a
+    // neon sign's glow (art.js draws them on or off).
+    .rx_lava_on .rx_lava_blob { animation: rx-lava 9s ease-in-out infinite alternate; }
+    .rx_flame {
+        transform-box: fill-box;
+        transform-origin: 50% 100%;
+        animation: rx-flame 0.23s ease-in-out infinite alternate;
+    }
+    .rx_twinkle { animation: rx-twinkle 1.8s ease-in-out infinite alternate; }
+    .rx_neon { filter: drop-shadow(0 0 2px currentColor) drop-shadow(0 0 6px currentColor); }
+    &--lamp { filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.25)); }
+
+    // A campfire's flames swelling and back at its puffing (catalog
+    // puffHz, ≈1.9 Hz); an aquarium's fish to and fro, plants swaying,
+    // bubbles up the 26 cm of water at a quarter of a metre a second
+    // (models3d BUBBLE_RISE), flakes drifting down when they're fed.
+    .rx_fire {
+        transform-box: fill-box;
+        transform-origin: 50% 100%;
+        animation: rx-fire 0.26s ease-in-out infinite alternate;
+    }
+    .rx_fish {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: rx-swim 12s linear infinite;
+    }
+    .rx_plant {
+        transform-box: fill-box;
+        transform-origin: 50% 100%;
+        animation: rx-sway 4s ease-in-out infinite alternate;
+    }
+    .rx_bub { animation: rx-bub 1.05s linear infinite; }
+    .rx_flakes circle { opacity: 0; }
+    &.is-feeding .rx_flakes circle { animation: rx-flake 6s ease-in forwards; }
+
+    // Cups, bowls and bottles (art.js): what's in them going down (the
+    // stage's --fill), steam rising, a bottle's cap off.
+    .rx_fill {
+        transform-box: fill-box;
+        transform-origin: 50% 100%;
+        transform: scaleY(var(--fill, 1));
+    }
+    .rx_steam path { animation: rx-steam 1.8s ease-out infinite; }
+    &.is-open .rx_cap { display: none; }
+}
+
+@keyframes rx-steam {
+    from { transform: translateY(0); opacity: 0; }
+    30% { opacity: 0.7; }
+    to { transform: translateY(-10px); opacity: 0; }
+}
+
+@keyframes rx-lava {
+    0% { transform: translateY(0) scale(1, 1); }
+    50% { transform: translateY(-9px) scale(0.85, 1.25); }
+    100% { transform: translateY(-17px) scale(1.05, 0.95); }
+}
+@keyframes rx-flame { from { transform: scale(0.92, 0.88) skewX(-3deg); } to { transform: scale(1.05, 1.08) skewX(3deg); } }
+@keyframes rx-twinkle { from { opacity: 0.35; } to { opacity: 1; } }
+@keyframes rx-fire { from { transform: scale(0.94, 0.9) skewX(-4deg); } to { transform: scale(1.04, 1.1) skewX(4deg); } }
+@keyframes rx-swim {
+    0% { transform: translateX(-30px) scaleX(1); }
+    48% { transform: translateX(30px) scaleX(1); }
+    50% { transform: translateX(30px) scaleX(-1); }
+    98% { transform: translateX(-30px) scaleX(-1); }
+    100% { transform: translateX(-30px) scaleX(1); }
+}
+@keyframes rx-sway { from { transform: rotate(-6deg); } to { transform: rotate(6deg); } }
+@keyframes rx-bub {
+    from { transform: translateY(0); opacity: 0.9; }
+    90% { opacity: 0.9; }
+    to { transform: translateY(-26px); opacity: 0; }
+}
+@keyframes rx-flake {
+    0% { opacity: 1; transform: translate(0, 0); }
+    30% { transform: translate(1px, 0); }
+    100% { opacity: 0; transform: translate(-1px, 9px); }
+}
+
+// A soap bubble: a thin film catching the light in its colours.
+.rx_toy--bubble {
+    border-radius: 50%;
+    filter: none;
+    background:
+        radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.85) 0 9%, transparent 14%),
+        radial-gradient(circle at 50% 50%, transparent 58%, rgba(244, 114, 182, 0.35) 70%, rgba(56, 189, 248, 0.45) 82%, rgba(250, 204, 21, 0.35) 92%, rgba(255, 255, 255, 0.5) 100%);
+    box-shadow: inset 0 0 6px rgba(255, 255, 255, 0.4);
+}
+
+.rx_toy_wobble {
+    font-style: italic;
+
+    .rx_toy_wobble_ch { display: inline-block; white-space: pre; }
+}
+
+.rx_toy_scroll {
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35));
+
+    svg { width: 100%; height: 100%; }
+}
+
+@keyframes rx-toy-spin { to { transform: rotate(360deg); } }
+@keyframes rx-toy-flicker { from { opacity: 0.65; } to { opacity: 1; } }
+@keyframes rx-toy-tiles { to { transform: translateX(9px); } }

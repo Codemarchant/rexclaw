@@ -15,15 +15,17 @@ router = APIRouter(prefix="/api/music")
 @router.post("/tracks")
 def music_tracks(payload: dict = Body(default={}), con=Depends(db_con)):
     """A companion's tracks (its avatar's own, plus the library unless the
-    avatar opts out) and the playback levels."""
+    avatar opts out, or always with whole_library) and the playback levels."""
     agent_id = payload.get('agent_id')
     if agent_id is not None and not isinstance(agent_id, int):
         raise UserError('agent_id must be an integer.')
     avatar_id = call_music.agent_avatar_id(con, agent_id)
-    listed = call_music.tracks(con, avatar_id)
+    listed = call_music.tracks(con, avatar_id, whole_library=bool(payload.get('whole_library')))
+    config = get_config(con)
     return {'tracks': listed, 'playlists': call_music.playlists(con, avatar_id, listed),
             'levels': call_music.LEVELS,
-            'start_on_call': bool(get_config(con)['music_on_call_start'])}
+            'start_on_call': bool(config['music_on_call_start']),
+            'keep_downloads': bool(config['keep_downloaded_sounds'])}
 
 
 @router.post("/settings")

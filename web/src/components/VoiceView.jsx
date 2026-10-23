@@ -15,7 +15,11 @@ import Transcript from "./Transcript.jsx";
 import StagePanel from "./StagePanel.jsx";
 import KaraokeOverlay from "./KaraokeOverlay.jsx";
 import MangaStudio from "./MangaStudio.jsx";
+import ToyTray from "./ToyTray.jsx";
 import { stage } from "../models/stage";
+import { backgroundMusic } from "../models/background_music";
+import { ToyBox, callMembers } from "../models/toys/toybox";
+import { SceneStage } from "../models/toys/scene_stage";
 
 import { downscaleImageFile, attachmentNote } from "../lib/attachments";
 import { useFileDrop } from "../lib/use_file_drop";
@@ -641,6 +645,50 @@ export default function VoiceView({ active = true }) {
         });
     };
 
+    // ---- the toy box ---------------------------------------------------------
+    // Treats, toys and gadgets dropped into the room (models/toys/). The stage
+    // is made the first time the tray opens — in the full-body view, so
+    // there's a floor in shot to drop things on — and kept with its toys
+    // until the view goes.
+    const toyBox = useMemo(() => new ToyBox(), []);
+    const toys = useReactive(toyBox.state);
+    const toyStageRef = useRef(null);
+    const avatarAreaRef = useRef(null);
+    useEffect(() => {
+        if (!toys.open || toyStageRef.current) return;
+        // Opened before the renderer is up: tried again until it is.
+        let retry = null;
+        const make = () => {
+            if (!avatarRenderer.scene || !avatarRenderer.libs || !avatarAreaRef.current) {
+                retry = setTimeout(make, 250);
+                return;
+            }
+            // (The renderer's flag, not `fullBody`: this may run well after
+            // the render that scheduled it.)
+            if (!avatarRenderer._fullBody) {
+                setFullBody(true);
+                avatarRenderer.setFullBodyMode?.(true);
+            }
+            const toyStage = new SceneStage({ renderer: avatarRenderer, host: avatarAreaRef.current });
+            toyStageRef.current = toyStage;
+            toyBox.setStage(toyStage);
+        };
+        make();
+        return () => clearTimeout(retry);
+    }, [toys.open, toyBox]);
+    useEffect(() => () => {
+        toyStageRef.current?.dispose();
+        toyStageRef.current = null;
+    }, []);
+    useEffect(() => { toyBox.companionKey = selectedAgentId; }, [selectedAgentId, toyBox]);
+    // A live call hears about the toys (hidden notes, models/toys/toybox.js).
+    useEffect(() => {
+        toyBox.setCall(isLive ? () => callMembers(voice) : null);
+        return () => toyBox.setCall(null);
+    }, [isLive, toyBox]);
+    // Who spoke last: no wandering off to a toy mid-conversation.
+    useEffect(() => toyBox.setHeard(() => Math.max(voice.userVoiceAt(), avatarRenderer.lastSpeechAt || 0)), [toyBox]);
+
     const triggerEmotion = (emotionId) => {
         setCurrentEmotion(emotionId);
         avatarRenderer.setEmotion?.(emotionId, { explicit: false });
@@ -722,6 +770,13 @@ export default function VoiceView({ active = true }) {
             screenCapture.cameraHandoffSet();
             screenCapture.disarm();
         }
+        // The toys stay here, in a window that's about to hide: put away,
+        // or they'd go on humming unseen (the mascot has its own toy box).
+        toyBox.putAll();
+        // Music started from the ♪ panel outside a call plays on here too
+        // (a call's music already stopped with it), where the mascot's
+        // controls can't reach it.
+        backgroundMusic.stop({ note: false });
         await window.rexclawDesktop.openMascot({ resume: wasLive });
         loadHistory();
     };
@@ -1260,8 +1315,9 @@ export default function VoiceView({ active = true }) {
                 </div>
             )}
 
-            <div className="o_voice_full_avatar">
+            <div className="o_voice_full_avatar" ref={avatarAreaRef}>
                 <AvatarCanvas size="full" />
+                {!ui.immersive && toys.open && toys.stage && <ToyTray box={toyBox} variant="full" />}
                 <KaraokeOverlay sidePanel={!ui.immersive && (showStage || showSettings)} />
                 {mangaJob && createPortal(<MangaStudio job={mangaJob} onClose={closeManga} />, document.body)}
                 {/* Affection pulse: rose shine around the avatar + floating
@@ -1347,6 +1403,11 @@ export default function VoiceView({ active = true }) {
                                 onClick={() => { setShowStage(!showStage); setShowSettings(false); }}
                                 title={showStage ? _t("Hide the stage") : _t("Stage: your companion sings and dances to a song, karaoke style")}>
                             <i className="fa fa-music" />
+                        </button>
+                        <button className={"btn btn-light" + (toys.open ? " active" : "")}
+                                onClick={() => toyBox.toggle()}
+                                title={toys.open ? _t("Close the toy box") : _t("Toy box: treats, toys and gadgets to play with")}>
+                            <i className="fa fa-gift" />
                         </button>
                         {/* A song on the stage (perform_song, or the Stage panel): stop it
                             from here without opening the panel. */}

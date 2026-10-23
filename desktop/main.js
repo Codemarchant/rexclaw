@@ -842,6 +842,30 @@ function syncCursorFeed() {
     }, 33);
 }
 
+// Hover watch: whether the cursor is over the mascot window, sent on change
+// only. The page reveals its controls on DOM mouseenter, but a leave is
+// often never delivered (out through the -webkit-app-region: drag handle,
+// or after a window drag), so the bar would stay up; this is the exit it
+// can rely on. 10 Hz is plenty under the island's 0.5 s fade-out delay.
+let hoverTimer = null;
+let hoverInside = null;
+ipcMain.handle("mascot-hover-watch", (event, on) => {
+    if (hoverTimer) { clearInterval(hoverTimer); hoverTimer = null; }
+    hoverInside = null;
+    if (!on || !mascotWindow || mascotWindow.isDestroyed()) return false;
+    const { screen } = require("electron");
+    hoverTimer = setInterval(() => {
+        if (!mascotWindow || mascotWindow.isDestroyed()) { clearInterval(hoverTimer); hoverTimer = null; return; }
+        const p = screen.getCursorScreenPoint();
+        const b = mascotWindow.getBounds();
+        const inside = p.x >= b.x && p.x < b.x + b.width && p.y >= b.y && p.y < b.y + b.height;
+        if (inside === hoverInside) return;
+        hoverInside = inside;
+        mascotWindow.webContents.send("mascot-hover", inside);
+    }, 100);
+    return true;
+});
+
 // cursorFeedGhost doubles as the shell's knowledge of ghost state — the page
 // calls this on every arm/disarm (including the restored-pref arm on mount).
 ipcMain.handle("mascot-ghost", (event, on) => {
@@ -900,8 +924,10 @@ ipcMain.handle("mascot-drag-move", (event, pos) => {
 // Tray "Hide avatar controls" — a hard pin: the island doesn't render even
 // on hover (useful with ghost mode, where any UI defeats the point). Living
 // in the tray means it stays reachable while every in-window control is
-// hidden. Persisted, so a hidden bar stays hidden across restarts.
-ipcMain.handle("mascot-controls-hidden", () => !!loadSettings().mascotControlsHidden);
+// hidden. Persisted, so a hidden bar stays hidden across restarts. Off by
+// default: a first pop-out needs visible controls to find its way around.
+const mascotControlsHidden = () => !!loadSettings().mascotControlsHidden;
+ipcMain.handle("mascot-controls-hidden", () => mascotControlsHidden());
 
 ipcMain.handle("mascot-drag-end", () => {
     if (mascotWindow && !mascotWindow.isDestroyed()) {
@@ -1506,7 +1532,7 @@ function trayMenuTemplate() {
             // zero-navigation way back out.
             label: "Hide avatar controls",
             type: "checkbox",
-            checked: !!loadSettings().mascotControlsHidden,
+            checked: mascotControlsHidden(),
             click: (item) => setMascotControlsHidden(item.checked),
         },
         {

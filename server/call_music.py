@@ -69,16 +69,17 @@ def library_tracks(con):
     return out
 
 
-def tracks(con, avatar_id):
+def tracks(con, avatar_id, whole_library=False):
     """A companion's tracks (see the module docstring); an avatar's own
-    tracks come first and win a name clash."""
+    tracks come first and win a name clash. whole_library: the library
+    too even when the avatar opts out (the user's own ♪ panel picker)."""
     avatar = con.execute("SELECT music_library FROM avatars WHERE id = ?", (avatar_id,)).fetchone() \
         if avatar_id else None
     out = [{'name': r['name'], 'url': r['file_path'], 'description': r['description'],
             'credit': r['credit'], 'source': 'avatar'}
            for r in con.execute("SELECT * FROM avatar_music WHERE avatar_id = ? ORDER BY sequence, id",
                                 (avatar_id,)).fetchall()] if avatar_id else []
-    if avatar is None or avatar['music_library']:
+    if whole_library or avatar is None or avatar['music_library']:
         taken = {t['name'].lower() for t in out}
         out += [t for t in library_tracks(con) if t['name'].lower() not in taken]
     return out

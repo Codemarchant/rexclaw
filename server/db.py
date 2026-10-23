@@ -55,8 +55,8 @@ CREATE TABLE IF NOT EXISTS config (
     recording_rules TEXT,
     -- Sounds companions download for a voice message (create_voicemail's
     -- `sounds`) join the user's sound library; 0 = used for that one
-    -- recording, then deleted.
-    keep_downloaded_sounds INTEGER NOT NULL DEFAULT 0,
+    -- recording, then deleted. Links pasted in the ♪ panel follow it too.
+    keep_downloaded_sounds INTEGER NOT NULL DEFAULT 1,
     -- Background music starts as a call opens (call_music.py): the
     -- background's track or playlist, else the avatar's default playlist.
     music_on_call_start INTEGER NOT NULL DEFAULT 0,
@@ -1520,7 +1520,7 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN xai_oauth_account TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN seeded_grok_pipeline INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE imagine_images ADD COLUMN xai_file_account TEXT",
-    "ALTER TABLE config ADD COLUMN keep_downloaded_sounds INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN keep_downloaded_sounds INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE agents ADD COLUMN enable_voicemail_downloads INTEGER NOT NULL DEFAULT 1",
     # Background music in calls (call_music.py).
     "ALTER TABLE avatars ADD COLUMN music_library INTEGER NOT NULL DEFAULT 1",
