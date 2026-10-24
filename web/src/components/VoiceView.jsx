@@ -14,6 +14,8 @@ import AvatarCanvas from "./AvatarCanvas.jsx";
 import Transcript from "./Transcript.jsx";
 import StagePanel from "./StagePanel.jsx";
 import KaraokeOverlay from "./KaraokeOverlay.jsx";
+import { CAPTION_SIZES, LiveCaptions } from "./Captions.jsx";
+import { CAPTION_HOLD_OPTIONS, useCaptionPrefs } from "../lib/caption_prefs";
 import MangaStudio from "./MangaStudio.jsx";
 import ToyTray from "./ToyTray.jsx";
 import { stage } from "../models/stage";
@@ -109,6 +111,10 @@ export default function VoiceView({ active = true }) {
     const [renderPrefs, updateRenderPrefs] = useRenderPrefs();
     const [showTranscript, setShowTranscript] = useState(true);
     const [showControls, setShowControls] = useState(true);
+    // Stream captions along the bottom (off by default) — per-browser prefs,
+    // shared with the mascot settings (the line hold is common to both).
+    const [captionPrefs, updateCaptionPrefs] = useCaptionPrefs();
+    const showCaptions = !!captionPrefs.fullscreen;
     const [fullBody, setFullBody] = useState(false);
     const [moveMode, setMoveMode] = useState(false);
     // "walk" (default; the companion stays facing however it stopped), "auto"
@@ -1319,6 +1325,13 @@ export default function VoiceView({ active = true }) {
                 <AvatarCanvas size="full" />
                 {!ui.immersive && toys.open && toys.stage && <ToyTray box={toyBox} variant="full" />}
                 <KaraokeOverlay sidePanel={!ui.immersive && (showStage || showSettings)} />
+                {/* With the call controls up, the captions ride above them
+                    in their overlay (below); without, in one of their own. */}
+                {showCaptions && (ui.immersive || !showControls) && (
+                    <div className="o_voice_full_overlay">
+                        <LiveCaptions lines={captionPrefs.lines} size={captionPrefs.size} />
+                    </div>
+                )}
                 {mangaJob && createPortal(<MangaStudio job={mangaJob} onClose={closeManga} />, document.body)}
                 {/* Affection pulse: rose shine around the avatar + floating
                     signed delta + heart burst. Keyed on the pulse timestamp
@@ -1426,8 +1439,7 @@ export default function VoiceView({ active = true }) {
                                 onClick={() => setShowTranscript(!showTranscript)}
                                 title={showTranscript ? _t("Hide transcript (full-width avatar)") : _t("Show transcript")}>
                             <i className={showTranscript ? "fa fa-comment" : "fa fa-comment-o"} />
-                        </button>
-                    </div>
+                        </button>                    </div>
                     <div className="o_voice_full_topbar_row o_voice_full_topbar_row--meta">
                         <span className={
                             "o_voice_full_status"
@@ -1525,6 +1537,37 @@ export default function VoiceView({ active = true }) {
                                     {_t("Touch physics")}
                                 </label>
                             </div>
+                            <div className="o_voice_full_settings_row">
+                                <input id="rx_fv_captions" type="checkbox" checked={showCaptions}
+                                       onChange={(ev) => updateCaptionPrefs({ fullscreen: ev.target.checked })} />
+                                <label htmlFor="rx_fv_captions"
+                                       title={_t("Their words along the bottom as they speak, live-subtitle style.")}>
+                                    {_t("Stream captions")}
+                                </label>
+                            </div>
+                            {showCaptions && (<>
+                                <div className="o_voice_full_settings_row">
+                                    <label htmlFor="rx_fv_caption_lines">{_t("Caption lines")}</label>
+                                    <select id="rx_fv_caption_lines" value={captionPrefs.lines}
+                                            onChange={(ev) => updateCaptionPrefs({ lines: +ev.target.value })}>
+                                        {[2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
+                                    </select>
+                                </div>
+                                <div className="o_voice_full_settings_row">
+                                    <label htmlFor="rx_fv_caption_size">{_t("Caption size")}</label>
+                                    <select id="rx_fv_caption_size" value={captionPrefs.size}
+                                            onChange={(ev) => updateCaptionPrefs({ size: ev.target.value })}>
+                                        {CAPTION_SIZES.map(([id, label]) => <option key={id} value={id}>{_t(label)}</option>)}
+                                    </select>
+                                </div>
+                                <div className="o_voice_full_settings_row">
+                                    <label htmlFor="rx_fv_caption_hold">{_t("Lines stay for")}</label>
+                                    <select id="rx_fv_caption_hold" value={captionPrefs.hold}
+                                            onChange={(ev) => updateCaptionPrefs({ hold: +ev.target.value })}>
+                                        {CAPTION_HOLD_OPTIONS.map(([s, label]) => <option key={s} value={s}>{_t(label)}</option>)}
+                                    </select>
+                                </div>
+                            </>)}
                         </div>
                         <div className="o_voice_full_settings_section">
                             <strong>{_t("Emotions")}</strong>
@@ -1633,6 +1676,7 @@ export default function VoiceView({ active = true }) {
 
                 {!ui.immersive && showControls && (
                     <div className="o_voice_full_overlay">
+                        {showCaptions && <LiveCaptions lines={captionPrefs.lines} size={captionPrefs.size} />}
                         <div className="o_voice_full_controls">
                             <select value={selectedAgentId ?? ""} onChange={onAgentChange}
                                     disabled={isLive || isConnecting}>

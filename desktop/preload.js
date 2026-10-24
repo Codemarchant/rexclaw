@@ -116,6 +116,17 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     // mascot mode, opened from the island's share button or the settings
     // window.
     openMascotShare: () => ipcRenderer.invoke("mascot-share-open"),
+    // Stream captions window (/#captions, comes with the mascot): {shown,
+    // locked} get + setters + change pushes; captionsResize is the window's
+    // own corner grip ({width, height}).
+    captionsPrefs: () => ipcRenderer.invoke("captions-prefs-get"),
+    setCaptionsShown: (flag) => ipcRenderer.invoke("captions-shown-set", !!flag),
+    setCaptionsLocked: (flag) => ipcRenderer.invoke("captions-locked-set", !!flag),
+    captionsResize: (size) => ipcRenderer.invoke("captions-resize", size || {}),
+    onCaptionsPrefs: (cb) => {
+        ipcRenderer.removeAllListeners("captions-prefs");
+        ipcRenderer.on("captions-prefs", (event, prefs) => cb(prefs));
+    },
     // point_at_screen: rings over the shared screen around {left, top,
     // right, bottom, label} boxes (fractions of the screen) for holdMs.
     // Resolves {shown, look}: look = the first ring's centre relative to

@@ -4,6 +4,8 @@ import { _t } from "../lib/i18n";
 import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES } from "../lib/mascot_link";
 import { AMBIENCE_OPTIONS, ART_STYLE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS, useRenderPrefs } from "../lib/render_prefs";
 import { EMOTIONS, GESTURES } from "../models/avatar_catalog";
+import { CAPTION_HOLD_OPTIONS, useCaptionPrefs } from "../lib/caption_prefs";
+import { CAPTION_SIZES } from "./Captions.jsx";
 import MascotSongsTab from "./MascotSongsTab.jsx";
 import MascotToysTab from "./MascotToysTab.jsx";
 
@@ -34,6 +36,11 @@ export default function MascotSettingsView() {
     const [controlsHidden, setControlsHidden] = useState(false);
     const [hideIdle, setHideIdle] = useState(false);
     const [startInMascot, setStartInMascot] = useState(false);
+    // Stream captions window: {shown, locked}, shell-owned (null = shell
+    // without the feature — section hidden).
+    const [captions, setCaptions] = useState(null);
+    // Caption text size + line hold: per-browser prefs, shared with the strip.
+    const [captionPrefs, updateCaptionPrefs] = useCaptionPrefs();
     // Roaming's "Try one now": the picked action.
     const [tryId, setTryId] = useState(null);
     // Cosmetic highlight for the emotion buttons — mirrors the click, not
@@ -104,6 +111,8 @@ export default function MascotSettingsView() {
         bridge.onMascotControlsHidden?.((v) => setControlsHidden(!!v));
         bridge.onMascotHideIdle?.((v) => setHideIdle(!!v));
         bridge.onStartupMascot?.((v) => setStartInMascot(!!v));
+        bridge.captionsPrefs?.().then((p) => setCaptions(p)).catch(() => {});
+        bridge.onCaptionsPrefs?.((p) => setCaptions(p));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -497,6 +506,37 @@ export default function MascotSettingsView() {
                             startInMascot,
                             (v) => setShell(bridge.setStartupMascot, setStartInMascot, v))}
                     </section>
+
+                    {captions && (
+                        <section>
+                            <h3><i className="fa fa-cc" /> {_t("Stream captions")}</h3>
+                            {check("rx_ms_captions", _t("Show captions"),
+                                _t("Their words on screen as they speak, in a strip you can place anywhere."),
+                                captions.shown,
+                                (v) => setShell(bridge.setCaptionsShown,
+                                    (f) => setCaptions((c) => ({ ...c, shown: f })), v))}
+                            {check("rx_ms_captions_move", _t("Move or resize the captions"),
+                                _t("Shows a frame to drag and resize. Turn off to leave just the words."),
+                                !captions.locked,
+                                (v) => setShell((f) => bridge.setCaptionsLocked(!f),
+                                    (f) => setCaptions((c) => ({ ...c, locked: !f })), v),
+                                !captions.shown)}
+                            <div className="rx_mascot_set_item">
+                                <label htmlFor="rx_ms_caption_size">{_t("Caption size")}</label>
+                                <select id="rx_ms_caption_size" value={captionPrefs.stripSize}
+                                        onChange={(ev) => updateCaptionPrefs({ stripSize: ev.target.value })}>
+                                    {CAPTION_SIZES.map(([id, label]) => <option key={id} value={id}>{_t(label)}</option>)}
+                                </select>
+                            </div>
+                            <div className="rx_mascot_set_item">
+                                <label htmlFor="rx_ms_caption_hold">{_t("Lines stay for")}</label>
+                                <select id="rx_ms_caption_hold" value={captionPrefs.hold}
+                                        onChange={(ev) => updateCaptionPrefs({ hold: +ev.target.value })}>
+                                    {CAPTION_HOLD_OPTIONS.map(([s, label]) => <option key={s} value={s}>{_t(label)}</option>)}
+                                </select>
+                            </div>
+                        </section>
+                    )}
 
                     {/* Near the end on purpose: the least-used section, and a niche one. */}
                     {mascot?.motion && (

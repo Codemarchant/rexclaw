@@ -52,6 +52,7 @@ let mascotPinned = true;         // page's always-on-top toggle, mirrored shell-
 let mascotSettingsWindow = null; // mascot settings (normal window)
 let mascotShareWindow = null;    // mascot screen/camera share panel (normal window)
 let transcriptWindow = null;     // pop-out transcript mirror (normal window)
+let captionsWindow = null;       // stream captions strip that comes with the mascot (transparent)
 let tray = null;
 let cursorTimer = null;          // mascot cursor feed interval (ghost / cursor-follow)
 let cursorFeedGhost = false;     // ghost mode on (page-owned; shell mirrors for the feed)
@@ -665,6 +666,7 @@ function createMascotWindow(resume) {
         stopCursorFeed();
         if (roamState) saveSettings({ mascotBounds: roamState.prevBounds });
         stopRoam();
+        closeCaptionsWindow();
         mascotRoamPref = false;
         mascotWindow = null;
         rebuildTrayMenu();
@@ -675,6 +677,7 @@ function createMascotWindow(resume) {
         }
     });
     mascotWindow.loadURL(`${serverScheme}://127.0.0.1:${serverPort}/#mascot${resume ? "-resume" : ""}`);
+    if (captionsPrefs().shown) createCaptionsWindow();
     rebuildTrayMenu();
 }
 
@@ -1349,6 +1352,133 @@ function createTranscriptWindow() {
     transcriptWindow.on("closed", () => { transcriptWindow = null; });
     transcriptWindow.loadURL(`${serverScheme}://127.0.0.1:${serverPort}/#transcript`);
 }
+
+// ---------------------------------------------------------------------------
+// Captions window
+// ---------------------------------------------------------------------------
+// Stream captions for mascot mode: a transparent always-on-top strip on
+// /#captions showing the companion's words as they are heard (fed by the
+// mascot page over a BroadcastChannel). It comes and goes with the mascot
+// while "Show captions" is on (off by default). Move mode shows a frame to
+// drag and resize; locked, only the words show and clicks pass through.
+// Not hidden from capture: it exists to be streamed.
+
+// Four lines at the Medium caption size (Captions.jsx CAPTION_SIZES).
+const CAPTIONS_DEFAULT_SIZE = { width: 900, height: 220 };
+const CAPTIONS_MIN_SIZE = { width: 240, height: 60 };
+
+function captionsPrefs() {
+    const s = loadSettings();
+    return { shown: !!s.captionsShown, locked: s.captionsLocked !== false };
+}
+
+/** The remembered spot while it still lands on a display, else the bottom
+ *  middle of the primary work area. */
+function captionsStartBounds() {
+    const { screen } = require("electron");
+    const saved = loadSettings().captionsBounds || {};
+    const width = Math.max(CAPTIONS_MIN_SIZE.width, saved.width || CAPTIONS_DEFAULT_SIZE.width);
+    const height = Math.max(CAPTIONS_MIN_SIZE.height, saved.height || CAPTIONS_DEFAULT_SIZE.height);
+    let { x, y } = saved;
+    const onScreen = Number.isFinite(x) && Number.isFinite(y)
+        && screen.getAllDisplays().some((d) => {
+            const wa = d.workArea;
+            return x + width > wa.x + 40 && x < wa.x + wa.width - 40
+                && y + height > wa.y + 20 && y < wa.y + wa.height - 20;
+        });
+    if (!onScreen) {
+        const wa = screen.getPrimaryDisplay().workArea;
+        x = wa.x + (wa.width - width) / 2;
+        y = wa.y + wa.height - height - 48;
+    }
+    return { x: Math.round(x), y: Math.round(y), width, height };
+}
+
+function createCaptionsWindow() {
+    if (captionsWindow && !captionsWindow.isDestroyed()) return;
+    const win = captionsWindow = new BrowserWindow({
+        ...captionsStartBounds(),
+        title: "Rexclaw — Captions",
+        frame: false,
+        transparent: true,
+        hasShadow: false,
+        // Sized through captions-resize (same transparent-window caveat as
+        // the mascot); moved by the page's drag region in move mode.
+        resizable: false,
+        maximizable: false,
+        minimizable: false,
+        fullscreenable: false,
+        skipTaskbar: true,
+        alwaysOnTop: true,
+        show: false,
+        webPreferences: {
+            preload: path.join(__dirname, "preload.js"),
+            contextIsolation: true,
+            nodeIntegration: false,
+            spellcheck: false,
+            backgroundThrottling: false,
+        },
+    });
+    win.setAlwaysOnTop(true, "screen-saver");
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    if (captionsPrefs().locked) win.setIgnoreMouseEvents(true);
+    win.once("ready-to-show", () => { if (!win.isDestroyed()) win.showInactive(); });
+    let saveTimer = null;
+    const rememberBounds = () => {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+            if (!win.isDestroyed()) saveSettings({ captionsBounds: win.getBounds() });
+        }, 300);
+    };
+    win.on("move", rememberBounds);
+    win.on("resize", rememberBounds);
+    win.on("closed", () => {
+        clearTimeout(saveTimer);
+        if (captionsWindow === win) captionsWindow = null;
+    });
+    win.loadURL(`${serverScheme}://127.0.0.1:${serverPort}/#captions`);
+}
+
+function closeCaptionsWindow() {
+    if (captionsWindow && !captionsWindow.isDestroyed()) captionsWindow.close();
+}
+
+function setCaptionsShown(flag) {
+    saveSettings({ captionsShown: !!flag });
+    if (flag && mascotWindow && !mascotWindow.isDestroyed()) createCaptionsWindow();
+    if (!flag) closeCaptionsWindow();
+    broadcastToWindows("captions-prefs", captionsPrefs());
+    return !!flag;
+}
+
+function setCaptionsLocked(flag) {
+    saveSettings({ captionsLocked: !!flag });
+    if (captionsWindow && !captionsWindow.isDestroyed()) {
+        captionsWindow.setIgnoreMouseEvents(!!flag);
+        // Unlocking is for placing it: bring it up where it can be seen.
+        if (!flag) captionsWindow.showInactive();
+    }
+    broadcastToWindows("captions-prefs", captionsPrefs());
+    return !!flag;
+}
+
+ipcMain.handle("captions-prefs-get", () => captionsPrefs());
+ipcMain.handle("captions-shown-set", (event, flag) => setCaptionsShown(flag));
+ipcMain.handle("captions-locked-set", (event, flag) => setCaptionsLocked(flag));
+
+ipcMain.handle("captions-resize", (event, size) => {
+    if (!captionsWindow || captionsWindow.isDestroyed()) return false;
+    const width = Math.round(Number(size && size.width));
+    const height = Math.round(Number(size && size.height));
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
+    const b = captionsWindow.getBounds();
+    captionsWindow.setBounds({
+        x: b.x, y: b.y,
+        width: Math.max(CAPTIONS_MIN_SIZE.width, width),
+        height: Math.max(CAPTIONS_MIN_SIZE.height, height),
+    });
+    return true;
+});
 
 // ---------------------------------------------------------------------------
 // Mascot settings window

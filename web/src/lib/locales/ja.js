@@ -1100,6 +1100,32 @@ export const JA = {
     "通話していない間はアバターが消え、通話が始まると再び現れます。音声起動と相性抜群。非表示の間はトレイアイコンから戻せます。",
   "Could not save that.": "保存できませんでした。",
 
+  // ── Stream captions ───────────────────────────────────────────────────
+  "Stream captions": "配信用字幕",
+  "Show captions": "字幕を表示する",
+  "Their words on screen as they speak, in a strip you can place anywhere.":
+    "話している言葉を、好きな場所に置ける帯に表示します。",
+  "Move or resize the captions": "字幕の位置とサイズを変える",
+  "Shows a frame to drag and resize. Turn off to leave just the words.":
+    "ドラッグとサイズ変更用の枠を表示します。オフにすると文字だけが残ります。",
+  "Captions": "字幕",
+  "Caption lines": "字幕の行数",
+  "Caption size": "字幕のサイズ",
+  "Small": "小",
+  "Large": "大",
+  "Extra large": "特大",
+  "Lines stay for": "字幕の表示時間",
+  "3 seconds": "3秒",
+  "5 seconds": "5秒",
+  "7 seconds": "7秒",
+  "10 seconds": "10秒",
+  "15 seconds": "15秒",
+  "Drag to move, corner to resize": "ドラッグで移動、角でサイズ変更",
+  "Done": "完了",
+  "Resize": "サイズ変更",
+  "Your companion's words appear here as they speak.": "コンパニオンが話すと、ここに言葉が表示されます。",
+  "Their words along the bottom as they speak, live-subtitle style.": "話している言葉をライブ字幕のように画面下に表示します。",
+
   // ── Mascot settings window ────────────────────────────────────────────
   "Mascot settings": "マスコット設定",
   "Open mascot settings": "マスコット設定を開く",

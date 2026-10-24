@@ -2,6 +2,7 @@ import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { ToolDispatcher } from "./tool_dispatcher";
 import { LiveMemory } from "../lib/live_memory";
+import { captionFeed } from "../services/caption_feed";
 
 // Tools xAI runs server-side. They appear as function_call events to the
 // client but must NOT receive a function_call_output reply — see
@@ -894,6 +895,7 @@ export class AgentConnection {
         this._scheduledSources = [];
         // Next chunk re-anchors to now (it's < currentTime after this).
         this._nextPlayTime = 0;
+        captionFeed.cut(this);
     }
 
     _onWsMessage(ev) {
@@ -960,6 +962,7 @@ export class AgentConnection {
             // sentence's gesture until it is actually heard.
             if (msg.delta) {
                 this.avatarApi?.onAssistantTranscript?.(msg.delta, this._audioLookaheadSec());
+                captionFeed.text(this, msg.delta);
             }
             return;
         }
@@ -1004,6 +1007,7 @@ export class AgentConnection {
                 audioTotalSec: this._turnAudioSec,
                 audioEndsInSec: this._audioLookaheadSec(),
             });
+            captionFeed.audioDone(this);
             return;
         }
         if (msg.type === "response.done" || msg.type === "response.completed") {
@@ -1258,6 +1262,7 @@ export class AgentConnection {
             this._responseInFlight = true;
             this._currentResponseId = msg.response?.id || null;
             this._turnAudioSec = 0;
+            captionFeed.turnStart(this);
             // end_turn bookkeeping, read at response.done: whether this reply
             // ends its turn on a call, and whether it is itself a post-tool
             // follow-up.

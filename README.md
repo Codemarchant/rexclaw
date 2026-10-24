@@ -39,6 +39,7 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 | 🗣️ **Voice activation** | Say a companion's wake phrase ("hey Eve") and the call starts; ask them to hang up and they end it themselves. Detection runs offline on your machine, so nothing is sent or billed until the call starts. |
 | 💓 **Heartbeats** | Scheduled prompts per companion: write a diary entry, check on something, or **call you first**. Schedules missed while the app was closed never fire on their own; they wait as *past due* for your one-click decision. |
 | 📺 **Idle events & stream chat** | Opt-in per companion: when a call goes quiet they get one of your prompts, or read your Twitch/YouTube chat and answer viewers by name (Settings → Live chat). |
+| 💬 **Stream captions** | Opt-in live subtitles of what your companion says, shown as they say it: along the bottom of the full-screen view (manual triggers → Look), or, in the desktop app, in a strip that comes with the mascot. Drag it anywhere, then lock it so only the words show (Mascot settings → Stream captions). |
 | 💗 **Affection meter** | Opt-in per companion: a score they nudge as the relationship warms or cools, with editable rules for how they behave at each level, and a burst of hearts when a moment lands. |
 
 ### Avatar & stage

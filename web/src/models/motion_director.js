@@ -55,7 +55,7 @@ const POOL_TAG = "idle_safe";     // manifest tag of clips curated for quiet sta
 // rejected outright. Those scripts fall back to a character count.
 const SPEECH_MIN_WORDS = 3;
 const SPEECH_MIN_CHARS_UNSPACED = 6;
-const UNSPACED_SCRIPT_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿฀-๿]/;
+export const UNSPACED_SCRIPT_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿฀-๿]/;
 
 /** Is this line substantial enough to be worth a gesture pick? */
 function longEnough(line) {
@@ -124,10 +124,11 @@ const SPEECH_LEAD_MAX_MS = 2500;
 // each other: the same sentence is far fewer characters in Japanese than in
 // English, and one blended average would mis-time every turn after a
 // language switch. Seeds are rough — two turns of either script and the
-// measured value has taken over.
-const SPEECH_RATE_SEED = { spaced: 15, unspaced: 7 };
-const SPEECH_RATE_MIN = 2;
-const SPEECH_RATE_MAX = 60;
+// measured value has taken over. Stream captions (caption_feed.js) pace
+// their words on the same rate model.
+export const SPEECH_RATE_SEED = { spaced: 15, unspaced: 7 };
+export const SPEECH_RATE_MIN = 2;
+export const SPEECH_RATE_MAX = 60;
 // Past this much of its moment, a sentence is abandoned rather than played
 // late. The cooldown can hold a due sentence back (two beats close
 // together), and a gesture that arrives after its line has been spoken is

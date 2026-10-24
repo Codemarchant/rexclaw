@@ -1,0 +1,102 @@
+// Stream captions (Captions.jsx): the full-screen view's overlay and the
+// desktop captions window (/#captions). Outlined white text and no box, so
+// the words read over any scene, desktop or game behind them.
+
+.rx_captions {
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+
+    &.is-visible { opacity: 1; }
+
+    // The newest line sits on the bottom edge and older text slides off the
+    // top (roll-up captions). The full-screen view picks 2-4 lines (default
+    // 4); the desktop strip as many whole lines as its height holds. The
+    // padding keeps the outline and shadow inside the clip, and the top edge
+    // fades so the line rolling off never shows hard-cut.
+    .rx_captions_text {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        height: calc(var(--rx-caption-lines, 4) * 1.3em);
+        padding: 0.15em 0.35em;
+        line-height: 1.3;
+        overflow: hidden;
+        mask-image: linear-gradient(to bottom, transparent, #000 0.15em);
+        text-align: center;
+        color: #fff;
+        font-weight: 700;
+        text-shadow:
+            0.06em 0 0 #000, -0.06em 0 0 #000, 0 0.06em 0 #000, 0 -0.06em 0 #000,
+            0.045em 0.045em 0 #000, -0.045em 0.045em 0 #000,
+            0.045em -0.045em 0 #000, -0.045em -0.045em 0 #000,
+            0 0.1em 0.25em rgba(0, 0, 0, 0.6);
+        overflow-wrap: anywhere;
+    }
+
+    .rx_captions_speaker { color: #fcd34d; }
+}
+
+// Full-screen view: centred above the call controls (inside the bottom
+// overlay), lines up to ~42 characters (Netflix Timed Text Style Guide),
+// scaled by the chosen caption size.
+.o_voice_full_overlay > .rx_captions {
+    width: min(100%, 42ch);
+    font-size: calc(clamp(1.1rem, 2.4vw, 1.9rem) * var(--rx-caption-scale, 1));
+    margin-bottom: 0.75rem;
+}
+
+// Desktop captions window: the chosen caption size sets the text, the
+// strip's height how many whole lines show (CaptionsWindowView measures).
+.rx_captions_win {
+    position: relative;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    box-sizing: border-box;
+    padding: 4px 8px;
+    border: 2px dashed transparent;
+    border-radius: 10px;
+
+    .rx_captions_win_area {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+    }
+
+    &.is-editing {
+        border-color: rgba(255, 255, 255, 0.85);
+        background: rgba(15, 23, 42, 0.45);
+        -webkit-app-region: drag;
+        cursor: move;
+    }
+
+    .rx_captions_win_bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        color: #fff;
+        font-size: 12px;
+        text-shadow: 0 1px 2px #000;
+
+        button { -webkit-app-region: no-drag; }
+    }
+
+    .rx_captions_win_grip {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 18px;
+        height: 18px;
+        cursor: nwse-resize;
+        -webkit-app-region: no-drag;
+        background: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.9) 50%);
+        border-bottom-right-radius: 8px;
+    }
+}
