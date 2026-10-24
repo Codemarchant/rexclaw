@@ -678,6 +678,9 @@ export class IdleMotion {
      *  half-completed weight transfer. */
     reset() {
         this.t = 0;
+        // The clock the posing-only events are due on: it runs only while
+        // the pose is visible (see _step). Running animations stay on `t`.
+        this._poseT = 0;
         this.seed = Math.random() * 1000;
         this._w = 0;                      // last frame's total weight, see _emit
 
@@ -872,7 +875,7 @@ export class IdleMotion {
             to = -Math.sign(cur) || (Math.random() < 0.5 ? 1 : -1);
             this._forceStance = false;
         }
-        this._nextStanceAt = now + expGap(STANCE_GAP_MEAN, STANCE_GAP_MIN, STANCE_GAP_MAX);
+        this._nextStanceAt = this._poseT + expGap(STANCE_GAP_MEAN, STANCE_GAP_MIN, STANCE_GAP_MAX);
         if (to === Math.sign(cur)) return;
         const dur = rand(STANCE_MOVE_MIN, STANCE_MOVE_MAX);
         // How far onto the leg varies a little too: the bimodal stance is
@@ -887,7 +890,7 @@ export class IdleMotion {
         // current move will be by then, and jump there now).
         if (Math.random() < ARM_P_WITH_STANCE) {
             const a = this._arm[Math.random() < 0.5 ? 0 : 1];
-            a.next = Math.min(a.next, now + 0.3);
+            a.next = Math.min(a.next, this._poseT + 0.3);
         }
     }
 
@@ -908,7 +911,7 @@ export class IdleMotion {
             if (d) hold = Math.max(hold, d - out * (1 - SHUFFLE_AT));
         }
         this._fidget = { start: now, out, hold, back, amp };
-        this._nextFidgetAt = now + out + hold + back
+        this._nextFidgetAt = this._poseT + out + hold + back
             + normalGap(FIDGET_GAP_MEAN, FIDGET_GAP_SD, FIDGET_GAP_MIN);
     }
 
@@ -942,7 +945,7 @@ export class IdleMotion {
         glideTo(a.flex, rand(-1, 1) * ARM_FLEX, start, dur);
         glideTo(a.twist, rand(-1, 1) * ARM_TWIST, start, dur);
         glideTo(a.wrist, rand(-1, 1) * ARM_WRIST, start, dur);
-        a.next = start + dur + expGap(ARM_GAP_MEAN, ARM_GAP_MIN, ARM_GAP_MAX);
+        a.next = this._poseT + dur + expGap(ARM_GAP_MEAN, ARM_GAP_MIN, ARM_GAP_MAX);
     }
 
     /** Start a hand fidget: `kind` or one drawn by the HAND_P_* odds, on
@@ -979,7 +982,7 @@ export class IdleMotion {
                 hold: MOMENT_SMILE_HOLD,
                 fall: MOMENT_SMILE_FALL * vary(1, 0.2),
             });
-            const at = now + MOMENT_SLOW_BLINK_AT * vary(1, 0.15);
+            const at = this._poseT + MOMENT_SLOW_BLINK_AT * vary(1, 0.15);
             this._nextSlowBlinkAt = Math.min(this._nextSlowBlinkAt, at);
             // The eyes move on while the lids are shut.
             this._glanceAt = at + SLOW_BLINK_CLOSE;
@@ -1028,7 +1031,7 @@ export class IdleMotion {
         }
         this._hipBlocked = [false, false];
         if (this._nextHipAt === Infinity) {
-            this._nextHipAt = this.t + expGap(HIP_GAP_MEAN, HIP_GAP_MIN, HIP_GAP_MAX);
+            this._nextHipAt = this._poseT + expGap(HIP_GAP_MEAN, HIP_GAP_MIN, HIP_GAP_MAX);
         }
     }
 
@@ -1150,6 +1153,11 @@ export class IdleMotion {
     _step(dt, speak, posing) {
         this.t += dt;
         const t = this.t + this.seed;
+        // The posing-only events fall due on _poseT, which stops under a
+        // clip. On `t`, every one that came due under it would start on the
+        // first free frame — and a combo frees both its companions on the
+        // same frame, so their overdue events started in sync.
+        if (posing) this._poseT += dt;
 
         // ── breath ────────────────────────────────────────────────────
         // Track how long speech has run; a long turn earns one deep breath
@@ -1185,7 +1193,7 @@ export class IdleMotion {
         // ── gaze ──────────────────────────────────────────────────────
         // A moment's glance under a slow blink (see _moment).
         let glance = false;
-        if (this._glanceAt >= 0 && this.t >= this._glanceAt) {
+        if (this._glanceAt >= 0 && this._poseT >= this._glanceAt) {
             this._glanceAt = -1;
             this._nextGazeAt = this.t;
             glance = true;
@@ -1272,9 +1280,9 @@ export class IdleMotion {
         // Runs on its own clock and overrides the ordinary blink while it
         // lasts, so the two never stack into one long closure.
         if (!this._slowBlink && this._blinkStart < 0 && posing
-            && this.t >= this._nextSlowBlinkAt) {
+            && this._poseT >= this._nextSlowBlinkAt) {
             this._slowBlink = { start: this.t };
-            this._nextSlowBlinkAt = this.t + rand(SLOW_BLINK_GAP_MIN, SLOW_BLINK_GAP_MAX);
+            this._nextSlowBlinkAt = this._poseT + rand(SLOW_BLINK_GAP_MIN, SLOW_BLINK_GAP_MAX);
             // Push the ordinary blink clear of it.
             this._nextBlinkAt = Math.max(this._nextBlinkAt, this.t + 2.2);
         }
@@ -1301,7 +1309,7 @@ export class IdleMotion {
         // shift's shuffle): the weight could land on it. Nor while a hand
         // is on the hip, which holds its own lean.
         const hipBusy = this._hip[0] || this._hip[1];
-        if (posing && this._weightOn && this.t >= this._nextStanceAt && !this._fidget
+        if (posing && this._weightOn && this._poseT >= this._nextStanceAt && !this._fidget
             && !this._foot[0] && !this._foot[1] && !hipBusy) {
             this._shiftStance();
         }
@@ -1310,7 +1318,7 @@ export class IdleMotion {
         }
         const fg = this._fidget;
         if (fg && this.t > fg.start + fg.out + fg.hold + fg.back) this._fidget = null;
-        if (posing && this._weightOn && !this._fidget && !hipBusy && this.t >= this._nextFidgetAt
+        if (posing && this._weightOn && !this._fidget && !hipBusy && this._poseT >= this._nextFidgetAt
             && this.t > this._stance.start + this._stance.dur) {
             this._startFidget();
         }
@@ -1319,7 +1327,7 @@ export class IdleMotion {
             if (f && this.t > f.start + f.dur) this._foot[i] = null;
         }
         for (let i = 0; i < 2; i++) {
-            if (posing && this.t >= this._arm[i].next) this._settleArm(i, this.t);
+            if (posing && this._poseT >= this._arm[i].next) this._settleArm(i, this.t);
         }
         // A change of speaker: the companion starts talking, or has gone
         // quiet for TURN_QUIET_S.
@@ -1334,9 +1342,9 @@ export class IdleMotion {
             if (posing) this.fidgetHands();
             this._turnFidgetAt = -1;
         }
-        if (posing && this.t >= this._nextHandAt) {
+        if (posing && this._poseT >= this._nextHandAt) {
             this.fidgetHands();
-            this._nextHandAt = this.t + expGap(HAND_GAP_MEAN, HAND_GAP_MIN, HAND_GAP_MAX);
+            this._nextHandAt = this._poseT + expGap(HAND_GAP_MEAN, HAND_GAP_MIN, HAND_GAP_MAX);
         }
         for (let i = 0; i < 2; i++) {
             const h = this._hand[i];
@@ -1348,7 +1356,7 @@ export class IdleMotion {
         // what made it far rarer in use than its mean.
         const hipSides = [0, 1].filter((j) => !this._hipBlocked[j]);
         if (!hipSides.length) this._nextHipAt = Infinity;   // this model can't do it at all
-        if (posing && this.t >= this._nextHipAt) {
+        if (posing && this._poseT >= this._nextHipAt) {
             const i = hipSides[Math.floor(Math.random() * hipSides.length)];
             // The weight goes onto that side's leg, so its foot must be down.
             if (!this._hip[0] && !this._hip[1] && !this._hand[i] && !this._fidget && !this._foot[i]) {
@@ -1364,10 +1372,10 @@ export class IdleMotion {
                 const side = i === 0 ? 1 : -1;
                 glideTo(this._stance, side * Math.min(1, vary(1, 0.12)), this.t,
                     rand(STANCE_MOVE_MIN, STANCE_MOVE_MAX));
-                this._nextStanceAt = Math.max(this._nextStanceAt, h.start + h.reach + h.hold);
-                this._nextHipAt = this.t + expGap(HIP_GAP_MEAN, HIP_GAP_MIN, HIP_GAP_MAX);
+                this._nextStanceAt = Math.max(this._nextStanceAt, this._poseT + h.reach + h.hold);
+                this._nextHipAt = this._poseT + expGap(HIP_GAP_MEAN, HIP_GAP_MIN, HIP_GAP_MAX);
             } else {
-                this._nextHipAt = this.t + HIP_RETRY;
+                this._nextHipAt = this._poseT + HIP_RETRY;
             }
         }
         for (let i = 0; i < 2; i++) {

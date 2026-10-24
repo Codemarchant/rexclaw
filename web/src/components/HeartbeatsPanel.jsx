@@ -36,9 +36,9 @@ const EMPTY_HEARTBEAT = {
     notify: 0,
 };
 
-// Keeps a tick comfortably inside the shared per-turn model-call budget —
-// mirrors server/routes/heartbeats.py's _MAX_COMPANION_TEXTING_TURNS.
-const MAX_COMPANION_TEXTING_TURNS = 6;
+// Bounds one tick's cost — mirrors server/routes/heartbeats.py's
+// _MAX_COMPANION_TEXTING_TURNS.
+const MAX_COMPANION_TEXTING_TURNS = 20;
 
 const UNIT_LABELS = { minutes: "minutes", hours: "hours", days: "days" };
 const STRATEGY_LABELS = {

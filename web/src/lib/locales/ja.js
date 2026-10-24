@@ -195,6 +195,7 @@ export const JA = {
   "Could not open WebSocket: ": "WebSocket を開けませんでした:",
   "Voice connection closed (%s)": "音声接続が閉じられました（%s）",
   "Voice connection closed (%s): %s": "音声接続が閉じられました（%s）：%s",
+  "Voice connection lost and could not be reopened.": "音声接続が切断され、再接続できませんでした。",
   "Failed to start session": "セッションを開始できませんでした",
   "End the current voice session before starting a new one.":
     "新しいセッションを始める前に、現在の音声セッションを終了してください。",
@@ -977,6 +978,9 @@ export const JA = {
   "xAI drops an idle call at 15 minutes regardless. 0 turns this off. Calls on a voice setup stay connected - they cost little or nothing while quiet.":
     "xAI は、無操作の通話を 15 分で必ず切断します。0 で無効になります。音声セットアップでの通話は接続したままです。静かな間の費用はほとんど、またはまったくかかりません。",
   "End the call after this many idle minutes": "この分数だけ何も起きなければ通話を終了",
+  "Group call max companion turns in a row": "グループ通話でのコンパニオン同士の最大連続ターン数",
+  "In a group call, how many times the companions may answer each other in a row before one hands the conversation back to you. Higher allows longer banter between them; every turn is a reply, so it costs more.":
+    "グループ通話で、コンパニオン同士が続けて応答できる回数です。この回数に達すると、会話があなたに戻されます。大きくするとコンパニオン同士のやり取りが長く続きますが、ターンごとに応答が発生するため費用が増えます。",
 
   // ── Settings: hotkeys ─────────────────────────────────────────────────
   "Hotkeys": "ホットキー",
@@ -1480,6 +1484,8 @@ export const JA = {
   "Grok voice renders expression tags in speech. Inline: %s. Wrapping: %s. All of them are always available.":
     "Grok ボイスは音声に表現タグを反映します。インライン：%s。ラッピング：%s。すべて常に利用できます。",
   "Speech tags (%s)": "スピーチタグ（%s）",
+  "the companion's Grok voice": "コンパニオンの Grok ボイス",
+  "Warm and playful, a little breathy.": "温かく遊び心があり、少し息まじりに。",
   "Everything this companion is told about expression tags on this voice, on calls and for voice messages: how the tags work and which exist. A voice engine with tags of its own (Fish Audio) starts with its default text; trim the lists, reword it, or add this companion's signature tags at the end. For any other voice it starts empty and nothing is taught: if the model behind it understands tags, describe them here. Saved empty, it goes back to the default.":
     "この音声の表現タグについて、通話とボイスメッセージでこのコンパニオンに伝える内容のすべてです（タグの仕組みと種類）。独自のタグを持つ音声エンジン（Fish Audio）では、最初にそのデフォルトの文章が入っています。一覧を絞る、書き換える、末尾にこのコンパニオンならではのタグを加える、といった編集ができます。それ以外の音声では最初は空で、何も教えません。その音声のモデルがタグを理解するなら、ここに書いてください。空で保存するとデフォルトに戻ります。",
   "Nothing is taught about tags on this voice. If its model understands any, describe them here: how they are written, which exist, and when this companion uses them.":
@@ -1785,6 +1791,7 @@ export const JA = {
     "コンパニオンが誰にも手動配置される前に、このシーンでデフォルトでスポーンする位置です（メートル／度）。ヒント：歩行モードのライブ位置表示（または「デフォルトとして設定」ボタン）で良い数値を見つけて、ここに入力してください。",
   "Character spawn": "キャラクタースポーン",
   "default": "デフォルト",
+  "(no tracks)": "（トラックなし）",
   "Save avatar": "アバターを保存",
 
   // ── Sessions tab ──────────────────────────────────────────────────────
@@ -2771,6 +2778,8 @@ export const JA = {
   "%s pages drawn": "%s ページ描画済み",
   "%s pages": "%s ページ",
   "Page": "ページ",
+  "Page %s": "%s ページ",
+  "Download": "ダウンロード",
   "Page %s of %s": "%s / %s ページ",
   "Page %s of %s · panel %s of %s": "%s / %s ページ · %s / %s コマ",
   "Page subtitle (optional)": "ページのサブタイトル（任意）",

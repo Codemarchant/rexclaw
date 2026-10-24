@@ -49,7 +49,7 @@ _CONFIG_FIELDS = (
     "summary_threshold_tokens", "summary_threshold_tokens_text",
     "summary_keep_recent_messages",
     "replay_rollup_enabled", "replay_rollup_keep_recent",
-    "call_inactivity_minutes", "hotkeys_json", "hotkeys_global_enabled",
+    "call_inactivity_minutes", "group_chain_turns", "hotkeys_json", "hotkeys_global_enabled",
     "wake_word_enabled", "wake_word_language",
     "local_task_workdir",
     "minecraft_brain_model", "minecraft_brain_model_hard", "minecraft_master", "minecraft_brain_connection",
@@ -161,6 +161,9 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
         if key in updates and (type(updates[key]) is not int or not 0 <= updates[key] <= 100):
             raise UserError('Search limits and xAI max turns must be whole numbers '
                             'from 0 to 100 (0 = off).')
+    if 'group_chain_turns' in updates and (type(updates['group_chain_turns']) is not int
+                                           or updates['group_chain_turns'] < 1):
+        raise UserError('Group call companion turns in a row must be a whole number of at least 1.')
     for key in ('summary_max_words', 'summary_consolidate_words'):
         if key in updates and (type(updates[key]) is not int or not 0 <= updates[key] <= 100000):
             raise UserError('Summary word counts must be whole numbers from 0 to 100000.')

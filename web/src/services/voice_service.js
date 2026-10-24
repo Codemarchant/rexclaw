@@ -41,13 +41,6 @@ import { MotionDirector } from "../models/motion_director";
  *     cross-feed doubles transcription cost and creates feedback loops).
  */
 
-// How many consecutive agent→agent turns may run before the conversation is
-// steered back to the user. Generous enough for real back-and-forth roleplay
-// banter; when the cap is hit the next agent gets ONE more turn with a hidden
-// "hand the floor back to the user" nudge, then agent chatter pauses until
-// the user speaks again.
-const MAX_AGENT_CHAIN_TURNS = 10;
-
 // Natural pause between one agent's audio finishing and the next agent
 // starting to speak. Machine-gun turn handoffs read as two bots talking at
 // each other; a small beat reads as conversation.
@@ -112,6 +105,11 @@ class VoiceCallService {
         this._owedUserTurn = null;         // the user's last turn until a companion answers it (onUserTurnWithoutWords)
         this.endingCall = null;            // token of an end_call hangup under way (endCallWhenIdle)
         this._consecutiveAgentTurns = 0;
+        // How many agent→agent turns run in a row before the floor is
+        // steered back to the user (Settings, config.group_chain_turns —
+        // see setChainTurnLimit and _maybeContinueAgentChatter). 0 until the
+        // call's config arrives.
+        this._maxChainTurns = 0;
         // Set once the chain cap fired and the wrap-up nudge turn was
         // granted — no further agent-to-agent turns until the user speaks.
         this._userTurnNudgeSent = false;
@@ -586,6 +584,11 @@ class VoiceCallService {
      *  the companion has them off). */
     setIdleEvents(cfg) {
         this.idleEvents.configure(cfg);
+    }
+
+    /** Adopt the configured chain cap (Settings; the server checks it). */
+    setChainTurnLimit(turns) {
+        this._maxChainTurns = turns;
     }
 
     /** Adopt the configured idle budget (minutes; 0/absent disables) and arm
@@ -1758,7 +1761,7 @@ class VoiceCallService {
      *  reply's audio within a second, and granting early made the second
      *  agent talk over the first one's tail.
      *
-     *  Chain cap: up to MAX_AGENT_CHAIN_TURNS agent→agent turns run freely
+     *  Chain cap: up to _maxChainTurns agent→agent turns run freely
      *  (real back-and-forth). When the cap is reached the next agent gets
      *  ONE wrap-up turn with a hidden nudge to hand the conversation back
      *  to the user, after which agent chatter pauses until the user speaks. */
@@ -1768,7 +1771,7 @@ class VoiceCallService {
         const generation = this._directorGeneration;
         console.log(`[voice] chatter: ${speaker.connId} (${speaker.agentName}) finished a line — deciding who's next (gen ${generation})`);
 
-        const capReached = this._consecutiveAgentTurns >= MAX_AGENT_CHAIN_TURNS;
+        const capReached = this._consecutiveAgentTurns >= this._maxChainTurns;
         if (capReached && this._userTurnNudgeSent) {
             // The wrap-up turn already happened — the floor belongs to the
             // user until they take it (any user turn resets the counter).

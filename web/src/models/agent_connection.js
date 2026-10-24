@@ -552,6 +552,7 @@ export class AgentConnection {
             this.manager.setInactivityLimit?.(payload.call_inactivity_minutes);
             // Idle events ride along the same way (lib/idle_events.js).
             this.manager.setIdleEvents?.(payload.idle_events);
+            this.manager.setChainTurnLimit?.(payload.group_chain_turns);
         }
         // Compact-budget display (see the original singleton for details).
         this._tokensAtLastSummary = payload.tokens_at_last_summary || 0;

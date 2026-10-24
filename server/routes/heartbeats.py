@@ -30,10 +30,10 @@ _HEARTBEAT_FIELDS = (
     "collapse_in_transcript", "trigger_mode", "notify",
 )
 
-# Keeps a heartbeat's own tick comfortably inside text_send_turn's shared
-# per-turn leg budget (max_iterations = 8): each exchange is at least one
-# leg, plus headroom for the model's reasoning/wrap-up.
-_MAX_COMPANION_TEXTING_TURNS = 6
+# Bounds one tick's cost: every exchange is two model calls (the text and
+# the reply) over a growing context. text_send_turn adds the row's cap to
+# its leg budget, so any value up to this one fits.
+_MAX_COMPANION_TEXTING_TURNS = 20
 
 
 def _row_out(r):

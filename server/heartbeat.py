@@ -488,10 +488,10 @@ def run_heartbeat(con, hb, *, source='scheduler'):
             # model produced a closing message (type is 'complete', not
             # 'error', so this needs its own check) — surface it as a
             # failure rather than silently leaving tool_call/tool_result
-            # rows with no wrap-up text. Lower this heartbeat's exchange
-            # cap if it recurs.
-            raise RuntimeError('ran out of model turns before finishing — '
-                               'try a lower companion-texting exchange cap')
+            # rows with no wrap-up text. The texting cap adds its own legs
+            # to that budget, so what ran out is the ordinary share.
+            raise RuntimeError('ran out of model turns before finishing'
+                               + (' — try turning off its other tools' if hb['tools_enabled'] else ''))
         if turn.get('search_capped'):
             note = (f'Stopped searching after {turn["search_capped"]} searches; '
                     f'wrote the entry without them.')

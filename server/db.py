@@ -193,6 +193,10 @@ CREATE TABLE IF NOT EXISTS config (
     -- keeps running. 0 disables it. xAI drops a realtime session at 15
     -- minutes regardless, which is why the UI caps the field there.
     call_inactivity_minutes INTEGER NOT NULL DEFAULT 5,
+    -- Group calls: how many companion-to-companion turns run in a row
+    -- before the next one is nudged to hand the floor back to the user
+    -- (web/src/services/voice_service.js, the chain cap).
+    group_chain_turns INTEGER NOT NULL DEFAULT 10,
     -- Keyboard shortcuts, as a JSON object of {action_id: "Ctrl+Alt+M"}.
     -- Empty/NULL means "use the built-in defaults" (web/src/lib/hotkeys.js
     -- owns the catalog); stored entries override per action, and "" unbinds
@@ -1541,6 +1545,8 @@ MIGRATIONS = (
     # on its row. NULL = the procedural idle's own measured hang.
     "ALTER TABLE avatars ADD COLUMN pose_tuning TEXT",
     "ALTER TABLE avatar_outfits ADD COLUMN pose_tuning TEXT",
+    # Group-call chain cap, was hardcoded at 10 (see the config schema comment).
+    "ALTER TABLE config ADD COLUMN group_chain_turns INTEGER NOT NULL DEFAULT 10",
 )
 
 

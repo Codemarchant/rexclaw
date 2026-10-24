@@ -1558,6 +1558,9 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # call costs little or nothing while quiet (OpenAI Realtime bills
         # tokens, not minutes), so it stays up.
         'call_inactivity_minutes': 0 if setup else config['call_inactivity_minutes'] or 0,
+        # Group calls: companion-to-companion turns before the floor goes
+        # back to the user. The browser runs the turn-taking, same as above.
+        'group_chain_turns': config['group_chain_turns'],
         # Idle events: the usable events plus the quiet-time range and the
         # unanswered cap (None = off). The browser runs the clock, same
         # reasoning as above - see web/src/lib/idle_events.js.
@@ -3852,7 +3855,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 'output': output_str,
             })
     is_first_leg = True
-    max_iterations = 8
+    # Each companion text a heartbeat allows takes at least one leg, so its
+    # cap is added on top rather than eating the turn's ordinary budget.
+    max_iterations = 8 + (companion_text_max_calls or 0)
     accumulated_native_echo = []
     accumulated_mcp_results_echo = []
     # Files a setup brain's code sandbox made this turn, saved to the library

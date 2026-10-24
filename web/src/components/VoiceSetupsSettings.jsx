@@ -475,7 +475,7 @@ function EngineField({ field, value, onChange }) {
         );
     } else {
         input = (
-            <input type="text" value={value ?? ""} placeholder={field.placeholder}
+            <input type="text" value={value ?? ""} placeholder={field.placeholder && _t(field.placeholder)}
                    onChange={(ev) => onChange(ev.target.value)} />
         );
     }

@@ -789,6 +789,20 @@ export default function SettingsView({ active }) {
                     </div>
                     <div className="rx_row">
                         <div>
+                            <label title={_t("In a group call, how many times the companions may answer each other in a row before one hands the conversation back to you. Higher allows longer banter between them; every turn is a reply, so it costs more.")}>
+                                {_t("Group call max companion turns in a row")}
+                            </label>
+                            <input type="number" min="1" step="1"
+                                   value={config.group_chain_turns}
+                                   onChange={(ev) => setField(
+                                       "group_chain_turns",
+                                       Math.max(1, parseInt(ev.target.value, 10) || 1))} />
+                        </div>
+                        <div />
+                        <div />
+                    </div>
+                    <div className="rx_row">
+                        <div>
                             <label title={_t("xAI multi-agent model used when delegate_task is called with multi_agent=true. Several agents collaborate on the query and a leader synthesizes — every sub-agent bills tokens, so this is markedly more expensive than a standard call. Beta on xAI's side; custom function tools are NOT supported there.")}>
                                 {_t("Multi-agent model")}
                             </label>
