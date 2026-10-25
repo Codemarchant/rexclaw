@@ -448,6 +448,7 @@ export class AgentConnection {
         // Fresh socket = fresh input item state on xAI's side — the
         // cumulative-transcript guard must not strip against stale text.
         this._lastUserTranscriptText = "";
+        this._finalItemId = null;
         // Deferred relays from before a restart are already recovered via
         // the session-record replay — flushing them again would duplicate.
         this._deferredContextItems = [];
@@ -1329,13 +1330,15 @@ export class AgentConnection {
         // history; treating those hypotheses as final splits one spoken turn
         // into many rows and prematurely closes live memory's input window.
         // Only the streaming transcriber reports a hypothesis as `completed`
-        // with an in_progress status, and only while the user still holds the
-        // floor. Once the turn has ended, whatever arrives is the final:
-        // swallowing it would drop the user's row, and that row is what
-        // releases the assistant lines held behind it.
+        // with an in_progress status, and it stays a hypothesis even when it
+        // lands after the speech stopped: xAI's own final for the same item
+        // follows (0.2-0.7 s later, measured live) and can carry words the
+        // hypothesis missed. Taken as the final, the turn was routed twice and
+        // a group companion answered it twice. LiveKit's xAI plugin likewise
+        // never takes an in_progress event as final.
         if (msg.type === "conversation.item.input_audio_transcription.updated" ||
             (msg.type === "conversation.item.input_audio_transcription.completed" &&
-             msg.status === "in_progress" && this._userSpeaking && this._streamingTranscription)) {
+             msg.status === "in_progress" && this._streamingTranscription)) {
             if (this._streamingTranscription && this._userSpeaking && !this._staleSpeechItem(msg.item_id)) {
                 let partial = msg.transcript || msg.text || "";
                 // Hypotheses restate the speech since the last reply too
@@ -1371,6 +1374,10 @@ export class AgentConnection {
                 this._userSpeaking = false;
                 this._liveMemory?.stopInput();
             }
+            // Another final for an item that already had one restates it (LiveKit's
+            // xAI plugin lets it replace the first): not a sound with no words.
+            const repeatFinal = !!msg.item_id && msg.item_id === this._finalItemId;
+            this._finalItemId = msg.item_id || null;
             const full = msg.transcript || "";
             // A pause mid-sentence can end the turn early: what was said so
             // far lands as this final, and the rest arrives as the next one —
@@ -1415,7 +1422,7 @@ export class AgentConnection {
                 try { this.manager.onUserTranscript(this, text, joinedRow); } catch (e) {
                     console.error(`[voice:${this.connId}] onUserTranscript failed`, e);
                 }
-            } else if (!this._staleSpeechItem(msg.item_id)) {
+            } else if (!this._staleSpeechItem(msg.item_id) && !repeatFinal) {
                 // Speech with no new words (noise, an echo): a turn it cut
                 // off may still be owed a reply.
                 try { this.manager.onUserTurnWithoutWords?.(this); } catch (e) {
