@@ -269,7 +269,8 @@ def _shows(name, when):
             ('none', 'None - their face stays neutral'),
             ('light', 'A light trace of it shows'),
             ('clear', 'It clearly shows on their face'),
-            ('strong', 'It takes over their face - laughing, crying, glaring or gasping'),
+            ('strong', 'It takes over their face - laughing, crying, glaring, gasping, bursting with excitement'
+                       ' or frozen in fright'),
         ],
     }
 
