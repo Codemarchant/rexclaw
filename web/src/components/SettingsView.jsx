@@ -770,6 +770,8 @@ export default function SettingsView({ active }) {
                                 <option value="medium">{_t("Medium")}</option>
                             </select>
                         </div>
+                    </div>
+                    <div className="rx_row">
                         <div>
                             <label title={_t("Grok Imagine video model used for animated backgrounds and the create_video tool.")}>
                                 {_t("Imagine video model")}
@@ -777,6 +779,14 @@ export default function SettingsView({ active }) {
                             <input type="text" value={config.imagine_video_model || ""}
                                    placeholder="grok-imagine-video-1.5"
                                    onChange={(ev) => setField("imagine_video_model", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label title={_t("Grok Imagine model used when create_video edits or extends a clip. xAI offers these only on grok-imagine-video. Empty = use the Imagine video model.")}>
+                                {_t("Imagine video edit model")}
+                            </label>
+                            <input type="text" value={config.imagine_video_edit_model || ""}
+                                   placeholder="grok-imagine-video"
+                                   onChange={(ev) => setField("imagine_video_edit_model", ev.target.value)} />
                         </div>
                         <div>
                             <label title={_t("Model for the group-call turn director (a one-token \"who speaks next\" classification on every group-call turn). Latency matters more than intelligence here — use the fastest non-reasoning model available. Empty = fall back to the Text Model.")}>

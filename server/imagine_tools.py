@@ -1343,11 +1343,15 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         elif image_data_uri:
             aspect_ratio = None
 
+    video_model = config['imagine_video_model']
+    if mode in ('extend', 'edit'):
+        video_model = (config['imagine_video_edit_model'] or '').strip() or video_model
+
     try:
         video = xai_client.generate_video(
             xai_api_key=xai_key,
             videos_url=config['xai_videos_url'],
-            model=config['imagine_video_model'],
+            model=video_model,
             prompt=legend + prompt,
             mode=mode,
             image_data_uri=image_data_uri,
@@ -1360,10 +1364,10 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         )
         raw_bytes = xai_client.download_video_bytes(video['url'], xai_api_key=xai_key)
     except UserError as e:
-        return {'error': f'{e} (video model: {config["imagine_video_model"]})'}
+        return {'error': f'{e} (video model: {video_model})'}
     except Exception as e:
         _logger.exception('Imagine video failed for session %s', session['id'])
-        return {'error': f'Video generation failed (video model: {config["imagine_video_model"]}): {e}'}
+        return {'error': f'Video generation failed (video model: {video_model}): {e}'}
 
     # The status body hasn't been observed to carry a usage block, but accrue
     # it if xAI ever adds one — same informational-only tracking as images.
@@ -1371,7 +1375,7 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
     store.accrue_usd_ticks(con, store.extract_cost_ticks(raw_body.get('usage') or {}))
     return _store_video_row(
         con, session, agent, raw_bytes, 'video/mp4', '.mp4', prompt, kind=kind,
-        model=video.get('model') or config['imagine_video_model'],
+        model=video.get('model') or video_model,
         duration=video.get('duration') or duration, extra_note=ref_note,
     )
 

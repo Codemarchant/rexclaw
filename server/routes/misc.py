@@ -36,7 +36,8 @@ _CONFIG_FIELDS = (
     "xai_files_url", "xai_images_url", "xai_images_edits_url", "xai_videos_url",
     "xai_tts_url",
     "xai_model", "default_voice_setup", "text_model", "summary_model", "director_model", "imagine_model",
-    "imagine_video_model", "imagine_quality", "multi_agent_model", "multi_agent_effort",
+    "imagine_video_model", "imagine_video_edit_model", "imagine_quality",
+    "multi_agent_model", "multi_agent_effort",
     "delegate_fast_model",
     "imagine_image_backend", "imagine_video_backend", "imagine_background_backend",
     "local_gen_url",
@@ -371,8 +372,8 @@ def config_clear_user_photo(con=Depends(db_con)):
 # in db.py is the single edit that updates the button.
 _MODEL_DEFAULT_FIELDS = (
     "xai_model", "text_model", "summary_model", "imagine_model",
-    "imagine_video_model", "director_model", "multi_agent_model",
-    "delegate_fast_model",
+    "imagine_video_model", "imagine_video_edit_model", "director_model",
+    "multi_agent_model", "delegate_fast_model",
 )
 
 

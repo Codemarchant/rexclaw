@@ -99,6 +99,9 @@ CREATE TABLE IF NOT EXISTS config (
     -- video with reference images and preset voices, native 1080p), and the
     -- plain grok-imagine-video model stopped accepting requests in practice.
     imagine_video_model TEXT NOT NULL DEFAULT 'grok-imagine-video-1.5',
+    -- create_video edit_video / extend_video: xAI offers those two only on
+    -- the plain model, not the -1.5 line. Empty = same as imagine_video_model.
+    imagine_video_edit_model TEXT NOT NULL DEFAULT 'grok-imagine-video',
     -- Engine behind each Imagine tool: 'xai' (Grok Imagine) or 'local'
     -- (the user's ComfyUI server, see local_gen.py). The companion-level
     -- "Image & video tools" toggle still decides whether the tools are
@@ -1547,6 +1550,9 @@ MIGRATIONS = (
     "ALTER TABLE avatar_outfits ADD COLUMN pose_tuning TEXT",
     # Group-call chain cap, was hardcoded at 10 (see the config schema comment).
     "ALTER TABLE config ADD COLUMN group_chain_turns INTEGER NOT NULL DEFAULT 10",
+    # create_video edit/extend run on their own model (see the config schema
+    # comment): xAI offers neither on the -1.5 line.
+    "ALTER TABLE config ADD COLUMN imagine_video_edit_model TEXT NOT NULL DEFAULT 'grok-imagine-video'",
 )
 
 

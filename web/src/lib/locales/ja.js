@@ -885,6 +885,9 @@ export const JA = {
   "Imagine video model": "Imagine 動画モデル",
   "Grok Imagine video model used for animated backgrounds and the create_video tool.":
     "アニメーション背景と create_video ツールで使用される Grok Imagine 動画モデル。",
+  "Imagine video edit model": "Imagine 動画編集モデル",
+  "Grok Imagine model used when create_video edits or extends a clip. xAI offers these only on grok-imagine-video. Empty = use the Imagine video model.":
+    "create_video で動画を編集・延長するときに使用される Grok Imagine モデル。xAI はこれらの機能を grok-imagine-video でのみ提供しています。空欄の場合は Imagine 動画モデルを使用します。",
   "Animated background": "アニメーション背景",
   "Attach images": "画像を添付",
   "Image upload failed: %s": "画像のアップロードに失敗しました: %s",
