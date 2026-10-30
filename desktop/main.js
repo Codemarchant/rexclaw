@@ -638,7 +638,13 @@ function createMascotWindow(resume) {
     // the mascot-pin IPC right after mount, which updates the mirror.
     mascotPinned = true;
     mascotWindow.setAlwaysOnTop(true, "screen-saver");
-    mascotWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    // macOS: skipTransformProcessType keeps Rexclaw a regular app. Without
+    // it this call turns the whole process into an accessory (no Dock icon
+    // or menu bar) for the rest of the run, main window included. The cost:
+    // the mascot no longer floats over other apps' fullscreen Spaces.
+    mascotWindow.setVisibleOnAllWorkspaces(true, {
+        visibleOnFullScreen: true, skipTransformProcessType: true,
+    });
     // Same policy as the main window: same-origin navigation stays in-app,
     // everything else goes to the system browser. (Permission handlers are
     // session-level and already cover this window.)
@@ -783,9 +789,6 @@ function setMascotVisible(on) {
             if (mascotPinned) {
                 mascotWindow.setAlwaysOnTop(true, "screen-saver");
             }
-            // macOS: the process-type switch this call does by default
-            // blinks the Dock icon and every window — the creation-time
-            // call already did it once, so skip it on each re-show.
             mascotWindow.setVisibleOnAllWorkspaces(true, {
                 visibleOnFullScreen: true, skipTransformProcessType: true,
             });
@@ -1420,7 +1423,7 @@ function createCaptionsWindow() {
         },
     });
     win.setAlwaysOnTop(true, "screen-saver");
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     if (captionsPrefs().locked) win.setIgnoreMouseEvents(true);
     win.once("ready-to-show", () => { if (!win.isDestroyed()) win.showInactive(); });
     let saveTimer = null;
@@ -1946,7 +1949,7 @@ ipcMain.handle("screen-points", (event, { points, holdMs } = {}) => {
     });
     win.setIgnoreMouseEvents(true);
     win.setAlwaysOnTop(true, "screen-saver");
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
     win.once("ready-to-show", () => { if (!win.isDestroyed()) win.showInactive(); });
     win.loadURL("data:text/html;charset=utf-8,"
         + encodeURIComponent(pointOverlayHtml(points, b.width, b.height, hold)));
