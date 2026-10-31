@@ -1130,6 +1130,37 @@ async function visitTank(body, tank, ctx, why) {
     body.rest();
 }
 
+/** A jack-o'-lantern lit: over for a look inside, and just as they lean in
+ *  it flares, rattles and cackles, and a swarm of bats comes out at them. */
+async function peekPumpkin(body, pumpkin, ctx, why) {
+    startNote(body, why, why === "idle" ? "You've wandered back over to the jack-o'-lantern for another look inside."
+        : `${cameBy(pumpkin, why)} The room has gone dark. You're going over to peek inside it.`, 14000);
+    const ok = await body.goTo(pumpkin.p, ctx, { gap: pumpkin.radius + 0.5 });
+    if (!pumpkin.alive || !pumpkin.on || (!ok && flatDist(pumpkin.p, body.pos()) > 2.5)) return;
+    frameWith(body, pumpkin, 0.95);
+    body.face(pumpkin.p);
+    const face = add(pumpkin.p, v3(...pumpkin.def.lamp.at));
+    body.lookAt(face, 2000);
+    body.emotion("relaxed");
+    await body.play(CLIP.peerIn, ctx, { loop: true });
+    body.say(pick([_t("hello in there…"), _t("what a face"), _t("is someone home?")]), 1600);
+    await body.wait(rand(2400, 3800), ctx);
+    if (!pumpkin.alive || !pumpkin.on) { body.rest(); return; }
+    body.stage.boo?.(pumpkin);
+    toySfx.boo();
+    body.emotion("surprised");
+    body.say(pick([_t("EEK!"), _t("AAH!!"), _t("it moved!!")]), 1800);
+    body.note("The jack-o'-lantern suddenly flared up and cackled right as you leaned in, and a swarm of bats burst out of it.", { surprise: true });
+    await body.play(CLIP.surprised, ctx, { maxMs: 1500 });
+    // Watching them go.
+    body.lookAt(add(face, v3(0, 2, 0.8)), 1800);
+    await body.wait(1800, ctx);
+    body.emotion("happy");
+    body.say(pick([_t("okay, that got me"), _t("my heart…"), _t("happy Halloween, I guess!")]), 2000);
+    await body.wait(2000, ctx);
+    body.rest();
+}
+
 async function partyTime(body, ctx, why) {
     const st = body.stage;
     body.emotion("happy");
@@ -1272,6 +1303,7 @@ export async function playWith(body, toy, why, ctx, part = null) {
         case "lamp":
             if (toy.def.lamp.fire) return toy.on ? byTheFire(body, toy, ctx, why) : undefined;
             if (toy.def.lamp.stars) return toy.on ? stargaze(body, toy, ctx, why) : undefined;
+            if (toy.def.lamp.bats) return toy.on ? peekPumpkin(body, toy, ctx, why) : undefined;
             if (toy.def.id === "aquarium") return visitTank(body, toy, ctx, why);
             return toy.on && why === "on" ? admireLamp(body, toy, ctx) : undefined;
         case "chest": return openChest(body, toy, ctx);
@@ -1309,6 +1341,7 @@ function appeal(toy, stage, from) {
     // A fire to sit by, a sky to look up at; fish to feed, then to watch.
     if (k === "lamp" && toy.def.lamp.fire) return toy.on ? 10 : 0;
     if (k === "lamp" && toy.def.lamp.stars) return toy.on ? 8 : 0;
+    if (k === "lamp" && toy.def.lamp.bats) return toy.on ? 6 : 0;
     if (toy.def.id === "aquarium") return toy.resting ? (toy.fed ? 6 : 16) : 0;
     if (k === "coin") return 0;
     return 0;

@@ -177,6 +177,44 @@ class ToySfx {
         for (let i = 0; i < 5; i++) this._hiss(0.05, { freq: 5200, q: 1.4, vol: 0.12, at: i * 0.07 });
     }
 
+    /** A jack-o'-lantern's scare: a low thump, then a cackle, a sawtooth
+     *  through two vowel formants falling syllable by syllable, with bats'
+     *  wings and squeaks over it (by ear). */
+    boo() {
+        const ac = this._ac();
+        if (!ac) return;
+        this._tone(90, 34, 0.9, { vol: 1 });
+        this._hiss(0.5, { freq: 240, q: 0.7, type: "lowpass", vol: 0.6 });
+        const start = ac.currentTime + 0.12;
+        for (let i = 0; i < 9; i++) {
+            const t = start + i * 0.115 + Math.random() * 0.012, dur = 0.1;
+            const f0 = (640 - i * 34) * (1 + Math.random() * 0.05);
+            const o = ac.createOscillator();
+            o.type = "sawtooth";
+            o.frequency.setValueAtTime(f0 * 1.12, t);
+            o.frequency.exponentialRampToValueAtTime(f0 * 0.82, t + dur);
+            const g = ac.createGain();
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.exponentialRampToValueAtTime(0.5, t + 0.012);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+            for (const [hz, q] of [[1050, 5], [2400, 7]]) {
+                const f = ac.createBiquadFilter();
+                f.type = "bandpass";
+                f.frequency.value = hz;
+                f.Q.value = q;
+                o.connect(f).connect(g);
+            }
+            g.connect(this.out);
+            o.start(t);
+            o.stop(t + dur + 0.02);
+        }
+        for (let i = 0; i < 18; i++) this._hiss(0.04, { freq: 1500, q: 1, vol: 0.14, at: 0.2 + i * 0.075 });
+        for (let i = 0; i < 6; i++) {
+            const f = 3200 + Math.random() * 1600;
+            this._tone(f, f * 0.75, 0.05, { vol: 0.08, at: 0.3 + Math.random() * 1.1 });
+        }
+    }
+
     /** `n` samples that loop without a click: made `n + k` long by `fill`,
      *  the extra `k` crossfaded into the start. */
     _seamless(ac, seconds, fill) {
@@ -231,9 +269,28 @@ class ToySfx {
         });
     }
 
+    /** A haunted night, 12 s round: wind rising and falling, a low pair of
+     *  notes a semitone apart beating under it, a candle's tick now and then
+     *  (by ear). */
+    _hauntBuffer(ac) {
+        return this._seamless(ac, 12, (d, sr) => {
+            let b = 0;
+            for (let i = 0; i < d.length; i++) {
+                const t = i / sr;
+                b = (b + 0.02 * (Math.random() * 2 - 1)) / 1.02;
+                const gust = 0.5 + 0.5 * Math.sin((2 * Math.PI * t) / 6 - 1) * Math.sin((2 * Math.PI * t) / 4);
+                d[i] = b * 3 * (0.25 + gust) + 0.1 * Math.sin(2 * Math.PI * 55 * t) + 0.08 * Math.sin(2 * Math.PI * 58.3 * t);
+            }
+            for (let c = 0; c < 10; c++) {
+                const at = Math.floor(Math.random() * d.length), len = Math.floor(sr * 0.005);
+                for (let i = 0; i < len && at + i < d.length; i++) d[at + i] += (Math.random() * 2 - 1) * 0.2 * Math.exp(-i / (len / 4));
+            }
+        });
+    }
+
     /** A sound that runs while a gadget is on: the fan's hum, the dryer's
-     *  roar, the smoke machine's hiss, a campfire, an aquarium's bubbles.
-     *  `level` 0-1 scales it. */
+     *  roar, the smoke machine's hiss, a campfire, an aquarium's bubbles, a
+     *  jack-o'-lantern's night. `level` 0-1 scales it. */
     loop(id, on, kind = "fan", level = 1) {
         const cur = this._loops.get(id);
         if (!on) {
@@ -252,14 +309,14 @@ class ToySfx {
         const ac = this._ac();
         if (!ac) return;
         const src = ac.createBufferSource();
-        src.buffer = kind === "fire" ? this._fireBuffer(ac) : kind === "bubbler" ? this._bubbleBuffer(ac) : this._noise(ac, 2);
+        src.buffer = kind === "fire" ? this._fireBuffer(ac) : kind === "bubbler" ? this._bubbleBuffer(ac) : kind === "haunt" ? this._hauntBuffer(ac) : this._noise(ac, 2);
         src.loop = true;
         const f = ac.createBiquadFilter();
         // [filter Hz, Q, level]: the fan a low hum, the dryer a soft rush,
         // the smoke machine a hiss under the rest; the fire and the bubbles
         // made whole above, only their harshest top taken off (by ear).
         const spec = {
-            fan: [220, 0.7, 0.35], dryer: [700, 0.6, 0.1], fogger: [1400, 0.5, 0.06], fire: [6000, 0.5, 0.5], bubbler: [5000, 0.5, 0.35],
+            fan: [220, 0.7, 0.35], dryer: [700, 0.6, 0.1], fogger: [1400, 0.5, 0.06], fire: [6000, 0.5, 0.5], bubbler: [5000, 0.5, 0.35], haunt: [1600, 0.5, 0.4],
         }[kind] || [400, 1, 0.3];
         f.type = kind === "fogger" ? "bandpass" : "lowpass";
         f.frequency.value = spec[0];

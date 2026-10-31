@@ -12,7 +12,7 @@
 // cursor in cursorAt() even while it doesn't (where to throw things back).
 
 import { ToyWorld, headY } from "./world";
-import { TOYS, HOOP, GOAL, POSTS, lampLight, puffHz } from "./catalog";
+import { TOYS, HOOP, GOAL, POSTS, lampLight, puffHz, BOO_S, BATS_ROUND, BATS_OUT, BAT_OUT_S, BAT_HZ, BAT_SPAN } from "./catalog";
 import { toyArt, fanBox } from "./art";
 import { add, bounce, sub, v3 } from "./physics";
 import { playWith, idleAppeal } from "./brains";
@@ -560,6 +560,20 @@ export class ScreenStage extends ToyWorld {
         t._feedTimer = setTimeout(() => e.classList.remove("is-feeding"), 8000);
     }
 
+    /** A jack-o'-lantern's scare: it rattles (.is-boo), its glow flares, a
+     *  swarm of bats goes out from its face. */
+    boo(t) {
+        const e = t.view?.e;
+        if (!e) return;
+        e.classList.remove("is-boo");
+        void e.getBoundingClientRect();
+        e.classList.add("is-boo");
+        clearTimeout(t._booTimer);
+        t._booTimer = setTimeout(() => e.classList.remove("is-boo"), BOO_S * 1000);
+        t._booAt = now();
+        t._batsOut = Array.from({ length: BATS_OUT }, () => ({ t: 0, life: rand(BAT_OUT_S[0], BAT_OUT_S[1]), ang: rand(-1.25, 1.25), up: rand(0.7, 2), ph: rand(0, 6) }));
+    }
+
     /** A drawing behind the toys and one in front of them, for the hoop or
      *  the goal (`name`), each in its own box on its layer. */
     _pieces(name) {
@@ -869,8 +883,58 @@ export class ScreenStage extends ToyWorld {
             const L = t.def.lamp;
             if (L.fire) this._fire2d(g, t, dt);
             if (L.stars) this._sky2d(g, t, W, H, dt);
+            if (L.bats) this._pumpkinGlow2d(g, t);
         }
         g.restore();
+        // (Black: over the glow, not added to it.)
+        for (const t of night) if (t.def.lamp.bats) this._bats2d(g, t, dt);
+    }
+
+    /** What's left of a jack-o'-lantern's boo, 1 to 0. */
+    _flare(t) { return t._booAt ? Math.max(0, 1 - (now() - t._booAt) / (BOO_S * 1000)) : 0; }
+
+    _pumpkinGlow2d(g, t) {
+        const time = this.time, f = this._flare(t);
+        const c = this.toPx(add(t.p, v3(...t.def.lamp.at)));
+        // As the room's flicker (scene_stage _lampFrame).
+        const flick = (0.85 + 0.1 * Math.sin(time * 13) + 0.05 * Math.sin(time * 29 + 1.3)) * (1 + 2 * f);
+        const col = lampLight(t.def, t.shade || 0).color;
+        const R = 1.5 * this.k * (1 + f);
+        const grad = g.createRadialGradient(c.x, c.y, 0, c.x, c.y, R);
+        grad.addColorStop(0, rgba(col, Math.min(0.8, 0.28 * flick)));
+        grad.addColorStop(0.4, rgba(col, Math.min(0.35, 0.1 * flick)));
+        grad.addColorStop(1, rgba(col, 0));
+        g.fillStyle = grad;
+        g.fillRect(c.x - R, c.y - R, R * 2, R * 2);
+    }
+
+    /** A jack-o'-lantern's bats: a few wheeling over it, the swarm its boo
+     *  let out flying up and away. */
+    _bats2d(g, t, dt) {
+        const time = this.time, k = this.k;
+        const list = (t._bats ||= Array.from({ length: BATS_ROUND }, (_, i) => ({ ph: rand(0, 6), rate: rand(0.75, 1.15), r: rand(0.8, 1.25), h: rand(0.5, 1), dir: i % 2 ? 1 : -1 })));
+        const from = add(t.p, v3(...t.def.lamp.at));
+        const draw = (x, y, ph, size) => {
+            const p = this.toPx({ x, y }), s = Math.max(12, BAT_SPAN * k) * size / 2;
+            const tip = -s * 0.5 * Math.sin(2 * Math.PI * BAT_HZ * time + ph);
+            g.beginPath();
+            g.moveTo(p.x - s, p.y + tip);
+            g.quadraticCurveTo(p.x - s * 0.5, p.y + tip * 0.2 - s * 0.35, p.x, p.y - s * 0.16);
+            g.quadraticCurveTo(p.x + s * 0.5, p.y + tip * 0.2 - s * 0.35, p.x + s, p.y + tip);
+            g.quadraticCurveTo(p.x + s * 0.5, p.y + tip * 0.3 + s * 0.05, p.x, p.y + s * 0.28);
+            g.quadraticCurveTo(p.x - s * 0.5, p.y + tip * 0.3 + s * 0.05, p.x - s, p.y + tip);
+            g.fill();
+        };
+        g.fillStyle = "#0d0812";
+        for (const b of list) {
+            const a = (time * 0.85 * b.rate + b.ph) * b.dir;
+            draw(from.x + Math.cos(a) * b.r, from.y + b.h + 0.4 + 0.2 * Math.sin(time * 1.1 + b.ph) + 0.12 * Math.sin(a), b.ph, 1);
+        }
+        t._batsOut = (t._batsOut || []).filter((b) => (b.t += dt) < b.life);
+        for (const b of t._batsOut) {
+            const s = b.t / b.life, go = 3.6 * s ** 1.2;
+            draw(from.x + Math.sin(b.ang) * go + 0.14 * Math.sin(time * 7 + b.ph) * s, from.y + b.up * go * 0.75 * (0.25 + s) + 0.1 * Math.sin(time * 5 + b.ph), b.ph, Math.min(1, (1 - s) / 0.12));
+        }
     }
 
     _fire2d(g, t, dt) {

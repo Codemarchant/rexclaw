@@ -320,6 +320,24 @@ export const TOYS = {
             { name: "Plant", color: "#f0abfc", light: "#ff9ff0", water: "#c084fc" },
             { name: "Sunset", color: "#fdba74", light: "#ffb36b", water: "#fb923c" }],
     },
+    pumpkin: {
+        cat: "lights", name: "Jack-o'-lantern", kind: "lamp", note: "a carved jack-o'-lantern on a hay bale, a candle flickering inside it", gadget: true, placed: true, slides: true,
+        // A 52 cm carving pumpkin (by eye) on a small two-string hay bale,
+        // about 36 × 46 × 92 cm (14 × 18 × 36 in); a candle's flame, its
+        // light by eye (a real candle's wouldn't carry through a carved
+        // face to light the room). `bats`: they circle it while it's lit,
+        // and burst out of it when it scares them (brains.js).
+        radius: 0.23, mass: 25, restitution: 0.02,
+        art: { w: 0.96, h: 0.82, cy: 0.18 }, grab: [[0.3, 0.35]],
+        lamp: { lm: 900, color: K1900, at: [0, 0.29, 0.33], tint: 0, flicker: true, bats: true, dim: 0.16, night: 0.55, sound: "haunt" },
+        // Each its own pumpkin, face and fire. `color`: the skin (orange, a
+        // white Lumina, a black-purple, a green); `face`: PUMPKIN_FACES;
+        // `flame`: [core, body, tip] as the campfire's.
+        shades: [{ name: "Classic", color: "#f0761c", light: K1900, face: "grin", flame: ["#fff4c2", "#ffb03a", "#e2401a"] },
+            { name: "Ghost", color: "#efe9dc", light: "#8fc7ff", face: "wail", flame: ["#eef8ff", "#7cc4ff", "#2a5bd7"] },
+            { name: "Witch", color: "#2c2038", light: "#7dff6a", face: "fangs", flame: ["#f2ffe0", "#7dff4a", "#149a3c"] },
+            { name: "Hex", color: "#3f7d3a", light: "#d08cff", face: "wink", flame: ["#f8eeff", "#c67dff", "#6d28d9"] }],
+    },
 
     // ── the crew's ──────────────────────────────────────────────────────
     gerald: {
@@ -417,6 +435,34 @@ export function lampLight(def, i = 0) {
     const top = Math.max(...mixed, 1);
     return { color: hex(mixed.map((c) => (c * 255) / top)), lm: L.lm * (top / Math.max(...b)) };
 }
+
+/** A jack-o'-lantern's carved holes, as SVG paths on a pumpkin seen front
+ *  on, its outline the circle of radius 50 round (0, 0): both stages cut the
+ *  same face. `LID`: the zigzag of its cut lid. */
+export const PUMPKIN_FACES = {
+    grin: ["M-33 -9 L-11 -9 L-21 -35 Z", "M11 -9 L33 -9 L21 -35 Z", "M-6 7 L6 7 L0 -6 Z",
+        "M-38 9 C-28 18 -22 20 -17 21 V29 H-7 V23 H7 V29 H17 V21 C22 20 28 18 38 9 C32 30 15 41 7 42 V34 H-3 V42 C-16 41 -32 30 -38 9 Z"],
+    wail: ["M-31 -19 a11 15 0 1 0 22 0 a11 15 0 1 0 -22 0 Z", "M9 -19 a11 15 0 1 0 22 0 a11 15 0 1 0 -22 0 Z",
+        "M-12 21 a12 19 0 1 0 24 0 a12 19 0 1 0 -24 0 Z"],
+    fangs: ["M-36 -33 L-9 -13 L-30 -6 Z", "M36 -33 L9 -13 L30 -6 Z", "M-3 5 L0 -7 L3 5 Z",
+        "M-38 8 L-26 19 L-20 10 L-12 22 L-6 12 L0 24 L6 12 L12 22 L20 10 L26 19 L38 8 L30 30 L22 22 L15 38 L8 26 L0 42 L-8 26 L-15 38 L-22 22 L-30 30 Z"],
+    wink: ["M-36 -13 Q-22 -33 -8 -13 Q-22 -23 -36 -13 Z",
+        "M22 -35 L26 -24 L37 -24 L28 -17 L31 -6 L22 -12 L13 -6 L16 -17 L7 -24 L18 -24 Z",
+        "M-38 8 Q0 68 38 8 Q26 17 21 18 V27 H11 V21 Q0 23 -11 21 V27 H-21 V18 Q-26 17 -38 8 Z"],
+};
+export const PUMPKIN_LID = "M-24 -43 l6 3 l6 -3 l6 3 l6 -3 l6 3 l6 -3 l6 3 l6 -3";
+
+// A jack-o'-lantern's boo, on either stage: how long the flare and the
+// rattling last (s), the bats that circle it, those that burst out, how
+// long one takes to get away (s), and a bat's flapping (Hz) and wingspan
+// (m; a small bat's is 18-25 cm). All by eye but the wingspan, drawn a
+// little big to read across a room.
+export const BOO_S = 1.8;
+export const BATS_ROUND = 3;
+export const BATS_OUT = 12;
+export const BAT_OUT_S = [2.2, 3.6];
+export const BAT_HZ = 9;
+export const BAT_SPAN = 0.3;
 
 /** How often a fire `D` metres across puffs (Hz): f = 1.5 / √D, measured
  *  for buoyant plumes and pool fires (Cetegen & Ahmed 1993). */

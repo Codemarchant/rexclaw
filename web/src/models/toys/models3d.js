@@ -9,7 +9,7 @@
 // bottom. Gadgets face +X (a fan's head, a dryer's nozzle): the stage turns
 // them to their aim. `parts` names what the stage animates.
 
-import { puffHz } from "./catalog";
+import { puffHz, PUMPKIN_FACES, PUMPKIN_LID, BOO_S, BATS_ROUND, BATS_OUT, BAT_OUT_S, BAT_HZ, BAT_SPAN } from "./catalog";
 
 let GRAD = null;
 
@@ -324,6 +324,7 @@ export function buildToyModel(THREE, def, radius = def.radius) {
         case "campfire":
         case "galaxy":
         case "aquarium":
+        case "pumpkin":
             buildLamp(THREE, def, r, g, parts, add, toon);
             break;
         case "noodles":
@@ -1323,6 +1324,9 @@ function buildLamp(THREE, def, r, g, parts, add, toon) {
         case "aquarium":
             buildAquarium(THREE, def, g, parts, add, toon, basic, glow, floor);
             break;
+        case "pumpkin":
+            buildPumpkin(THREE, g, parts, add, toon, basic, floor);
+            break;
         default:
             break;
     }
@@ -1353,6 +1357,7 @@ function buildLamp(THREE, def, r, g, parts, add, toon) {
             parts.led.material.color.set(on ? "#4ade80" : "#334155");
         }
         if (parts.aquarium) parts.aquarium({ on, shade, light: lightColor });
+        if (parts.pumpkin) parts.pumpkin({ on, shade });
         if (def.id === "lava") {
             parts.wax.color.set(shade.wax);
             parts.wax.emissive = new THREE.Color(on ? shade.wax : "#000000").multiplyScalar(on ? 0.6 : 0);
@@ -1556,6 +1561,362 @@ function causticTex(THREE) {
     });
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     return t;
+}
+
+/** A pumpkin of radius 1, flattened, ribbed in `ribs` lobes (a lobe's
+ *  middle to the front), darker down its grooves. Its uv is the front view,
+ *  so a face cut in a square canvas lands as drawn (PUMPKIN_FACES). */
+function pumpkinGeometry(THREE, ribs) {
+    const geo = new THREE.SphereGeometry(1, 96, 56);
+    const p = geo.attributes.position, uv = geo.attributes.uv;
+    const col = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+        const lobe = Math.abs(Math.cos(Math.atan2(x, z) * ribs / 2)) ** 0.6;
+        const girth = 1 - 0.085 * (1 - lobe) * Math.sqrt(Math.sqrt(Math.max(0, 1 - y * y)));
+        // The back maps to the canvas's solid corner.
+        uv.setXY(i, z > -0.02 ? 0.5 + x / 2 : 0, z > -0.02 ? 0.5 + y / 2 : 0);
+        p.setXYZ(i, x * girth, y * 0.8 * (1 - 0.28 * Math.abs(y) ** 6), z * girth);
+        const shade = 0.62 + 0.38 * lobe;
+        col.set([shade, shade, shade], i * 3);
+    }
+    geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    geo.computeVertexNormals();
+    return geo;
+}
+
+/** A carved face's holes onto canvas 2D `c` of a square `w`, from
+ *  PUMPKIN_FACES (and the lid's zigzag, if `lid`). */
+function cutFace(c, w, face, lid) {
+    c.save();
+    c.translate(w / 2, w / 2);
+    c.scale(w / 100, w / 100);
+    for (const d of PUMPKIN_FACES[face]) c.fill(new Path2D(d));
+    if (lid) {
+        c.lineWidth = 1.1;
+        c.stroke(new Path2D(PUMPKIN_LID));
+    }
+    c.restore();
+}
+
+/** One wing of a bat, root at the origin, out along +X, scalloped behind. */
+function batWing(THREE) {
+    const s = BAT_SPAN / 2;
+    const pts = [[0, 0.32], [0.45, 0.42], [1, 0.1], [0.82, -0.2], [0.62, -0.06], [0.44, -0.28], [0.24, -0.1], [0, -0.3]];
+    const shape = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x * s, z * s)));
+    const geo = new THREE.ShapeGeometry(shape);
+    geo.rotateX(Math.PI / 2);
+    return geo;
+}
+
+const INTERIOR_FRAGMENT = /* glsl */`
+    uniform vec3 hot;
+    uniform vec3 warm;
+    uniform float power;
+    varying vec3 vP;
+    void main() {
+        // Falling off from the candle, low in the middle.
+        vec3 d = vP - vec3(0.0, -0.45, 0.0);
+        float k = power / (1.0 + 2.2 * dot(d, d));
+        vec3 col = mix(warm, hot, smoothstep(0.3, 0.95, k));
+        gl_FragColor = vec4(mix(vec3(0.03, 0.015, 0.01), col, clamp(k * 1.7, 0.0, 1.0)), 1.0);
+        #include <colorspace_fragment>
+    }`;
+
+/** The jack-o'-lantern: a hay bale, gourds, and the pumpkin on it with its
+ *  face really cut through. Its skin and a few layers of flesh under it have
+ *  the holes (so the cut has depth from any angle), a hollow lit from the
+ *  candle behind them, the flame itself seen through. Its face's glow soaks
+ *  through the thin skin round the cuts and falls on the floor in front.
+ *  parts.pumpkin sets its look (shade: skin, face, flame); parts.boo(k)
+ *  flares it and sets it rattling, at 1 with bats bursting from its mouth;
+ *  parts.flare is what's left of that, for the stage's light. */
+function buildPumpkin(THREE, g, parts, add, toon, basic, floor) {
+    const R = 0.26, BALE_H = 0.36, BALE_W = 0.92, BALE_D = 0.46;
+    const midY = floor + BALE_H + R * 0.6;
+    const FRONT = BALE_D / 2;
+
+    // The bale: pressed straw, two strings round it, ends sticking out.
+    const straw = canvasTex(THREE, 512, 256, (c, w, h) => {
+        c.fillStyle = "#b8923f";
+        c.fillRect(0, 0, w, h);
+        c.lineWidth = 1.6;
+        for (let i = 0; i < 2600; i++) {
+            const x = rand(0, w), y = rand(0, h), a = rand(-0.5, 0.5), l = rand(14, 44);
+            c.strokeStyle = ["#e3c56b", "#cfa94f", "#9c7a30", "#f0d98c"][i % 4];
+            c.beginPath();
+            c.moveTo(x, y);
+            c.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+            c.stroke();
+        }
+    });
+    add(new THREE.BoxGeometry(BALE_W, BALE_H, BALE_D), toon("#ffffff", { map: straw }), 0, floor + BALE_H / 2, 0);
+    const twine = toon("#6b4a24");
+    for (const x of [-0.24, 0.24]) add(new THREE.BoxGeometry(0.012, BALE_H + 0.006, BALE_D + 0.006), twine, x, floor + BALE_H / 2, 0);
+    const tufts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.002, 0.003, 1, 4), toon("#e3c56b"), 46);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    const V = (x, y, z) => new THREE.Vector3(x, y, z);
+    for (let i = 0; i < 46; i++) {
+        const side = i % 2 ? 1 : -1, end = i % 3 === 0;
+        const at = end ? V(side * BALE_W / 2, floor + rand(0.02, BALE_H), rand(-FRONT, FRONT)) : V(rand(-BALE_W / 2, BALE_W / 2), floor + (i % 4 ? rand(0.01, 0.06) : BALE_H), FRONT * (i % 5 ? 1 : -1));
+        e.set(rand(-1.2, 1.2), 0, rand(-1.2, 1.2));
+        m4.compose(at, q.setFromEuler(e), V(1, rand(0.06, 0.15), 1));
+        tufts.setMatrixAt(i, m4);
+    }
+    g.add(tufts);
+
+    // Everything on `head` jumps when it rattles.
+    const head = new THREE.Group();
+    head.position.y = midY;
+    g.add(head);
+    const geo = pumpkinGeometry(THREE, 10);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1024;
+    const cut = new THREE.CanvasTexture(canvas);
+    const skinGlowCanvas = document.createElement("canvas");
+    skinGlowCanvas.width = skinGlowCanvas.height = 512;
+    const skinGlow = new THREE.CanvasTexture(skinGlowCanvas);
+    skinGlow.colorSpace = THREE.SRGBColorSpace;
+    const skin = toon("#ffffff", { vertexColors: true, alphaMap: cut, alphaTest: 0.5, emissive: "#000000", emissiveMap: skinGlow });
+    const shell = new THREE.Mesh(geo, skin);
+    shell.scale.setScalar(R);
+    head.add(shell);
+    // The flesh under the skin, in steps down to the hollow.
+    const flesh = basic("#8a5a2b", { alphaMap: cut, alphaTest: 0.5 });
+    for (const s of [0.975, 0.95, 0.925, 0.9]) {
+        const m = new THREE.Mesh(geo, flesh);
+        m.scale.setScalar(R * s);
+        m.userData.clear = true;
+        head.add(m);
+    }
+    const hollow = new THREE.ShaderMaterial({
+        uniforms: { hot: { value: new THREE.Color() }, warm: { value: new THREE.Color() }, power: { value: 0 } },
+        vertexShader: /* glsl */`
+            varying vec3 vP;
+            void main() {
+                vP = position;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }`,
+        fragmentShader: INTERIOR_FRAGMENT,
+        side: THREE.BackSide,
+    });
+    const inner = new THREE.Mesh(geo, hollow);
+    inner.scale.setScalar(R * 0.885);
+    inner.userData.clear = true;
+    head.add(inner);
+    // The candle stub and its flame, a crossed pair of sheets.
+    const stub = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.036, 0.06, 14), toon("#f5efe0"));
+    stub.position.y = -R * 0.45;
+    stub.userData.clear = true;
+    head.add(stub);
+    const fire = fireMaterial(THREE, 4);
+    const flames = new THREE.Group();
+    for (const a of [0, Math.PI / 2]) {
+        const sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.26), fire);
+        sheet.rotation.y = a;
+        sheet.renderOrder = 3;
+        sheet.userData.clear = true;
+        flames.add(sheet);
+    }
+    flames.position.y = R * 0.3;
+    head.add(flames);
+
+    // The stem, bent over, and a curl of vine off it.
+    const stemGeo = new THREE.CylinderGeometry(0.018, 0.05, 0.13, 8, 6);
+    const sp = stemGeo.attributes.position;
+    for (let i = 0; i < sp.count; i++) {
+        const y = sp.getY(i) + 0.065;
+        sp.setX(i, sp.getX(i) + 1.9 * y * y);
+    }
+    stemGeo.computeVertexNormals();
+    const stem = new THREE.Mesh(stemGeo, toon("#5f6b2e"));
+    stem.position.y = R * 0.56 + 0.05;
+    head.add(stem);
+    const curl = new THREE.Curve();
+    curl.getPoint = (t, out = new THREE.Vector3()) => {
+        const a = t * 11;
+        return out.set(-0.02 - t * 0.1 + Math.cos(a) * 0.02 * (1 - t * 0.5), R * 0.56 + 0.012 + Math.sin(t * Math.PI) * 0.03, 0.04 + t * 0.06 + Math.sin(a) * 0.02 * (1 - t * 0.5));
+    };
+    const vine = new THREE.Mesh(new THREE.TubeGeometry(curl, 48, 0.0035, 5), toon("#4d7c2f"));
+    head.add(vine);
+
+    // A small gourd on the bale, another on the floor by it.
+    const gourdMat = toon("#ffffff", { vertexColors: true });
+    for (const [x, y, z, s, c] of [[-0.38, floor + BALE_H + 0.055, 0.08, 0.07, "#d9a441"], [0.56, floor + 0.075, 0.2, 0.095, "#d4631a"]]) {
+        const m = add(geo, gourdMat.clone(), x, y, z);
+        m.material.color.set(c);
+        m.scale.setScalar(s);
+        m.rotation.y = rand(0, 6);
+    }
+
+    // Its face's light: a glow out of the holes, and on the floor in front.
+    const dot = softDot(THREE);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+    halo.scale.set(0.95, 0.95, 1);
+    halo.position.set(0, midY, R + 0.06);
+    g.add(halo);
+    const castCanvas = document.createElement("canvas");
+    castCanvas.width = castCanvas.height = 512;
+    const castTex = new THREE.CanvasTexture(castCanvas);
+    castTex.colorSpace = THREE.SRGBColorSpace;
+    const cast = add(new THREE.PlaneGeometry(1.5, 1.5), basic("#ffffff", { map: castTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }), 0, floor + 0.006, FRONT + 0.75);
+    cast.rotation.x = -Math.PI / 2;
+    cast.userData.clear = true;
+
+    // The bats. Three meshes of instances: a body, each wing (the left one
+    // mirrored); flat black, seen against the glow. Each frame sets them.
+    const N = BATS_ROUND + BATS_OUT;
+    const dark = new THREE.MeshBasicMaterial({ color: "#0d0812", side: THREE.DoubleSide });
+    const wingGeo = batWing(THREE);
+    const bodyGeo = new THREE.SphereGeometry(0.03, 8, 6);
+    bodyGeo.scale(0.8, 0.75, 1.5);
+    const swarm = [new THREE.InstancedMesh(bodyGeo, dark, N), new THREE.InstancedMesh(wingGeo, dark, N), new THREE.InstancedMesh(wingGeo, dark, N)];
+    for (const m of swarm) {
+        m.frustumCulled = false;
+        m.userData.clear = true;
+        m.visible = false;
+        m.count = 0;
+        g.add(m);
+    }
+    const bats = Array.from({ length: N }, (_, i) => ({
+        ph: rand(0, 6.28), rate: rand(0.75, 1.15), r: rand(0.8, 1.25), h: rand(0.55, 1.05), dir: i % 2 ? 1 : -1,
+        out: i >= BATS_ROUND, t: -1, last: null, hz: BAT_HZ * rand(0.85, 1.2),
+    }));
+    const obj = new THREE.Object3D();
+    const pos = new THREE.Vector3();
+    const place = (b, i, flap, k) => {
+        if (b.last) {
+            const dx = pos.x - b.last.x, dz = pos.z - b.last.z;
+            if (dx * dx + dz * dz > 1e-8) b.yaw = Math.atan2(dx, dz);
+        } else b.last = new THREE.Vector3();
+        b.last.copy(pos);
+        const set = (mesh, z, sx) => {
+            obj.position.copy(pos);
+            obj.rotation.set(0.25, b.yaw || 0, z, "YXZ");
+            obj.scale.set(sx * k, k, k);
+            obj.updateMatrix();
+            mesh.setMatrixAt(i, obj.matrix);
+        };
+        set(swarm[0], 0, 1);
+        set(swarm[1], flap, 1);
+        set(swarm[2], -flap, -1);
+    };
+
+    let faceNow = null, boo = -1, booK = 0;
+    const fleshOff = new THREE.Color("#8a5a2b"), fleshHot = new THREE.Color();
+    parts.flare = 0;
+    parts.boo = (k = 1) => {
+        boo = 0;
+        booK = k;
+        if (k < 1) return;
+        for (const b of bats) if (b.out) { b.t = 0; b.life = rand(BAT_OUT_S[0], BAT_OUT_S[1]); b.ang = rand(-1.25, 1.25); b.up = rand(0.7, 2); b.last = null; }
+    };
+    const carve = (face) => {
+        const c = canvas.getContext("2d");
+        c.fillStyle = "#ffffff";
+        c.fillRect(0, 0, 1024, 1024);
+        c.fillStyle = c.strokeStyle = "#000000";
+        cutFace(c, 1024, face, true);
+        cut.needsUpdate = true;
+        // Black skin, white soft round the cuts: where the light soaks through.
+        const k = skinGlowCanvas.getContext("2d");
+        k.filter = "none";
+        k.fillStyle = "#000000";
+        k.fillRect(0, 0, 512, 512);
+        k.filter = "blur(6px)";
+        k.fillStyle = k.strokeStyle = "#ffffff";
+        cutFace(k, 512, face, false);
+        k.filter = "none";
+        skinGlow.needsUpdate = true;
+        // The face on the floor: soft-edged, fading with distance.
+        const f = castCanvas.getContext("2d");
+        f.globalCompositeOperation = "source-over";
+        f.clearRect(0, 0, 512, 512);
+        f.filter = "blur(5px)";
+        f.fillStyle = f.strokeStyle = "#ffffff";
+        cutFace(f, 512, face, false);
+        f.filter = "none";
+        f.globalCompositeOperation = "destination-in";
+        const grad = f.createRadialGradient(256, 170, 60, 256, 256, 280);
+        grad.addColorStop(0, "rgba(255,255,255,1)");
+        grad.addColorStop(1, "rgba(255,255,255,0)");
+        f.fillStyle = grad;
+        f.fillRect(0, 0, 512, 512);
+        castTex.needsUpdate = true;
+    };
+    parts.pumpkin = ({ on, shade }) => {
+        // Scrolled to a new face while it's lit: a little flare.
+        if (faceNow && faceNow !== shade.face && on) parts.boo(0.45);
+        if (faceNow !== shade.face) carve(shade.face);
+        faceNow = shade.face;
+        const [core, body, tip] = shade.flame;
+        skin.color.set(shade.color);
+        skin.emissive.set(on ? body : "#000000");
+        fire.uniforms.core.value.set(core);
+        fire.uniforms.body.value.set(body);
+        fire.uniforms.tip.value.set(tip);
+        hollow.uniforms.hot.value.set(core);
+        hollow.uniforms.warm.value.set(body);
+        fleshHot.set(body).lerp(new THREE.Color(core), 0.35);
+        halo.material.color.set(body);
+        cast.material.color.set(body);
+        flames.visible = halo.visible = cast.visible = on;
+    };
+
+    parts.tick = (dt, time, on) => {
+        fire.uniforms.time.value = time;
+        // The stage's flicker (scene_stage _lampFrame), so light and face agree.
+        const k = 0.85 + 0.1 * Math.sin(time * 13) + 0.05 * Math.sin(time * 29 + 1.3);
+        if (boo >= 0) {
+            boo += dt;
+            if (boo > BOO_S) boo = -1;
+        }
+        const f = parts.flare = boo < 0 ? 0 : booK * Math.min(1, boo / 0.06) * (1 - boo / BOO_S) ** 1.5;
+        // A rattle: rocking and hopping on the bale, dying away.
+        head.rotation.z = f * 0.1 * Math.sin(time * 34);
+        head.rotation.x = f * 0.04 * Math.sin(time * 27);
+        head.position.y = midY + f * 0.035 * Math.abs(Math.sin(time * 19));
+        head.scale.setScalar(1 + f * 0.05);
+        if (on) {
+            const glow = k * (1 + f * 2.4);
+            hollow.uniforms.power.value = 1.3 * glow;
+            skin.emissiveIntensity = 0.3 * glow;
+            flesh.color.copy(fleshHot).multiplyScalar(Math.min(1.3, 0.55 + 0.5 * glow));
+            halo.material.opacity = Math.min(0.9, 0.2 * glow);
+            cast.material.opacity = Math.min(1, 0.42 * glow);
+        } else {
+            hollow.uniforms.power.value = 0;
+            skin.emissiveIntensity = 0;
+            flesh.color.copy(fleshOff);
+        }
+        // The bats: round and round it while it's lit; out of its mouth and
+        // away on a boo.
+        let shown = 0;
+        for (const b of bats) {
+            if (b.out ? b.t < 0 : !on) continue;
+            const i = shown++;
+            const flap = 0.65 * Math.sin(2 * Math.PI * b.hz * time + b.ph);
+            let scale = 1;
+            if (b.out) {
+                b.t += dt;
+                const s = b.t / b.life;
+                if (s >= 1) { b.t = -1; shown--; continue; }
+                const go = 3.6 * s ** 1.2;
+                pos.set(Math.sin(b.ang) * go + 0.14 * Math.sin(time * 7 + b.ph) * s, midY - 0.05 + b.up * go * 0.75 * (0.25 + s) + 0.1 * Math.sin(time * 5 + b.ph), R + Math.cos(b.ang) * go * 0.6);
+                scale = Math.min(1, b.t / 0.12) * Math.min(1, (1 - s) / 0.12);
+            } else {
+                const a = (time * 0.85 * b.rate + b.ph) * b.dir;
+                const rr = b.r + 0.18 * Math.sin(time * 0.6 + b.ph);
+                pos.set(Math.cos(a) * rr, midY + R + b.h + 0.16 * Math.sin(time * 1.1 + b.ph), Math.sin(a) * rr * 0.8);
+            }
+            place(b, i, flap, scale);
+        }
+        for (const m of swarm) {
+            m.visible = shown > 0;
+            m.count = shown;
+            m.instanceMatrix.needsUpdate = true;
+        }
+    };
 }
 
 /** The aquarium: a stand, the tank on it with gravel, plants, a rock, an

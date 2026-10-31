@@ -197,6 +197,13 @@
         animation: rx-flame 0.23s ease-in-out infinite alternate;
     }
     .rx_twinkle { animation: rx-twinkle 1.8s ease-in-out infinite alternate; }
+    // (A carved face's candle: quick, and never quite out.)
+    .rx_twinkle--fast { animation: rx-candle 0.16s ease-in-out infinite alternate; }
+    // A jack-o'-lantern's boo: rattling, flared up (catalog BOO_S).
+    &.is-boo svg {
+        transform-origin: 50% 100%;
+        animation: rx-boo 1.8s ease-out;
+    }
     .rx_neon { filter: drop-shadow(0 0 2px currentColor) drop-shadow(0 0 6px currentColor); }
     &--lamp { filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.25)); }
 
@@ -247,6 +254,18 @@
 }
 @keyframes rx-flame { from { transform: scale(0.92, 0.88) skewX(-3deg); } to { transform: scale(1.05, 1.08) skewX(3deg); } }
 @keyframes rx-twinkle { from { opacity: 0.35; } to { opacity: 1; } }
+@keyframes rx-candle { from { opacity: 0.8; } to { opacity: 1; } }
+@keyframes rx-boo {
+    0% { transform: none; filter: brightness(1); }
+    4% { transform: scale(1.1) rotate(-3deg); filter: brightness(2.2); }
+    12% { transform: scale(1.08) rotate(3deg); filter: brightness(2); }
+    20% { transform: scale(1.06) rotate(-2.5deg); }
+    28% { transform: scale(1.05) rotate(2.5deg); filter: brightness(1.7); }
+    36% { transform: scale(1.04) rotate(-2deg); }
+    44% { transform: scale(1.03) rotate(2deg); }
+    60% { transform: scale(1.01) rotate(-1deg); filter: brightness(1.3); }
+    100% { transform: none; filter: brightness(1); }
+}
 @keyframes rx-fire { from { transform: scale(0.94, 0.9) skewX(-4deg); } to { transform: scale(1.04, 1.1) skewX(4deg); } }
 @keyframes rx-swim {
     0% { transform: translateX(-30px) scaleX(1); }

@@ -12,7 +12,7 @@
 // inside are suffixed per copy: two copies on one page must not share a
 // gradient id (removing the first breaks the second in some engines).
 
-import { TOYS, lampLight } from "./catalog";
+import { TOYS, PUMPKIN_FACES, lampLight } from "./catalog";
 
 let uidSeq = 0;
 const uid = () => `rxt${(++uidSeq).toString(36)}`;
@@ -530,6 +530,35 @@ ${on ? `<g opacity=".9">${word.replaceAll(`stroke="${col}" stroke-width="1.6"`, 
             const fire = on ? `${halo(0, F - 26, 58, body, 0.5)}
 ${flame(-9, 40, 13, tip, 0.1)}${flame(9, 46, 14, tip, 0.25)}${flame(0, 62, 18, tip, 0)}${flame(0, 50, 14, body, 0.15)}${flame(-3, 30, 9, core, 0.05)}${flame(4, 26, 8, core, 0.2)}` : "";
             return `${log(-24, -3, F - 38)}${log(24, 3, F - 38)}${log(-12, -1, F - 42)}${log(12, 1, F - 42)}${fire}${stones}`;
+        });
+    },
+
+    pumpkin(o) {
+        const { s, on, light } = lampState("pumpkin", o);
+        return lampSvg("pumpkin", (F) => {
+            const [core, body] = s.flame;
+            const top = F - 36, R = 26, cy = top - R * 0.6;
+            // Its ribs: overlapping lobes, the middle one last, each a
+            // little taller towards the middle (drawn for a 21 cm radius,
+            // scaled to `R` with the stem).
+            const lobe = (x, w, h) => `<ellipse cx="${x}" cy="${cy}" rx="${w}" ry="${h}" fill="${s.color}" stroke="${INK}" stroke-width="1.5"/>
+<ellipse cx="${x - w * 0.3}" cy="${cy - h * 0.3}" rx="${w * 0.3}" ry="${h * 0.32}" fill="#fff" opacity=".12"/>`;
+            const lobes = [[-14, 8, 11.5], [14, 8, 11.5], [-8, 9, 12.5], [8, 9, 12.5], [0, 9.5, 13]].map(([x, w, h]) => lobe(x, w, h)).join("");
+            // The face's paths are on a circle of radius 50 (PUMPKIN_FACES);
+            // a hole glows when it's lit, and is dark when it isn't.
+            const k = R / 50;
+            const holes = PUMPKIN_FACES[s.face].map((d) => `<path d="${d}"/>`).join("");
+            const face = `<g transform="translate(0 ${cy}) scale(${k} ${k * 0.74})" fill="${on ? core : "#1c1009"}" stroke="${on ? body : INK}" stroke-width="${on ? 2.5 : 2}" stroke-linejoin="round"><g class="${on ? "rx_twinkle rx_twinkle--fast" : ""}">${holes}</g></g>`;
+            const straws = [[-44, 6], [-30, 20], [-14, 11], [6, 25], [24, 9], [38, 19], [-38, 30], [32, 31]]
+                .map(([x, y]) => `<path d="M${x} ${top + y} l5 1.4" stroke="#7a5a1f" stroke-width=".9" stroke-linecap="round"/>`).join("");
+            return `${on ? halo(0, cy, 46, light, 0.55) : ""}
+${inked(`M-46 ${top} H46 V${F} H-46 Z`, "#d4ae55", "#a8842f", { w: 2.2, shadeD: `M-60 ${top + 22} H60 V${F + 10} H-60 Z` })}
+${straws}<path d="M-23 ${top} V${F} M23 ${top} V${F}" stroke="#6b4a24" stroke-width="1.4"/>
+<g transform="translate(0 ${cy}) scale(${R / 21}) translate(0 ${-cy})">${inked(`M-1.5 ${cy - 12} C-4 ${cy - 16} -2 ${cy - 20} 5 ${cy - 21} L7 ${cy - 17.5} C3 ${cy - 16} 3 ${cy - 14} 4 ${cy - 12} Z`, "#5f6b2e", "#3f4a1c", { w: 1.5 })}
+<path d="M-3 ${cy - 13} c-7 -3 -11 2 -8 4 s5 -2 2 -3" fill="none" stroke="#4d7c2f" stroke-width="1"/>
+${lobes}</g>${face}
+${inked(`M-41 ${top} C-41 ${top - 8} -31 ${top - 8} -31 ${top} Z`, "#d9a441", "#a8772a", { w: 1.5 })}
+${inked(`M38 ${F} C38 ${F - 12} 52 ${F - 12} 52 ${F} Z`, "#d4631a", "#a5480f", { w: 1.5 })}`;
         });
     },
 

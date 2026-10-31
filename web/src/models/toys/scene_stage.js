@@ -815,7 +815,13 @@ export class SceneStage extends ToyWorld {
             if (!o.isSprite) o.geometry?.dispose();
             const mats = Array.isArray(o.material) ? o.material : [o.material];
             // The bubbles' film is one material for them all.
-            for (const m of mats) if (m && m !== bubbleMaterial(this.THREE)) { m.map?.dispose(); m.dispose(); }
+            for (const m of mats) {
+                if (!m || m === bubbleMaterial(this.THREE)) continue;
+                m.map?.dispose();
+                m.alphaMap?.dispose();
+                m.emissiveMap?.dispose();
+                m.dispose();
+            }
         });
     }
 
@@ -1018,6 +1024,9 @@ export class SceneStage extends ToyWorld {
     /** Flakes on an aquarium's water (brains.js visitTank). */
     feedFish(t) { t.view?.parts.feed?.(); }
 
+    /** A jack-o'-lantern's scare: it flares, rattles, and out come the bats. */
+    boo(t) { t.view?.parts.boo?.(); }
+
     /** A lamp's light where its bulb is (its centre turned with it), and
      *  what moves in it. */
     _lampFrame(t, v, dt) {
@@ -1039,8 +1048,9 @@ export class SceneStage extends ToyWorld {
             const w = 2 * Math.PI * puffHz(L.fire) * this.time;
             k = 0.82 + 0.12 * Math.sin(w) + 0.06 * Math.sin(2.7 * w + 1.1);
         } else if (L.ripple) k = 0.9 + 0.06 * Math.sin(this.time * 1.7) + 0.04 * Math.sin(this.time * 2.9 + 1);
-        v.light.intensity = t.on ? v.cd * k : 0;
         v.parts.tick?.(dt, this.time, t.on);
+        // A jack-o'-lantern's boo lights the whole room up with it.
+        v.light.intensity = t.on ? v.cd * k * (1 + 3 * (v.parts.flare || 0)) : 0;
     }
 
     _drawFog(dt) {
@@ -1294,7 +1304,7 @@ export class SceneStage extends ToyWorld {
         // Fading out: as it was.
         if (!on.length) return;
         u.veil.value = Math.max(...on.map((t) => t.def.lamp.night));
-        const sky = on.find((t) => t.def.lamp.stars), fire = on.find((t) => t.def.lamp.fire);
+        const sky = on.find((t) => t.def.lamp.stars), fire = on.find((t) => t.def.lamp.fire || t.def.lamp.bats);
         if (sky) {
             const colors = sky.def.shades[sky.shade || 0].sky;
             u.spin.value = sky.view?.parts.spin || 0;
