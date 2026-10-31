@@ -21,7 +21,9 @@
 const POP_S = 0.16;           // scale-in / scale-out time of a prop
 const ORB_GROW_S = 0.7;       // orb fading in round the hands
 const ORB_BURST_S = 0.8;      // orb flung outwards and gone
+const ORB_CHARGE_S = 0.55;    // orb drawn in before it tears the portal open
 const ORB_COUNT = 72;
+let WHITE = null;
 // A video preview that hasn't decoded its first frame by now isn't shown
 // (the reveal then goes ahead without the card).
 const VIDEO_LOAD_MS = 2500;
@@ -83,6 +85,7 @@ class Orb {
         this.time = 0;
         this.state = "grow";
         this.stateT = 0;
+        WHITE ||= new THREE.Color(1, 1, 1);
         const geometry = new THREE.BufferGeometry();
         this.positions = new Float32Array(ORB_COUNT * 3);
         this.sizes = new Float32Array(ORB_COUNT);
@@ -144,24 +147,44 @@ class Orb {
         return true;
     }
 
-    burst() {
+    /** The wind-up: drawn in tight and spinning up, in `tint` (the colour
+     *  of what is about to arrive) if given. */
+    charge(tint) {
+        if (this.state !== "grow") return;
+        this.state = "charge";
+        this.stateT = 0;
+        if (tint) {
+            this.tint = tint;
+            const tints = this.points.geometry.getAttribute("tint");
+            const col = new this.THREE.Color();
+            for (let i = 0; i < ORB_COUNT; i++) {
+                col.fromBufferAttribute(tints, i).lerp(tint, 0.7);
+                tints.setXYZ(i, col.r, col.g, col.b);
+            }
+            tints.needsUpdate = true;
+        }
+    }
+
+    /** `force`: how hard the motes are flung (a torn-open portal: more). */
+    burst(force = 1) {
         if (this.state === "burst") return;
         this.state = "burst";
         this.stateT = 0;
         for (const m of this.motes) {
             m.vel.copy(m.pos).sub(this.center).normalize()
-                .multiplyScalar(0.9 + Math.random() * 1.4).add(this._b.set(0, 0.25, 0.35));
+                .multiplyScalar((0.9 + Math.random() * 1.4) * force).add(this._b.set(0, 0.25, 0.35));
         }
     }
 
     /** False once it has burst and faded (dispose it then). */
     update(dt, scale) {
-        this.time += dt;
         this.stateT += dt;
+        const charge = this.state === "charge" ? Math.min(1, this.stateT / ORB_CHARGE_S) : 0;
+        this.time += dt * (1 + 3 * charge);
         this.material.uniforms.scale.value = scale;
         const burst = this.state === "burst";
         if (!burst) this._centre(this.center);
-        const grow = Math.min(1, this.stateT / ORB_GROW_S);
+        const grow = this.state === "grow" ? Math.min(1, this.stateT / ORB_GROW_S) : 1;
         const fade = burst ? Math.max(0, 1 - this.stateT / ORB_BURST_S) : grow;
         this.material.uniforms.opacity.value = fade;
         for (let i = 0; i < ORB_COUNT; i++) {
@@ -173,7 +196,7 @@ class Orb {
                 this._q.setFromAxisAngle(m.axis, this.time * m.speed + m.phase);
                 const breathe = 1 + 0.12 * Math.sin(this.time * 3.1 + m.phase);
                 m.pos.copy(m.start).applyQuaternion(this._q)
-                    .multiplyScalar(m.radius * (0.35 + 0.65 * grow) * breathe).add(this.center);
+                    .multiplyScalar(m.radius * (0.35 + 0.65 * grow) * (1 - 0.6 * charge) * breathe).add(this.center);
             }
             this.positions.set([m.pos.x, m.pos.y, m.pos.z], i * 3);
             this.sizes[i] = m.size;
@@ -187,9 +210,10 @@ class Orb {
         const flare = burst ? 1 + 2.5 * Math.min(1, this.stateT / 0.12) : 1;
         const pulse = 1 + 0.15 * Math.sin(this.time * 5.3);
         this.core.position.copy(this.center);
-        this.core.scale.setScalar(0.13 * grow * pulse * flare);
-        this.core.material.opacity = 0.85 * (burst ? Math.max(0, 1 - this.stateT / 0.35) : grow);
-        this.core.material.color.setHSL(0.72 + 0.08 * Math.sin(this.time * 1.7), 0.9, 0.72);
+        this.core.scale.setScalar(0.13 * grow * pulse * flare * (1 + 0.9 * charge));
+        this.core.material.opacity = (0.85 + 0.15 * charge) * (burst ? Math.max(0, 1 - this.stateT / 0.35) : grow);
+        if (this.tint) this.core.material.color.copy(this.tint).lerp(WHITE, 0.45);
+        else this.core.material.color.setHSL(0.72 + 0.08 * Math.sin(this.time * 1.7), 0.9, 0.72);
         return !(burst && this.stateT >= ORB_BURST_S);
     }
 

@@ -1307,7 +1307,7 @@ class VoiceCallService {
                 toolStarted: (c, n, r) => this.env.services.motion_director?.toolStarted?.(c, n, r),
                 toolEnded: (c, r) => this.env.services.motion_director?.toolEnded?.(c, r),
                 toolsCleared: () => this.env.services.motion_director?.toolsCleared?.(),
-                // Live audio-schedule probe, for diagnosing gesture timing.
+                prepareBackgroundPortal: (bg) => this.env.services.motion_director?.prepareBackgroundPortal?.(bg),                // Live audio-schedule probe, for diagnosing gesture timing.
                 audioLookahead: () => conn._audioLookaheadSec?.() ?? 0,
             };
         }
@@ -1401,7 +1401,7 @@ class VoiceCallService {
             toolStarted: (c, n, r) => conn._motion?.toolStarted(c, n, r),
             toolEnded: (c, r) => conn._motion?.toolEnded(c, r),
             toolsCleared: () => conn._motion?.toolsCleared(),
-            audioLookahead: () => conn._audioLookaheadSec?.() ?? 0,
+            prepareBackgroundPortal: (bg) => conn._motion?.prepareBackgroundPortal(bg),            audioLookahead: () => conn._audioLookaheadSec?.() ?? 0,
         };
     }
 

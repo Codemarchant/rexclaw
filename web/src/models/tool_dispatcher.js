@@ -190,9 +190,9 @@ export class ToolDispatcher {
                 // (animated=true) — each side swaps the live backdrop and
                 // updates its own "latest Imagine" picker slot.
                 if (name === "change_background" && result.video_url) {
-                    this._applyImagineVideoBackground(result);
+                    await this._applyImagineVideoBackground(result);
                 } else if (name === "change_background" && result.image_url) {
-                    this._applyImagineBackground(result);
+                    await this._applyImagineBackground(result);
                 }
                 if (name === "adjust_affection" && result.ok) {
                     this._applyAffection(result);
@@ -225,10 +225,17 @@ export class ToolDispatcher {
         return result;
     }
 
+    /** The new background goes behind a portal for the motion's outro to
+     *  tear open (renderer + tool_motion.js), or straight in where it can't. */
+    async _showBackground(bg) {
+        const ready = await this.avatarApi?.prepareBackgroundPortal?.(bg);
+        if (!ready) this.avatarApi?.setBackground?.(bg);
+    }
+
     /** Swap the live background to the freshly-generated Imagine image and
      *  reflect it in the shared conversation state so the fullscreen picker
      *  shows 'Imagine background' as the current selection. */
-    _applyImagineBackground(result) {
+    async _applyImagineBackground(result) {
         const bg = {
             type: "imagine",
             preset_style: false,
@@ -237,7 +244,7 @@ export class ToolDispatcher {
             name: result.name || "Imagine background",
             prompt: result.prompt || "",
         };
-        this.avatarApi?.setBackground?.(bg);
+        await this._showBackground(bg);
         if (this.conversationState) {
             this.conversationState.activeBackground = bg;
             const agentId = this.conversationState.agentId;
@@ -252,7 +259,7 @@ export class ToolDispatcher {
      *  routes the renderer to a looping <video> layer instead of a CSS
      *  backdrop, and the entry lands in the parallel animated-latest picker
      *  slot — still and animated backgrounds coexist in the dropdown. */
-    _applyImagineVideoBackground(result) {
+    async _applyImagineVideoBackground(result) {
         const bg = {
             type: "imagine_video",
             preset_style: false,
@@ -262,7 +269,7 @@ export class ToolDispatcher {
             prompt: result.prompt || "",
             created_at: result.created_at || new Date().toISOString(),
         };
-        this.avatarApi?.setBackground?.(bg);
+        await this._showBackground(bg);
         if (this.conversationState) {
             this.conversationState.activeBackground = bg;
             const agentId = this.conversationState.agentId;

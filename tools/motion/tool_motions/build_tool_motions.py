@@ -738,9 +738,39 @@ def conjure_portal(b):
         p = blend(hold, fling, seg(t, 0.0, 0.3, ease=smooth))
         return blend(p, rest, seg(t, 0.65, 1.35))
 
-    return {"in": (1.3, intro), "loop": (3.0, loop), "out": (1.4, outro), "prop_times": {},
-            # The orb effect the client draws between the hands.
-            "effect": {"kind": "orb", "show_in": 0.55, "burst_out": 0.22}}
+    # Wind-up for the reveal: the orb crushed small, she bears down on it.
+    crush = add(orb(rad=0.085, lift=-0.03),
+                spine=rot(pitch=7), head=rot(pitch=9),
+                hips_off=V(up=-0.035, fwd=-0.012))
+    # The tear: both arms ripped apart and up, chest open, chin lifted.
+    tear = add(Pose(
+        spine=rot(pitch=-3), upper_chest=rot(pitch=-8), head=rot(pitch=-8),
+        arm_L=arm("L", at(b.sh_L, right=-0.3, up=0.24, fwd=0.17), V(right=-0.5, up=0.8, fwd=0.3), V(up=0.6, fwd=-0.7),
+                  V(right=-0.35, up=-1, fwd=-0.3)),
+        arm_R=arm("R", at(b.sh_R, right=0.3, up=0.15, fwd=0.2), V(right=0.6, up=0.65, fwd=0.35), V(up=0.6, fwd=-0.7),
+                  V(right=0.35, up=-1, fwd=-0.3)),
+        fingers_L=dict(OPEN), fingers_R=dict(OPEN),
+        look=c + V(fwd=1.5, up=0.45), look_weight=0.3,
+    ), hips_off=V(up=0.008))
+    # Over the shoulder at what she just opened behind her.
+    # Modest on purpose: a big head turn swings a ponytail over the shoulder,
+    # and the arms coming down then pin it there.
+    admire = add(tear, spine=rot(yaw=6), upper_chest=rot(yaw=5), head=rot(yaw=15, roll=4, pitch=2))
+
+    def reveal(t):
+        # 0-0.5 crush, 0.5-0.72 tear (the portal opens at 0.56), 0.72-1.6
+        # held against the wind, 1.6-2.35 a look back at it, 2.35-3.3 down.
+        strain = {"arm_L": {"hand": V(up=0.012 * wave(t, 0.7))}, "arm_R": {"hand": V(up=-0.012 * wave(t, 0.7))}}
+        p = blend(hold, crush, seg(t, 0.0, 0.5, ease=smooth))
+        p = blend(p, add(tear, **strain), seg(t, 0.5, 0.72, ease=smooth))
+        p = blend(p, add(admire, **strain), seg(t, 1.55, 2.15))
+        return blend(p, rest, seg(t, 2.35, 3.3))
+
+    return {"in": (1.3, intro), "loop": (3.0, loop), "out": (1.4, outro), "reveal": (3.4, reveal),
+            "prop_times": {},
+            # The orb effect the client draws between the hands; the reveal
+            # (a new background landed) tears it open into the portal.
+            "effect": {"kind": "orb", "show_in": 0.55, "burst_out": 0.22, "tear_reveal": 0.56}}
 
 
 def show_it(b, rest, hold):

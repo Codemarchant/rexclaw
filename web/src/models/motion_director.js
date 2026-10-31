@@ -308,6 +308,10 @@ export class MotionDirector {
             preloadGesture: (url) => r()?.preloadGesture?.(url, id),
             attachToolProp: (url, spec) => r()?.attachToolProp?.(url, spec, id) || Promise.resolve(null),
             startToolOrb: () => r()?.startToolOrb?.(id) || null,
+            prepareBackgroundPortal: (bg) => r()?.prepareBackgroundPortal?.(bg, id) || Promise.resolve(false),
+            backgroundPortalReady: () => !!r()?.backgroundPortalReady?.(),
+            chargeBackgroundPortal: () => r()?.chargeBackgroundPortal?.() || null,
+            openBackgroundPortal: () => r()?.openBackgroundPortal?.(),
             isLayerClipRunning: () => !!r()?.isPeerLayerClipRunning?.(id),
             playLibraryClip: (clip, opts) => r()?.playPeerLibraryClip?.(id, clip, opts) || Promise.resolve(false),
             stopLayerClip: () => r()?.stopPeerLayerClip?.(id),
@@ -606,6 +610,10 @@ export class MotionDirector {
 
     toolsCleared() {
         this._tools.cleared();
+    }
+
+    prepareBackgroundPortal(bg) {
+        return this._tools.prepareBackgroundPortal(bg);
     }
 
     /** Assistant transcript delta (the companion's own words, streamed).

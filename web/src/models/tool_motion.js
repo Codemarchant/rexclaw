@@ -14,7 +14,9 @@
  * takes the body, and the motion stands down (its props go with it).
  * A motion may also have a `reveal`, an outro that shows what the tool
  * made: create_image's ends with the finished picture held up on a print,
- * create_video's with the clip playing (muted) on a film card.
+ * create_video's with the clip playing (muted) on a film card, and
+ * change_background's with the orb torn open into a portal the new scene
+ * floods through (services/background_portal.js).
  *
  * Only when ONE slow tool is called in a reply: two different ones in the
  * same reply leave the body alone, and while a motion plays, a slow tool
@@ -136,6 +138,8 @@ export class ToolMotion {
      *  pictures at once), the reveal shows the one that finished last. */
     ended(callId, result = null) {
         const run = this._run;
+        // Nobody to tear a new background's portal open: it opens as it is.
+        if (!run) this.avatar?.openBackgroundPortal?.();
         if (!run || !run.calls.delete(callId)) return;
         if (result && !result.error) {
             if (result.video_url) run.reveal = { kind: "video", url: result.video_url };
@@ -145,6 +149,13 @@ export class ToolMotion {
         if (run.phase === "loop") this._outro(run);
         // "wait": _intro sees nothing left to wait for; "in": the step
         // after the intro goes straight to the outro.
+    }
+
+    /** A new background is in: ready it behind a portal; false if it should
+     *  just swap in (the switch is off, or the host can't show one). */
+    async prepareBackgroundPortal(bg) {
+        if (!this._enabled) return false;
+        return (await this.avatar?.prepareBackgroundPortal?.(bg)) || false;
     }
 
     /** Every call was dropped (the connection closed or was replaced). */
@@ -216,7 +227,12 @@ export class ToolMotion {
         // empty hand held up.
         let part = "out";
         let shown = [];
-        if (run.reveal && run.motion.reveal) {
+        const fx = run.motion.effect;
+        if (fx?.kind === "orb") {
+            // The new background waits behind its portal; no portal (a
+            // failed call, a host without backdrops): the plain fling.
+            if (run.reveal && this.avatar.backgroundPortalReady?.()) part = "reveal";
+        } else if (run.reveal && run.motion.reveal) {
             run.preparing = true;
             shown = await Promise.all(run.motion.revealProps.map((spec) => this._revealProp(run, spec)));
             run.preparing = false;
@@ -244,8 +260,15 @@ export class ToolMotion {
                 this._later(run, (p.spec.hide_reveal ?? run.motion.reveal.duration) * 1000, () => p.handle.hide());
             }
         }
-        const fx = run.motion.effect;
-        if (fx?.kind === "orb") this._later(run, (fx.burst_out ?? 0) * 1000, () => run.orb?.burst());
+        if (fx?.kind === "orb" && part === "reveal") {
+            run.orb?.charge(this.avatar.chargeBackgroundPortal?.());
+            this._later(run, (fx.tear_reveal ?? 0) * 1000, () => {
+                run.orb?.burst(2.4);
+                this.avatar.openBackgroundPortal?.();
+            });
+        } else if (fx?.kind === "orb") {
+            this._later(run, (fx.burst_out ?? 0) * 1000, () => run.orb?.burst());
+        }
         // Its own release hands the body back to the idle; this only
         // tidies up after it.
         this._later(run, (run.motion[part].duration + 0.5) * 1000, () => this._finish(run));
@@ -335,6 +358,8 @@ export class ToolMotion {
         run.props = [];
         run.orb?.burst();
         run.orb = null;
+        // Stood down before the tear: the new background still arrives.
+        if (run.motion.effect?.kind === "orb") this.avatar?.openBackgroundPortal?.();
         if (this._run === run) this._run = null;
     }
 }

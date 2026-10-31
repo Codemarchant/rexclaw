@@ -58,10 +58,15 @@
         "file": "conjure_portal_out.vrma",
         "duration": 1.4
       },
+      "reveal": {
+        "file": "conjure_portal_reveal.vrma",
+        "duration": 3.4
+      },
       "effect": {
         "kind": "orb",
         "show_in": 0.55,
-        "burst_out": 0.22
+        "burst_out": 0.22,
+        "tear_reveal": 0.56
       }
     },
     "paint_canvas": {

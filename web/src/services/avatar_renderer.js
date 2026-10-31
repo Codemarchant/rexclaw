@@ -47,6 +47,7 @@ import { ArtStyle } from "./art_style";
 import { MoodMarks } from "./mood_marks";
 import { Ambience, MOOD_AMBIENCE } from "./ambience";
 import { ToolProps } from "./tool_props";
+import { PortalStage, backgroundKey } from "./background_portal";
 import { applyEyelids, restoreSpringRest, startVrmExtras, takeSpringRest } from "./vrm_extras";
 
 // Kept async + memoized so the renderer code below stays identical to the
@@ -4665,6 +4666,7 @@ class AvatarRenderer {
      *    - the tool dispatcher's change_background post-result hook.
      */
     setBackground(bg) {
+        if (this._bgPortal?.intercepts(bg)) return;
         const prev = this._currentBackground;
         this._currentBackground = bg || null;
         // A background with default look picks (lighting preset, effects
@@ -4673,8 +4675,7 @@ class AvatarRenderer {
         // user can still change them afterwards. Only on a genuine switch —
         // re-applies of the same background (host reparents, hydration)
         // must not undo a manual pick.
-        const key = (b) => (b ? `${b.id ?? ""}|${b.name ?? ""}|${b.scene_url || b.image_url || b.preset_style || ""}` : "");
-        if (bg && key(bg) !== key(prev)) {
+        if (bg && backgroundKey(bg) !== backgroundKey(prev)) {
             const picks = {};
             if (bg.lighting && LIGHTING_PRESETS[bg.lighting]) picks.lighting = bg.lighting;
             if (bg.effects && EFFECTS_PRESET_OPTIONS.some(([id]) => id === bg.effects)) picks.effects = bg.effects;
@@ -4684,6 +4685,25 @@ class AvatarRenderer {
             if (bg.music) window.dispatchEvent(new CustomEvent("rexclaw:background-switched", { detail: bg }));
         }
         this._applyBackgroundToActiveHost();
+    }
+
+    // ── Background portal ─────────────────────────────────────────────
+    // change_background's arrival (PortalStage, services/background_portal.js).
+
+    prepareBackgroundPortal(bg, peerId = null) {
+        return (this._bgPortal ||= new PortalStage(this)).prepare(bg, peerId);
+    }
+
+    backgroundPortalReady() {
+        return !!this._bgPortal?.ready;
+    }
+
+    chargeBackgroundPortal() {
+        return this._bgPortal?.charge() || null;
+    }
+
+    openBackgroundPortal() {
+        this._bgPortal?.open();
     }
 
     /** Backwards-compat helper: pick the avatar payload's default background
@@ -4855,7 +4875,19 @@ class AvatarRenderer {
             return;
         }
         this._removeBackgroundVideo();
+        // The portal's already-playing element, so the loop doesn't restart
+        // at the hand-over.
+        const prepared = this._bgPortal?.video;
+        const el = prepared?.dataset.url === url ? prepared : this._makeBackgroundVideo(url);
+        host.insertBefore(el, host.firstChild);
+        el.play().catch((e) => console.warn("[voice] background video autoplay blocked", e));
+        this._bgVideoEl = el;
+        this._bgVideoUrl = url;
+    }
+
+    _makeBackgroundVideo(url) {
         const el = document.createElement("video");
+        el.dataset.url = url;
         el.muted = true;
         el.loop = true;
         el.autoplay = true;
@@ -4870,10 +4902,7 @@ class AvatarRenderer {
         el.style.zIndex = "-1";
         el.style.pointerEvents = "none";
         el.setAttribute("aria-hidden", "true");
-        host.insertBefore(el, host.firstChild);
-        el.play().catch((e) => console.warn("[voice] background video autoplay blocked", e));
-        this._bgVideoEl = el;
-        this._bgVideoUrl = url;
+        return el;
     }
 
     /** Snapshot the live scene (avatar, outfit, pose, peers) as a PNG data
@@ -7014,6 +7043,7 @@ class AvatarRenderer {
             this._toolProps.update(delta,
                 this.renderer.getDrawingBufferSize(this._sizeScratch ||= new this.libs.THREE.Vector2()).y);
         }
+        if (this._bgPortal?.active) this._bgPortal.update(delta);
         if (!this._xrActive) {
             for (const cb of this._frameCallbacks) {
                 try { cb(delta, now); } catch (e) { console.error("[voice] frame callback failed", e); }
