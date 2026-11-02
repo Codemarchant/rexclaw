@@ -1,6 +1,7 @@
 # Copyright 2026 Codemarchant
 """Brain engines: a streamed reply with tool calls, from the conversation
 the realtime protocol built up (see session.py for the item shapes)."""
+import hashlib
 import json
 import logging
 import mimetypes
@@ -353,6 +354,20 @@ _OPENAI_NO_EFFORT = set()
 # (reasoning_effort 'none', its documented switch) once it has refused.
 _NO_THINKING_WITH_TOOLS = set()
 _REASONING_BACK_RE = re.compile(r'reasoning_content', re.IGNORECASE)
+# Two rules of Mistral-family models, each applied to a model that refused it,
+# remembered per model: names alone can't identify them (a Mistral base can be
+# hosted as anything), and others keep their own ids, which some rely on.
+# Tool call ids must be nine letters and digits. A Mistral name or host gets
+# this from the first request too, which saves that model one refusal.
+_NINE_CHAR_IDS = set()
+_NINE_CHAR_IDS_RE = re.compile(r'tool call id was', re.IGNORECASE)
+_MISTRAL_NAMES = ('mistral', 'magistral', 'mixtral', 'devstral', 'codestral', 'ministral', 'pixtral', 'voxtral')
+# No text and tool calls in one assistant turn (older tokenizers; newer ones and
+# Mistral's own API take both). Splitting the turn can't help: mistral-common
+# merges consecutive assistant messages back together, and a request can't end
+# on one, so the text can't follow the result either. Such a call goes as a note.
+_NO_TEXT_WITH_CALLS = set()
+_TEXT_WITH_CALLS_RE = re.compile(r'tool calls and content', re.IGNORECASE)
 
 # The tools field both chat engines share.
 TOOLS_FIELD = Field('tools', 'Tools', 'select', 'all',
@@ -391,6 +406,29 @@ def _openai_responses_tools(tools, hosted, container=None):
         else:
             out.append(dict(t))
     return out
+
+
+def _mistral_named(base_url, model):
+    host = urlparse(base_url or '').hostname or ''
+    return (host == 'mistral.ai' or host.endswith('.mistral.ai')
+            or any(name in (model or '').lower() for name in _MISTRAL_NAMES))
+
+
+_BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+
+
+def _nine_char_id(call_id):
+    """A replayed call id for a model in _NINE_CHAR_IDS; history can hold ids
+    from another engine. On the request only, and stable, so a call still
+    pairs with its result and the provider's prompt cache holds."""
+    if re.fullmatch(r'[A-Za-z0-9]{9}', call_id):
+        return call_id
+    number = int.from_bytes(hashlib.sha256(call_id.encode()).digest()[:8], 'big')
+    digits = []
+    for _ in range(9):
+        number, digit = divmod(number, 62)
+        digits.append(_BASE62[digit])
+    return ''.join(digits)
 
 
 class OpenAiLlm(LlmEngine):
@@ -510,13 +548,16 @@ class OpenAiLlm(LlmEngine):
         self._no_tools = False
 
     @staticmethod
-    def messages(instructions, items, vision=False):
+    def messages(instructions, items, vision=False, nine_char_ids=False, text_apart=False):
         """Chat messages from realtime items. Local chat templates are strict
         where the hosted APIs are lenient: only the first message may be a
         system message (later notes become user lines), roles must
         alternate (consecutive user lines are joined), and each tool result
         must follow the assistant message that made the call. With `vision`
-        a user message's input_image parts go along as image_url parts."""
+        a user message's input_image parts go along as image_url parts. With
+        `nine_char_ids` call ids are rewritten (_NINE_CHAR_IDS); with
+        `text_apart` a call made in a turn that has text becomes a note
+        (_NO_TEXT_WITH_CALLS)."""
         answered = _answered_calls(items)
         msgs = [{'role': 'system', 'content': instructions}]
         outputs = {it.get('call_id'): it for it in items
@@ -553,17 +594,22 @@ class OpenAiLlm(LlmEngine):
                 if it.get('call_id') not in answered:
                     add_user(f'[System note] {_note_for(it)}')
                     continue
-                call = {'id': it['call_id'], 'type': 'function',
+                call_id = _nine_char_id(it['call_id']) if nine_char_ids else it['call_id']
+                call = {'id': call_id, 'type': 'function',
                         'function': {'name': it.get('name') or '', 'arguments': it.get('arguments') or '{}'}}
                 # The call joins the assistant turn it belongs to: the reply
                 # just spoken, or — for parallel calls — the turn whose
                 # results were just placed. Its result goes right after.
                 owner = next((m for m in reversed(msgs) if m['role'] != 'tool'), None)
+                if text_apart and owner is not None and owner['role'] == 'assistant' and owner['content']:
+                    add_user(f'[System note] {_note_for(it)}')
+                    add_user(f"[System note] {_note_for(outputs[it['call_id']])}")
+                    continue
                 if owner is not None and owner['role'] == 'assistant':
                     owner.setdefault('tool_calls', []).append(call)
                 else:
                     msgs.append({'role': 'assistant', 'content': None, 'tool_calls': [call]})
-                msgs.append({'role': 'tool', 'tool_call_id': it['call_id'],
+                msgs.append({'role': 'tool', 'tool_call_id': call_id,
                              'content': outputs[it['call_id']].get('output') or ''})
             elif kind == 'function_call_output' and it.get('call_id') not in answered:
                 add_user(f'[System note] {_note_for(it)}')
@@ -646,16 +692,19 @@ class OpenAiLlm(LlmEngine):
                                                    conversation_key=conversation_key):
                 yield ev
             return
+        thinking_key = (self.get('base_url'), self.get('model'))
         payload = {
             'model': self.get('model'),
-            'messages': self.messages(instructions, items, vision=bool(self.get('vision'))),
+            'messages': self.messages(instructions, items, vision=bool(self.get('vision')),
+                                      nine_char_ids=thinking_key in _NINE_CHAR_IDS
+                                      or _mistral_named(*thinking_key),
+                                      text_apart=thinking_key in _NO_TEXT_WITH_CALLS),
             'stream': True,
             'stream_options': {'include_usage': True},
             **json_field(self, 'extra_body'),
         }
         if self.get('reasoning_effort'):
             payload['reasoning_effort'] = self.get('reasoning_effort')
-        thinking_key = (self.get('base_url'), self.get('model'))
         if thinking_key in _NO_THINKING_WITH_TOOLS:
             payload['reasoning_effort'] = 'none'
         functions = [t for t in tools or [] if t.get('type') == 'function']
@@ -689,6 +738,16 @@ class OpenAiLlm(LlmEngine):
                                                 conversation_key=conversation_key):
                         yield ev
                     return
+                for refused, pattern in ((_NINE_CHAR_IDS, _NINE_CHAR_IDS_RE),
+                                         (_NO_TEXT_WITH_CALLS, _TEXT_WITH_CALLS_RE)):
+                    if resp.status_code == 400 and thinking_key not in refused and pattern.search(body):
+                        _logger.warning('%s refuses this tool call shape - adapting: %s',
+                                        self.get('model'), body[:200])
+                        refused.add(thinking_key)
+                        async for ev in self.stream(instructions=instructions, items=items, tools=tools,
+                                                    conversation_key=conversation_key):
+                            yield ev
+                        return
                 raise LlmError(f'{resp.status_code}: {body[:400]}')
             async for ev in _sse_events(resp.aiter_lines()):
                 if ev.get('error'):
@@ -736,12 +795,18 @@ class OpenAiLlm(LlmEngine):
             written += sum(len((c['name'] + c['arguments']).encode('utf-8')) for c in calls)
             yield ('usage', {'input_tokens': round(sent / 3.5), 'output_tokens': round(written / 3.5),
                              'input_tokens_details': {'cached_tokens': 0}, 'estimated': True})
+        used = {it.get('call_id') for it in items if it.get('type') == 'function_call'}
         for slot in calls:
             if slot['name']:
-                # A server that sends no id gets a unique one: call ids pair
-                # each result with its call across the whole conversation.
-                yield ('tool_call', slot['id'] or f'call_{uuid.uuid4().hex[:24]}', slot['name'],
-                       slot['arguments'] or '{}')
+                # Call ids pair each result with its call across the whole
+                # conversation, so a call with no id, or one already used,
+                # gets a unique one: some servers number calls per reply
+                # (Gemini sends call_0 every time).
+                call_id = slot['id']
+                if not call_id or call_id in used:
+                    call_id = f'call_{uuid.uuid4().hex[:24]}'
+                used.add(call_id)
+                yield ('tool_call', call_id, slot['name'], slot['arguments'] or '{}')
 
     async def close(self):
         await self._http.aclose()
