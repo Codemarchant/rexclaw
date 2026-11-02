@@ -33,6 +33,16 @@ const STAGES = [
 //               which saved conversations don't keep - so reasoning "none".
 //   Kokoro      remsky/Kokoro-FastAPI: streamed wav carries placeholder sizes,
 //               raw pcm is 24 kHz 16-bit mono and starts sooner.
+//   Venice      docs.venice.ai/api-reference/api-spec (2026-11-02): it adds its
+//               own system prompt unless told not to. z-ai-glm-5-3-flash:
+//               images + tools, $0.15 / $0.50 per M; passed tool round trips
+//               live, where its Mistral-based uncensored models made no calls
+//               and copied their last line. Speech not tried, so brain only.
+//               Summarises at 100,000: the generic 24,000 is sized for a local
+//               model, and Venice's uncensored models hold 128,000, so this
+//               leaves room for the reply on those too. Word limits as OpenAI's
+//               and Claude's. Cached input on GLM is $0.03 per M
+//               (api.venice.ai/api/v1/models).
 const PRESETS = [
     { label: "Ollama", kind: "openai", url: "http://127.0.0.1:11434/v1", serves: ["llm"] },
     { label: "LM Studio", kind: "openai", url: "http://127.0.0.1:1234/v1", serves: ["llm"] },
@@ -49,6 +59,10 @@ const PRESETS = [
                   llm: { model: "google/gemini-3.8-flash", vision: true } } },
     { label: "DeepSeek", kind: "openai", url: "https://api.deepseek.com", serves: ["llm"],
       defaults: { llm: { model: "deepseek-flash", reasoning_effort: "none", vision: true } } },
+    { label: "Venice AI", kind: "openai", url: "https://api.venice.ai/api/v1", serves: ["llm"],
+      defaults: { llm: { model: "z-ai-glm-5-3-flash", vision: true,
+                         compact_at: 100000, summary_max_words: 3000, summary_consolidate_words: 9000,
+                         extra_body: '{"venice_parameters":{"include_venice_system_prompt":false}}' } } },
     { label: "Anthropic (Claude)", kind: "anthropic", url: "https://api.anthropic.com" },
     { label: "Fish Audio", kind: "fish", url: "" },
     { label: "ElevenLabs", kind: "elevenlabs", url: "" },
