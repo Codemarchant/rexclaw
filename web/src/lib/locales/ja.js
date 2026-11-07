@@ -1525,8 +1525,8 @@ export const JA = {
     "この音声は xAI ではなく %s で動きます。スクリプトは書かれたとおりに送られるため、Grok のスピーチタグは表現されず、{voice …} 行で声は切り替わりません。xAI の課金もありません。",
   "Speech tags for this voice": "この音声のスピーチタグ",
   "%s speech characters": "読み上げ %s 文字",
-  "e.g. 'Favour [pause] and <slow> for weight; [chuckle] for dry humor.'":
-    "例：「重みを出すときは [pause] と <slow> を、乾いたユーモアには [chuckle] を好んで使う。」",
+  "e.g. 'Favour [breath] and <slow> for weight; [chuckle] for dry humor.'":
+    "例：「重みを出すときは [breath] と <slow> を、乾いたユーモアには [chuckle] を好んで使う。」",
   "Call-companion tool (group calls)": "コンパニオン呼び出しツール（グループ通話）",
   "Companion texting (text_companion)": "コンパニオンテキスト（text_companion）",
   "Web search": "Web 検索",

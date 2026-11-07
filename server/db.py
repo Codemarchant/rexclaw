@@ -60,10 +60,9 @@ CREATE TABLE IF NOT EXISTS config (
     -- Background music starts as a call opens (call_music.py): the
     -- background's track or playlist, else the avatar's default playlist.
     music_on_call_start INTEGER NOT NULL DEFAULT 0,
-    -- Model defaults name a version, never a -latest alias, so an xAI
-    -- release can't change a companion's voice or behaviour overnight
-    -- (grok-voice-latest moved to Voice 3.0 on 2026-10-14).
-    xai_model TEXT NOT NULL DEFAULT 'grok-voice-2.0',
+    -- grok-voice-latest (Voice 3.0 since 2026-10-14): grok-voice-2.0,
+    -- pinned here before, is deprecated.
+    xai_model TEXT NOT NULL DEFAULT 'grok-voice-latest',
     -- The voice setup companions use unless they pick their own:
     -- 'realtime' (xAI's speech-to-speech API, xai_model above) or a
     -- voice_setups id (server/pipeline/setups.py).
@@ -1490,6 +1489,8 @@ MIGRATIONS = (
     # The unenforced max_turns settings they replace, and a short-lived
     # output-token ceiling the search cap made redundant (no-op once gone).
     "ALTER TABLE config DROP COLUMN text_max_turns",
+    # grok-voice-2.0 is deprecated: installs still on it move to the alias.
+    "UPDATE config SET xai_model='grok-voice-latest' WHERE xai_model='grok-voice-2.0'",
     "ALTER TABLE config DROP COLUMN delegate_max_turns",
     "ALTER TABLE config DROP COLUMN text_max_output_tokens",
     # Karaoke stage: perform_song in voice calls (song_tools.py).

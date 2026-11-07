@@ -416,6 +416,8 @@ _BUILTIN_GESTURES = (
     ("backflip", "a backflip — e.g. asked for a trick"),
     ("blow_kiss", "blows a kiss — e.g. an affectionate goodbye, or a warm, playful moment with the user"),
     ("belly_dance", "a belly dance, sustained — e.g. a more sensual dance for the user"),
+    ("zero_two_dance", "the viral Zero Two dance to 2 Phut Hon, the full ~45 s routine: hands behind the head swaying the hips, arm waves and footwork, ending in a bow — e.g. asked for the Zero Two dance, or a playful anime-meme show-off"),
+    ("chika_dance", "the Chika dance from Kaguya-sama's ending (Chikatto Chika Chika), the full ~80 s routine, travelling around the room: bouncy steps, arm waves, hand poses by the face and a quick squat — e.g. asked for the Chika dance, or a cheerful, silly show-off"),
     ("push_up", "push-ups, loops continuously until you stop it — e.g. a workout flex or exercising together"),
     ("pike_walk", "a yoga-style pike stretch, loops continuously until you stop it — e.g. limbering up"),
 )

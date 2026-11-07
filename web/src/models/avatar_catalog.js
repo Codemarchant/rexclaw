@@ -83,6 +83,9 @@ export const GESTURES = [
     { id: "backflip", label: "Backflip", icon: "fa-rotate-left", url: `${VRMA_BASE}/Backflip.vrma` },
     { id: "blow_kiss", label: "Blow Kiss", icon: "fa-heart", url: `${VRMA_BASE}/BlowKiss.vrma` },
     { id: "belly_dance", label: "Belly Dance", icon: "fa-female", url: `${VRMA_BASE}/BellyDance.vrma` },
+    // Extracted from video.
+    { id: "zero_two_dance", label: "Zero Two Dance", icon: "fa-star", url: `${VRMA_BASE}/ZeroTwoDance.vrma` },
+    { id: "chika_dance", label: "Chika Dance", icon: "fa-magic", url: `${VRMA_BASE}/ChikaDance.vrma` },
     { id: "push_up", label: "Push-Ups", icon: "fa-hand-rock-o", url: `${VRMA_BASE}/PushUp.vrma`, loop: true },
     { id: "pike_walk", label: "Pike Walk", icon: "fa-child", url: `${VRMA_BASE}/PikeWalk.vrma`, loop: true },
 ];

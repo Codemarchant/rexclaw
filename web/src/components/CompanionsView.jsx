@@ -143,7 +143,7 @@ function clampInt(value, lo, hi, fallback) {
 const BUILTIN_GESTURES =
     "clapping, dance, goodbye, greeting, jump, look_around, sleepy, thinking, stretch, kick, " +
     "peace_sign, shoot, spin, show_full_body, model_pose, squat, backflip, " +
-    "blow_kiss, belly_dance, push_up, pike_walk";
+    "blow_kiss, belly_dance, zero_two_dance, chika_dance, push_up, pike_walk";
 const GROK_INLINE_TAGS =
     "[laugh] [giggle] [chuckle] [cry] [sigh] [pause] [long-pause] [hum-tune] " +
     "[tongue-click] [lip-smack] [tsk] [breath] [inhale] [exhale]";
@@ -1080,7 +1080,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
                             {_t("Grok voice renders expression tags in speech. Inline: %s. Wrapping: %s. All of them are always available.", GROK_INLINE_TAGS, GROK_WRAPPING_TAGS)}
                         </p>
                         <textarea rows={4} value={editingAgent.speech_tag_style || ""}
-                                  placeholder={_t("e.g. 'Favour [pause] and <slow> for weight; [chuckle] for dry humor.'")}
+                                  placeholder={_t("e.g. 'Favour [breath] and <slow> for weight; [chuckle] for dry humor.'")}
                                   onChange={(ev) => setEditingAgent({ ...editingAgent, speech_tag_style: ev.target.value })} />
                     </>
                 )}
