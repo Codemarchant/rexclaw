@@ -38,9 +38,11 @@
 }
 
 // Full-screen view: centred above the call controls (inside the bottom
-// overlay), lines up to ~42 characters (Netflix Timed Text Style Guide),
-// scaled by the chosen caption size.
-.o_voice_full_overlay > .rx_captions {
+// overlay) or the floating message box (in its stack), lines up to ~42
+// characters (Netflix Timed Text Style Guide), scaled by the chosen
+// caption size.
+.o_voice_full_overlay > .rx_captions,
+.o_voice_float_stack > .rx_captions {
     width: min(100%, 42ch);
     font-size: calc(clamp(1.1rem, 2.4vw, 1.9rem) * var(--rx-caption-scale, 1));
     margin-bottom: 0.75rem;

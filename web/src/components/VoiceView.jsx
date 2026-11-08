@@ -36,6 +36,52 @@ import {
     resolveDefaultBackground,
 } from "../lib/background_picker";
 
+// "Type over the scene" (the floating message box), per browser; how far
+// above the on-screen keyboard the box settles (px, design).
+const FLOAT_COMPOSE_KEY = "rexclaw.float_compose";
+// The top bar's status line shown or not, per browser.
+const STATUS_ROW_KEY = "rexclaw.status_row";
+const FLOAT_KEYBOARD_GAP = 12;
+// The on-screen keyboard's height as last seen, per orientation (per
+// browser), so a touch lifts the box clear of it before it opens. Until one
+// has been seen, a guess per kind of device (design): erring tall only
+// means the box slides down a little; erring short lets Safari pan the page.
+// The slack covers the margin the browser keeps above a field it reveals
+// (design).
+const KEYBOARD_KEY = "rexclaw.keyboard_height";
+const FLOAT_KEYBOARD_SLACK = 24;
+// Past an on-screen keyboard's slide in (design), when the box settles even
+// if nothing resized.
+const FLOAT_SETTLE_MS = 700;
+const orientationKey = () => (window.innerWidth > window.innerHeight ? "landscape" : "portrait");
+function expectedKeyboard() {
+    try {
+        const seen = JSON.parse(localStorage.getItem(KEYBOARD_KEY) || "{}")[orientationKey()];
+        if (seen > 0) return seen;
+    } catch (e) { /* nothing remembered */ }
+    const tablet = Math.min(window.screen.width, window.screen.height) >= 600;
+    const share = orientationKey() === "landscape" ? 0.5 : tablet ? 0.33 : 0.42;
+    return window.innerHeight * share;
+}
+/** Whether an on-screen keyboard is showing: Chromium's VirtualKeyboard
+ *  says so outright; elsewhere the visual viewport has lost more than a
+ *  toolbar's worth of the window's height (15%: design). */
+function keyboardUp() {
+    const vk = navigator.virtualKeyboard;
+    if (vk?.overlaysContent) return vk.boundingRect.height > 0;
+    const vv = window.visualViewport;
+    return !!vv && vv.height < window.innerHeight * 0.85;
+}
+function rememberKeyboard(px) {
+    // Smaller than this is a toolbar settling, not a keyboard (design).
+    if (!(px > 120)) return;
+    try {
+        const all = JSON.parse(localStorage.getItem(KEYBOARD_KEY) || "{}");
+        all[orientationKey()] = Math.round(px);
+        localStorage.setItem(KEYBOARD_KEY, JSON.stringify(all));
+    } catch (e) { /* private mode */ }
+}
+
 // WASD + arrows → camera-relative movement axes for the manual walk toggle.
 const MOVE_KEY_MAP = {
     KeyW: "fwd", ArrowUp: "fwd",
@@ -110,6 +156,27 @@ export default function VoiceView({ active = true }) {
     // shared with the mascot; the renderer applies them itself.
     const [renderPrefs, updateRenderPrefs] = useRenderPrefs();
     const [showTranscript, setShowTranscript] = useState(true);
+    // "Type over the scene": the transcript sidebar gives way to one message
+    // box floating over the bottom of the full-width scene (per browser).
+    const [floatCompose, setFloatComposeState] = useState(() => {
+        try { return localStorage.getItem(FLOAT_COMPOSE_KEY) === "1"; } catch (e) { return false; }
+    });
+    const setFloatCompose = useCallback((on) => {
+        setFloatComposeState(on);
+        if (on) setShowTranscript(false);
+        try { localStorage.setItem(FLOAT_COMPOSE_KEY, on ? "1" : "0"); } catch (e) { /* private mode */ }
+    }, []);
+    useEffect(() => { if (floatCompose) setShowTranscript(false); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+    // The top bar's status line (call status, context counter, affection
+    // meter): on unless switched off here (per browser) — on a phone in
+    // full-body view it sits over the companion's head.
+    const [showStatusRow, setShowStatusRowState] = useState(() => {
+        try { return localStorage.getItem(STATUS_ROW_KEY) !== "0"; } catch (e) { return true; }
+    });
+    const setShowStatusRow = useCallback((on) => {
+        setShowStatusRowState(on);
+        try { localStorage.setItem(STATUS_ROW_KEY, on ? "1" : "0"); } catch (e) { /* private mode */ }
+    }, []);
     const [showControls, setShowControls] = useState(true);
     // Stream captions along the bottom (off by default) — per-browser prefs,
     // shared with the mascot settings (the line hold is common to both).
@@ -385,7 +452,12 @@ export default function VoiceView({ active = true }) {
 
     const handleMoveKey = useCallback((ev, down) => {
         const t = ev.target;
-        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+        const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+        // Keys pressed in a text field type, they don't walk. A release
+        // always counts, though: a key held while the focus moves into a
+        // field (clicking into the chat box mid-walk) lets go there, and
+        // ignoring that left them walking on their own.
+        if (typing && down) return;
         // Number keys select WHICH character the movement keys drive:
         // 1 = the main avatar, 2… = the agents added to the call, in join
         // order. Only meaningful in a group call — solo calls have nothing
@@ -398,7 +470,7 @@ export default function VoiceView({ active = true }) {
         }
         const dir = MOVE_KEY_MAP[ev.code];
         if (!dir) return;
-        ev.preventDefault();
+        if (!typing) ev.preventDefault();
         if (down) moveKeys.current.add(dir);
         else moveKeys.current.delete(dir);
         avatarRenderer.setMoveInput?.(
@@ -536,13 +608,117 @@ export default function VoiceView({ active = true }) {
         }
     }, [sv.activeBackground, moveMode, setMoveModeOn]);
 
-    // Auto-grow the draft textarea.
+    // Auto-grow the draft textarea (the sidebar's, or the floating box's).
     useEffect(() => {
-        const el = textInputRef.current;
-        if (!el) return;
-        el.style.height = "auto";
-        el.style.height = el.scrollHeight + "px";
-    }, [draftText]);
+        for (const el of [textInputRef.current, floatInputRef.current]) {
+            if (!el) continue;
+            el.style.height = "auto";
+            el.style.height = el.scrollHeight + "px";
+        }
+    }, [draftText, floatCompose]);
+
+    // The floating message box and the on-screen keyboard (tablets and
+    // phones). Chromium's VirtualKeyboard API (HTTPS only) lets the keyboard
+    // overlay the page and reports its rectangle; elsewhere — Safari, or a
+    // plain-HTTP address on the LAN — the visual viewport says how much of
+    // the screen is left above it. Safari never resizes the page for its
+    // keyboard: it pans the whole page up to bring the focused box into
+    // view, scene and all. So a touch on the box lifts it clear of where the
+    // keyboard will be BEFORE it takes focus (onFloatTouchEnd): with
+    // nothing to bring into view, nothing pans, and once the keyboard's real
+    // size is known the box settles just above it. Only the box moves.
+    // Always back down on blur: iOS 26 can leave the visual viewport's
+    // offset set after the keyboard has gone.
+    // The slot holds the box's place and never moves (so it measures true
+    // even mid-slide); the box inside it is what lifts.
+    const floatSlotRef = useRef(null);
+    const floatBarRef = useRef(null);
+    const floatInputRef = useRef(null);
+    const onTextKeydownRef = useRef(null);   // this render's onTextKeydown (defined further down)
+    const floatMeasureRef = useRef(null);    // settles the box over the keyboard (the effect below)
+    /** `instant`: no slide — the lift before focus must be in place by the
+     *  time the browser checks whether the box needs bringing into view. */
+    const setFloatLift = useCallback((px, { instant = false } = {}) => {
+        const lift = Math.max(0, Math.round(px));
+        const bar = floatBarRef.current;
+        if (!bar) return;
+        bar.style.transition = instant ? "none" : "";
+        bar.style.transform = lift ? `translateY(${-lift}px)` : "";
+    }, []);
+    /** How far to lift the box so its bottom clears a keyboard whose top
+     *  is at `top` (layout-viewport px). */
+    const liftFor = useCallback((top) => {
+        const slot = floatSlotRef.current;
+        return slot ? slot.getBoundingClientRect().bottom - top + FLOAT_KEYBOARD_GAP : 0;
+    }, []);
+    useEffect(() => {
+        if (!floatCompose) return undefined;
+        const vk = navigator.virtualKeyboard;
+        const overlaid = vk?.overlaysContent;
+        if (vk) vk.overlaysContent = true;
+        const vv = window.visualViewport;
+        const measure = () => {
+            if (document.activeElement !== floatInputRef.current) { setFloatLift(0); return; }
+            let top = window.innerHeight;
+            if (vk?.boundingRect?.height > 0) {
+                top = vk.boundingRect.top;
+                rememberKeyboard(vk.boundingRect.height);
+            } else if (vv) {
+                // In layout-viewport px (where the box is measured), so a
+                // pan Safari made anyway is allowed for; the keyboard's own
+                // height (what's hidden below the visible area) is what's
+                // remembered.
+                top = vv.offsetTop + vv.height;
+                rememberKeyboard(window.innerHeight - vv.height);
+            }
+            setFloatLift(liftFor(top));
+        };
+        floatMeasureRef.current = measure;
+        vk?.addEventListener?.("geometrychange", measure);
+        vv?.addEventListener("resize", measure);
+        vv?.addEventListener("scroll", measure);
+        window.addEventListener("resize", measure);
+        return () => {
+            vk?.removeEventListener?.("geometrychange", measure);
+            vv?.removeEventListener("resize", measure);
+            vv?.removeEventListener("scroll", measure);
+            window.removeEventListener("resize", measure);
+            if (vk) vk.overlaysContent = !!overlaid;
+            floatMeasureRef.current = null;
+            setFloatLift(0);
+        };
+    }, [floatCompose, liftFor, setFloatLift]);
+    // On the tap's release, not its press: moving the box under a finger
+    // that's still down makes the release land elsewhere and the tap never
+    // focuses (the box jumped and a second tap was needed). So the tap's own
+    // focus is cancelled, the box lifted at once, and focus given here —
+    // still inside the touch, so iOS opens its keyboard — without scrolling
+    // anything into view.
+    // Keyed on the keyboard being up, not on focus: the iPad's hide-keyboard
+    // key puts the keyboard away but leaves the box focused, and the next
+    // tap would then reopen it unlifted, panning the page. Such a box is
+    // blurred and refocused (iOS won't reopen its keyboard for a field that
+    // already has focus). With the keyboard up, a tap just places the caret.
+    const onFloatTouchEnd = useCallback((ev) => {
+        const input = floatInputRef.current;
+        if (!input || input.disabled || keyboardUp()) return;
+        ev.preventDefault();
+        // Blur first: its onBlur drops the lift.
+        if (document.activeElement === input) input.blur();
+        setFloatLift(liftFor(window.innerHeight - expectedKeyboard() - FLOAT_KEYBOARD_SLACK), { instant: true });
+        input.focus({ preventScroll: true });
+        // A touch screen with no on-screen keyboard (a touch laptop) never
+        // resizes the viewport, so nothing else would bring the box back
+        // down: settle it once the keyboard has had time to come up.
+        setTimeout(() => floatMeasureRef.current?.(), FLOAT_SETTLE_MS);
+    }, [liftFor, setFloatLift]);
+    // Enter sends; on a touch screen with its keyboard up the keyboard goes
+    // away with it, as in a chat app (a hardware keyboard keeps the box).
+    const onFloatKeydown = useCallback((ev) => {
+        const sending = ev.key === "Enter" && !ev.shiftKey && !ev.nativeEvent.isComposing;
+        onTextKeydownRef.current?.(ev);
+        if (sending && keyboardUp()) floatInputRef.current?.blur();
+    }, []);
 
     // ---- session actions ----------------------------------------------------
 
@@ -1039,6 +1215,7 @@ export default function VoiceView({ active = true }) {
             sendTextMessage();
         }
     };
+    onTextKeydownRef.current = onTextKeydown;
 
     const dismissError = () => {
         voice.state.errorMessage = null;
@@ -1327,7 +1504,10 @@ export default function VoiceView({ active = true }) {
                 <KaraokeOverlay sidePanel={!ui.immersive && (showStage || showSettings)} />
                 {/* With the call controls up, the captions ride above them
                     in their overlay (below); without, in one of their own. */}
-                {showCaptions && (ui.immersive || !showControls) && (
+                {/* On their own only when nothing else is at the bottom: with the
+                    call controls or the floating message box up, they stack above
+                    those in the shared overlay below. */}
+                {showCaptions && (ui.immersive || (!showControls && !(floatCompose && isLive))) && (
                     <div className="o_voice_full_overlay">
                         <LiveCaptions lines={captionPrefs.lines} size={captionPrefs.size} />
                     </div>
@@ -1436,11 +1616,22 @@ export default function VoiceView({ active = true }) {
                             <i className={showControls ? "fa fa-eye" : "fa fa-eye-slash"} />
                         </button>
                         <button className={"btn btn-light" + (!showTranscript ? " active" : "")}
-                                onClick={() => setShowTranscript(!showTranscript)}
+                                onClick={() => {
+                                    setShowTranscript(!showTranscript);
+                                    if (!showTranscript) setFloatCompose(false);
+                                }}
                                 title={showTranscript ? _t("Hide transcript (full-width avatar)") : _t("Show transcript")}>
                             <i className={showTranscript ? "fa fa-comment" : "fa fa-comment-o"} />
-                        </button>                    </div>
-                    <div className="o_voice_full_topbar_row o_voice_full_topbar_row--meta">
+                        </button>
+                        <button className={"btn btn-light" + (floatCompose ? " active" : "")}
+                                onClick={() => setFloatCompose(!floatCompose)}
+                                title={floatCompose ? _t("Back to the transcript sidebar")
+                                    : _t("Type over the scene: one message box, full-width scene")}>
+                            <i className="fa fa-keyboard-o" />
+                        </button>
+                    </div>
+                    <div className="o_voice_full_topbar_row o_voice_full_topbar_row--meta"
+                         style={showStatusRow ? undefined : { display: "none" }}>
                         <span className={
                             "o_voice_full_status"
                             + (isLive ? " is-live" : "")
@@ -1568,6 +1759,14 @@ export default function VoiceView({ active = true }) {
                                     </select>
                                 </div>
                             </>)}
+                            <div className="o_voice_full_settings_row">
+                                <input id="rx_fv_status_row" type="checkbox" checked={showStatusRow}
+                                       onChange={(ev) => setShowStatusRow(ev.target.checked)} />
+                                <label htmlFor="rx_fv_status_row"
+                                       title={_t("The line under the top buttons: call status, context used and the affection meter. Off keeps the top of the scene clear.")}>
+                                    {_t("Show call status bar")}
+                                </label>
+                            </div>
                         </div>
                         <div className="o_voice_full_settings_section">
                             <strong>{_t("Emotions")}</strong>
@@ -1674,9 +1873,71 @@ export default function VoiceView({ active = true }) {
                     </div>
                 )}
 
-                {!ui.immersive && showControls && (
+                {!ui.immersive && (showControls || (floatCompose && isLive)) && (
                     <div className="o_voice_full_overlay">
-                        {showCaptions && <LiveCaptions lines={captionPrefs.lines} size={captionPrefs.size} />}
+                        {showCaptions && !(floatCompose && isLive) && <LiveCaptions lines={captionPrefs.lines} size={captionPrefs.size} />}
+                        {floatCompose && isLive && (
+                            <div className="o_voice_float_slot" ref={floatSlotRef}>
+                            {/* Captions ride with the box: lifted over the keyboard, it
+                                would otherwise cover them. */}
+                            <div className="o_voice_float_stack" ref={floatBarRef}>
+                            {showCaptions && <LiveCaptions lines={captionPrefs.lines} size={captionPrefs.size} />}
+                            <div className="o_voice_float_compose">
+                                {(pendingImages.length > 0 || pendingDocs.length > 0) && (
+                                    <div className="o_voice_float_attachments">
+                                        {pendingImages.map((p) => (
+                                            <span key={p.imagine_image_id} className="o_voice_text_attach_chip" title={p.name}>
+                                                <img src={p.image_url} alt={p.name} />
+                                                <button className="btn btn-link p-0"
+                                                        onClick={() => removePendingImage(p.imagine_image_id)}
+                                                        title={_t("Remove")}>
+                                                    <i className="fa fa-times" />
+                                                </button>
+                                            </span>
+                                        ))}
+                                        {pendingDocs.map((d) => (
+                                            <span key={d.xai_file_id} className="o_voice_text_attach_chip" title={d.name}>
+                                                <i className="fa fa-file-o" />
+                                                <button className="btn btn-link p-0"
+                                                        onClick={() => removePendingDoc(d.xai_file_id)}
+                                                        title={_t("Remove")}>
+                                                    <i className="fa fa-times" />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="o_voice_float_row">
+                                    <button className="btn btn-link"
+                                            disabled={sv.compacting || uploadingImages}
+                                            onClick={() => imageInputRef.current?.click()}
+                                            title={_t("Attach files")}>
+                                        <i className={uploadingImages ? "fa fa-spinner fa-spin" : "fa fa-paperclip"} />
+                                    </button>
+                                    {/* The sidebar (and its file input) is never up in this mode. */}
+                                    <input ref={imageInputRef} type="file" multiple
+                                           style={{ display: "none" }} onChange={onFilesChosen} />
+                                    <textarea rows={1}
+                                              ref={floatInputRef}
+                                              placeholder={sv.compacting ? _t("Compacting context…") : _t("Type a message…")}
+                                              value={draftText}
+                                              disabled={sv.compacting}
+                                              onTouchEnd={onFloatTouchEnd}
+                                              onBlur={() => setFloatLift(0)}
+                                              onChange={(ev) => setDraftText(ev.target.value)}
+                                              onKeyDown={onFloatKeydown} />
+                                    <button className="btn btn-link"
+                                            disabled={(!draftText.trim() && !pendingImages.length && !pendingDocs.length) || sv.compacting}
+                                            onClick={sendTextMessage}
+                                            title={_t("Send")}>
+                                        <i className="fa fa-paper-plane" />
+                                    </button>
+                                </div>
+                            </div>
+                            </div>
+                            </div>
+                        )}
+                        {showControls && (<>
                         <div className="o_voice_full_controls">
                             <select value={selectedAgentId ?? ""} onChange={onAgentChange}
                                     disabled={isLive || isConnecting}>
@@ -1781,6 +2042,7 @@ export default function VoiceView({ active = true }) {
                                 </button>
                             </div>
                         )}
+                        </>)}
                     </div>
                 )}
             </div>

@@ -9,6 +9,14 @@ html, body, #root {
     margin: 0;
 }
 
+// The document never scrolls (see body): iPad Safari still scrolls the
+// <html> element when only <body> is locked — the little give that also
+// let it scroll the whole page up when the on-screen keyboard opened.
+html {
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
 body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     font-size: 14px;
@@ -20,6 +28,11 @@ body {
     // off the top.
     overflow: hidden;
     overscroll-behavior: none;
+    // iOS Safari scrolls the document even with overflow hidden on both
+    // html and body (the strip above the header on iPad); a fixed body is
+    // the one lock it keeps. The shell sizes itself (100dvh below).
+    position: fixed;
+    inset: 0;
 }
 
 .rx_app {

@@ -139,6 +139,10 @@ export const JA = {
   "Show agent selector + call controls": "エージェント選択と通話コントロールを表示",
   "Hide transcript (full-width avatar)": "トランスクリプトを隠す（アバターを全幅表示）",
   "Show transcript": "トランスクリプトを表示",
+  "Type over the scene: one message box, full-width scene": "シーンの上で入力：入力欄ひとつ、シーンを全幅表示",
+  "Back to the transcript sidebar": "トランスクリプトのサイドバーに戻す",
+  "Show call status bar": "通話ステータスバーを表示",
+  "The line under the top buttons: call status, context used and the affection meter. Off keeps the top of the scene clear.": "上部ボタンの下の行：通話の状態、使用中のコンテキスト、好感度メーター。オフにするとシーンの上部がすっきりします。",
   "Tokens used since the last summary rollup, over the configured auto-compact threshold.":
     "前回の要約以降に使用したトークン数／自動圧縮しきい値。",
   "Emotions": "感情",
