@@ -151,6 +151,7 @@ export class SceneStage extends ToyWorld {
         toySfx.stopAll();
         this.r.setToyWind?.(null);
         this.r.setToyDim?.(1);
+        this.r.setToyKeyLight?.(null);
         this.r.toyBusy = null;
         this._disco(false);
         this._night(false);
@@ -500,8 +501,10 @@ export class SceneStage extends ToyWorld {
         const t = this.add(def, from);
         const b = this.body();
         if (def.kind === "lamp") {
-            // Set down round them (hung up, a lantern or a sign), off.
-            const p = this._lampSpot(def);
+            // Set down round them (hung up, a lantern or a sign), off; a
+            // ceiling light above them, toward the camera.
+            const over = def.lamp.overhead;
+            const p = over ? add(b ? b.pos : this.home, scale(this._camFwd(), -over)) : this._lampSpot(def);
             t.p = { x: p.x, y: this.ground + (def.hang ?? def.radius), z: p.z };
             t.v = v3();
             t.hovering = !!def.hovers;
@@ -732,13 +735,25 @@ export class SceneStage extends ToyWorld {
         if (this.toys.length || this.fog.length || this.hoop || this.goal) this.step(dt);
         // The room's own light down while a lamp or the mirror ball is on,
         // as far as the darkest lamp on takes it (every frame: the last lamp
-        // put away stops the steps above).
+        // put away stops the steps above) — unless one of the room's own
+        // lights is on (catalog `room`): then it stays as it is, and no
+        // night falls (_drawNight).
         // (Loops, not filters: this runs every frame the view is open, toys
         // out or not.)
-        let dim = Infinity;
-        for (const t of this.toys) if (t.on && t.def.kind === "lamp") dim = Math.min(dim, t.def.lamp.dim ?? LAMP_DIM);
-        if (dim === Infinity) dim = this.discoOn() ? DISCO_DIM : 1;
+        let dim = Infinity, roomLit = false;
+        for (const t of this.toys) {
+            if (!t.on || t.def.kind !== "lamp") continue;
+            if (t.def.lamp.room) roomLit = true;
+            else dim = Math.min(dim, t.def.lamp.dim ?? LAMP_DIM);
+        }
+        this._roomLit = roomLit;
+        if (roomLit) dim = 1;
+        else if (dim === Infinity) dim = this.discoOn() ? DISCO_DIM : 1;
         if (dim !== this._dim) { this._dim = dim; this.r.setToyDim?.(dim); }
+        // And the lamp lighting them most is the room's main light: their
+        // key light comes from it.
+        const keyLamp = this._keyLamp();
+        this.r.setToyKeyLight?.(keyLamp?.view.light, { shadow: !keyLamp?.def.lamp.soft });
         // Likewise the mirror ball's lights and the night, when it was the
         // last one out.
         if (this._discoFx && !this.toys.length) this._disco(false);
@@ -781,6 +796,33 @@ export class SceneStage extends ToyWorld {
             t.view.light = light;
             this._lampLook(t);
         }
+    }
+
+    /** The lamp on that lights them most — the sun when it's on (catalog
+     *  `sun`), else its candela over the distance squared to their middle,
+     *  a spot only when they're inside its cone — or null. */
+    _keyLamp() {
+        const b = this.body();
+        if (!b) return null;
+        const cx = b.pos.x, cy = b.pos.y + b.height / 2, cz = b.pos.z;
+        let best = null, most = 0;
+        for (const t of this.toys) {
+            const light = t.on && t.def.kind === "lamp" ? t.view?.light : null;
+            if (!light) continue;
+            if (t.def.lamp.sun) return t;
+            const p = light.position;
+            const dx = cx - p.x, dy = cy - p.y, dz = cz - p.z;
+            const d2 = Math.max(dx * dx + dy * dy + dz * dz, 0.01);
+            if (light.isSpotLight) {
+                const s = light.target.position;
+                const sx = s.x - p.x, sy = s.y - p.y, sz = s.z - p.z;
+                const cos = (sx * dx + sy * dy + sz * dz) / (Math.hypot(sx, sy, sz) * Math.sqrt(d2) || 1);
+                if (cos < Math.cos(light.angle)) continue;
+            }
+            const e = t.view.cd / d2;
+            if (e > most) { most = e; best = t; }
+        }
+        return best;
     }
 
     /** A lamp's look and light for its state: on or off, its shade. */
@@ -1290,9 +1332,9 @@ export class SceneStage extends ToyWorld {
      *  projector's turning stars and nebula (now and then a shooting star)
      *  and the fire's glow in the air. A room's walls draw over it: the
      *  projector's own light falls on them instead. Not in the mascot's
-     *  see-through window. */
+     *  see-through window, nor while one of the room's own lights is on. */
     _drawNight(dt) {
-        const on = this.kind === "mascot" ? [] : this.toys.filter((t) => t.on && t.def.lamp?.night);
+        const on = this.kind === "mascot" || this._roomLit ? [] : this.toys.filter((t) => t.on && t.def.lamp?.night);
         this._nightFade = Math.max(0, Math.min(1, (this._nightFade || 0) + (on.length ? dt : -dt) / NIGHT_FADE_S));
         this._night(this._nightFade > 0);
         if (!this._nightFx) return;

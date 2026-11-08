@@ -382,6 +382,35 @@ ${inked("M30 -8 H42 C45 -8 45 6 42 6 H30 Z", "#1e293b", "#0f172a")}
     },
 
     // ── lights (centimetres; front on; drawn on or off, in their shade) ──
+    ceiling(o) {
+        const { s, on, light } = lampState("ceiling", o);
+        return lampSvg("ceiling", () => {
+            const cy = TOYS.ceiling.art.cy * 100, rim = cy + 8, top = rim - 18;
+            return `<path d="M0 ${top - 3} V-2000" stroke="#1f2937" stroke-width=".8"/>
+${on ? `${halo(0, rim + 2, 40, light, 0.5)}<path d="M-17 ${rim} L-30 ${rim + 40} H30 L17 ${rim} Z" fill="${light}" opacity=".16"/>` : ""}
+<rect x="-2.5" y="${top - 3.5}" width="5" height="4" rx="1" fill="#cbd5e1" stroke="${INK}" stroke-width="1"/>
+${inked(`M-18 ${rim} A18 18 0 0 1 18 ${rim} Z`, s.color, "#00000022", { w: 1.8 })}
+<ellipse cx="0" cy="${rim}" rx="18" ry="2.6" fill="${on ? light : "#cbd5e1"}" stroke="${INK}" stroke-width="1.2"/>
+<circle cx="0" cy="${rim + 2}" r="4.2" fill="${on ? "#fff" : "#e5e7eb"}" stroke="${on ? "none" : INK}" stroke-width="1"/>`;
+        });
+    },
+
+    sun(o) {
+        const { s, on, light } = lampState("sun", o);
+        return lampSvg("sun", () => {
+            let rays = "";
+            for (let i = 0; i < 12; i++) {
+                const a = (i / 12) * Math.PI * 2, r1 = i % 2 ? 12.5 : 14.5;
+                const p = (r, da) => `${(Math.cos(a + da) * r).toFixed(2)} ${(Math.sin(a + da) * r).toFixed(2)}`;
+                rays += `M${p(8.6, -0.17)} L${p(r1, 0)} L${p(8.6, 0.17)} Z `;
+            }
+            return `${on ? halo(0, 0, 34, light, 0.6) : ""}
+${inked(rays, s.color, "#00000018", { w: 1.4 })}
+${ball(0, 0, 7.5, s.color, "#00000018")}
+${on ? `<circle r="7" fill="${light}" opacity=".35"/>` : ""}`;
+        });
+    },
+
     desk(o) {
         const { s, on, light } = lampState("desk", o);
         return lampSvg("desk", (F) => {
@@ -436,25 +465,6 @@ ${on ? `<circle cx="0" cy="${cy}" r="19" fill="${light}" opacity=".42"/>` : ""}
         });
     },
 
-    lava(o) {
-        const { s, on, light } = lampState("lava", o);
-        return lampSvg("lava", (F) => {
-            const g0 = F - 13, gt = F - 38;
-            const glass = `M-4.2 ${g0} C-5.4 ${g0 - 4} -5 ${g0 - 14} -4.2 ${gt + 6} L-2.8 ${gt} H2.8 L4.2 ${gt + 6} C5 ${g0 - 14} 5.4 ${g0 - 4} 4.2 ${g0} Z`;
-            const c = uid();
-            const blobs = [[-1.2, g0 - 4, 2.4, 0], [1.4, g0 - 12, 1.8, 3], [-0.6, g0 - 19, 2, 6], [0.8, gt + 5, 1.5, 9]]
-                .map(([x, y, r, d]) => `<ellipse class="rx_lava_blob" style="animation-delay:-${d}s" cx="${x}" cy="${y}" rx="${r}" ry="${r * 1.25}" fill="${s.wax}"/>`).join("");
-            return `${on ? halo(0, F - 26, 18, light, 0.55) : ""}
-<defs><clipPath id="${c}"><path d="${glass}"/></clipPath></defs>
-<path d="${glass}" fill="${s.color}" opacity="${on ? 0.95 : 0.75}"/>
-<g clip-path="url(#${c})" class="${on ? "rx_lava_on" : ""}">${blobs}</g>
-<path d="${glass}" fill="none" stroke="${INK}" stroke-width="1.6"/>
-<path d="M-2.6 ${g0 - 5} C-3.2 ${g0 - 12} -3 ${gt + 10} -2.2 ${gt + 4}" fill="none" stroke="#fff" stroke-width=".9" opacity=".6"/>
-${inked(`M-4.2 ${g0} H4.2 L7 ${F} H-7 Z`, "#cbd5e1", "#94a3b8", { w: 1.6 })}
-${inked(`M-2.8 ${gt} H2.8 L1.4 ${gt - 5} H-1.4 Z`, "#cbd5e1", "#94a3b8", { w: 1.4 })}`;
-        });
-    },
-
     candles(o) {
         const { s, on, light } = lampState("candles", o);
         return lampSvg("candles", (F) => {
@@ -468,23 +478,6 @@ ${inked(`M-2.5 ${top} H2.5 V${F - 2} H-2.5 Z`, "#5b3a29", "#3b2418", { w: 1.6 })
 <ellipse cx="0" cy="${F - 1.2}" rx="12" ry="2.4" fill="#5b3a29" stroke="${INK}" stroke-width="1.4"/>
 <path d="M-20 ${top} H20 V${top + 2.5} H-20 Z" fill="#6b4532" stroke="${INK}" stroke-width="1.6"/>
 ${sticks}`;
-        });
-    },
-
-    jar(o) {
-        const { on, light, s } = lampState("jar", o);
-        return lampSvg("jar", (F) => {
-            const leds = [[-4, -3], [2, -6], [4, -12], [-3, -10], [0, -16], [-5, -18], [3, -20], [-1, -22], [5, -8], [-2, -5], [1, -11], [-4, -14]]
-                .map(([x, y], i) => {
-                    const col = on ? (s.rainbow ? `hsl(${i * 30} 90% 65%)` : light) : "#6b7280";
-                    return `<circle class="${on ? "rx_twinkle" : ""}" style="animation-delay:-${(i * 0.37) % 2}s" cx="${x}" cy="${F + y}" r="1.1" fill="${col}"/>`;
-                }).join("");
-            return `${on ? halo(0, F - 12, 20, light, 0.5) : ""}
-<path d="M-6 ${F - 22} C-1 ${F - 18} 3 ${F - 14} -2 ${F - 9} S 3 ${F - 4} -1 ${F - 1}" fill="none" stroke="#78716c" stroke-width=".5"/>
-${leds}
-<rect x="-7" y="${F - 25}" width="14" height="25" rx="2.5" fill="#e0f2fe" fill-opacity=".22" stroke="${INK}" stroke-width="1.5"/>
-<path d="M-5 ${F - 22} V${F - 4}" stroke="#fff" stroke-width=".9" opacity=".6"/>
-${inked(`M-6 ${F - 28} H6 V${F - 25} H-6 Z`, "#a8a29e", "#78716c", { w: 1.4 })}`;
         });
     },
 

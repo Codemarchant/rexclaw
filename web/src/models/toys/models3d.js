@@ -313,12 +313,12 @@ export function buildToyModel(THREE, def, radius = def.radius) {
             add(geo, toon("#ffffff", { map: tex }));
             break;
         }
+        case "ceiling":
+        case "sun":
         case "desk":
         case "floorlamp":
         case "lantern":
-        case "lava":
         case "candles":
-        case "jar":
         case "moon":
         case "neon":
         case "campfire":
@@ -987,7 +987,6 @@ function buildLamp(THREE, def, r, g, parts, add, toon) {
     const glow = [];
     const shadeMats = [];
     const lit = [];     // fabric/paper: glows in the light's colour when on
-    const offColor = new THREE.Color("#6b7280");
     parts.lightAt = at;
     switch (def.id) {
         case "desk": {
@@ -1054,36 +1053,43 @@ function buildLamp(THREE, def, r, g, parts, add, toon) {
             add(new THREE.CylinderGeometry(0.003, 0.003, 1.5, 6), toon("#1f2937"), 0, r + 0.75, 0);
             break;
         }
-        case "lava": {
-            const silver = metal("#cbd5e1");
-            add(new THREE.CylinderGeometry(0.042, 0.07, 0.13, 28), silver, 0, floor + 0.065, 0);
-            const y0 = floor + 0.13;
-            const prof = [[0.042, 0], [0.05, 0.035], [0.043, 0.16], [0.028, 0.25], [0, 0.25]].map(([x, y]) => new THREE.Vector2(x, y));
-            const liquid = new THREE.MeshPhongMaterial({ color: "#e11d48", transparent: true, opacity: 0.72, shininess: 80, depthWrite: false });
-            const glass = add(new THREE.LatheGeometry(prof, 28), liquid, 0, y0, 0);
-            glass.renderOrder = 2;
-            shadeMats.push(liquid);
-            add(new THREE.CylinderGeometry(0.012, 0.028, 0.05, 20), silver, 0, y0 + 0.275, 0);
-            const wax = toon("#ff7a1a");
-            parts.wax = wax;
-            const blobs = Array.from({ length: 5 }, (_, i) => {
-                const b = add(new THREE.SphereGeometry(0.016 + (i % 3) * 0.005, 14, 10), wax, 0, y0 + 0.02, 0);
-                b.renderOrder = 1;
-                return { m: b, phase: Math.random(), period: rand(18, 32), x: rand(-0.012, 0.012), z: rand(-0.012, 0.012) };
-            });
-            parts.tick = (dt, time, on) => {
-                // Warm wax rises, cools at the top and sinks (once round in
-                // 18-32 s, by eye); still when it's off.
-                for (const b of blobs) {
-                    if (on) b.phase += dt / b.period;
-                    const s = 0.5 - 0.5 * Math.cos(2 * Math.PI * b.phase);
-                    const narrow = 1 - 0.35 * s;
-                    b.m.position.set(b.x * narrow, y0 + 0.02 + s * 0.2, b.z * narrow);
-                    const stretch = 1 + 0.4 * Math.abs(Math.sin(2 * Math.PI * b.phase));
-                    b.m.scale.set(1 / Math.sqrt(stretch), stretch, 1 / Math.sqrt(stretch));
-                }
-            };
-            parts.lavaLiquid = liquid;
+        case "ceiling": {
+            // A dome open underneath, its inside lit; the bulb just showing
+            // below the rim; a cord up to the ceiling.
+            const dy = -0.08;
+            const outer = toon("#f8fafc");
+            add(new THREE.SphereGeometry(r, 40, 16, 0, Math.PI * 2, 0, Math.PI / 2), outer, 0, dy, 0);
+            shadeMats.push(outer);
+            const inner = toon("#f1f5f9", { side: THREE.BackSide });
+            add(new THREE.SphereGeometry(r * 0.97, 40, 16, 0, Math.PI * 2, 0, Math.PI / 2), inner, 0, dy, 0);
+            lit.push(inner);
+            add(new THREE.TorusGeometry(r * 0.985, 0.004, 6, 48), metal("#cbd5e1"), 0, dy, 0).rotation.x = Math.PI / 2;
+            add(new THREE.CylinderGeometry(0.03, 0.03, 0.05, 16), metal("#cbd5e1"), 0, dy + r + 0.02, 0);
+            glow.push(add(new THREE.SphereGeometry(0.045, 16, 12), basic("#ffffff"), at.x, at.y, at.z));
+            add(new THREE.CylinderGeometry(0.003, 0.003, 1.5, 6), toon("#1f2937"), 0, dy + r + 0.79, 0);
+            break;
+        }
+        case "sun": {
+            // A round sun with a ring of rays, facing the camera; the rays
+            // turn slowly while it's on (by eye).
+            const face = toon("#fde047");
+            add(new THREE.SphereGeometry(r * 0.62, 32, 20), face);
+            shadeMats.push(face);
+            lit.push(face);
+            const rays = new THREE.Group();
+            const ray = toon("#fde047");
+            shadeMats.push(ray);
+            lit.push(ray);
+            const N = 12;
+            for (let i = 0; i < N; i++) {
+                const a = (i / N) * Math.PI * 2, len = i % 2 ? r * 0.28 : r * 0.38;
+                const m = new THREE.Mesh(new THREE.ConeGeometry(r * 0.1, len, 10), ray);
+                m.position.set(Math.cos(a) * (r * 0.72 + len / 2), Math.sin(a) * (r * 0.72 + len / 2), 0);
+                m.rotation.z = a - Math.PI / 2;
+                rays.add(m);
+            }
+            g.add(rays);
+            parts.tick = (dt, time, on) => { if (on) rays.rotation.z += dt * 0.25; };
             break;
         }
         case "candles": {
@@ -1112,44 +1118,6 @@ function buildLamp(THREE, def, r, g, parts, add, toon) {
                     const k = 1 + 0.18 * Math.sin(time * 13 + i * 2.1) + 0.1 * Math.sin(time * 29 + i);
                     f.scale.set(1, 2 * k, 1);
                 });
-            };
-            break;
-        }
-        case "jar": {
-            const h = 0.25, y0 = floor;
-            const glass = add(new THREE.CylinderGeometry(0.068, 0.07, h, 32, 1, true), new THREE.MeshPhysicalMaterial({
-                color: "#e0f2fe", transparent: true, opacity: 0.22, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false,
-            }), 0, y0 + h / 2, 0);
-            glass.renderOrder = 2;
-            add(new THREE.CylinderGeometry(0.07, 0.07, 0.008, 32), new THREE.MeshPhysicalMaterial({ color: "#e0f2fe", transparent: true, opacity: 0.3 }), 0, y0 + 0.004, 0);
-            add(new THREE.CylinderGeometry(0.06, 0.06, 0.03, 28), metal("#a8a29e"), 0, y0 + h + 0.015, 0);
-            const N = 46;
-            const leds = new THREE.InstancedMesh(new THREE.SphereGeometry(0.0045, 6, 4), basic("#ffffff"), N);
-            const pts = [];
-            const m4 = new THREE.Matrix4();
-            for (let i = 0; i < N; i++) {
-                const a = i * 0.9 + rand(-0.3, 0.3), rr = rand(0.015, 0.058), y = y0 + 0.02 + (h - 0.05) * (i / N) + rand(-0.02, 0.02);
-                const p = new THREE.Vector3(Math.cos(a) * rr, y, Math.sin(a) * rr);
-                pts.push(p);
-                m4.makeTranslation(p.x, p.y, p.z);
-                leds.setMatrixAt(i, m4);
-                leds.setColorAt(i, offColor);
-            }
-            g.add(leds);
-            const wire = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: "#78716c" }));
-            g.add(wire);
-            const c = new THREE.Color();
-            const phases = pts.map(() => Math.random() * 10);
-            parts.tick = (dt, time, on) => {
-                const base = parts._ledColor;
-                for (let i = 0; i < N; i++) {
-                    if (!on || !base) { leds.setColorAt(i, offColor); continue; }
-                    // Twinkling: each LED's own slow pulse (by eye).
-                    const k = 0.55 + 0.45 * Math.sin(time * 2.2 + phases[i]);
-                    if (parts._rainbow) c.setHSL((i / N + time * 0.02) % 1, 0.9, 0.62); else c.copy(base);
-                    leds.setColorAt(i, c.multiplyScalar(k));
-                }
-                leds.instanceColor.needsUpdate = true;
             };
             break;
         }
@@ -1358,15 +1326,6 @@ function buildLamp(THREE, def, r, g, parts, add, toon) {
         }
         if (parts.aquarium) parts.aquarium({ on, shade, light: lightColor });
         if (parts.pumpkin) parts.pumpkin({ on, shade });
-        if (def.id === "lava") {
-            parts.wax.color.set(shade.wax);
-            parts.wax.emissive = new THREE.Color(on ? shade.wax : "#000000").multiplyScalar(on ? 0.6 : 0);
-            parts.lavaLiquid.emissive = new THREE.Color(on ? shade.color : "#000000").multiplyScalar(on ? 0.5 : 0);
-        }
-        if (def.id === "jar") {
-            parts._ledColor = lightColor.clone();
-            parts._rainbow = !!shade.rainbow;
-        }
         if (parts.neon) parts.neon(on, shade.color);
     };
 }

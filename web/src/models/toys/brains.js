@@ -1031,11 +1031,11 @@ async function admireLamp(body, lamp, ctx) {
     body.lookAt(glow, 1800);
     body.emotion(lamp.def.id === "neon" ? "happy" : "relaxed");
     const lines = {
-        lava: [_t("so mesmerising…"), _t("look at it go")],
+        ceiling: [_t("lights on!"), _t("ah, I can see")],
+        sun: [_t("sunshine~"), _t("ooh, warm sun")],
         neon: [_t("that's us!"), _t("ooh, neon!")],
         candles: [_t("candlelight~"), _t("so cosy…")],
         moon: [_t("a little moon!"), _t("so pretty")],
-        jar: [_t("fairy lights!"), _t("like fireflies")],
     }[lamp.def.id] || [_t("cosy~"), _t("ooh, nice light"), _t("so warm")];
     body.say(pick(lines), 1600);
     await body.wait(1800, ctx);

@@ -188,9 +188,8 @@
 
     &--disco.is-on .rx_toy_tiles { animation: rx-toy-tiles 1.4s linear infinite; }
 
-    // Lamps: wax rising and sinking, a flame's flicker, LEDs twinkling, a
-    // neon sign's glow (art.js draws them on or off).
-    .rx_lava_on .rx_lava_blob { animation: rx-lava 9s ease-in-out infinite alternate; }
+    // Lamps: a flame's flicker, LEDs twinkling, a neon sign's glow (art.js
+    // draws them on or off).
     .rx_flame {
         transform-box: fill-box;
         transform-origin: 50% 100%;
@@ -247,11 +246,6 @@
     to { transform: translateY(-10px); opacity: 0; }
 }
 
-@keyframes rx-lava {
-    0% { transform: translateY(0) scale(1, 1); }
-    50% { transform: translateY(-9px) scale(0.85, 1.25); }
-    100% { transform: translateY(-17px) scale(1.05, 0.95); }
-}
 @keyframes rx-flame { from { transform: scale(0.92, 0.88) skewX(-3deg); } to { transform: scale(1.05, 1.08) skewX(3deg); } }
 @keyframes rx-twinkle { from { opacity: 0.35; } to { opacity: 1; } }
 @keyframes rx-candle { from { opacity: 0.8; } to { opacity: 1; } }

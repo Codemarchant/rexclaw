@@ -383,12 +383,39 @@ const LIGHTING_PRESETS = {
 // Parametric rim shape. VRoid exports ship NO rim (black, fresnel 100) and
 // get their hair sheen from a matcap instead, so a rim that is too wide or
 // too bright reads as "shine" on every hair card. Steep falloff, half the
-// strength on hair materials, and half of it modulated by the scene light
-// (rimLightingMix) so it sits in the shading rather than glowing on top.
+// strength on hair materials, and the matcap half modulated by the scene
+// light (rimLightingMix) so it sits in the shading rather than glowing on
+// top.
 const RIM_FRESNEL_POWER = 6;
 const RIM_LIGHTING_MIX = 0.5;
 const RIM_HAIR_SCALE = 0.5;
 const RIM_HAIR_RE = /hair/i;
+// A rim that follows the light. MToon's parametric rim is view-only —
+// colour × (1 − N·V)^power — so it lights every edge alike whatever the
+// lights do: an even halo round the whole silhouette. Patched into the
+// avatar's MToon shader, each direct light (key, fill, a toy lamp) adds the
+// rim only on the edges turned to it — its colour × N·L, the light-direction
+// mask Unity Toon Shader's rim offers (LightDirection_Mask) — and ambient
+// and sky add none, so the rim dims with the lights too. At the light's own
+// intensity (MToon's lighting mix divides it by π): a golden-hour edge
+// facing the key lands at 0.39 against the old rim's 0.37 all round. Only
+// while a preset's rim is on (rxRimDirectional); authored rims stay as they
+// were made.
+const RIM_SHAPE_LINE = "vec3 rim = parametricRimColorFactor * pow( saturate( 1.0 - dot( viewDir, normal ) + parametricRimLiftFactor ), parametricRimFresnelPowerFactor );";
+const RIM_PATCH = [
+    ["uniform float parametricRimLiftFactor;",
+        "uniform float parametricRimLiftFactor;\nuniform bool rxRimDirectional;\nvec3 rxRimLight = vec3( 0.0 );"],
+    // Both RE_Direct_MToon variants (three before/after r157).
+    ["irradiance *= dotNL;",
+        "irradiance *= dotNL;\n    rxRimLight += directLight.color * max( dotNL, 0.0 );"],
+    [RIM_SHAPE_LINE, `${RIM_SHAPE_LINE}\n  rim *= rxRimDirectional ? rxRimLight : rimMix;`],
+    // The matcap keeps MToon's mix; the rim above is weighted already.
+    ["rim += matcapFactor * matcap;", "rim += rimMix * matcapFactor * matcap;"],
+    ["col += rimMix * rim;", "col += rim;"],
+];
+// A toy lamp taking over the key light (setToyKeyLight) eases in and out
+// at the room dim's pace (_updateLightRig: a step a frame).
+const TOY_KEY_STEP = 0.02;
 const SHADOW_CATCHER_OPACITY = 0.32;
 const SHADOW_MAP_SIZE = 2048;
 
@@ -7447,28 +7474,53 @@ class AvatarRenderer {
             hemi.visible = false;
             hemi.intensity = 0;
         }
-        const shadows = !!preset.shadow;
-        key.castShadow = shadows;
-        if (this.renderer.shadowMap.enabled !== shadows) {
-            this.renderer.shadowMap.enabled = shadows;
-            this.renderer.shadowMap.type = THREE.PCFShadowMap;
-            // Shader programs bake in whether shadow maps are sampled —
-            // force a recompile so the toggle shows without a reload.
-            this.scene.traverse((obj) => {
-                if (!obj.isMesh) return;
-                const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-                for (const m of mats) if (m) m.needsUpdate = true;
-            });
-        }
+        this._setShadows(!!preset.shadow || this._toyKeyCasts());
         this._applyLightLevels(preset);
         for (const vrm of this._allVrms()) this._applyAvatarLook(vrm.scene);
         this._updateLightRig();
     }
 
+    /** The key light's shadow on or off — the preset's, or a toy lamp's
+     *  while one is the key (setToyKeyLight). */
+    _setShadows(on) {
+        const { THREE } = this.libs;
+        this._lights.key.castShadow = on;
+        if (this.renderer.shadowMap.enabled === on) return;
+        this.renderer.shadowMap.enabled = on;
+        this.renderer.shadowMap.type = THREE.PCFShadowMap;
+        // Shader programs bake in whether shadow maps are sampled —
+        // force a recompile so the toggle shows without a reload.
+        this.scene.traverse((obj) => {
+            if (!obj.isMesh) return;
+            const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+            for (const m of mats) if (m) m.needsUpdate = true;
+        });
+    }
+
+    /** Patch an MToon material's rim to follow the lights (RIM_PATCH), once;
+     *  false when this three-vrm's shader no longer matches. */
+    _directionalRim(m) {
+        if (m.uniforms.rxRimDirectional) return true;
+        let src = m.fragmentShader;
+        for (const [from, to] of RIM_PATCH) {
+            if (!src.includes(from)) {
+                if (!this._rimPatchWarned) console.warn("[avatar] MToon shader changed; the rim stays view-only:", from);
+                this._rimPatchWarned = true;
+                return false;
+            }
+            src = src.replaceAll(from, to);
+        }
+        m.fragmentShader = src;
+        m.uniforms.rxRimDirectional = { value: false };
+        m.needsUpdate = true;
+        return true;
+    }
+
     /** Per-avatar half of a preset: meshes cast and receive the key light's
      *  shadow (rooms only receive — see loadRoom; only visible on shadow
-     *  presets), and MToon materials get the preset's parametric rim — or
-     *  their authored rim back when the preset has none. Every texture also
+     *  presets), and MToon materials get the preset's parametric rim,
+     *  following the lights (RIM_PATCH) — or their authored rim back when
+     *  the preset has none. Every texture also
      *  gets the GPU's maximum anisotropic filtering, as room textures do
      *  (see loadRoom), so hair cards and clothing seen at an angle stay
      *  crisp — a no-op after the first run. Runs at load and on every
@@ -7517,6 +7569,7 @@ class AvatarRenderer {
                     m.parametricRimLiftFactor = orig.lift;
                     m.rimLightingMixFactor = orig.mix;
                 }
+                if (this._directionalRim(m)) m.uniforms.rxRimDirectional.value = !!rim;
             }
         });
     }
@@ -7542,9 +7595,10 @@ class AvatarRenderer {
             this._toyDimNow = Math.abs(want - now) < 0.02 ? want : now + Math.sign(want - now) * 0.02;
             this._applyLightLevels(preset);
         }
+        this._aimToyKey(preset);
         const catcher = this._shadowCatcher;
         if (catcher) {
-            catcher.visible = !!preset.shadow && !!this.vrm && !this._room && !this._xrActive;
+            catcher.visible = lights.key.castShadow && !!this.vrm && !this._room && !this._xrActive;
             if (catcher.visible) {
                 catcher.position.set(ax, (this._meshBottomY ?? 0) + 0.002, az);
             }
@@ -8116,6 +8170,56 @@ class AvatarRenderer {
      *  half a second; 1 is the preset as it is. */
     setToyDim(k) {
         this._toyDim = Math.max(0, Math.min(1, k ?? 1));
+    }
+
+    /** The toys' lamp lighting them most (a THREE light), or null: while
+     *  it's on, the key light comes from it, in its colour, and — `shadow`
+     *  (false for a big soft room light) — casts the shadow even on a preset
+     *  without one: the lamp is the room's main light. The key keeps the
+     *  room's (dimmed) intensity; the lamp's own light adds on top as
+     *  before. Read every frame (_aimToyKey), so a lamp carried about takes
+     *  the light with it. */
+    setToyKeyLight(light, { shadow = true } = {}) {
+        this._toyKey = light || null;
+        // The last lamp's say holds while the key eases back.
+        if (light) this._toyKeyShadow = shadow;
+    }
+
+    /** Whether a toy lamp as the key light (setToyKeyLight) casts. */
+    _toyKeyCasts() {
+        return (this._toyKeyW || 0) > 0 && this._toyKeyShadow !== false;
+    }
+
+    /** Per frame: the key from between the preset's spot and the toy lamp's
+     *  direction (eased in and out, TOY_KEY_STEP), its colour likewise; the
+     *  shadow on while a casting lamp has any of it. */
+    _aimToyKey(preset) {
+        const { THREE } = this.libs;
+        const { key } = this._lights;
+        const src = this._toyKey;
+        const w0 = this._toyKeyW || 0;
+        const w = src ? Math.min(1, w0 + TOY_KEY_STEP) : Math.max(0, w0 - TOY_KEY_STEP);
+        this._toyKeyW = w;
+        if (!preset.key) return;
+        // Every frame: the key can pass from a lamp to the ceiling light.
+        this._setShadows(!!preset.shadow || this._toyKeyCasts());
+        if (w === 0) {
+            if (w0 > 0) key.color.set(preset.key.color);
+            return;
+        }
+        // The lamp's last place and colour stay for the ease out.
+        const lampPos = (this._toyKeyPos ||= new THREE.Vector3());
+        const lampColor = (this._toyKeyColor ||= new THREE.Color());
+        if (src) { src.getWorldPosition(lampPos); lampColor.copy(src.color); }
+        const target = key.target.position;
+        const fromPreset = (this._toyKeyA ||= new THREE.Vector3()).subVectors(key.position, target);
+        const dist = fromPreset.length();
+        fromPreset.divideScalar(dist || 1);
+        const toLamp = (this._toyKeyB ||= new THREE.Vector3()).subVectors(lampPos, target).normalize();
+        fromPreset.lerp(toLamp, w);
+        if (fromPreset.lengthSq() < 1e-6) fromPreset.copy(toLamp);
+        key.position.copy(target).addScaledVector(fromPreset.normalize(), dist);
+        key.color.set(preset.key.color).lerp(lampColor, w);
     }
 
     /** The preset's intensities scaled by the lamps' dim (setToyDim). */

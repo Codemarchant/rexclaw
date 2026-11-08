@@ -19,7 +19,7 @@ const fromDrop = (h0, h1) => Math.sqrt(h1 / h0);
 
 // Light colours: a blackbody's colour at each temperature (Mitchell
 // Charity's blackbody colour table, CIE 1964 10° with a D65 white point).
-const K1900 = "#ff8300", K2200 = "#ff932c", K2700 = "#ffa957", K5000 = "#ffe4ce";
+const K1900 = "#ff8300", K2700 = "#ffa957", K5000 = "#ffe4ce";
 
 // How a treat is eaten (brains.js): "bite" (in both hands, a mouthful at a
 // time), "pop" (one go, into the mouth), "peel" (peeled first), "lick",
@@ -181,14 +181,45 @@ export const TOYS = {
     // over for another shade. `lamp`: the bulb's lumens, its colour, where
     // it sits from the toy's centre (m), how much of its light comes
     // through the shade in the shade's colour (`tint`), a spot's cone and
-    // whether it flickers (a flame) or twinkles. Lumens are ENERGY STAR's
-    // equivalents for a household bulb (40 W: 450 lm, 75 W: 1,100 lm)
+    // whether it flickers (a flame). Lumens are ENERGY STAR's
+    // equivalents for a household bulb (40 W: 450 lm, 75 W: 1,100 lm,
+    // 100 W: 1,600 lm)
     // where the lamp takes one; a candle is 1 candela (the unit
     // began as one), ≈12.6 lm all round. `grab`: extra spots to pick a
     // tall lamp up by, [height above its centre, radius] (m). `shades`:
     // what the wheel steps through; `light` overrides the light's colour.
     // `hang`: how high a hanging one goes up (its centre, m; by eye). `sound`:
 // the loop it plays while it's on (sfx.js).
+    // The room's own lights (`room`): while one is on, the room keeps its
+    // full light whatever else is on — the big light, or the sun coming in.
+    // `overhead`: hung above them, a little toward the camera so it lights
+    // their face (by eye), rather than round them like the rest. `soft`: a
+    // big diffuse light with the room's bounce filling its shadows in, so
+    // as their key light it casts none of its own — the preset's shadow
+    // setting stands (a small lamp's, or the sun's, are hard: those cast).
+    ceiling: {
+        cat: "lights", name: "Ceiling light", kind: "lamp", note: "the ceiling light", gadget: true, placed: true, hovers: true,
+        // A 36 cm dome pendant (by eye) just below an 8 ft (2.44 m) ceiling,
+        // the usual one, with a 100 W-equivalent bulb (ENERGY STAR:
+        // 1,600 lm), its light out of the dome's open bottom.
+        radius: 0.18, mass: 1.5, restitution: 0.1, hang: 2.2,
+        art: { w: 0.4, h: 0.3, cy: 0.04 },
+        lamp: { lm: 1600, color: K2700, at: [0, -0.06, 0], tint: 0, room: true, overhead: 0.6, soft: true },
+        shades: [{ name: "White", color: "#f8fafc" }, { name: "Daylight", color: "#f8fafc", light: K5000 },
+            { name: "Brass", color: "#b08d57" }, { name: "Black", color: "#1f2937" }],
+    },
+    sun: {
+        cat: "lights", name: "Sun", kind: "lamp", note: "a little sun showing where the sunlight comes in from", gadget: true, placed: true, hovers: true,
+        // Not a lamp but where the sunlight comes from: it gives no light of
+        // its own (`lm` 0); switched on, their key light shines from its
+        // direction in its colour (`sun`), however far off it hangs. Its
+        // colours along a day by eye, as blackbodies.
+        radius: 0.12, mass: 0.3, restitution: 0.1, hang: 2.0,
+        art: { w: 0.4, h: 0.4 },
+        lamp: { lm: 0, color: K5000, at: [0, 0, 0], tint: 0, room: true, sun: true },
+        shades: [{ name: "Noon", color: "#fde047", light: K5000 }, { name: "Morning", color: "#fcd34d", light: K2700 },
+            { name: "Sunset", color: "#fb923c", light: K1900 }],
+    },
     desk: {
         cat: "lights", name: "Desk lamp", kind: "lamp", note: "a desk lamp on a little desk", gadget: true, placed: true, slides: true,
         // A small desk, 1.0 × 0.5 m, its top 0.75 m up (a usual desk
@@ -220,18 +251,6 @@ export const TOYS = {
         shades: [{ name: "White", color: "#fbf7ef" }, { name: "Blush", color: "#f9c6d3" },
             { name: "Butter", color: "#fde68a" }, { name: "Sky", color: "#bfdbfe" }],
     },
-    lava: {
-        cat: "lights", name: "Lava lamp", kind: "lamp", note: "a lava lamp", gadget: true, placed: true, slides: true,
-        // 40 cm tall (by eye); a small bulb under coloured liquid, so a dim,
-        // deep glow (by eye).
-        radius: 0.07, mass: 2, restitution: 0.05,
-        art: { w: 0.16, h: 0.42, cy: 0.13 }, grab: [[0.15, 0.08]],
-        lamp: { lm: 40, color: K2700, at: [0, 0.15, 0], tint: 1 },
-        shades: [{ name: "Magma", color: "#e11d48", wax: "#ff7a1a", light: "#ff5a2a" },
-            { name: "Grape", color: "#4c1d95", wax: "#e879f9", light: "#b45cf0" },
-            { name: "Ocean", color: "#1d4ed8", wax: "#67e8f9", light: "#3b9bff" },
-            { name: "Lime", color: "#0f766e", wax: "#bef264", light: "#5ee08a" }],
-    },
     candles: {
         cat: "lights", name: "Candles", kind: "lamp", note: "three candles on a little side table", gadget: true, placed: true, slides: true,
         // A 55 cm side table (by eye) with three pillar candles; a candle
@@ -241,16 +260,6 @@ export const TOYS = {
         lamp: { lm: 3 * 12.6, color: K1900, at: [0, 0.46, 0], tint: 0, flicker: true },
         shades: [{ name: "Ivory", color: "#f5efe0" }, { name: "Rose", color: "#f4c2c2" },
             { name: "Sage", color: "#b5c99a" }, { name: "Plum", color: "#7c3f6e" }],
-    },
-    jar: {
-        cat: "lights", name: "Fairy-light jar", kind: "lamp", note: "a jar full of fairy lights", gadget: true, placed: true,
-        // A big jar, 25 cm (by eye), stuffed with a string of tiny LEDs
-        // (dim: by eye).
-        radius: 0.07, mass: 0.8, restitution: 0.1,
-        art: { w: 0.16, h: 0.26, cy: 0.06 },
-        lamp: { lm: 60, color: K2200, at: [0, 0.02, 0], tint: 0, twinkle: true },
-        shades: [{ name: "Warm", color: K2200, light: K2200 }, { name: "Cool", color: K5000, light: K5000 },
-            { name: "Rainbow", color: "#f472b6", light: "#ffd6f0", rainbow: true }, { name: "Pink", color: "#f9a8d4", light: "#ff9fd0" }],
     },
     moon: {
         cat: "lights", name: "Moon lamp", kind: "lamp", note: "a glowing moon lamp", gadget: true, placed: true, hovers: true,
