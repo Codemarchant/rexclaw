@@ -15,6 +15,13 @@ data/
 assets/wake_models/
 assets/vision_models/
 assets/models/embeddinggemma-2/
+# Neural body motion: test models stay local, and loose weights too; the
+# main model ships as its one pack (scripts/pack_neural_model.py).
+server/neural_motion/models/test_models/
+server/neural_motion/models/*/*.onnx
+server/neural_motion/models/*/*.bin
+server/neural_motion/models/*/*.npz
+!server/neural_motion/models/neural_model/neural_model.bin
 web/node_modules/
 web/dist/
 # Local live-memory validation and research (not release inputs)

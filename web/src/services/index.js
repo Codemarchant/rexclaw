@@ -7,6 +7,7 @@ import { lipsync } from "./lipsync_service";
 import { VoiceService } from "./voice_service";
 import { TextService } from "./text_service";
 import { MotionDirector } from "../models/motion_director";
+import { neuralMotion } from "./neural_motion/neural_motion_service";
 
 export const services = {
     notification,
@@ -24,6 +25,7 @@ const env = { services };
 // the voice service at every call start (fresh library scan). Inert without
 // a clip library.
 services.motion_director = new MotionDirector(env);
+avatarRenderer.setNeuralMotionProvider(neuralMotion.pose, neuralMotion.root);
 
 export const voice = new VoiceService(env);
 export const text = new TextService(env);

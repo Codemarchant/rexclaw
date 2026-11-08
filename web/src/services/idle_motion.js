@@ -1018,21 +1018,34 @@ export class IdleMotion {
      *  restarts the clock; a side the model can't do blocks itself again. */
     setHipAllowed(on) {
         if (!on) {
-            for (let i = 0; i < 2; i++) {
-                this._hipBlocked[i] = true;
-                const h = this._hip[i];
-                if (h && h.cut === undefined) {
-                    h.from = this._hipU(h, this.t);
-                    h.cut = this.t;
-                    glideTo(this._stance, 0, this.t, rand(STANCE_MOVE_MIN, STANCE_MOVE_MAX));
-                }
-            }
+            this._hipBlocked = [true, true];
+            this._cutHip();
             return;
         }
         this._hipBlocked = [false, false];
         if (this._nextHipAt === Infinity) {
             this._nextHipAt = this._poseT + expGap(HIP_GAP_MEAN, HIP_GAP_MIN, HIP_GAP_MAX);
         }
+    }
+
+    /** A hand on the hip goes home from where it is. */
+    _cutHip() {
+        for (let i = 0; i < 2; i++) {
+            const h = this._hip[i];
+            if (h && h.cut === undefined) {
+                h.from = this._hipU(h, this.t);
+                h.cut = this.t;
+                glideTo(this._stance, 0, this.t, rand(STANCE_MOVE_MIN, STANCE_MOVE_MAX));
+            }
+        }
+    }
+
+    /** Something else has the arms for now (neural body motion): any hand
+     *  on the hip ends and no new one starts, or it would sit unseen under
+     *  that and show when it hands back. Called each frame it holds. */
+    holdHip() {
+        this._cutHip();
+        this._nextHipAt = Math.max(this._nextHipAt, this._poseT + HIP_RETRY);
     }
 
     /** Whether this look allows idle event `id` (IDLE_EVENTS; the renderer

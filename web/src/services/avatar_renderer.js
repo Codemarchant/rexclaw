@@ -42,6 +42,8 @@ import {
 import { IdleMotion, IDLE_EVENTS } from "./idle_motion";
 import { IdlePose } from "./idle_pose";
 import { FaceMotion } from "./face_motion";
+import { FootIk } from "./neural_motion/foot_ik";
+import { handCorrections, toAvatar, toModel } from "./neural_motion/hand_retarget";
 import { LookPost } from "./look_post";
 import { ArtStyle } from "./art_style";
 import { MoodMarks } from "./mood_marks";
@@ -1535,6 +1537,13 @@ class AvatarRenderer {
         this._fadeOutBaseGesture();
     }
 
+    /** models/tool_motion.js: a tool motion is running on the base avatar (or that peer's),
+     *  from its intro to its end, so the neural body motion stays out between its clips too. */
+    holdForToolMotion(on, peerId = null) {
+        const actor = peerId ? this._peers.get(peerId) : this;
+        if (actor) actor._toolMotion = !!on;
+    }
+
     /** True while a DELIBERATE gesture owns the base avatar's body — a
      *  play_gesture clip still running, or any combo. The emotion
      *  auto-gesture (set_emotion) checks this so a "happy" never cuts a
@@ -1885,6 +1894,169 @@ class AvatarRenderer {
      *  premultiply a slerp(identity, offset, w) with w decaying by
      *  RETURN_HALFLIFE, so the pose is continuous at release and settles
      *  into whatever the idle is doing right now. */
+    /** Polled once per frame: () => {weight, bones, parts, keepHead} or null
+     *  (services/neural_motion). Bones are VRM names -> [x,y,z,w], T-pose
+     *  relative, in VRM 1.0 axes. */
+    /** `peerId` null = the base avatar, else a group-call peer's slot; a
+     *  null `fn` removes it. */
+    setNeuralMotionProvider(fn, root, peerId = null) {
+        this._neuralProviders ||= new Map();
+        if (fn) this._neuralProviders.set(peerId, { pose: fn, root });
+        else this._neuralProviders.delete(peerId);
+    }
+
+    _neuralProviderOf(actor) {
+        return this._neuralProviders?.get(actor === this ? null : actor.id) || null;
+    }
+
+    /** The pose under the neural layer, in VRM 1.0 axes. The provider polls
+     *  this first thing in the frame, before anything is laid over it.
+     *  False while that avatar has no model to read. */
+    neuralBasePose(bones, out, peerId = null, handRest = null) {
+        const actor = this._toolActor(peerId);
+        const humanoid = actor?.vrm?.humanoid;
+        if (!humanoid) return false;
+        const flip = (actor._armSign ?? 1) === 1;
+        const fixes = this._neuralHandFixes(actor, handRest);
+        const q = this._neuralBaseQuat || (this._neuralBaseQuat = new this.libs.THREE.Quaternion());
+        bones.forEach((name, i) => {
+            const node = humanoid.getNormalizedBoneNode(name);
+            if (node) q.set(flip ? -node.quaternion.x : node.quaternion.x, node.quaternion.y,
+                flip ? -node.quaternion.z : node.quaternion.z, node.quaternion.w);
+            else q.identity();
+            // Fingers back into the model's own rest hand (the inverse of _applyNeuralMotion's).
+            const fix = fixes?.get(name);
+            if (fix) toModel(q, fix);
+            out[i * 4] = q.x;
+            out[i * 4 + 1] = q.y;
+            out[i * 4 + 2] = q.z;
+            out[i * 4 + 3] = q.w;
+        });
+        return true;
+    }
+
+    /** Finger rest corrections for a model that names its rest hand, per
+     *  avatar (see neural_motion/hand_retarget.js); null otherwise. */
+    _neuralHandFixes(actor, handRest) {
+        if (!handRest) return null;
+        if (actor._handFixRest !== handRest || actor._handFixVrm !== actor.vrm) {
+            actor._handFixRest = handRest;
+            actor._handFixVrm = actor.vrm;
+            actor._handFixes = handCorrections(this.libs.THREE, actor.vrm?.humanoid, (actor._armSign ?? 1) === 1, handRest);
+        }
+        return actor._handFixes;
+    }
+
+    /** Arms the idle has mid-gesture (a hand on the hip): "left", "right".
+     *  Called as a line starts, so it also ends that gesture for good. */
+    neuralTakeArms(peerId = null) {
+        const idle = this._toolActor(peerId)?._idle;
+        const sig = idle?.sig;
+        idle?.holdHip();
+        return [sig?.hipL > 0.02 && "left", sig?.hipR > 0.02 && "right"].filter(Boolean);
+    }
+
+    /** Shuffling: where the character ended up stays, idle included, so the
+     *  hips carry the offset every frame rather than the pose gliding home. */
+    _applyNeuralRoot(actor, delta, flip, gate = 1) {
+        const THREE = this.libs.THREE;
+        const hips = actor.vrm?.humanoid?.getNormalizedBoneNode("hips");
+        const anchor = actor._neuralAnchor || (actor._neuralAnchor = { pos: new THREE.Vector3(), yaw: 0, q: new THREE.Quaternion() });
+        const root = this._neuralProviderOf(actor)?.root?.();
+        const sign = flip ? -1 : 1;
+        const ease = 1 - Math.exp(-NEURAL_ANCHOR_RATE * delta);
+        // A root that isn't three finite numbers counts as home; while
+        // something else owns the body (`gate` easing to 0) it heads home.
+        const [x, z, yaw] = root && [root[0], root[1], root[2]].every(Number.isFinite)
+            ? [root[0] * gate, root[1] * gate, root[2] * gate] : [0, 0, 0];
+        anchor.pos.x += (sign * x - anchor.pos.x) * ease;
+        anchor.pos.z += (sign * z - anchor.pos.z) * ease;
+        // The short way round: a yaw whole turns away (a stale or wound-up root) is the
+        // same facing, never a spin.
+        anchor.yaw += Math.atan2(Math.sin(yaw - anchor.yaw), Math.cos(yaw - anchor.yaw)) * ease;
+        anchor.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, anchor.yaw);
+        if (!hips) return anchor;
+        hips.position.add(anchor.pos);
+        hips.quaternion.premultiply(anchor.q);
+        return anchor;
+    }
+
+    /** Slerp the posed bones toward the neural pose. After the idle and the
+     *  mixer, so it overrides by weight instead of fighting them, and before
+     *  the face. Anything authored beats it: a clip, a walk, a performance
+     *  or roaming owns the body, while the weight keeps easing underneath. */
+    _applyNeuralMotion(actor, delta) {
+        const provider = this._neuralProviderOf(actor);
+        if (!provider && !actor._neuralAnchor) return;
+        const pose = provider?.pose();
+        // Fades rather than cuts: a clip starting right after a line would
+        // otherwise drop the whole pose in one frame.
+        // A tool motion owns the body for its whole run, the seams between its clips included,
+        // and a toy routine for its own.
+        const busy = actor._gestureAction?.isRunning() || actor._moving || actor._perf || actor._roam
+            || actor.toyBusy || actor._toolMotion;
+        actor._neuralGate = (actor._neuralGate ?? 1) + ((busy ? 0 : 1) - (actor._neuralGate ?? 1))
+            * (1 - Math.exp(-NEURAL_YIELD_RATE * delta));
+        // The root and the idle's hip hold yield with the pose: ahead of the
+        // gate they kept moving the hips under a walk or a toy's clip
+        // whenever the companion spoke.
+        if (pose && actor._neuralGate >= 0.002) actor._idle?.holdHip();
+        const anchor = this._applyNeuralRoot(actor, delta, (actor._armSign ?? 1) === 1, actor._neuralGate);
+        if (!pose) {
+            actor._neuralFootIk?.reset();
+            return;
+        }
+        const weight = pose.weight * actor._neuralGate;
+        if (weight < 0.002) {
+            actor._neuralFootIk?.reset();
+            return;
+        }
+        const humanoid = actor.vrm?.humanoid;
+        if (!humanoid) return;
+        const THREE = this.libs.THREE;
+        const target = this._neuralQuat || (this._neuralQuat = new THREE.Quaternion());
+        const extra = this._neuralExtra || (this._neuralExtra = new THREE.Quaternion());
+        // VRoid-style rigs are yawed 180° from VRM 1.0 axes in normalized
+        // space; conjugating by that yaw negates x and z.
+        const flip = (actor._armSign ?? 1) === 1;
+        const read = (q, arr) => (flip ? q.set(-arr[0], arr[1], -arr[2], arr[3])
+                                       : q.set(arr[0], arr[1], arr[2], arr[3]));
+        const fixes = this._neuralHandFixes(actor, pose.handRest);
+        const missingUpperChest = !humanoid.getNormalizedBoneNode("upperChest");
+        for (const [name, arr] of pose.bones) {
+            const part = neuralPartOf(name);
+            if (!pose.parts.has(part) || (pose.keepHead && part === "head")) continue;
+            const bone = humanoid.getNormalizedBoneNode(name);
+            if (!bone) continue;
+            const fix = fixes?.get(name);
+            if (fix) {
+                // A finger from the model's rest hand into this avatar's, then the rig's axes.
+                toAvatar(target.set(arr[0], arr[1], arr[2], arr[3]), fix);
+                if (flip) target.set(-target.x, target.y, -target.z, target.w);
+            } else {
+                read(target, arr);
+            }
+            if (name === "chest" && missingUpperChest && pose.bones.has("upperChest")) {
+                target.multiply(read(extra, pose.bones.get("upperChest")));
+            }
+            if (name === "hips") target.premultiply(anchor.q);
+            bone.quaternion.slerp(target, weight);
+        }
+        if (!pose.parts.has("legs") || !actor._hipsBasePos) return;
+        // The legs need the pelvis under them, and feet that stay put.
+        const hips = humanoid.getNormalizedBoneNode("hips");
+        const sign = flip ? -1 : 1;
+        const spot = this._neuralHips || (this._neuralHips = new THREE.Vector3());
+        spot.set(sign * pose.hips[0], pose.hips[1], sign * pose.hips[2]).add(actor._hipsBasePos).add(anchor.pos);
+        hips.position.lerp(spot, weight);
+        if (!pose.feet || !pose.parts.has("footik")) return;
+        if (actor._neuralFootIk?.vrm !== actor.vrm) {
+            actor._neuralFootIk = new FootIk(THREE, actor.vrm, actor._hipsBasePos.y, flip ? -1 : 1);
+            actor._neuralFootIk.vrm = actor.vrm;
+        }
+        actor._neuralFootIk.update(delta, weight, pose.feet);
+    }
+
     _applyReturnBlend(actor, delta) {
         const st = actor._returnBlend;
         if (!st) return;
@@ -6979,6 +7151,7 @@ class AvatarRenderer {
             this._applyIdle(this, delta);
             this._applyReturnBlend(this, delta);
             if (this._perf) this._applyPerformance(delta, dancePose);
+            this._applyNeuralMotion(this, delta);
             this._face.update(delta);
             this._applyBlink(this);
             this._applyBreath(this);
@@ -7012,6 +7185,7 @@ class AvatarRenderer {
                 this._flushReleases(peer);
                 this._applyIdle(peer, delta);
                 this._applyReturnBlend(peer, delta);
+                this._applyNeuralMotion(peer, delta);
                 peer._face.update(delta);
                 this._applyBlink(peer);
                 this._applyBreath(peer);
@@ -8387,6 +8561,18 @@ class AvatarRenderer {
     checkARSupport() {
         return AvatarRenderer.isARSupported();
     }
+}
+
+const NEURAL_YIELD_RATE = 8;      // per second: how fast it gives way to a clip
+const NEURAL_ANCHOR_RATE = 8;     // per second: follows the root, or goes home when off
+
+// The body part a VRM bone belongs to, for neural motion's part switches.
+function neuralPartOf(bone) {
+    if (bone === "spine" || bone === "chest" || bone === "upperChest") return "torso";
+    if (bone === "neck" || bone === "head") return "head";
+    if (/Thumb|Index|Middle|Ring|Little/.test(bone)) return "hands";
+    if (/Shoulder|Arm|Hand/.test(bone)) return "arms";
+    return "legs";
 }
 
 // Singleton — every surface (canvas hosts, voice service, tool dispatcher)

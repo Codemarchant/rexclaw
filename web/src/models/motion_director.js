@@ -240,6 +240,8 @@ export class MotionDirector {
         this._seq = 0;                  // per-turn sentence number, for the trace
         this._strokeTimer = null;       // a picked clip waiting for its word
         this._speechGestures = false;   // all three from config, see applySettings
+        this._speechGesturesWanted = false;
+        this._neuralMotion = false;     // takes the speech gestures' place
         this._fidgets = false;
         this._fidgetInterval = DEFAULT_INTERVAL_S;
         // Not the director's own business (the renderer does it — see its
@@ -304,6 +306,7 @@ export class MotionDirector {
             isGestureBusy: () => !!r()?.isPeerGestureBusy?.(id),
             playGesture: (url, opts) => r()?.playPeerGesture?.(id, url, opts),
             stopGesture: () => r()?.stopPeerGesture?.(id),
+            holdForToolMotion: (on) => r()?.holdForToolMotion?.(on, id),
             gestureUrl: () => r()?.gestureUrl?.(id) || null,
             preloadGesture: (url) => r()?.preloadGesture?.(url, id),
             attachToolProp: (url, spec) => r()?.attachToolProp?.(url, spec, id) || Promise.resolve(null),
@@ -498,13 +501,21 @@ export class MotionDirector {
     }
 
     setSpeechGestures(enabled) {
-        const next = !!enabled;
+        this._speechGesturesWanted = !!enabled;
+        const next = this._speechGesturesWanted && !this._neuralMotion;
         if (next === this._speechGestures) return;
         this._speechGestures = next;
         // Stated whenever it changes: with it off nothing else in the speech
         // path logs at all, which is indistinguishable from the picker
         // simply finding no gestures.
         console.log(`[motion] speech gestures: ${next ? "ON" : "off"}`);
+    }
+
+    /** Neural body motion takes the speech gestures' place while it is on;
+     *  the setting itself is left alone. */
+    setNeuralMotion(on) {
+        this._neuralMotion = !!on;
+        this.setSpeechGestures(this._speechGesturesWanted);
     }
 
     /** Per call, from the session payload — not a live switch, because the

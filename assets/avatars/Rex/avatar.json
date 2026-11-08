@@ -6,6 +6,7 @@
   "main_outfit_name": "Pirate vest",
   "main_outfit_description": "An open olive-green leather vest over a bare chest, with a brown bandolier strap across the torso and a wide brown belt. White/grey textured pants. Topped off with a small brown pirate captain's hat featuring a white skull-and-crossbones emblem.",
   "pose_tuning": {"hand_on_hip": false},
+  "neural_motion": {"model": "neural_model", "style": "Rowan"},
   "outfits": [],
   "gestures": [],
   "music": [

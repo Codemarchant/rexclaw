@@ -783,6 +783,8 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                     <BaseGesturePicker value={manifest.base_gestures || ""}
                                        onChange={(v) => setM({ base_gestures: v })} />
                 )}
+                <NeuralMotionDefaults value={manifest.neural_motion}
+                                      onChange={(v) => setM({ neural_motion: v })} />
             </Section>
 
             {/* Outfits */}
@@ -1300,6 +1302,48 @@ function BaseGesturePicker({ value, onChange }) {
                     <option key={g.id} value={g.id}>{_t(g.label)} ({g.id}){g.loop ? " · " + _t("loops") : ""}</option>
                 ))}
             </select>
+        </div>
+    );
+}
+
+/** The pack's `neural_motion` defaults: the model and style (by name) taken
+ *  when switching to a companion with this avatar. A default this install
+ *  doesn't have stays as it is (listed as not installed), so a pack keeps
+ *  working where the model is. */
+function NeuralMotionDefaults({ value, onChange }) {
+    const [models, setModels] = useState([]);
+    useEffect(() => {
+        rpc("/api/neural_motion/settings", {}).then((r) => setModels(r.models || [])).catch(() => {});
+    }, []);
+    const picked = value || {};
+    const model = models.find((m) => m.id === picked.model);
+    const set = (patch) => {
+        const next = { ...picked, ...patch };
+        onChange(next.model ? next : undefined);
+    };
+    return (
+        <div className="rx_row" style={{ marginTop: "0.5rem" }}>
+            <div title={_t("Taken when switching to a companion with this avatar; the voice view's Neural body motion controls can change it after.")}>
+                <label>{_t("Neural body motion")}</label>
+                <select value={picked.model || ""} onChange={(ev) => set({ model: ev.target.value, style: "" })}>
+                    <option value="">{_t("No default")}</option>
+                    {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                    {picked.model && !model && <option value={picked.model}>{picked.model} ({_t("not installed")})</option>}
+                </select>
+            </div>
+            {picked.model && (
+                <div>
+                    <label>{_t("Style")}</label>
+                    <select value={picked.style || ""} onChange={(ev) => set({ style: ev.target.value })}>
+                        <option value="">{_t("Model's default")}</option>
+                        {(model?.styles || []).map((s) => (
+                            <option key={s.id} value={s.name || s.label}>{s.label}</option>
+                        ))}
+                        {picked.style && !(model?.styles || []).some((s) => (s.name || s.label) === picked.style)
+                            && <option value={picked.style}>{picked.style} ({_t("not installed")})</option>}
+                    </select>
+                </div>
+            )}
         </div>
     );
 }

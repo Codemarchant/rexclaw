@@ -11,6 +11,7 @@ import {
 } from "../models/agent_connection";
 import { IdleEventScheduler } from "../lib/idle_events";
 import { MotionDirector } from "../models/motion_director";
+import { neuralMotion, peerNeuralMotion } from "./neural_motion/neural_motion_service";
 
 /**
  * Voice CALL manager (the "voice_companion" registry service).
@@ -1007,6 +1008,7 @@ class VoiceCallService {
             this.state.peers = this.state.peers.filter((p) => p.connId !== connId);
             conn._motion?.dispose();
             conn._motion = null;
+            peerNeuralMotion(connId, null);
             return false;
         }
         // Update the roster entry with the server-confirmed name.
@@ -1227,6 +1229,7 @@ class VoiceCallService {
             this.state.peers = this.state.peers.filter((p) => p.connId !== conn.connId);
             conn._motion?.dispose();
             conn._motion = null;
+            peerNeuralMotion(conn.connId, null);
             const renderer = this.env.services.voice_avatar_renderer;
             renderer?.removePeer?.(conn.connId);
             if (conn.lipsyncChannel) {
@@ -1454,6 +1457,9 @@ class VoiceCallService {
                     .catch?.((e) => console.error("[voice] peer avatar load failed", e));
             }
             conn._motion?.setFaceDirector(!!payload.face_director);
+            // Their own neural motion: the call's settings with their avatar's model and style.
+            conn._motion?.setNeuralMotion?.(!!payload.neural_motion);
+            peerNeuralMotion(conn.connId, payload.neural_motion || null)?.setFaceDirector(!!payload.face_director);
             return;
         }
         // active_background is resolved server-side, but an explicit pick
@@ -1464,8 +1470,11 @@ class VoiceCallService {
         // word gestures). Reloads the library every call so a folder added
         // under data/assets/motion is live on the next call.
         this.env.services.motion_director?.start?.().catch?.(() => {});
+        this.env.services.motion_director?.setNeuralMotion?.(!!payload.neural_motion);
         this.env.services.motion_director?.setSpeechGestures?.(!!payload.speech_gestures);
         this.env.services.motion_director?.setFaceDirector?.(!!payload.face_director);
+        neuralMotion.configure(payload.neural_motion || null);
+        neuralMotion.setFaceDirector(!!payload.face_director);
         if (this.env.services.motion_director) this._relaySpokenLines(conn, this.env.services.motion_director);
         // Not in the main outfit as the call opens: one silent line so the
         // companion knows what they have on, whether it was switched by

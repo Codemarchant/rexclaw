@@ -17,7 +17,7 @@ from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, get_config, init_db
 from .errors import UserError
 from .routes import (audio, avatars, extensions, games, heartbeats, live_chat, manga, minecraft, misc,
-                     music, pipeline, songs, text, voice, voicelab)
+                     music, neural_motion, pipeline, songs, text, voice, voicelab)
 from .lore_seeds import seed_lore_if_empty
 from .seeds import migrate_default_outfit_sections, seed_if_empty
 
@@ -94,6 +94,7 @@ app.include_router(music.router)
 app.include_router(voicelab.router)
 app.include_router(manga.router)
 app.include_router(extensions.router)
+app.include_router(neural_motion.router)
 # Extensions (data/plugins/ and listed folders) add their routes, pages and
 # tools here: after the app's own routes, before the SPA catch-all below.
 plugins.load_all(app)

@@ -3184,6 +3184,24 @@ export const JA = {
   "look at them go": "すいすい泳いでる",
   "so peaceful…": "癒やされる…",
   "hi, little fish!": "やあ、お魚さん！",
+  // Neural body motion (NeuralMotionSection, Mascot settings → Body motion, avatar editor)
+  "Neural body motion": "ニューラルボディモーション",
+  "Body motion": "ボディモーション",
+  "Use in calls (replaces clip gestures)": "通話で使う（クリップのジェスチャーの代わり）",
+  "Torso": "胴体",
+  "Head": "頭",
+  "Arms": "腕",
+  "Fingers": "指",
+  "Hips + legs": "腰と脚",
+  "Foot IK": "足の IK",
+  "Shuffling": "足踏み",
+  "no weights": "重みなし",
+  "Weights go in %s": "重みファイルの置き場所：%s",
+  "Test with a speech file": "音声ファイルでテスト",
+  "No default": "既定なし",
+  "not installed": "未インストール",
+  "Taken when switching to a companion with this avatar; the voice view's Neural body motion controls can change it after.":
+    "このアバターのコンパニオンに切り替えたときに適用されます。その後はボイス画面のニューラルボディモーション設定で変更できます。",
   "Lets the companion play games that connect to Rexclaw over the Neuro API — mods and games made for Neuro-sama, or the mini-games in the Games tab. The game tells the companion what is happening and what it can do, and the companion makes its moves (game_action, game_status). On calls the tools are there from the start, so a game can connect mid-call; in text chats only while a game is connected.":
     "Neuro API で Rexclaw に接続するゲーム（Neuro-sama 向けの MOD やゲーム、ゲームタブのミニゲーム）をコンパニオンがプレイできるようにします。ゲームが状況とできることを伝え、コンパニオンが手を打ちます（game_action、game_status）。通話では最初からツールがあるので通話中にゲームを接続でき、テキストチャットではゲームの接続中のみ使えます。",
 };

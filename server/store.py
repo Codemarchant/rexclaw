@@ -253,6 +253,9 @@ def avatar_payload(con, avatar_id):
         'default_background_id': default_bg['id'] if default_bg else False,
         'outfits': outfits,
         'custom_gestures': custom_gestures,
+        # The pack's neural body motion defaults ({model, style}, style by
+        # name), applied on a companion switch; {} = none.
+        'neural_motion': look_json(av, 'neural_motion'),
     }
 
 

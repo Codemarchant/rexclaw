@@ -201,6 +201,7 @@ export class ToolMotion {
         }
         run.introAt = performance.now();
         if (!(await this._play(run, "in"))) return;
+        a.holdForToolMotion?.(true);
         this._log(`${run.motion.id} for ${run.motion.tool}`);
         for (const p of run.motion.props) this._prop(run, p);
         const fx = run.motion.effect;
@@ -214,6 +215,7 @@ export class ToolMotion {
     }
 
     async _afterIntro(run) {
+        if (run.phase !== "in") return;      // the watch got there first (see _check)
         if (!this._live(run)) return this._abort(run);
         if (!run.calls.size) return this._outro(run);
         await this._play(run, "loop", { loop: true });
@@ -335,6 +337,9 @@ export class ToolMotion {
         if (now === run.current || (run.pending && now === run.pending)) return;
         // The outro ran out and released to the idle: done.
         if ((run.phase === "out" || run.phase === "reveal") && !now) return this._finish(run);
+        // The intro ran out before the loop's timer fired (the page was busy: a selfie being
+        // encoded, a slow device): nothing took the body, so carry on into the loop.
+        if (run.phase === "in" && !now) return this._afterIntro(run);
         this._abort(run);
     }
 
@@ -360,6 +365,9 @@ export class ToolMotion {
         run.orb = null;
         // Stood down before the tear: the new background still arrives.
         if (run.motion.effect?.kind === "orb") this.avatar?.openBackgroundPortal?.();
-        if (this._run === run) this._run = null;
+        if (this._run === run) {
+            this._run = null;
+            this.avatar?.holdForToolMotion?.(false);
+        }
     }
 }

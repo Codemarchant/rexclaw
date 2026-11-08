@@ -227,6 +227,18 @@ CREATE TABLE IF NOT EXISTS config (
     speech_gestures INTEGER NOT NULL DEFAULT 0,
     idle_fidgets INTEGER NOT NULL DEFAULT 0,
     fidget_interval REAL NOT NULL DEFAULT 60,
+    -- Neural body motion (server/neural_motion/): a model turns the voice
+    -- into body motion in place of clip gestures (on by default; without a
+    -- model's weights calls keep the clips). Model '' = the main one; style
+    -- -1 = the model's default; parts = which of torso, head, arms, hands,
+    -- legs, footik, shuffle it drives. neural_motion_avatar: the avatar
+    -- whose neural_motion defaults were last applied (a companion switch
+    -- applies the new one's; the manual controls change them after).
+    neural_motion_on INTEGER NOT NULL DEFAULT 1,
+    neural_motion_model TEXT NOT NULL DEFAULT '',
+    neural_motion_style INTEGER NOT NULL DEFAULT -1,
+    neural_motion_parts TEXT NOT NULL DEFAULT 'torso,head,arms,hands,legs,footik',
+    neural_motion_avatar INTEGER NOT NULL DEFAULT 0,
     -- Face view only: pull the camera out while a deliberate gesture plays
     -- (waist-up for hand gestures, full body for the rest) and ease back in
     -- after. On by default — the face view frames the collarbone up, so
@@ -1463,11 +1475,22 @@ MIGRATIONS = (
     "ALTER TABLE audio_recordings ADD COLUMN category TEXT",
     # Face director (see the config schema comment).
     "ALTER TABLE config ADD COLUMN face_director INTEGER NOT NULL DEFAULT 0",
+    # Neural body motion (see the config schema comment).
+    "ALTER TABLE config ADD COLUMN neural_motion_on INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE config ADD COLUMN neural_motion_model TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN neural_motion_style INTEGER NOT NULL DEFAULT -1",
+    "ALTER TABLE config ADD COLUMN neural_motion_parts TEXT NOT NULL DEFAULT 'torso,head,arms,hands,legs,footik'",
+    "ALTER TABLE config ADD COLUMN neural_motion_avatar INTEGER NOT NULL DEFAULT 0",
+    # The avatar pack's `neural_motion` defaults, JSON {"model", "style"}
+    # (style by name); NULL = none.
+    "ALTER TABLE avatars ADD COLUMN neural_motion TEXT",
     "ALTER TABLE config ADD COLUMN typesafe_api_key TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN jev_model TEXT NOT NULL DEFAULT 'jev-latest'",
     "ALTER TABLE config ADD COLUMN live_memory_mode TEXT NOT NULL DEFAULT 'off'",
     # Retire diagnostic-only mode without enabling injection for its users.
     "UPDATE config SET live_memory_mode='off' WHERE live_memory_mode='shadow'",
+    # grok-voice-2.0 is deprecated: installs still on it move to the alias.
+    "UPDATE config SET xai_model='grok-voice-latest' WHERE xai_model='grok-voice-2.0'",
     "ALTER TABLE config ADD COLUMN live_memory_cooldown_seconds INTEGER NOT NULL DEFAULT 60",
     "ALTER TABLE memories ADD COLUMN recall_revision INTEGER NOT NULL DEFAULT 0",
     # Which model picks a speech gesture (see the config schema comment).
@@ -1489,8 +1512,6 @@ MIGRATIONS = (
     # The unenforced max_turns settings they replace, and a short-lived
     # output-token ceiling the search cap made redundant (no-op once gone).
     "ALTER TABLE config DROP COLUMN text_max_turns",
-    # grok-voice-2.0 is deprecated: installs still on it move to the alias.
-    "UPDATE config SET xai_model='grok-voice-latest' WHERE xai_model='grok-voice-2.0'",
     "ALTER TABLE config DROP COLUMN delegate_max_turns",
     "ALTER TABLE config DROP COLUMN text_max_output_tokens",
     # Karaoke stage: perform_song in voice calls (song_tools.py).

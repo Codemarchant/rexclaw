@@ -6,6 +6,7 @@
   "main_outfit_name": "Lab coat",
   "main_outfit_description": "A professional white lab coat worn over a crisp white collared dress shirt, with a slim dark grey necktie. The coat falls to about knee-length, has notched lapels, three front buttons, and side pockets - giving it that classic researcher silhouette. Underneath, the legs are covered by dark navy trousers.",
   "pose_tuning": {"arm_spread": -4},
+  "neural_motion": {"model": "neural_model", "style": "Bruno"},
   "outfits": [
     {
       "name": "Cozy Winter casual",

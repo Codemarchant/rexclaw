@@ -275,6 +275,27 @@ html.rx_mascot_mode {
         }
     }
 
+    // Body motion tab (NeuralMotionSection): labelled rows, then the body
+    // parts several to a row.
+    .o_voice_full_settings_row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+
+        label { margin: 0; min-width: 4.5rem; }
+        select { flex: 1; min-width: 0; }
+    }
+    .rx_nm_parts {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+        gap: 0.35rem 0.75rem;
+        margin-top: 0.7rem;
+
+        label { display: flex; align-items: center; gap: 0.4rem; margin: 0; font-weight: normal; cursor: pointer; }
+        input[type="checkbox"] { margin: 0; }
+    }
+
     .rx_mascot_set_item + .rx_mascot_set_item { margin-top: 0.7rem; }
     // Same rhythm where rows cross a fieldset edge: Behavior splits its
     // fieldset round the Touch physics row, which must stay enabled.

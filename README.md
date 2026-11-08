@@ -53,6 +53,7 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 | 🐾 **Roaming** | Between calls the mascot can leave its window and wander your whole screen: walking along the bottom and over your windows, napping while you're away, fishing up icons, and playing with what's on screen and dancing to your music when you turn those on (Mascot settings → Roaming). |
 | ⌨️ **Hotkeys** | Rebindable shortcuts for calls, mute, screen share and every mascot control, system-wide in the desktop app (Settings → Hotkeys). |
 | 🥽 **VR & mixed reality** | WebXR on headset browsers: stand with your companion in VR, or in your own room via passthrough, with spatial audio, controller haptics, an in-headset panel, hand-to-hair and clothing contact, and an opt-in ragdoll you can grab. |
+| 🧠 **Neural body motion** | A bundled on-device model turns their voice into body language as they speak: posture, head, arms and fingers move with the speech, and settle back into the idle after. On by default, with a choice of motion styles per companion (Settings in the voice view, or Mascot settings → Body motion). The model has its own non-commercial licence (`server/neural_motion/models/neural_model/LICENSE-MODEL.md`). |
 | 🤝 **Combo gestures** | Two-character animations (dancing together, hugs) where a partner joins the scene in sync. In a group call, the other companion plays the partner. |
 | 🕺 **Gesture generation** | Opt-in (`generate_gesture`): ask for a move that isn't in their list ("do a curtsy") and they invent it on the spot, made by the free [Text-To-VRMA](https://github.com/Kirakun0328/text-to-vrma/releases) app on your computer (Settings → Gesture generation). Motions are saved to the shared library, so good ones can become regular gestures. |
 | 🎤 **Karaoke stage** | Your companion sings in their own voice and dances, with the lyrics on screen. Use the built-in songs or import from [UltraStar](https://usdb.animux.de), then let them sing, duet, or take the mic yourself and get scored. Opt-in, they can perform a song they know mid-call (`perform_song`). The optional **Voice Lab** (a download in Settings, best with an NVIDIA GPU) trains a singing voice from your recordings and turns a song from a link into karaoke. |
@@ -661,6 +662,9 @@ each project.
   the on-device face and hand models behind camera awareness.
 - **[EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2)**
   (Apache-2.0, Google DeepMind) — the on-device model behind memory search.
+- Neural body motion — the model is © Codemarchant, free for
+  non-commercial use only and not covered by the MIT licence; terms in
+  `server/neural_motion/models/neural_model/LICENSE-MODEL.md`.
 - Minecraft sidecar — **[Project AIRI](https://github.com/moeru-ai/airi)**
   (MIT) for the brain architecture and pathfinder patches,
   **[Mindcraft](https://github.com/kolbytn/mindcraft)** (MIT) for those

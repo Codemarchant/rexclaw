@@ -3,6 +3,7 @@ import { _t } from "../lib/i18n";
 import { ToolDispatcher } from "./tool_dispatcher";
 import { LiveMemory } from "../lib/live_memory";
 import { captionFeed } from "../services/caption_feed";
+import { neuralMotion, peerNeuralMotion } from "../services/neural_motion/neural_motion_service";
 
 // Tools xAI runs server-side. They appear as function_call events to the
 // client but must NOT receive a function_call_output reply — see
@@ -850,6 +851,7 @@ export class AgentConnection {
         const startAt = this._nextPlayTime;
         source.start(startAt);
         this._nextPlayTime = startAt + audioBuffer.duration;
+        this._neuralMotion()?.ingest(float32, this._sampleRate, startAt, ctx);
         // Total voice this turn, accumulated as it is scheduled. The text
         // stream finishes long before the audio does, so this is the only
         // honest measure of how long the reply actually takes to say —
@@ -868,6 +870,12 @@ export class AgentConnection {
                 this._maybeRunCompaction();
             }
         };
+    }
+
+    /** This leg's neural body motion: the base avatar's for the primary,
+     *  the peer's own stream otherwise (null when it's off). */
+    _neuralMotion() {
+        return this.role === "primary" ? neuralMotion : peerNeuralMotion(this.connId);
     }
 
     /** Seconds of assistant audio scheduled but not yet played — i.e. how
@@ -896,6 +904,7 @@ export class AgentConnection {
         this._scheduledSources = [];
         // Next chunk re-anchors to now (it's < currentTime after this).
         this._nextPlayTime = 0;
+        this._neuralMotion()?.cancel();
         captionFeed.cut(this);
     }
 
@@ -1008,6 +1017,7 @@ export class AgentConnection {
                 audioTotalSec: this._turnAudioSec,
                 audioEndsInSec: this._audioLookaheadSec(),
             });
+            this._neuralMotion()?.finish();
             captionFeed.audioDone(this);
             return;
         }

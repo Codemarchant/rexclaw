@@ -153,6 +153,19 @@
             input[type="checkbox"] { margin: 0; }
         }
 
+        // Neural motion's body parts: several checkboxes per row.
+        .rx_nm_parts {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+            gap: 0.3rem 0.75rem;
+            margin-top: 0.4rem;
+            font-size: 0.8rem;
+
+            label { display: flex; align-items: center; gap: 0.35rem; margin: 0; cursor: pointer; }
+            input[type="checkbox"] { margin: 0; }
+            & + .o_voice_full_settings_row { margin-top: 0.5rem; }
+        }
+
         .o_voice_walk_position_readout {
             margin-top: 0.5rem;
             font-size: 0.75rem;

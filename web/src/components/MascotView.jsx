@@ -14,6 +14,7 @@ import { MASCOT_SETTINGS_CHANNEL, MASCOT_SIZES as SIZES } from "../lib/mascot_li
 import { EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
 import { backgroundPickerEntries, currentBackgroundKey, resolveDefaultBackground } from "../lib/background_picker";
 import { stage } from "../models/stage";
+import { neuralMotion } from "../services/neural_motion/neural_motion_service";
 import { backgroundMusic } from "../models/background_music";
 import { RoamDirector, ROAM_SIZES, ROAM_NAP_MINUTES } from "../models/roam_director";
 import AvatarCanvas from "./AvatarCanvas.jsx";
@@ -1072,6 +1073,13 @@ export default function MascotView() {
                     services.motion_director?.applySettings?.(patch);
                     settingsSync.current.publish();
                     rpc("/api/motion/settings", patch).catch(() => {});
+                    return;
+                }
+                // Body motion tab: the settings window saved neural motion
+                // config; the avatar it drives is here, so it applies here.
+                case "neuralMotion": {
+                    neuralMotion.configure(msg.call || null);
+                    services.motion_director?.setNeuralMotion?.(!!msg.call);
                     return;
                 }
                 case "ghostFade": {

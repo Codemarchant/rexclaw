@@ -8,14 +8,16 @@ import { CAPTION_HOLD_OPTIONS, useCaptionPrefs } from "../lib/caption_prefs";
 import { CAPTION_SIZES } from "./Captions.jsx";
 import MascotSongsTab from "./MascotSongsTab.jsx";
 import MascotToysTab from "./MascotToysTab.jsx";
+import NeuralMotionSection from "./NeuralMotionSection.jsx";
 
 /** Mascot settings window (/#mascot-settings) — the mascot's full control
  *  panel in one friendly place, opened from the overlay island's ⚙ or the
  *  tray's "Full mascot settings" (the only in-app path when the controls
  *  island is hidden). Tabs: Settings (call controls first, then
  *  behavior/placement/visibility), Emotions & gestures (the same manual
- *  triggers as the full-screen view, played on the desktop avatar), Songs
- *  and Toys (the mascot's only toy box).
+ *  triggers as the full-screen view, played on the desktop avatar), Songs,
+ *  Toys (the mascot's only toy box) and Body motion (neural motion: global
+ *  config like the voice view's, applied live through the overlay).
  *
  *  Two kinds of controls, two transports:
  *  - Overlay-owned state (the call, prefs, emotions/gestures) lives in the
@@ -218,6 +220,10 @@ export default function MascotSettingsView() {
                         <button className={"btn btn-sm " + (tab === "toys" ? "btn-primary" : "btn-light")}
                                 onClick={() => setTab("toys")}>
                             <i className="fa fa-gift" /> {_t("Toys")}
+                        </button>
+                        <button className={"btn btn-sm " + (tab === "motion" ? "btn-primary" : "btn-light")}
+                                onClick={() => setTab("motion")}>
+                            <i className="fa fa-child" /> {_t("Body motion")}
                         </button>
                     </div>
                     {!alive && (
@@ -703,6 +709,12 @@ export default function MascotSettingsView() {
 
                 {tab === "songs" && <MascotSongsTab mascot={mascot} alive={alive} send={send} />}
                 {tab === "toys" && <MascotToysTab mascot={mascot} alive={alive} send={send} />}
+                {tab === "motion" && (
+                    <section>
+                        <NeuralMotionSection agentId={alive ? mascot?.selectedAgentId : null} testable={false}
+                                             apply={(call) => send({ type: "neuralMotion", call })} />
+                    </section>
+                )}
             </div>
         </div>
     );

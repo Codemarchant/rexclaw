@@ -43,6 +43,10 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
                                          // "weight_shift" / "hand_on_hip": false
                                          // stops the idle shifting its weight /
                                          // putting a hand on the hip
+      "neural_motion": {"model": "neural_model", "style": "Maya"},  // optional;
+                                         // neural body motion taken when switching
+                                         // to this companion (style by name; either
+                                         // skipped where not installed)
       "outfits": [
         {"name": "Winter", "vrm": "kira_winter.vrm", "description": "…",
          "face_tuning": {}, "face_map": {}, "pose_tuning": {}}  // optional; the
@@ -225,6 +229,15 @@ def _pose_tuning(value):
     return json.dumps(out, sort_keys=True) if out else None
 
 
+def _neural_motion(value):
+    """The pack's `neural_motion` defaults → the JSON stored on its row, or None.
+    The model and style named needn't be installed: they apply where they are."""
+    from .neural_motion import avatar_defaults
+
+    out = avatar_defaults(value)
+    return json.dumps(out, sort_keys=True) if out else None
+
+
 def _face_shapes(value, cap):
     """{morph: weight} → the weights above 0, capped; None when not a dict."""
     if not isinstance(value, dict):
@@ -319,27 +332,28 @@ def _upsert_avatar(con, pack_key, vals):
             " vrm_path = ?, vrma_idle_path = ?, emotion_decay = ?, fidgets = ?,"
             " fidget_interval = ?, restrict_base_gestures = ?, base_gestures = ?,"
             " physical_description = ?, main_outfit_name = ?, main_outfit_description = ?,"
-            " face_tuning = ?, face_map = ?, pose_tuning = ?, music_library = ?, active = 1 WHERE id = ?",
+            " face_tuning = ?, face_map = ?, pose_tuning = ?, music_library = ?, neural_motion = ?,"
+            " active = 1 WHERE id = ?",
             (pack_key, vals["name"], vals["description"], vals["sequence"],
              vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
              vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
              vals["base_gestures"], vals["physical_description"],
              vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
-             vals["face_map"], vals["pose_tuning"], vals["music_library"], row["id"]),
+             vals["face_map"], vals["pose_tuning"], vals["music_library"], vals["neural_motion"], row["id"]),
         )
         return row["id"]
     cur = con.execute(
         "INSERT INTO avatars (pack_key, name, description, sequence, vrm_path, vrma_idle_path,"
         " emotion_decay, fidgets, fidget_interval, restrict_base_gestures, base_gestures,"
         " physical_description, main_outfit_name, main_outfit_description, face_tuning,"
-        " face_map, pose_tuning, music_library)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " face_map, pose_tuning, music_library, neural_motion)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (pack_key, vals["name"], vals["description"], vals["sequence"],
          vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
          vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
          vals["base_gestures"], vals["physical_description"],
          vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
-         vals["face_map"], vals["pose_tuning"], vals["music_library"]),
+         vals["face_map"], vals["pose_tuning"], vals["music_library"], vals["neural_motion"]),
     )
     return cur.lastrowid
 
@@ -383,6 +397,7 @@ def _scan_pack(con, pack_dir, url_root):
         "face_map": _face_map(manifest.get("face_map")),
         "pose_tuning": _pose_tuning(manifest.get("pose_tuning")),
         "music_library": 0 if manifest.get("music_library") is False else 1,
+        "neural_motion": _neural_motion(manifest.get("neural_motion")),
     })
 
     # Children are replaced wholesale — manifest is the source of truth.

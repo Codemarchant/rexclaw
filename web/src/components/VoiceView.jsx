@@ -13,6 +13,8 @@ import { VRManager } from "../vr/vr_manager";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 import Transcript from "./Transcript.jsx";
 import StagePanel from "./StagePanel.jsx";
+import NeuralMotionSection from "./NeuralMotionSection.jsx";
+import { neuralMotion } from "../services/neural_motion/neural_motion_service";
 import KaraokeOverlay from "./KaraokeOverlay.jsx";
 import { CAPTION_SIZES, LiveCaptions } from "./Captions.jsx";
 import { CAPTION_HOLD_OPTIONS, useCaptionPrefs } from "../lib/caption_prefs";
@@ -821,6 +823,9 @@ export default function VoiceView({ active = true }) {
     }, [isLive, isConnecting, sv.status, sv.compacting, selectedAgentId, lastResumableSession?.id, previewReload]);
 
     const toggleFullBody = () => {
+        // A new view starts the companion back on its spot (where shuffling left them would sit
+        // off-centre in the new framing).
+        neuralMotion.resetRoot();
         setFullBody((prev) => {
             avatarRenderer.setFullBodyMode?.(!prev);
             return !prev;
@@ -1664,6 +1669,7 @@ export default function VoiceView({ active = true }) {
 
                 {!ui.immersive && showSettings && (
                     <div className="o_voice_full_settings">
+                        <NeuralMotionSection agentId={selectedAgentId} />
                         <div className="o_voice_full_settings_section">
                             <strong>{_t("Look")}</strong>
                             <div className="o_voice_full_settings_row">

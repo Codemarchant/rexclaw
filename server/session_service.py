@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, call_music, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, plugins, song_tools, store, text_to_vrma, turn_director, voicemail_tools, xai_oauth
+from . import xai_client, affection_tools, browser_tools, call_music, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, store, text_to_vrma, turn_director, voicemail_tools, xai_oauth
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 from .pipeline import session as pipeline_session, setups as voice_setups
@@ -1468,6 +1468,15 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         )
 
     avatar = store.avatar_payload(con, agent['avatar_id'])
+    # Neural motion: the companion on screen switching bodies takes their
+    # avatar's defaults into the saved settings; a group call's other
+    # companions move as their own avatar says for this call only.
+    neural_defaults = neural_motion.avatar_defaults(avatar and avatar.get('neural_motion'))
+    if call_parent_session is None:
+        neural_motion.apply_avatar(con, agent['avatar_id'], neural_defaults)
+        neural_call = neural_motion.for_call(get_config(con))
+    else:
+        neural_call = neural_motion.for_call(get_config(con), neural_defaults)
     # What they have on as the call opens, when it isn't the main outfit
     # (which the Appearance section already describes). The browser turns
     # it into one silent context line ahead of the first response — covers
@@ -1545,6 +1554,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # global setting — the client also reads it from /motion/libraries,
         # but a call starts before that fetch lands, so it rides along here.
         'speech_gestures': bool(config['speech_gestures']),
+        'neural_motion': neural_call,
         # Fixed for the call, unlike the motion switches: the prompt this
         # session got describes set_emotion one way or the other.
         'face_director': face_on,
