@@ -47,13 +47,19 @@ export function exitImmersive() {
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
 }
 
+// The how-to-exit hint: the first time each launch, not every time.
+let immersiveHintShown = false;
+
 export function toggleImmersive() {
     if (uiState.immersive) {
         exitImmersive();
         return;
     }
     uiState.immersive = true;
-    notification.add(_t("Immersive view — press Esc or H to exit."), { type: "info", duration: 3000 });
+    if (!immersiveHintShown) {
+        immersiveHintShown = true;
+        notification.add(_t("Immersive view — press Esc or H to exit."), { type: "info", duration: 3000 });
+    }
     // Best-effort real fullscreen; if denied, the UI is still hidden and the
     // Esc/H handlers in VoiceView still restore it.
     document.documentElement.requestFullscreen?.().catch(() => {});
