@@ -8,7 +8,8 @@
  * technique's own parameters; STYLE_PARAMS marks every number that is a
  * design choice instead:
  *   oil          anisotropic Kuwahara filter with polynomial sector weights
- *                (strokes follow the local structure of the image), then
+ *                (strokes follow the local structure of the image) at
+ *                three brush sizes, finer only where there is detail, then
  *                flow-aligned paint textures — bristle relief and varnish —
  *                bump-mapped and Phong-lit, on a woven linen canvas
  *   watercolour  the MNPR watercolour chain: difference-of-Gaussians edges
@@ -21,9 +22,11 @@
  *   riso         three drum inks, each halftoned at its own screen angle,
  *                separated through the Neugebauer/Demichel overprint model,
  *                slightly out of register like every real riso print
- *   pixel        integer-scaled low-res frame, 4×4 Bayer ordered dithering
- *                into a fixed pixel-art palette matched in OKLab, and a
- *                selective inside outline on the characters
+ *   pixel        integer-scaled low-res frame: PixelOE's outline expansion,
+ *                a K-Centroid downscale, 4×4 Bayer ordered dithering
+ *                (backdrop only) into a 32-colour palette fitted to the
+ *                frame, matched in OKLab, and a selective inside outline on
+ *                the characters
  *
  * Pipeline: the scene (or the bloom's output, services/look_post.js) is
  * rendered at a working resolution; "prep" encodes it to sRGB and — on the
@@ -70,6 +73,21 @@ export const STYLE_PARAMS = {
         alpha: 1.0,
         zeta: 0.33,
         eta: 3.77,
+        // Brushes of several sizes, after Hertzmann 1998 ("Painterly
+        // Rendering with Curved Brush Strokes of Multiple Sizes",
+        // Impressionist style: R = (8, 4, 2), T = 100, fσ = .5, fg = 1).
+        // One brush size flattens anything smaller than itself — at radius
+        // 6 the companion's eyes and mouth went into the wall's strokes. So
+        // the Kuwahara runs at `radius` and then at each finer brush (his
+        // radii halving), and a finer layer is used wherever the canvas so
+        // far differs from the reference — the source blurred at fσ·R — by
+        // more than T, averaged over fg·R round it: fine strokes only where
+        // there is fine detail. T is a Euclidean RGB distance on 0–255
+        // channels; here on 0–1.
+        layers: [1, 0.5, 0.25],
+        layerT: 100 / 255,
+        blurFactor: 0.5,
+        gridFactor: 1,
         // Semmo et al. 2015 paint textures, K = (σb, kscale, kspecular,
         // kshininess) = (8, 10, 3, 8): noise smoothed along the flow by a
         // line integral, bump-mapped; brush texture TB = 0.5 + N·L
@@ -164,10 +182,11 @@ export const STYLE_PARAMS = {
         // Screen angles per ink: the offset-print convention (M 75°,
         // C 15°, Y 0°) so the three screens don't moiré.
         angles: [75, 15, 0],
-        // RISO's coarsest dot process (MZ panel "Dot Process 4", 34 lpi
-        // equivalent) on an A5 sheet (210 mm, the classic riso zine) — the
-        // frame's height is the sheet's.
-        lpi: 34,
+        // RISO's dot process one step finer than its coarsest (the panel's
+        // Dot Process 1–4 are 106, 71, 53 and 34 lpi equivalent; 34 laid a
+        // thick dot over every face) — 53 lpi, on an A5 sheet (210 mm, the
+        // classic riso zine): the frame's height is the sheet's.
+        lpi: 53,
         sheetMm: 210,
         // Riso studios quote 0–2 mm of shift between drums for tight work
         // (up to 3 mm with more colours); each ink lands a random 0–2 mm off.
@@ -175,12 +194,56 @@ export const STYLE_PARAMS = {
         paper: "#f4f0e6",       // design: uncoated natural paper
     },
     pixel: {
-        maxLines: 720,
-        // The SNES's 224 visible lines (256 × 224), rounded to a whole
-        // number of canvas pixels per pixel.
-        lines: 224,
+        // 360 lines: 640 × 360, the usual base resolution of today's
+        // pixel-art games — whole-number scales to 720p (×2), 1080p (×3),
+        // 1440p (×4) and 4K (×6). (The SNES's 224 lines left a full-height
+        // companion's face some 26 pixels tall, its eyes five.) Rounded to
+        // a whole number of canvas pixels per pixel.
+        lines: 360,
+        // A 1080-line working frame, so each virtual pixel's cell holds
+        // 3 × 3 samples for the K-Centroid downscale (PX_DOWN) to cluster.
+        maxLines: 1080,
+        // PixelOE's contrast-aware outline expansion (Yeh 2024, Apache-2.0;
+        // its defaults): the weight sigmoid(avg · (median − ½) + dist ·
+        // (dark − bright)) on CIE L*, the median over twice the pixel size,
+        // min and max over the pixel size; then a 3 × 3 erode and dilate
+        // blended by it (thickness 3) and its erode–dilate–dilate–erode
+        // clean-up (3 × 3). A one-pixel mouth or nose line grows to a whole
+        // virtual pixel and comes through the downscale. (Its weight map is
+        // computed once per virtual pixel rather than at half-pixel steps,
+        // and not stretched to the frame's own min–max: that needs a
+        // frame-wide reduction.)
+        expandAvg: 10,
+        expandDist: 3,
+        // Its 3 × 3 kernels reach 1 px on its default 6-px pixels; ours are
+        // about 3 working px, so the kernel reaches a sixth of the pixel
+        // size (half a working px, between texels by linear filtering).
+        // Reaching a whole working px thickened everything twice as much
+        // and softened the faces.
+        kernelPerPixel: 1 / 6,
+        // The palettes are fitted to the frame by k-means, as PixelOE's
+        // quantiser does (2⌊√k⌋ rounds, stopping once no colour moves
+        // 1/256) — one for the backdrop and one for the characters, as
+        // consoles kept background and sprite palettes apart (one shared
+        // palette let a loud backdrop take a companion's eye colour and
+        // skin tones to grey). 128 colours a side, the SNES's sprite and
+        // background halves of its 256 (by eye: 32 a side lost too much on
+        // these grids; the retro grid takes 32, below). Fitted from the
+        // virtual screen's own pixels every `paletteMs`, up to
+        // `paletteSamples` a side, each fit taking up from the last for
+        // `warmRounds` so colours hold still. (A fixed palette had no
+        // shades for a lamp-lit room: the wood went olive.) `warmRounds` a
+        // frame: the first fit spreads its rounds over the reveal (all at
+        // once stalled a frame ~0.1 s). Cadence, sample cap and rounds per
+        // frame: design.
+        figColors: 128,
+        backColors: 128,
+        paletteMs: 500,
+        paletteSamples: 4000,
+        warmRounds: 2,
         // Resurrect 64 by Kerrie Lake (lospec; free for commercial use per
-        // the author) — 64 colours with a full skin-tone ramp.
+        // the author) — the palette until the first fit, or if a frame has
+        // too little in it to fit.
         palette: [
             "#2e222f", "#3e3546", "#625565", "#966c6c", "#ab947a", "#694f62", "#7f708a", "#9babb2",
             "#c7dcd0", "#ffffff", "#6e2727", "#b33831", "#ea4f36", "#f57d4a", "#ae2334", "#e83b3b",
@@ -193,6 +256,28 @@ export const STYLE_PARAMS = {
         ],
     },
 };
+// Pixel art on a finer grid: 540 lines, exactly ×2 on a 1080p screen
+// (×4 at 4K) — a full-height companion's face some 60 pixels tall against
+// the chunky grid's 40. One grid for the whole frame, characters and
+// backdrop alike: mixing pixel sizes on one screen ("mixels") is the
+// mistake pixel art usually avoids (the retro grid tries it, below).
+STYLE_PARAMS.pixelFine = { ...STYLE_PARAMS.pixel, lines: 540 };
+// And on a coarser one: 180 lines, 320 × 180 — the other usual base
+// resolution of pixel-art games, whole-number scales to 720p (×4), 1080p
+// (×6), 1440p (×8) and 4K (×12). Its pixels are six working pixels across,
+// PixelOE's own default pixel size. The backdrop keeps PixelOE's 32
+// colours: on this grid a small palette is what makes its shading fall
+// into flat bands and the dithering mark only where one band meets the
+// next (at 128 it read as a downscaled photo, the dithering as grain). The
+// companion keeps 128: at some 20 pixels a face, every shade it has left
+// counts (by eye: 32 lost them in full-body shots). An experiment against
+// the one-grid rule: the companion is drawn on a finer grid of its own,
+// "mixels", for a face that still reads full body — `figLines` 270, i.e.
+// 480 × 270, the base resolution between 320 × 180 and 640 × 360 (×4 at
+// 1080p, ×8 at 4K), so retro's companion stays coarser than chunky's. Its
+// pixels needn't line up with the backdrop's: it is drawn over them, like
+// a sprite.
+STYLE_PARAMS.pixelRetro = { ...STYLE_PARAMS.pixel, lines: 180, figLines: 270, figColors: 128, backColors: 32 };
 
 export const ART_STYLES = Object.fromEntries(Object.keys(STYLE_PARAMS).map((id) => [id, true]));
 
@@ -223,6 +308,87 @@ function oklab([r, g, b]) {
 }
 
 /** A CSS rgb()/rgba() string → sRGB triple, or null when transparent. */
+/** sRGB (0–1) → OKLab with the chroma axes weighted as PX_QUANT matches. */
+function weightedLab(c) {
+    return oklab(c).map((v, i) => (i ? v * PX_CHROMA_WEIGHT : v));
+}
+
+/** k-means to `k` colours as PixelOE's quantiser runs it: 2⌊√k⌋ rounds,
+ *  stopping once no colour moves 1/256, first started evenly from the
+ *  samples' max to their min — run `step` rounds at a time, each call
+ *  taking up from `prev` (the last), so the first fit spreads over frames
+ *  instead of stalling one, and later fits hold the colours still. `pts`
+ *  (n × 3, weighted OKLab) and `cols` (n × 3, sRGB) are the same samples.
+ *  → { cent, rgb, have, rounds, settled } (`have`: the colour has had
+ *  samples; `settled`: PixelOE's rounds are done or nothing moved). */
+function kMeansPalette(pts, cols, n, k, prev, step) {
+    const cent = new Float32Array(k * 3), rgb = new Float32Array(k * 3), have = new Uint8Array(k);
+    if (prev) {
+        cent.set(prev.cent); rgb.set(prev.rgb); have.set(prev.have);
+    } else {
+        const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+        for (let i = 0; i < n; i++) {
+            for (let d = 0; d < 3; d++) {
+                lo[d] = Math.min(lo[d], pts[i * 3 + d]);
+                hi[d] = Math.max(hi[d], pts[i * 3 + d]);
+            }
+        }
+        for (let j = 0; j < k; j++) {
+            const t = j / (k - 1);
+            for (let d = 0; d < 3; d++) cent[j * 3 + d] = t * lo[d] + (1 - t) * hi[d];
+        }
+    }
+    let rounds = prev?.rounds || 0, settled = false;
+    const label = new Int32Array(n);
+    const sum = new Float64Array(k * 7);
+    for (let r = 0; r < step; r++) {
+        rounds++;
+        for (let i = 0; i < n; i++) {
+            const x = pts[i * 3], y = pts[i * 3 + 1], z = pts[i * 3 + 2];
+            let best = 0, bd = Infinity;
+            for (let j = 0; j < k; j++) {
+                const dx = x - cent[j * 3], dy = y - cent[j * 3 + 1], dz = z - cent[j * 3 + 2];
+                const dd = dx * dx + dy * dy + dz * dz;
+                if (dd < bd) { bd = dd; best = j; }
+            }
+            label[i] = best;
+        }
+        sum.fill(0);
+        for (let i = 0; i < n; i++) {
+            const s = label[i] * 7;
+            for (let d = 0; d < 3; d++) { sum[s + d] += pts[i * 3 + d]; sum[s + 3 + d] += cols[i * 3 + d]; }
+            sum[s + 6] += 1;
+        }
+        let moved = 0;
+        for (let j = 0; j < k; j++) {
+            const s = j * 7, c = sum[s + 6];
+            if (!c) continue;       // nothing near it this time: it stays put
+            for (let d = 0; d < 3; d++) {
+                const v = sum[s + d] / c;
+                moved = Math.max(moved, Math.abs(v - cent[j * 3 + d]));
+                cent[j * 3 + d] = v;
+                rgb[j * 3 + d] = sum[s + 3 + d] / c;
+            }
+            have[j] = 1;
+        }
+        if (moved < 1 / 256 || (!prev?.settled && rounds >= 2 * Math.floor(Math.sqrt(k)))) { settled = true; break; }
+    }
+    // A colour never yet matched has no sRGB of its own: it moves onto the
+    // nearest sample.
+    for (let j = 0; j < k; j++) {
+        if (have[j]) continue;
+        let bi = 0, bd = Infinity;
+        for (let i = 0; i < n; i++) {
+            const dx = pts[i * 3] - cent[j * 3], dy = pts[i * 3 + 1] - cent[j * 3 + 1], dz = pts[i * 3 + 2] - cent[j * 3 + 2];
+            const dd = dx * dx + dy * dy + dz * dz;
+            if (dd < bd) { bd = dd; bi = i; }
+        }
+        for (let d = 0; d < 3; d++) { cent[j * 3 + d] = pts[bi * 3 + d]; rgb[j * 3 + d] = cols[bi * 3 + d]; }
+        have[j] = 1;
+    }
+    return { cent, rgb, have, rounds, settled: settled || !!prev?.settled };
+}
+
 function parseCssColor(css) {
     const m = /rgba?\(([^)]+)\)/.exec(css || "");
     if (!m) return null;
@@ -466,6 +632,32 @@ const AKF = /* glsl */`
             ow += w;
         }
         gl_FragColor = ow > 0.0 ? o / ow : texture2D(tSrc, vUv);
+    }`;
+
+// A finer brush's layer over the canvas so far (Hertzmann 1998's
+// paintLayer): where the canvas differs from this brush's reference by more
+// than T on average over the grid round the pixel, this brush's paint;
+// elsewhere the canvas as it was.
+const OIL_LAYER = /* glsl */`
+    uniform sampler2D tCanvas;
+    uniform sampler2D tFine;
+    uniform sampler2D tRef;
+    uniform vec2 texel;
+    uniform float grid;
+    uniform float T;
+    void main() {
+        int h = int(floor(grid * 0.5));
+        float err = 0.0, n = 0.0;
+        for (int j = -8; j <= 8; j++) {
+            if (j < -h || j > h) continue;
+            for (int i = -8; i <= 8; i++) {
+                if (i < -h || i > h) continue;
+                vec2 uv = vUv + vec2(float(i), float(j)) * texel;
+                err += length(texture2D(tCanvas, uv).rgb - texture2D(tRef, uv).rgb);
+                n += 1.0;
+            }
+        }
+        gl_FragColor = err / n > T ? texture2D(tFine, vUv) : texture2D(tCanvas, vUv);
     }`;
 
 // Paint textures: noise smoothed along the flow by a Gaussian-weighted
@@ -833,30 +1025,157 @@ const RISO_COMPOSE = /* glsl */`
 
 // ── Pixel ───────────────────────────────────────────────────────────────
 
-// Box-filter the working frame down to the virtual screen: straight colour
-// of the composite + the characters' coverage.
+// PixelOE's outline-expansion weight, one per virtual pixel: on L* (0–1),
+// the median over a 2k window and the min and max over a k window round
+// it (k: the pixel size in working pixels). High where the area is light
+// with dark detail in it (erode there: dark lines thicken), low where it is
+// dark with light detail (dilate).
+const PX_WEIGHT = /* glsl */`
+    uniform sampler2D tSrc;
+    uniform sampler2D tFig;
+    uniform vec2 srcTexel;
+    uniform float cell, cellFig;   // pixel size, working px: backdrop / characters
+    uniform float avgScale, distScale;
+    float lstar(vec4 c) {
+        float Y = luma(toLinear(unpremul(c)));
+        float f = Y > 0.008856 ? pow(Y, 1.0 / 3.0) : 7.787 * Y + 16.0 / 116.0;
+        return (116.0 * f - 16.0) / 100.0;
+    }
+    void main() {
+        float c = texture2D(tFig, vUv).a >= 0.5 ? cellFig : cell;
+        int k = clamp(int(ceil(c)), 1, 4);
+        int k2 = 2 * k;
+        float v[64];
+        int m = 0;
+        for (int j = 0; j < 8; j++) {
+            if (j >= k2) break;
+            for (int i = 0; i < 8; i++) {
+                if (i >= k2) break;
+                vec2 o = vec2(float(i), float(j)) + 0.5 - float(k2) * 0.5;
+                v[m] = lstar(texture2D(tSrc, vUv + o * srcTexel));
+                m++;
+            }
+        }
+        for (int a = 1; a < 64; a++) {
+            if (a >= m) break;
+            float x = v[a];
+            int b = a - 1;
+            while (b >= 0 && v[b] > x) { v[b + 1] = v[b]; b--; }
+            v[b + 1] = x;
+        }
+        float med = v[(m - 1) / 2];
+        float lo = 1.0, hi = 0.0;
+        for (int j = 0; j < 4; j++) {
+            if (j >= k) break;
+            for (int i = 0; i < 4; i++) {
+                if (i >= k) break;
+                vec2 o = vec2(float(i), float(j)) + 0.5 - float(k) * 0.5;
+                float L = lstar(texture2D(tSrc, vUv + o * srcTexel));
+                lo = min(lo, L);
+                hi = max(hi, L);
+            }
+        }
+        float score = (med - 0.5) * avgScale + ((med - lo) - (hi - med)) * distScale;
+        gl_FragColor = vec4(vec3(1.0 / (1.0 + exp(-score))), 1.0);
+    }`;
+
+// PixelOE's morphology, 3 × 3 per channel on straight colour: op 0 blends
+// the eroded (min) and dilated (max) frame by the weight, op 1 erodes, op 2
+// dilates. The see-through host's empty pixels stay out of it.
+const PX_MORPH = /* glsl */`
+    uniform sampler2D tSrc;
+    uniform sampler2D tW;
+    uniform sampler2D tFig;
+    uniform vec2 texel;
+    uniform float reach, reachFig;   // the kernel's reach, working px: backdrop / characters
+    uniform int op;
+    void main() {
+        vec4 c0 = texture2D(tSrc, vUv);
+        if (c0.a < 0.5) { gl_FragColor = c0; return; }
+        float rr = texture2D(tFig, vUv).a >= 0.5 ? reachFig : reach;
+        vec3 lo = vec3(1e9), hi = vec3(-1e9);
+        for (int j = -1; j <= 1; j++) {
+            for (int i = -1; i <= 1; i++) {
+                vec4 s = texture2D(tSrc, vUv + vec2(float(i), float(j)) * rr * texel);
+                if (s.a < 0.5) continue;
+                vec3 v = unpremul(s);
+                lo = min(lo, v);
+                hi = max(hi, v);
+            }
+        }
+        vec3 o;
+        if (op == 0) {
+            float w = texture2D(tW, vUv).r;
+            o = lo * w + hi * (1.0 - w);
+        } else {
+            o = op == 1 ? lo : hi;
+        }
+        gl_FragColor = vec4(clamp(o, 0.0, 1.0) * c0.a, c0.a);
+    }`;
+
+// The working frame down to the virtual screen by K-Centroid (Astropulse's
+// downscaler, MIT, used by Retro Diffusion and PixelOE): each cell's
+// samples split into two colour clusters by k-means (k = 2, its default)
+// and the bigger cluster's centroid is the pixel — a colour that is really
+// there, not the muddy average of a box filter, and noise falls away
+// instead of smearing. Seeded at the cell's darkest and lightest samples;
+// a tie goes to the cluster nearer the cell's mean. The see-through host's
+// empty samples sit out; coverage is averaged as before.
 const PX_DOWN = /* glsl */`
     uniform sampler2D tSrc;
     uniform sampler2D tFig;
     uniform vec2 srcTexel;
     uniform float cell;
+    // The backdrop's grid when the characters have their own (mixels):
+    // their samples sit out and the pixel is all backdrop (alpha 0), so
+    // the coarse pixels round a silhouette take the colour behind it.
+    uniform bool skipFig;
     void main() {
-        int n = int(ceil(cell));
+        int n = min(int(ceil(cell)), 4);
+        vec3 c[16];
+        int m = 0;
         vec4 sum = vec4(0.0);
         float fig = 0.0, cnt = 0.0;
-        for (int j = 0; j < 12; j++) {
+        vec3 lo = vec3(0.0), hi = vec3(0.0);
+        float loL = 2.0, hiL = -1.0;
+        for (int j = 0; j < 4; j++) {
             if (j >= n) break;
-            for (int i = 0; i < 12; i++) {
+            for (int i = 0; i < 4; i++) {
                 if (i >= n) break;
                 vec2 o = (vec2(float(i), float(j)) + 0.5 - float(n) * 0.5) * cell / float(n);
                 vec2 uv = vUv + o * srcTexel;
-                sum += texture2D(tSrc, uv);
-                fig += texture2D(tFig, uv).a;
+                vec4 s = texture2D(tSrc, uv);
+                float f = texture2D(tFig, uv).a;
+                sum += s;
+                fig += f;
                 cnt += 1.0;
+                if (s.a < 0.5 || (skipFig && f >= 0.5)) continue;
+                vec3 v = unpremul(s);
+                float l = luma(v);
+                if (l < loL) { loL = l; lo = v; }
+                if (l > hiL) { hiL = l; hi = v; }
+                c[m] = v;
+                m++;
             }
         }
-        sum /= cnt;
-        gl_FragColor = vec4(unpremul(sum), fig / cnt);
+        vec3 mean = unpremul(sum / cnt);
+        float cover = skipFig ? 0.0 : fig / cnt;
+        if (m == 0) { gl_FragColor = vec4(mean, cover); return; }
+        float nLo = 0.0, nHi = 0.0;
+        for (int it = 0; it < 4; it++) {
+            vec3 sLo = vec3(0.0), sHi = vec3(0.0);
+            nLo = 0.0; nHi = 0.0;
+            for (int k = 0; k < 16; k++) {
+                if (k >= m) break;
+                vec3 dl = c[k] - lo, dh = c[k] - hi;
+                if (dot(dl, dl) <= dot(dh, dh)) { sLo += c[k]; nLo += 1.0; } else { sHi += c[k]; nHi += 1.0; }
+            }
+            if (nLo > 0.0) lo = sLo / nLo;
+            if (nHi > 0.0) hi = sHi / nHi;
+        }
+        vec3 dl = lo - mean, dh = hi - mean;
+        bool takeLo = nLo > nHi || (nLo == nHi && dot(dl, dl) <= dot(dh, dh));
+        gl_FragColor = vec4(takeLo ? lo : hi, cover);
     }`;
 
 // Ordered dithering into the palette, in OKLab (Ottosson 2020), after
@@ -874,9 +1193,12 @@ const PX_QUANT = /* glsl */`
     #define CHROMA_WEIGHT ${PX_CHROMA_WEIGHT.toFixed(1)}
     uniform sampler2D tSrc;
     uniform vec2 texel;
-    uniform vec3 pal[64];
-    uniform vec3 palSRGB[64];
-    uniform int palN;
+    // The palettes, a texel a colour: row 0 weighted OKLab, row 1 sRGB.
+    // The backdrop's are texels [0, backN), the characters' [128, 128 +
+    // figN) — a palette each, as a console's backgrounds and sprites had
+    // (_fitPalette). An empty one falls back to the other.
+    uniform sampler2D tPal;
+    uniform int backN, figN;
     uniform bool opaque;
     vec3 oklab(vec3 c) {
         float l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
@@ -901,28 +1223,34 @@ const PX_QUANT = /* glsl */`
             || texture2D(tSrc, vUv - vec2(0.0, texel.y)).a < 0.5);
         // Selective outline: the rim takes a darker shade of its own colour.
         if (edge) lab.x *= 0.5;
-        int i1 = 0;
+        int base = inside ? 128 : 0, n = inside ? figN : backN;
+        if (n == 0) { base = inside ? 0 : 128; n = inside ? backN : figN; }
+        int i1 = base;
         float d1 = 1e9;
-        for (int i = 0; i < 64; i++) {
-            if (i >= palN) break;
-            vec3 e = lab - pal[i];
+        for (int i = 0; i < 128; i++) {
+            if (i >= n) break;
+            vec3 e = lab - texelFetch(tPal, ivec2(base + i, 0), 0).rgb;
             float dd = dot(e, e);
-            if (dd < d1) { d1 = dd; i1 = i; }
+            if (dd < d1) { d1 = dd; i1 = base + i; }
         }
+        vec3 p1 = texelFetch(tPal, ivec2(i1, 0), 0).rgb;
         int i2 = i1;
         float t = 0.0, best = d1;
-        for (int i = 0; i < 64; i++) {
-            if (i >= palN) break;
-            vec3 seg = pal[i] - pal[i1];
+        for (int i = 0; i < 128; i++) {
+            if (i >= n) break;
+            vec3 seg = texelFetch(tPal, ivec2(base + i, 0), 0).rgb - p1;
             float len2 = dot(seg, seg);
             if (len2 <= 0.0) continue;
-            float r = floor(clamp(dot(lab - pal[i1], seg) / len2, 0.0, 1.0) * 16.0 + 0.5) / 16.0;
-            vec3 e = lab - (pal[i1] + r * seg);
+            float r = floor(clamp(dot(lab - p1, seg) / len2, 0.0, 1.0) * 16.0 + 0.5) / 16.0;
+            vec3 e = lab - (p1 + r * seg);
             float err = dot(e, e) + 0.1 * len2 * (abs(r - 0.5) + 0.5);
-            if (err < best) { best = err; i2 = i; t = r; }
+            if (err < best) { best = err; i2 = base + i; t = r; }
         }
-        int pick = !edge && bayer4(ivec2(gl_FragCoord.xy)) < t ? i2 : i1;
-        gl_FragColor = vec4(palSRGB[pick], opaque || inside ? 1.0 : 0.0);
+        // Dithered on the backdrop only: on a sprite this small the Bayer
+        // pattern reads as noise over the face, and pixel artists shade
+        // characters in flat ramps.
+        int pick = !inside && bayer4(ivec2(gl_FragCoord.xy)) < t ? i2 : i1;
+        gl_FragColor = vec4(texelFetch(tPal, ivec2(pick, 1), 0).rgb, opaque || inside ? 1.0 : 0.0);
     }`;
 
 const PX_COMPOSE = /* glsl */`
@@ -930,6 +1258,11 @@ const PX_COMPOSE = /* glsl */`
     uniform sampler2D tRaw;
     uniform float scale;
     uniform float reveal;
+    // Mixels: the characters' own finer grid (quantised, and its coverage),
+    // drawn wherever it has them.
+    uniform bool mixed;
+    uniform sampler2D tQF, tFigF;
+    uniform float scaleF;
     void main() {
         ivec2 size = textureSize(tQ, 0);
         ivec2 ip = ivec2(gl_FragCoord.xy / scale);
@@ -937,6 +1270,12 @@ const PX_COMPOSE = /* glsl */`
         int block = int(exp2(floor((1.0 - reveal) * 5.999)));
         ivec2 bp = (ip / block) * block + block / 2;
         vec4 q = texelFetch(tQ, clamp(bp, ivec2(0), size - 1), 0);
+        if (mixed) {
+            ivec2 sizeF = textureSize(tQF, 0);
+            ivec2 pF = block > 1 ? ivec2((vec2(bp) + 0.5) * scale / scaleF) : ivec2(gl_FragCoord.xy / scaleF);
+            pF = clamp(pF, ivec2(0), sizeF - 1);
+            if (texelFetch(tFigF, pF, 0).a >= 0.5) q = texelFetch(tQF, pF, 0);
+        }
         gl_FragColor = mix(texture2D(tRaw, vUv), vec4(q.rgb * q.a, q.a), smoothstep(0.0, 0.08, reveal));
     }`;
 
@@ -947,6 +1286,7 @@ const SHADERS = {
     gauss: [GAUSS, ["tSrc", "dir", "sigma", "extent", "maxR"]],
     tile: [TILE_GEN, ["mode"]],
     akf: [AKF, ["tSrc", "tFlow", "texel", "radius", "q", "alpha", "zeta", "eta"]],
+    oilLayer: [OIL_LAYER, ["tCanvas", "tFine", "tRef", "texel", "grid", "T"]],
     strokes: [STROKES, ["tFlow", "texel", "sigma", "varnishCell", "orderCell"]],
     oilCompose: [OIL_COMPOSE, ["tPaint", "tStrokes", "tRaw", "workTexel", "reveal", "opaque", "lightDir",
         "kScale", "kSpecular", "kShininess", "weavePitch", "weave"]],
@@ -960,9 +1300,11 @@ const SHADERS = {
     risoSep: [RISO_SEP, ["tSrc", "inkT0", "inkT1", "inkT2", "densInv", "paperLin"]],
     risoCompose: [RISO_COMPOSE, ["tSep", "tRaw", "tPaper", "reveal", "opaque", "ink0", "ink1", "ink2", "paperLin",
         "angles", "pitch", "misreg0", "misreg1", "misreg2", "fullTexel"]],
-    pxDown: [PX_DOWN, ["tSrc", "tFig", "srcTexel", "cell"]],
-    pxQuant: [PX_QUANT, ["tSrc", "texel", "pal", "palSRGB", "palN", "opaque"]],
-    pxCompose: [PX_COMPOSE, ["tQ", "tRaw", "scale", "reveal"]],
+    pxWeight: [PX_WEIGHT, ["tSrc", "tFig", "srcTexel", "cell", "cellFig", "avgScale", "distScale"]],
+    pxMorph: [PX_MORPH, ["tSrc", "tW", "tFig", "texel", "reach", "reachFig", "op"]],
+    pxDown: [PX_DOWN, ["tSrc", "tFig", "srcTexel", "cell", "skipFig"]],
+    pxQuant: [PX_QUANT, ["tSrc", "texel", "tPal", "backN", "figN", "opaque"]],
+    pxCompose: [PX_COMPOSE, ["tQ", "tRaw", "scale", "reveal", "mixed", "tQF", "tFigF", "scaleF"]],
 };
 
 export class ArtStyle {
@@ -1086,13 +1428,14 @@ export class ArtStyle {
         this._quad.render(this.renderer);
     }
 
-    _rt(name, w, h, { depth = false, samples = 0, nearest = false } = {}) {
+    _rt(name, w, h, { depth = false, samples = 0, nearest = false, bytes = false } = {}) {
         let t = this._targets.get(name);
         if (!t) {
             const T = this.THREE;
             const filter = nearest ? T.NearestFilter : T.LinearFilter;
+            // `bytes`: 8-bit, for reading back on the CPU.
             t = new T.WebGLRenderTarget(w, h, {
-                type: this._type, depthBuffer: depth, samples, minFilter: filter, magFilter: filter,
+                type: bytes ? T.UnsignedByteType : this._type, depthBuffer: depth, samples, minFilter: filter, magFilter: filter,
             });
             this._targets.set(name, t);
         } else if (t.width !== w || t.height !== h) {
@@ -1199,10 +1542,24 @@ export class ArtStyle {
     _oil(ctx) {
         const { P, ks, ww, wh, texel } = ctx;
         const flow = this._flow(ctx, P.sigmaT);
-        const paint = this._rt("a", ww, wh);
-        this._pass("akf", paint, {
-            tSrc: ctx.prep, tFlow: flow, texel,
-            radius: P.radius * ks, q: P.q, alpha: P.alpha, zeta: P.zeta, eta: P.eta,
+        // Coarse to fine (STYLE_PARAMS.oil.layers): the first brush covers
+        // the canvas, each finer one only where detail was lost.
+        let paint = null;
+        P.layers.forEach((share, i) => {
+            const R = P.radius * share * ks;
+            const fine = this._rt(i ? "c" : "a", ww, wh);
+            this._pass("akf", fine, {
+                tSrc: ctx.prep, tFlow: flow, texel,
+                radius: R, q: P.q, alpha: P.alpha, zeta: P.zeta, eta: P.eta,
+            });
+            if (!paint) { paint = fine; return; }
+            const ref = this._rt("d", ww, wh);
+            this._gauss(ctx.prep, this._rt("e", ww, wh), P.blurFactor * R, { dst: ref });
+            const out = this._rt(i % 2 ? "f" : "g", ww, wh);
+            this._pass("oilLayer", out, {
+                tCanvas: paint, tFine: fine, tRef: ref, texel, grid: Math.max(1, P.gridFactor * R), T: P.layerT,
+            });
+            paint = out;
         });
         const strokeFlow = this._flow(ctx, P.sigmaFlow, { name: "t3" });
         const strokes = this._rt("b", ww, wh);
@@ -1301,29 +1658,172 @@ export class ArtStyle {
         return { paper, lin: inkLin, T, densInv: inv.toArray() };
     }
 
+    _pixelFine(ctx) {
+        this._pixel(ctx);
+    }
+
+    _pixelRetro(ctx) {
+        this._pixel(ctx);
+    }
+
     _pixel(ctx) {
-        const { P, wh } = ctx;
-        const pal = (this._palette ||= this._paletteSetup(P.palette));
+        const { P, ww, wh, texel } = ctx;
         // Integer scale: every virtual pixel is the same whole number of
         // canvas pixels, never fewer than two.
         const scale = Math.max(2, Math.round(ctx.fh / P.lines));
         const vw = Math.ceil(ctx.fw / scale), vh = Math.ceil(ctx.fh / scale);
-        const down = this._rt("lo", vw, vh, { nearest: true });
-        this._pass("pxDown", down, { tSrc: ctx.prep, tFig: ctx.src, srcTexel: ctx.texel, cell: wh / vh });
-        const q = this._rt("lo2", vw, vh, { nearest: true });
-        this._pass("pxQuant", q, {
-            tSrc: down, texel: [1 / vw, 1 / vh], pal: pal.lab, palSRGB: pal.srgb, palN: pal.n, opaque: ctx.opaque,
+        const cell = wh / vh;
+        // Mixels (STYLE_PARAMS figLines): the characters on their own grid,
+        // a whole number of canvas pixels per pixel like the backdrop's.
+        const mixed = !!P.figLines;
+        const scaleF = mixed ? Math.max(1, Math.round((scale * P.lines) / P.figLines)) : scale;
+        const vwF = Math.ceil(ctx.fw / scaleF), vhF = Math.ceil(ctx.fh / scaleF);
+        const cellF = wh / vhF;
+        // Outline expansion (PixelOE): the weight per virtual pixel, the
+        // weighted erode/dilate, then erode, dilate, dilate, erode — each
+        // at the pixel size of the grid it lands on.
+        const weight = this._rt("pxw", vwF, vhF);
+        this._pass("pxWeight", weight, {
+            tSrc: ctx.prep, tFig: ctx.src, srcTexel: texel, cell, cellFig: cellF,
+            avgScale: P.expandAvg, distScale: P.expandDist,
         });
-        this._pass("pxCompose", null, { tQ: q, tRaw: ctx.prep, scale, reveal: ctx.reveal });
+        const a = this._rt("a", ww, wh), b = this._rt("b", ww, wh);
+        const reach = cell * P.kernelPerPixel, reachFig = cellF * P.kernelPerPixel;
+        const morph = (src, dst, op) => this._pass("pxMorph", dst, { tSrc: src, tW: weight, tFig: ctx.src, texel, reach, reachFig, op });
+        morph(ctx.prep, a, 0);
+        morph(a, b, 1);
+        morph(b, a, 2);
+        morph(a, b, 2);
+        morph(b, a, 1);
+        // 8-bit: the palettes are fitted from these very pixels on the CPU.
+        const down = this._rt("lo", vw, vh, { nearest: true, bytes: true });
+        this._pass("pxDown", down, { tSrc: a, tFig: ctx.src, srcTexel: texel, cell, skipFig: mixed });
+        let downF = down;
+        if (mixed) {
+            downF = this._rt("loF", vwF, vhF, { nearest: true, bytes: true });
+            this._pass("pxDown", downF, { tSrc: a, tFig: ctx.src, srcTexel: texel, cell: cellF, skipFig: false });
+        }
+        const pal = this._fitPalette(ctx, down, downF);
+        const quant = (src, name, w, h) => {
+            const q = this._rt(name, w, h, { nearest: true });
+            this._pass("pxQuant", q, {
+                tSrc: src, texel: [1 / w, 1 / h], tPal: pal.tex, backN: pal.backN, figN: pal.figN, opaque: ctx.opaque,
+            });
+            return q;
+        };
+        const q = quant(down, "lo2", vw, vh);
+        const qF = mixed ? quant(downF, "lo2F", vwF, vhF) : q;
+        this._pass("pxCompose", null, {
+            tQ: q, tRaw: ctx.prep, scale, reveal: ctx.reveal, mixed, tQF: qF, tFigF: downF, scaleF,
+        });
     }
 
-    /** Palette → OKLab (chroma-weighted like PX_QUANT's target) + sRGB
-     *  uniform arrays, padded to 64. */
-    _paletteSetup(hexes) {
-        const srgb = hexes.map(hexToRgb);
-        const lab = srgb.map((c) => oklab(c).map((v, i) => (i ? v * PX_CHROMA_WEIGHT : v)));
-        const pad = (arr) => arr.concat(Array.from({ length: 64 - arr.length }, () => [0, 0, 0]));
-        return { n: hexes.length, srgb: pad(srgb), lab: pad(lab) };
+    /** The palettes fitted to the frame (STYLE_PARAMS.pixel figColors and
+     *  backColors):
+     *  every paletteMs, the virtual screen's own pixels (K-Centroid colours,
+     *  the companion's coverage in alpha) are read back and split, backdrop
+     *  and characters, and each gets its own k-means palette in
+     *  chroma-weighted OKLab — sprites and backgrounds never shared colours
+     *  on a console either (the SNES's CGRAM: 0–127 for backgrounds,
+     *  128–255 for sprites), so a loud backdrop can't take the companion's
+     *  blue eyes or warm skin. Each side is sampled at up to paletteSamples
+     *  pixels (evenly through it). A side with too little in it gets no
+     *  palette of its own (PX_QUANT then uses the other's); the fixed
+     *  palette on both until either has something to work with. The
+     *  palettes live in a 256 × 2 float texture (PX_QUANT's tPal). */
+    _fitPalette(ctx, down, downFig = down) {
+        const { P } = ctx;
+        const T = this.THREE;
+        let pal = this._pal;
+        if (!pal) {
+            const tex = new T.DataTexture(new Float32Array(256 * 2 * 4), 256, 2, T.RGBAFormat, T.FloatType);
+            tex.minFilter = tex.magFilter = T.NearestFilter;
+            pal = this._pal = { tex, backN: 0, figN: 0, fits: {} };
+            const fixed = P.palette.map(hexToRgb);
+            for (const base of [0, 128]) this._writePalette(base, fixed.flat(), fixed.map(weightedLab).flat(), fixed.length);
+            pal.backN = pal.figN = fixed.length;
+        }
+        // The pixels come back asynchronously (a PBO and a fence: a plain
+        // readPixels stalls the CPU until the GPU has drawn everything
+        // queued); they're fitted on the frame they arrive, so the palette
+        // runs a frame or two behind. Read every frame until each side's
+        // first fit has settled; then every paletteMs.
+        if (pal.ready) {
+            this._fitFrom(pal, P, pal.ready);
+            pal.ready = null;
+        }
+        const settling = Object.values(pal.fits).some((f) => !f.settled);
+        const due = settling || pal.at === undefined || ctx.now - pal.at >= P.paletteMs;
+        if (due && !pal.reading) {
+            pal.at = ctx.now;
+            pal.reading = true;
+            const opaque = ctx.opaque;
+            // The backdrop's colours from its grid, the characters' from
+            // theirs (the same target unless they have their own: mixels).
+            const grab = (rt) => {
+                const w = rt.width, h = rt.height, buf = new Uint8Array(w * h * 4);
+                return this.renderer.readRenderTargetPixelsAsync(rt, 0, 0, w, h, buf).then(() => ({ buf, w, h }));
+            };
+            const back = grab(down), fig = downFig === down ? back : grab(downFig);
+            Promise.all([back, fig])
+                .then(([b, f]) => { pal.ready = { back: b, fig: f, opaque }; }, () => {})
+                .finally(() => { pal.reading = false; });
+        }
+        return pal;
+    }
+
+    /** One fit of both sides from read-back pixels (see _fitPalette). */
+    _fitFrom(pal, P, { back, fig, opaque }) {
+        const count = ({ buf, w, h }, inside) => {
+            let c = 0;
+            for (let i = 0; i < w * h; i++) if ((buf[i * 4 + 3] >= 128) === inside) c++;
+            return c;
+        };
+        const sides = [
+            // The see-through host paints only the characters.
+            { name: "back", base: 0, src: back, count: opaque ? count(back, false) : 0, inside: false, k: P.backColors },
+            { name: "fig", base: 128, src: fig, count: count(fig, true), inside: true, k: P.figColors },
+        ];
+        for (const s of sides) {
+            const { buf, w, h } = s.src;
+            // A fit from another pixel style's palette size starts afresh.
+            if (pal.fits[s.name] && pal.fits[s.name].cent.length !== s.k * 3) delete pal.fits[s.name];
+            if (s.count < s.k) { delete pal.fits[s.name]; continue; }
+            const step = Math.max(1, s.count / P.paletteSamples);
+            const m = Math.min(s.count, P.paletteSamples);
+            const pts = new Float32Array(m * 3), cols = new Float32Array(m * 3);
+            let seen = 0, next = 0, n = 0;
+            for (let i = 0; i < w * h && n < m; i++) {
+                if ((buf[i * 4 + 3] >= 128) !== s.inside) continue;
+                if (seen++ < next) continue;
+                next += step;
+                const c = [buf[i * 4] / 255, buf[i * 4 + 1] / 255, buf[i * 4 + 2] / 255];
+                const lab = weightedLab(c);
+                for (let d = 0; d < 3; d++) { pts[n * 3 + d] = lab[d]; cols[n * 3 + d] = c[d]; }
+                n++;
+            }
+            const fit = kMeansPalette(pts, cols, n, s.k, pal.fits[s.name], P.warmRounds);
+            pal.fits[s.name] = fit;
+            this._writePalette(s.base, fit.rgb, fit.cent, s.k);
+        }
+        if (pal.fits.back) pal.backN = P.backColors;
+        else pal.backN = pal.fits.fig ? 0 : pal.backN;
+        if (pal.fits.fig) pal.figN = P.figColors;
+        else pal.figN = pal.fits.back ? 0 : pal.figN;
+    }
+
+    /** `count` colours into the palette texture from texel `base`: sRGB
+     *  and weighted OKLab, three floats each. */
+    _writePalette(base, srgb, lab, count) {
+        const tex = this._pal.tex, data = tex.image.data;
+        for (let j = 0; j < count; j++) {
+            for (let d = 0; d < 3; d++) {
+                data[(base + j) * 4 + d] = lab[j * 3 + d];
+                data[(256 + base + j) * 4 + d] = srgb[j * 3 + d];
+            }
+            data[(base + j) * 4 + 3] = data[(256 + base + j) * 4 + 3] = 1;
+        }
+        tex.needsUpdate = true;
     }
 
     _releaseTargets() {
@@ -1339,6 +1839,8 @@ export class ArtStyle {
         this._mats.clear();
         this._back.texture?.dispose();
         this._back = { source: null, texture: null };
+        this._pal?.tex.dispose();
+        this._pal = null;
         this._quad.dispose();
     }
 }

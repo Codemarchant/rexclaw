@@ -51,7 +51,9 @@ export const ART_STYLE_OPTIONS = [
     ["watercolour", "Watercolour"],
     ["ink", "Manga ink"],
     ["riso", "Risograph"],
-    ["pixel", "Pixel art"],
+    ["pixelRetro", "Pixel art (retro)"],
+    ["pixel", "Pixel art (chunky)"],
+    ["pixelFine", "Pixel art (fine)"],
 ];
 
 // [id, English label] — ids are the systems in services/ambience.js.
