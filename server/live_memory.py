@@ -136,7 +136,7 @@ def evaluate(con, session, text, recent_context=()):
     # One word for six conditions tells a tester nothing, so name the one that
     # actually stopped it.
     off = [name for name, ok in (('mode_off', mode == 'on'),
-                                 ('no_typesafe_key', bool(config['typesafe_api_key'])),
+                                 ('no_decision_model', jev.ready(config)),
                                  ('session_not_active', session['state'] == 'active'),
                                  ('no_agent', bool(agent)),
                                  ('memory_tools_off', bool(agent and agent['enable_memory_tools']))) if not ok]
@@ -190,7 +190,7 @@ def evaluate(con, session, text, recent_context=()):
                  } for c in candidates}}
         qs = questions(candidates)
         try:
-            body = jev.ask(config['typesafe_api_key'], config['jev_model'], state, qs, timeout=(.4, .7))
+            body = jev.ask(config, state, qs, timeout=(.4, .7))
         except Exception:
             _logger.debug('Live memory judge unavailable', exc_info=True)
             return {**empty, 'reason': 'judge_unavailable'}
@@ -211,7 +211,7 @@ def evaluate(con, session, text, recent_context=()):
         current_agent = store.get_agent(con, agent['id'])
         row = con.execute("SELECT content,agent_id,scope,tags,recall_revision FROM memories WHERE id=?",
                           (picked['id'],)).fetchone()
-        if (latest['live_memory_mode'] != mode or not latest['typesafe_api_key'] or
+        if (latest['live_memory_mode'] != mode or not jev.ready(latest) or
                 not current or current['state'] != 'active' or not row or row['scope'] != 'recall' or
                 row['agent_id'] not in (None, agent['id']) or row['recall_revision'] != picked['recall_revision'] or
                 # Tagging a memory retired mid-call must stop it, and the

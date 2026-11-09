@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client, xai_oauth
+from .. import avatar_packs, decision_local, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client, xai_oauth
 from ..db import ASSETS_DIR, FILES_DIR, get_config, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
@@ -61,6 +61,8 @@ _CONFIG_FIELDS = (
     "transcript_retention_days", "file_default_expiry_seconds",
     "speech_gestures", "idle_fidgets", "fidget_interval",
     "gesture_zoom_out", "tool_animations", "face_director", "jev_model", "live_memory_mode",
+    "decision_provider", "decision_api_url", "decision_api_model", "decision_local_device",
+    "decision_local_model",
     "live_memory_cooldown_seconds", "text_max_searches", "delegate_max_searches",
     "xai_max_turns",
     "summary_max_words", "summary_consolidate_words",
@@ -109,6 +111,12 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     out["has_gesture_gen_token"] = bool(row["gesture_gen_token"])
     # The TypeSafe (Jev) API key: write-only too.
     out["has_typesafe_api_key"] = bool(row["typesafe_api_key"])
+    # So is the key of another decision model server. Whether the chosen
+    # decision model can be asked at all, and whether it finds things on a
+    # screenshot (Jev only), is what the features that need one show.
+    out["has_decision_api_key"] = bool(row["decision_api_key"])
+    out["decision_ready"] = jev.ready(row)
+    out["decision_can_box"] = jev.can_box(row)
     # The YouTube Data API key (live chat): write-only too.
     out["has_youtube_api_key"] = bool(row["live_chat_youtube_api_key"])
     # Voice connections and setups (API keys masked to "saved" flags) and
@@ -153,6 +161,12 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
             updates["default_voice_setup"] = voice_setups.default_choice(con, ids, payload["default_voice_setup"])
     elif "default_voice_setup" in updates:
         updates["default_voice_setup"] = voice_setups.default_choice(con, {}, updates["default_voice_setup"])
+    if 'decision_provider' in updates and updates['decision_provider'] not in jev.PROVIDERS:
+        raise UserError('Invalid decision model.')
+    if 'decision_local_device' in updates and updates['decision_local_device'] not in ('', 'cuda', 'cpu'):
+        raise UserError('Invalid device for the local decision model.')
+    if 'decision_local_model' in updates and updates['decision_local_model'] not in decision_local.MODELS:
+        raise UserError('Unknown local decision model.')
     if 'live_memory_cooldown_seconds' in updates:
         seconds = updates['live_memory_cooldown_seconds']
         if type(seconds) is not int or not 0 <= seconds <= 3600:
@@ -203,6 +217,12 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
             updates["typesafe_api_key"] = ""
         elif isinstance(ts_key, str) and ts_key.strip():
             updates["typesafe_api_key"] = ts_key.strip()
+    if "decision_api_key" in payload:
+        dm_key = payload["decision_api_key"]
+        if dm_key is None:
+            updates["decision_api_key"] = ""
+        elif isinstance(dm_key, str) and dm_key.strip():
+            updates["decision_api_key"] = dm_key.strip()
     if "live_chat_youtube_api_key" in payload:
         yt_key = payload["live_chat_youtube_api_key"]
         if yt_key is None:
@@ -217,6 +237,9 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
     con.commit()
     if "games_neuro_port" in updates:
         games_routes.apply_listener(updates["games_neuro_port"])
+    if any(k in updates for k in ("decision_provider", "decision_local_device", "decision_local_model")):
+        # The local model is loaded only while it is the chosen one.
+        decision_local.apply(get_config(con))
     return {"ok": True, "updated": sorted(updates.keys())}
 
 
@@ -402,17 +425,43 @@ def gesture_gen_test(payload: dict = Body(default={}), con=Depends(db_con)):
 
 @router.post("/face_director/test")
 def face_director_test(payload: dict = Body(default={}), con=Depends(db_con)):
-    """Settings "Test": does the TypeSafe key work, and how long a Jev round
-    trip takes from this machine. The draft key when one is typed, else the
-    stored one, like /gesture_gen/test. The model field shows the saved
-    value, so the model sent is the one to test — empty is jev-latest."""
-    key, model = payload.get("key"), payload.get("model")
-    stored_key, stored_model = con.execute("SELECT typesafe_api_key, jev_model FROM config WHERE id = 1").fetchone()
-    if not (isinstance(key, str) and key.strip()):
-        key = stored_key
-    if not isinstance(model, str):
-        model = stored_model
-    return jev.test_key(key.strip() if key else "", model)
+    """Settings "Test": does the decision model picked in the form answer,
+    and how long a round trip takes from this machine. The form's values,
+    saved or not; a key field left blank means the stored key, like
+    /gesture_gen/test."""
+    config = dict(con.execute("SELECT * FROM config WHERE id = 1").fetchone())
+    for field in ("decision_provider", "jev_model", "decision_api_url", "decision_api_model",
+                  "decision_local_device", "decision_local_model"):
+        if isinstance(payload.get(field), str):
+            config[field] = payload[field]
+    for field in ("typesafe_api_key", "decision_api_key"):
+        if isinstance(payload.get(field), str) and payload[field].strip():
+            config[field] = payload[field].strip()
+    if config["decision_provider"] == "local" and decision_local.installed(config["decision_local_model"]):
+        # Test asks the model that is loaded and never loads one: saving is
+        # what does that, so a choice tried here and then discarded leaves
+        # nothing behind in video memory.
+        status = decision_local.status()
+        if not status["running"] or status["model"] != decision_local.model_key(config["decision_local_model"]):
+            return {"ok": False, "error": "Save Settings to load this model, then test it."}
+    return jev.test(config)
+
+
+@router.post("/decision_local/status")
+def decision_local_status(payload: dict = Body(default={})):
+    return decision_local.status()
+
+
+@router.post("/decision_local/install")
+def decision_local_install(payload: dict = Body(default={})):
+    decision_local.start_install(payload.get("model"))
+    return decision_local.status()
+
+
+@router.post("/decision_local/uninstall")
+def decision_local_uninstall(payload: dict = Body(default={})):
+    decision_local.uninstall(payload.get("model"))
+    return decision_local.status()
 
 
 @router.post("/local_gen/inspect")

@@ -79,17 +79,26 @@ def venv_python():
     return VENV_DIR / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
 
 
-def has_nvidia():
+def nvidia_smi(*args):
+    """Run nvidia-smi with `args`; the finished process, or None when there
+    is no NVIDIA driver or it didn't answer. No console window: the
+    packaged app's server has none of its own to lend it."""
     exe = shutil.which('nvidia-smi')
     if not exe and sys.platform == 'win32':
         cand = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32' / 'nvidia-smi.exe'
         exe = str(cand) if cand.is_file() else None
     if not exe:
-        return False
+        return None
+    flags = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
     try:
-        return subprocess.run([exe, '-L'], capture_output=True, timeout=15).returncode == 0
+        return subprocess.run([exe, *args], capture_output=True, text=True, timeout=15, **flags)
     except Exception:
-        return False
+        return None
+
+
+def has_nvidia():
+    out = nvidia_smi('-L')
+    return bool(out and out.returncode == 0)
 
 
 def supported():
@@ -144,27 +153,35 @@ def start_install():
     threading.Thread(target=_install, name='voicelab-install', daemon=True).start()
 
 
+def fetch_uv(uv_dir):
+    """Download uv into `uv_dir` (also the local decision model's installer,
+    decision_local.py, into its own folder); returns the executable."""
+    exe = uv_dir / ('uv.exe' if sys.platform == 'win32' else 'uv')
+    name, ext = _uv_target()
+    url = f'https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/{name}{ext}'
+    data = requests.get(url, timeout=300).content
+    uv_dir.mkdir(parents=True, exist_ok=True)
+    if ext == '.zip':
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            for m in z.namelist():
+                if Path(m).name in ('uv.exe', 'uvx.exe'):
+                    (uv_dir / Path(m).name).write_bytes(z.read(m))
+    else:
+        with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as t:
+            for m in t.getmembers():
+                if Path(m.name).name in ('uv', 'uvx') and m.isfile():
+                    (uv_dir / Path(m.name).name).write_bytes(t.extractfile(m).read())
+                    os.chmod(uv_dir / Path(m.name).name, 0o755)
+    return exe
+
+
 def _install():
     try:
         VOICELAB_DIR.mkdir(parents=True, exist_ok=True)
         LOG.write_text('', encoding='utf-8')
         if not _uv_exe().is_file():
-            name, ext = _uv_target()
-            url = f'https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/{name}{ext}'
             _log(f'Downloading uv {UV_VERSION}')
-            data = requests.get(url, timeout=300).content
-            UV_DIR.mkdir(parents=True, exist_ok=True)
-            if ext == '.zip':
-                with zipfile.ZipFile(io.BytesIO(data)) as z:
-                    for m in z.namelist():
-                        if Path(m).name in ('uv.exe', 'uvx.exe'):
-                            (UV_DIR / Path(m).name).write_bytes(z.read(m))
-            else:
-                with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as t:
-                    for m in t.getmembers():
-                        if Path(m.name).name in ('uv', 'uvx') and m.isfile():
-                            (UV_DIR / Path(m.name).name).write_bytes(t.extractfile(m).read())
-                            os.chmod(UV_DIR / Path(m.name).name, 0o755)
+            fetch_uv(UV_DIR)
         env = {**os.environ, 'UV_PYTHON_INSTALL_DIR': str(VOICELAB_DIR / 'python'),
                'UV_CACHE_DIR': str(VOICELAB_DIR / 'uv-cache')}
         _log(f'Creating a Python {PY_VERSION} environment')

@@ -1201,7 +1201,7 @@ def _voice_tools(con, agent, config, *, group_peers=None):
             tools.append(browser_tools.ANALYZE_SCREEN_TOOL)
         tools.append(browser_tools.RECORD_SCREEN_CLIP_TOOL)
     # Pointing finds its targets with Jev (screen_pointer).
-    if agent['enable_point_tool'] and config['typesafe_api_key']:
+    if agent['enable_point_tool'] and jev.can_box(config):
         tools.append(browser_tools.POINT_AT_SCREEN_TOOL)
 
     native_function_tools = []
@@ -1409,7 +1409,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='voice')
 
     live_memory_mode = config['live_memory_mode'] if (
-        config['typesafe_api_key'] and agent['enable_memory_tools'] and not manual_turn and not group_peers
+        jev.ready(config) and agent['enable_memory_tools'] and not manual_turn and not group_peers
     ) else 'off'
     session_update = xai_client.build_session_update(
         voice=effective_voice,
@@ -1434,7 +1434,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         manual_turn=manual_turn,
         # Peer legs never hear the mic: nothing for them to stream.
         stream_transcription=live_memory_mode == 'on' or (
-            face_on and not manual_turn and bool(config['typesafe_api_key'])),
+            face_on and not manual_turn and jev.ready(config)),
     )
     if pipeline and brain_runs_code(con, agent, config, 'voice'):
         # A setup brain with a code sandbox runs code on calls too; Grok
@@ -2433,7 +2433,7 @@ def speech_gesture_select(con, *, session, line, recent_ids=(), words=None):
     # reads as a glitch, so it is refused outright below rather than nudged.
     last = motion_library.speech_gesture_canonical(candidates, recent[-1:])
     just_played = last[0] if last else None
-    pick = _gesture_pick_jev if config['typesafe_api_key'] else _gesture_pick_grok
+    pick = _gesture_pick_jev if jev.ready(config) else _gesture_pick_grok
     try:
         gesture, word, word_index, ticks, reason = pick(
             con, config, session=session, line=line[:400], candidates=candidates,
@@ -2516,8 +2516,8 @@ def _gesture_pick_jev(con, config, *, session, line, candidates, recent, just_pl
     """Jev picks from the library as a Choice (gesture_director.py), with a
     yes/no first for whether the line calls for a gesture at all. Returns
     (gesture, word, word_index, ticks, failure_reason)."""
-    if not config['typesafe_api_key']:
-        return None, None, None, 0, 'no_typesafe_key'
+    if not jev.ready(config):
+        return None, None, None, 0, 'no_decision_model'
     agent = store.get_agent(con, session['agent_id'])
     name = agent['name'] if agent else 'the character'
     persona = face_director.persona_excerpt(_render_prompt(agent)) if agent else ''
@@ -2529,7 +2529,7 @@ def _gesture_pick_jev(con, config, *, session, line, candidates, recent, just_pl
         return None, None, None, 0, 'no_gesture_library'
     qs = gesture_director.questions(name, opts, words=words)
     state = gesture_director.build_state(name, persona, [], line)
-    body = jev.ask(config['typesafe_api_key'], config['jev_model'], state, qs)
+    body = jev.ask(config, state, qs)
     gesture, word_index, reason = gesture_director.choose(jev.answers(body, qs), candidates, opts)
     word = None
     if gesture and word_index is not None and words and word_index < len(words):
@@ -2559,8 +2559,8 @@ def face_director_select(con, *, session, line, context=(), listening=False, wor
     config = get_config(con)
     if not config['face_director']:
         return {'face': None, 'reason': 'off'}
-    if not config['typesafe_api_key']:
-        return {'face': None, 'reason': 'no_typesafe_key'}
+    if not jev.ready(config):
+        return {'face': None, 'reason': 'no_decision_model'}
     agent = store.get_agent(con, session['agent_id'])
     name = agent['name'] if agent else 'the character'
     persona = face_director.persona_excerpt(_render_prompt(agent)) if agent else ''
@@ -2584,7 +2584,7 @@ def face_director_select(con, *, session, line, context=(), listening=False, wor
     qs = face_director.questions(name, listening=listening, words=None if listening else words,
                                  speaker=speaker)
     try:
-        body = jev.ask(config['typesafe_api_key'], config['jev_model'], state, qs)
+        body = jev.ask(config, state, qs)
         answers = jev.answers(body, qs)
         ticks = jev.input_ticks(body)
     except Exception as e:  # noqa: BLE001 — a failed read is just "no change"
@@ -2642,14 +2642,14 @@ def director_decide(con, *, session, transcript_lines, participants, user_name=N
     # (it reaches agents only via include_user_name_in_prompt or their
     # memories).
     clean_user = str(user_name or 'User')[:80]
-    # Jev whenever a TypeSafe key is set, with no setting to choose it.
+    # The decision model whenever one is set up, with no setting to choose it.
     # Unlike the speech gestures this path never had one, and a group call
     # pays the director on every single turn — after each user utterance
     # AND each agent turn — so it is the one place where the difference
     # between a ~250 ms read and a ~1.5 s one is dead air between speakers.
     # No key keeps the director model, or the companion's own provider
     # without an xAI key.
-    if config['typesafe_api_key']:
+    if jev.ready(config):
         return _director_jev(con, config, user_name=clean_user, participants=clean_participants,
                              lines=clean_lines, floor_key=clean_floor)
     return _director_grok(con, config, agent_id=session['agent_id'], user_name=clean_user,
@@ -2663,7 +2663,7 @@ def _director_jev(con, config, *, user_name, participants, lines, floor_key):
     qs = turn_director.questions(opts)
     state = turn_director.build_state(user_name, participants, lines, floor_name)
     try:
-        body = jev.ask(config['typesafe_api_key'], config['jev_model'], state, qs)
+        body = jev.ask(config, state, qs)
         answers = jev.answers(body, qs)
         ticks = jev.input_ticks(body)
     except Exception as e:  # noqa: BLE001 — a failed read is "no decision"
@@ -2790,7 +2790,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                     'description': shared_tool['description'],
                     'parameters': shared_tool['parameters'],
                 })
-    if agent['enable_point_tool'] and enable_browser_tools and get_config(con)['typesafe_api_key']:
+    if agent['enable_point_tool'] and enable_browser_tools and jev.can_box(get_config(con)):
         point = browser_tools.POINT_AT_SCREEN_TOOL
         tools.append({'type': 'function', 'name': point['name'],
                       'description': point['description'], 'parameters': point['parameters']})

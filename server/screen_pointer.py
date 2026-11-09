@@ -62,15 +62,15 @@ def _scaled(img, side):
     return img.resize((w, h), Image.LANCZOS) if (w, h) != img.size else img
 
 
-def _ask(api_key, model, img, qs):
+def _ask(config, img, qs):
     ref = f'{uuid.uuid4()}-screen'
     buf = io.BytesIO()
     img.convert('RGB').save(buf, 'JPEG', quality=90)
-    return jev.ask(api_key, model, {'screen': ref}, qs, timeout=TIMEOUT, assets={
+    return jev.ask(config, {'screen': ref}, qs, timeout=TIMEOUT, assets={
         ref: {'type': 'image', 'format': 'jpg', 'data_base64': base64.b64encode(buf.getvalue()).decode()}})
 
 
-def _look_again(api_key, model, frame, box, target):
+def _look_again(config, frame, box, target):
     """Box again on the window centred on `box`, mapped back to the frame."""
     cx, cy = (box['left'] + box['right']) / 2, (box['top'] + box['bottom']) / 2
     left = min(max(0.0, cx - WINDOW / 2), 1 - WINDOW)
@@ -78,7 +78,7 @@ def _look_again(api_key, model, frame, box, target):
     crop = frame.crop((round(left * frame.width), round(top * frame.height),
                        round((left + WINDOW) * frame.width), round((top + WINDOW) * frame.height)))
     qs = {'b': {'type': 'box', 'instructions': f'{target} in `screen`'}}
-    body = _ask(api_key, model, _scaled(crop, MAX_SIDE), qs)
+    body = _ask(config, _scaled(crop, MAX_SIDE), qs)
     got = jev.answers(body, qs).get('b')
     if not got:
         return box, jev.input_ticks(body)
@@ -88,8 +88,10 @@ def _look_again(api_key, model, frame, box, target):
             jev.input_ticks(body))
 
 
-def locate(api_key, model, frame, targets, refine=None, plain=None, refine_below=None):
-    """Find each target on `frame` (a PIL image of the shared screen).
+def locate(config, frame, targets, refine=None, plain=None, refine_below=None):
+    """Find each target on `frame` (a PIL image of the shared screen), with
+    the decision model of `config` (the config row; callers check
+    jev.can_box first).
     Returns ([{'target', 'visible', 'box'}], usd_ticks); a box's edges are
     fractions of the frame, and None when the target wasn't found.
     `refine`: indexes of the targets that get the second look (all of them
@@ -104,7 +106,7 @@ def locate(api_key, model, frame, targets, refine=None, plain=None, refine_below
     for i, target in enumerate(targets):
         qs[f'b{i}'] = {'type': 'box', 'instructions': f'{target} in `screen`'}
         qs[f'v{i}'] = {'type': 'noul', 'instructions': f'Is {plain[i]} visible in `screen`?'}
-    body = _ask(api_key, model, _scaled(frame, min(MAX_SIDE, max(frame.size))), qs)
+    body = _ask(config, _scaled(frame, min(MAX_SIDE, max(frame.size))), qs)
     ticks = jev.input_ticks(body)
     got = jev.answers(body, qs)
     results = []
@@ -112,12 +114,18 @@ def locate(api_key, model, frame, targets, refine=None, plain=None, refine_below
         visible = (got.get(f'v{i}') or {}).get('yes', 0) >= jev.YES and f'b{i}' in got
         results.append({'target': target, 'visible': visible,
                         'box': got[f'b{i}']['box'] if visible else None})
-    found = [(i, r) for i, r in enumerate(results) if r['visible'] and (
+    # The second look is Jev's recipe and earns its request there. The local
+    # model (Valen 2B, measured 2026-11-09 on 20 targets across three drawn
+    # screens) put 18/20 centres on target with the first look and the same
+    # 18/20 after second looks, which run one at a time on the user's own
+    # card: 6.2 s a call against 1.1 s. So it gets the first look only.
+    second = jev.provider(config) == 'jev'
+    found = [(i, r) for i, r in enumerate(results) if second and r['visible'] and (
         refine is None or i in refine
         or (refine_below is not None and got[f'b{i}']['confidence'] < refine_below))]
     if found:
         # The second looks are independent: one round trip for all of them.
-        futures = [_pool.submit(_look_again, api_key, model, frame, r['box'], plain[i]) for i, r in found]
+        futures = [_pool.submit(_look_again, config, frame, r['box'], plain[i]) for i, r in found]
         for (_, r), f in zip(found, futures):
             try:
                 r['box'], t = f.result()

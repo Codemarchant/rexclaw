@@ -1163,8 +1163,8 @@ export const JA = {
   "Between calls your companion leaves the window and wanders the whole screen: along the bottom and over your windows, sitting on them, napping while you're away, doodling. Clicks pass through them. A call brings them back. On Windows they hear whether anything is playing (the sound stays on this computer), so a stream or a video you're watching keeps them awake.":
     "通話の合間、コンパニオンがウィンドウを出て画面じゅうを歩き回ります。画面の下やウィンドウの上を歩き、腰かけたり、留守中に昼寝したり、落書きしたり。クリックはコンパニオンを素通りします。通話が始まるとウィンドウに戻ります。Windows では何かが再生中かどうかを聞き取るので（音はこのパソコンの外には出ません）、配信や動画を見ているあいだは起きています。",
   "Play with what's on the screen": "画面のものであそぶ",
-  "Every twenty seconds or so while they roam, a screenshot goes to Jev to find links, videos, pictures and the like, so they can eat a link or sit on a video. Needs a TypeSafe API key and the jev-preview model. Whatever is on the screen goes in those screenshots, so turn this off before opening anything private. On Windows they also dance to your music and jump at loud sounds.":
-    "お散歩中は20秒ほどごとにスクリーンショットを Jev に送り、リンクや動画、画像などを探します。リンクを食べたり動画の上に座ったりできるようになります。TypeSafe の API キーと jev-preview モデルが必要です。画面に映っているものはすべてスクリーンショットに含まれるので、見られたくないものを開く前にオフにしてください。Windows では音楽に合わせて踊ったり、大きな音にびっくりしたりもします。",
+  "Every twenty seconds or so while they roam, a screenshot goes to the decision model to find links, videos, pictures and the like, so they can eat a link or sit on a video. Needs Jev (a TypeSafe API key and the jev-preview model) or a local Valen model, picked in Settings → Decision model. Whatever is on the screen goes in those screenshots, so turn this off before opening anything private. On Windows they also dance to your music and jump at loud sounds.":
+    "お散歩中は20秒ほどごとにスクリーンショットを判断モデルに送り、リンクや動画、画像などを探します。リンクを食べたり動画の上に座ったりできるようになります。設定 → 判断モデルで選んだ Jev（TypeSafe の API キーと jev-preview モデル）か、ローカルの Valen モデルが必要です。画面に映っているものはすべてスクリーンショットに含まれるので、見られたくないものを開く前にオフにしてください。Windows では音楽に合わせて踊ったり、大きな音にびっくりしたりもします。",
   "help!": "たすけて！",
   "100%!": "100%！",
   "NOPE": "ダメ！",
@@ -1469,8 +1469,8 @@ export const JA = {
   "Grok or brain vision": "Grok または頭脳の画像認識",
   "Selfies, screenshots and clips run in the app. analyze_screen looks with the companion's own brain when it can see images (OpenAI, Claude or a local vision model, on the brain's quick model), otherwise with Grok vision on your xAI API key; left out when neither is available.":
     "自撮り・スクリーンショット・クリップはアプリ内で動きます。analyze_screen は、コンパニオンの頭脳が画像を認識できる（OpenAI、Claude、ローカルの画像認識モデル。頭脳のクイックモデルを使用）ならその頭脳で、そうでなければ xAI API キーで Grok の画像認識を使って見ます。どちらも使えないときは提供されません。",
-  "Finds things on the screen with Jev on your TypeSafe API key (Settings → TypeSafe (Jev), billed by TypeSafe). Not offered while no key is set.":
-    "TypeSafe API キーで Jev を使い、画面上のものを見つけます（設定 → TypeSafe（Jev）、TypeSafe の課金）。キーが未設定のときは提供されません。",
+  "Finds things on the screen with the decision model picked in Settings → Decision model: Jev on your TypeSafe API key (billed by TypeSafe), or a local Valen model. Not offered with a model that doesn't take screenshots, or while none is set up.":
+    "設定 → 判断モデルで選んだ判断モデルで、画面上のものを見つけます。TypeSafe API キーで使う Jev（TypeSafe の課金）か、ローカルの Valen モデルです。スクリーンショットに対応していないモデルを選んでいるとき、または未設定のときは提供されません。",
   "Grok or setup voice": "Grok またはセットアップの声",
   "Recorded in the voice the companion has on calls: Grok's (your xAI API key, billed by xAI), or its voice setup's voice (OpenAI, Fish, Kokoro...). Left out when neither can speak.":
     "通話と同じ声で録音します。Grok の声（xAI API キー、xAI の課金）か、音声セットアップの声（OpenAI、Fish、Kokoro など）です。どちらも話せないときは提供されません。",
@@ -2369,10 +2369,46 @@ export const JA = {
   "Add a built-in gesture…": "組み込みジェスチャーを追加…",
   "All built-in gestures added": "組み込みジェスチャーはすべて追加済みです",
 
-  // ── Settings: TypeSafe (Jev) ──────────────────────────────────────────
-  "TypeSafe (Jev)": "TypeSafe（Jev）",
-  "Jev is a judgment model: it answers a pile of small questions about one line at once, in a fraction of a second. Features that have to read something while it is still happening use it, and share this one key. Usage is billed by TypeSafe. Reads English best.":
-    "Jev は判断モデルです。1 つの文についての細かい質問をまとめて、ごく短時間で一度に答えます。進行中の内容をその場で読み取る必要がある機能がこれを使い、このキーを共有します。利用料金は TypeSafe から請求されます。英語の読み取りが最も得意です。",
+  // ── Settings: Decision model ──────────────────────────────────────────
+  "Decision model": "判断モデル",
+  "A decision model answers a pile of small questions about one line at once, in a fraction of a second. Features that have to read something while it is still happening use it, and share the one picked here.":
+    "判断モデルは、1 つの文についての細かい質問をまとめて、ごく短時間で一度に答えます。進行中の内容をその場で読み取る必要がある機能がこれを使い、ここで選んだモデルを共有します。",
+  "Jev (TypeSafe)": "Jev（TypeSafe）",
+  "Another model, over an API": "別のモデル（API 経由）",
+  "Local model, in Rexclaw": "ローカルモデル（Rexclaw 内）",
+  "TypeSafe's hosted model. Usage is billed by TypeSafe. Reads English best.":
+    "TypeSafe がホストするモデルです。利用料金は TypeSafe から請求されます。英語の読み取りが最も得意です。",
+  "Any server that answers the System One request format Jev introduced: a hosted open decision model, or one you run yourself with LM Studio, llama-server or Ollama. Each line goes to that server instead of TypeSafe. The features here were tuned on Jev's answers, so another model may show more or less than Jev does.":
+    "Jev が導入した System One リクエスト形式に応答するサーバーなら何でも使えます。ホストされたオープンな判断モデルや、LM Studio、llama-server、Ollama で自分で動かすモデルなどです。各文は TypeSafe ではなくそのサーバーへ送られます。ここの機能は Jev の回答に合わせて調整されているため、別のモデルでは Jev より反応が多くなったり少なくなったりする場合があります。",
+  "Server address": "サーバーのアドレス",
+  "The server's address. /v1/systemone is added unless the address already ends in an endpoint.":
+    "サーバーのアドレスです。アドレスがすでにエンドポイントで終わっていない場合は /v1/systemone が追加されます。",
+  "API key (optional)": "API キー（任意）",
+  "The model name the server expects, when it serves more than one. Leave empty for its default.":
+    "サーバーが複数のモデルを提供している場合に指定するモデル名です。空欄ならサーバーの既定のモデルを使います。",
+  "Pointing things out on your shared screen (point_at_screen) and a roaming companion playing with what's on the screen need a decision model that finds things on a screenshot: Jev (a Jev 1.14 model such as jev-preview), or a local Valen model. They are left out with a model over an API.":
+    "共有画面上で指し示す機能（point_at_screen）と、お散歩中のコンパニオンが画面上のものであそぶ機能には、スクリーンショット上のものを見つけられる判断モデルが必要です。Jev（jev-preview などの Jev 1.14 モデル）か、ローカルの Valen モデルです。API 経由のモデルでは提供されません。",
+  // Local models (DecisionLocalSettings.jsx).
+  "Valen-Decision is an open decision model that runs on your own computer, so nothing it reads leaves it and nothing is billed. Like Jev it finds things on a screenshot. Each size is a separate download, kept in the app's data folder; pick the one your computer can hold (the larger ones judge better).":
+    "Valen-Decision は、お使いのコンピューター上で動くオープンな判断モデルです。読み取った内容が外部に送られることはなく、料金もかかりません。Jev と同じく、スクリーンショット上のものを見つけられます。サイズごとに別途ダウンロードが必要で、アプリのデータフォルダーに保存されます。お使いのコンピューターに収まるものを選んでください（大きいほうが判断の精度は高くなります）。",
+  "Your graphics card has %s GB of video memory.": "お使いのグラフィックカードのビデオメモリは %s GB です。",
+  "No NVIDIA graphics card found.": "NVIDIA のグラフィックカードが見つかりません。",
+  "needs a %s GB graphics card": "%s GB のグラフィックカードが必要",
+  "fits yours": "お使いのカードに収まる",
+  "too big for yours": "お使いのカードには大きすぎる",
+  "Delete this model from the data folder.": "このモデルをデータフォルダーから削除します。",
+  "Remove %s? Its files are deleted from the data folder.": "%s を削除しますか？ファイルはデータフォルダーから削除されます。",
+  "The app and Windows use video memory too, so a model needs a card that holds both. One that doesn't fit answers in minutes instead of tenths of a second, on the graphics card or on the processor, and the features that ask it get nothing.":
+    "アプリと Windows もビデオメモリを使うため、モデルには両方が収まるカードが必要です。収まらないモデルは、グラフィックカードでもプロセッサーでも、0.1 秒単位ではなく分単位でしか答えられず、それを使う機能は何も受け取れません。",
+  "About %s GB to download.": "ダウンロードサイズは約 %s GB です。",
+  "the graphics card": "グラフィックカード",
+  "the processor": "プロセッサー",
+  "Downloaded; loads when Settings are saved with it picked":
+    "ダウンロード済み。選択して設定を保存すると読み込まれます",
+  "Where the model runs. Automatic uses the graphics card when it holds the model beside the app.":
+    "モデルを動かす場所です。「自動」では、アプリと一緒にモデルが収まる場合にグラフィックカードを使います。",
+  "Graphics card": "グラフィックカード",
+  "Processor": "プロセッサー",
   "TypeSafe API key": "TypeSafe API キー",
   "Jev model": "Jev モデル",
   "Live memory recall (experimental)": "会話中の記憶想起（実験的）",
@@ -2383,15 +2419,15 @@ export const JA = {
     "記憶のメモが応答に渡された後、検索を一時停止します。初期値は60秒です。0にすると待機時間がなくなりますが、いずれの場合も同じ記憶が再び使われるまでには2週間の間隔が空きます。変更後は新しい通話を開始してください。",
   "Live memory cooldown must be a whole number from 0 to 3600 seconds.": "記憶想起のクールダウンは0〜3600秒の整数で指定してください。",
   "Invalid live memory mode.": "記憶想起の設定値が不正です。",
-  "Recall a shared joke, distinctive event or familiar habit while you speak. Uses the Jev model above and requires memory tools on the companion. Available in voice calls with one companion; start a new call after changing this setting.":
-    "あなたが話している間に、共通の冗談、印象的な出来事、馴染みの習慣を思い出します。上記の Jev モデルを使用し、コンパニオンの記憶ツールを有効にする必要があります。1 対 1 の音声通話で利用できます。設定を変更した後は、新しく通話を開始してください。",
+  "Recall a shared joke, distinctive event or familiar habit while you speak. Uses the decision model above and requires memory tools on the companion. Available in voice calls with one companion; start a new call after changing this setting.":
+    "あなたが話している間に、共通の冗談、印象的な出来事、馴染みの習慣を思い出します。上記の判断モデルを使用し、コンパニオンの記憶ツールを有効にする必要があります。1 対 1 の音声通話で利用できます。設定を変更した後は、新しく通話を開始してください。",
   "jev-latest is TypeSafe's alias for their newest Jev release. Enter a version such as jev-1.13.0 to stay on it when a new one comes out. Test shows the version the name resolves to.":
     "jev-latest は TypeSafe の最新 Jev リリースを指すエイリアスです。jev-1.13.0 のようにバージョンを入力すると、新しいリリースが出てもそのバージョンを使い続けます。テストで、その名前が実際にどのバージョンを指すかを確認できます。",
   "Test": "テスト",
   "first call": "初回",
   "then": "以降",
-  "Used by: Expressive face and head, Automated background gestures, Live memory recall, picking who speaks next in a group call, and pointing things out on your shared screen (point_at_screen, which needs a Jev 1.14 model such as jev-preview). Background gestures and group-call turn selection fall back to the turn director model without a key, and without an xAI key either to the quick model of your companion's voice setup brain.":
-    "使用する機能：豊かな表情と頭の動き、自動背景ジェスチャー、会話中の記憶想起、グループ通話での次の話者の選択、共有画面上で指し示す機能（point_at_screen。jev-preview などの Jev 1.14 モデルが必要）。キーがない場合、自動背景ジェスチャーと話者の選択にはターンディレクターモデルを使用し、xAI キーもない場合はコンパニオンの音声セットアップのブレインのクイックモデルを使用します。",
+  "Used by: Expressive face and head, Automated background gestures, Live memory recall and picking who speaks next in a group call. Background gestures and group-call turn selection fall back to the turn director model without a decision model, and without an xAI key either to the quick model of your companion's voice setup brain.":
+    "使用する機能：豊かな表情と頭の動き、自動背景ジェスチャー、会話中の記憶想起、グループ通話での次の話者の選択。判断モデルがない場合、自動背景ジェスチャーと話者の選択にはターンディレクターモデルを使用し、xAI キーもない場合はコンパニオンの音声セットアップのブレインのクイックモデルを使用します。",
 
   // ── Settings / mascot: background avatar motion ───────────────────────
   "Background Avatar Motion": "アバターの自動モーション",
@@ -2403,18 +2439,18 @@ export const JA = {
     "コンパニオンが話している内容に合わせてジェスチャーします。お礼にはお辞儀、「まあいいか」には肩をすくめる、といった具合です。選択元となるモーションライブラリが必要です。",
   "Gestures along with what they're saying. Matched per sentence by the director model, so it adds a little usage.":
     "話している内容に合わせてジェスチャーします。文ごとにディレクターモデルが選ぶため、利用量が少し増えます。",
-  // Who picks the clip: Jev when a TypeSafe key is set, else the director
-  // model. No setting — the key decides.
-  "Jev reads each sentence against the clip library and answers in about a quarter of a second, so the gesture is ready well before the line is spoken. Sent for each line: the sentence itself and your companion's \"## Identity\" and \"## Personality\" sections.":
-    "Jev は各文をクリップライブラリと照らし合わせ、約 0.25 秒で答えます。そのため、その文が読み上げられるよりも十分前にジェスチャーが用意されます。文ごとに送られるのは、その文自体と、コンパニオンの「## Identity」「## Personality」セクションだけです。",
-  "The turn director model set below reads each sentence against the clip library (without an xAI key: the quick model of your companion's voice setup brain). Set a TypeSafe API key above and Jev does it instead — faster, cheaper and a better match.":
-    "下で設定するターンディレクターモデルが、各文をクリップライブラリと照らし合わせます（xAI キーがない場合は、コンパニオンの音声セットアップのブレインのクイックモデル）。上で TypeSafe API キーを設定すると、代わりに Jev が担当します。より速く、より安く、より適切に選びます。",
-  "Expressive face and head while speaking (experimental - requires Jev)":
-    "発話中の表情と頭の動き（実験的・Jev が必要）",
-  "Your companion's face and head follow what each sentence means, and what you say to them as you say it: a smile, a frown, a nod on a yes, a shake on a no, a look away while they think. Built from the avatar's own expressions, so any VRM works. Their own big emotions still play on top. Needs a TypeSafe API key for Jev, set above. Applies from the next call.":
-    "コンパニオンの表情と頭の動きが、各文の意味と、話している最中のあなたの言葉に反応します。微笑む、眉をひそめる、「はい」でうなずく、「いいえ」で首を振る、考えている間は視線を外す、といった具合です。アバター自身の表情から組み立てるため、どの VRM でも動作します。コンパニオン自身の大きな感情表現はその上に重ねて再生されます。上で設定する Jev 用の TypeSafe API キーが必要です。次回の通話から適用されます。",
-  "Sent to TypeSafe for each line: the sentence itself (yours as text, about once a second while you speak), the last two messages of the conversation, and your companion's \"## Identity\" and \"## Personality\" sections, each up to the next heading. Nothing else goes: not their memories, their lore, the rest of their prompt, or your voice. Those two sections are what set how much a feeling shows and how an ambiguous line reads in character, so keep your companion's prompt in the standard section format. A prompt without those headings falls back to its first 1200 characters, whatever they happen to be.":
-    "文ごとに TypeSafe へ送られるのは、その文自体（あなたの発言は、話している間およそ 1 秒ごとにテキストで）、直前 2 件のメッセージ、そしてコンパニオンの「## Identity」「## Personality」セクション（それぞれ次の見出しまで）です。それ以外は送られません。メモリ、ロア、プロンプトの残りの部分、あなたの音声はいずれも送られません。この 2 つのセクションが、感情のあらわれ方と、曖昧な文がそのキャラクターらしくどう読まれるかを決めます。そのため、コンパニオンのプロンプトは標準のセクション形式で書いてください。見出しがないプロンプトの場合は、先頭 1200 文字がそのまま使われます。",
+  // Who picks the clip: the decision model when one is set up, else the
+  // director model. No setting of its own.
+  "The decision model reads each sentence against the clip library, so the gesture is ready before the line is spoken (Jev answers in about a quarter of a second). Sent for each line: the sentence itself and your companion's \"## Identity\" and \"## Personality\" sections.":
+    "判断モデルが各文をクリップライブラリと照らし合わせるため、その文が読み上げられる前にジェスチャーが用意されます（Jev は約 0.25 秒で答えます）。文ごとに送られるのは、その文自体と、コンパニオンの「## Identity」「## Personality」セクションだけです。",
+  "The turn director model set below reads each sentence against the clip library (without an xAI key: the quick model of your companion's voice setup brain). Set up a decision model below and it does it instead; Jev is faster, cheaper and a better match.":
+    "下で設定するターンディレクターモデルが、各文をクリップライブラリと照らし合わせます（xAI キーがない場合は、コンパニオンの音声セットアップのブレインのクイックモデル）。下で判断モデルを設定すると、代わりにそのモデルが担当します。Jev ならより速く、より安く、より適切に選びます。",
+  "Expressive face and head while speaking (experimental - requires a decision model)":
+    "発話中の表情と頭の動き（実験的・判断モデルが必要）",
+  "Your companion's face and head follow what each sentence means, and what you say to them as you say it: a smile, a frown, a nod on a yes, a shake on a no, a look away while they think. Built from the avatar's own expressions, so any VRM works. Their own big emotions still play on top. Needs a decision model, set below. Applies from the next call.":
+    "コンパニオンの表情と頭の動きが、各文の意味と、話している最中のあなたの言葉に反応します。微笑む、眉をひそめる、「はい」でうなずく、「いいえ」で首を振る、考えている間は視線を外す、といった具合です。アバター自身の表情から組み立てるため、どの VRM でも動作します。コンパニオン自身の大きな感情表現はその上に重ねて再生されます。下で設定する判断モデルが必要です。次回の通話から適用されます。",
+  "Sent to the decision model for each line: the sentence itself (yours as text, about once a second while you speak), the last two messages of the conversation, and your companion's \"## Identity\" and \"## Personality\" sections, each up to the next heading. Nothing else goes: not their memories, their lore, the rest of their prompt, or your voice. Those two sections are what set how much a feeling shows and how an ambiguous line reads in character, so keep your companion's prompt in the standard section format. A prompt without those headings falls back to its first 1200 characters, whatever they happen to be.":
+    "文ごとに判断モデルへ送られるのは、その文自体（あなたの発言は、話している間およそ 1 秒ごとにテキストで）、直前 2 件のメッセージ、そしてコンパニオンの「## Identity」「## Personality」セクション（それぞれ次の見出しまで）です。それ以外は送られません。メモリ、ロア、プロンプトの残りの部分、あなたの音声はいずれも送られません。この 2 つのセクションが、感情のあらわれ方と、曖昧な文がそのキャラクターらしくどう読まれるかを決めます。そのため、コンパニオンのプロンプトは標準のセクション形式で書いてください。見出しがないプロンプトの場合は、先頭 1200 文字がそのまま使われます。",
   "Small movements while they stand quietly: a weight shift, folded arms, a touch of their hair.":
     "静かに立っている間の小さな動き：重心を移す、腕を組む、髪に触れる。",
   "Idle fidgets": "待機中の小さな動き",

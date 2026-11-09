@@ -1,6 +1,16 @@
 # Copyright 2026 Codemarchant
-"""TypeSafe Jev — the judgment model behind the face director and the
-speech gesture selector.
+"""The decision model behind the face director, the speech gesture
+selector, live memory and the turn director: TypeSafe's Jev, or another
+model that speaks the same request format.
+
+Settings picks one of three (config `decision_provider`):
+  jev    TypeSafe's hosted Jev, on the user's TypeSafe key.
+  api    any server with a System One endpoint (the request format Jev
+         introduced): a hosted open model, or one the user runs themselves
+         with llama-server or Ollama. Text questions only.
+  local  Valen-Decision as a child process of this server
+         (decision_local.py), an optional download. Like Jev it takes
+         images and answers Box questions.
 
 One request carries a state (the JSON the questions read) and a set of
 questions, each answered independently and in parallel with a calibrated
@@ -20,6 +30,8 @@ import time
 
 import requests
 
+from . import decision_local
+
 JEV_URL = 'https://api.typesafe.ai/v1/systemone'
 # The config's jev_model, when the Settings field is left empty.
 JEV_MODEL = 'jev-latest'
@@ -29,6 +41,7 @@ TICKS_PER_INPUT_TOKEN = 420
 # An answer about a line already spoken is useless, so no retries and a
 # short read timeout; the connect timeout covers a cold TLS handshake.
 TIMEOUT = (3, 4)
+PROVIDERS = ('jev', 'api', 'local')
 # A yes/no answered at or above this counts as yes (the docs' example).
 YES = 0.5
 
@@ -59,19 +72,83 @@ def to_request(qs):
     return out
 
 
-def ask(api_key, model, state, qs, *, timeout=None, assets=None):
-    """POST one request; returns the parsed body. Raises on HTTP errors.
+def provider(config):
+    which = config['decision_provider']
+    return which if which in PROVIDERS else 'jev'
+
+
+def ready(config):
+    """Can the chosen decision model be asked at all? What the features
+    that need one are gated on."""
+    which = provider(config)
+    if which == 'jev':
+        return bool(config['typesafe_api_key'])
+    if which == 'api':
+        return bool((config['decision_api_url'] or '').strip())
+    return decision_local.installed(config['decision_local_model'])
+
+
+def can_box(config):
+    """Can it take images and answer Box questions (point_at_screen, a
+    roaming companion's looks at the screen)? Jev does, and so does the
+    local model (Valen has a Box head). A server reached over the API is
+    not asked: each of them takes images its own way."""
+    which = provider(config)
+    if which == 'jev':
+        return bool(config['typesafe_api_key'])
+    return which == 'local' and decision_local.installed(config['decision_local_model'])
+
+
+def endpoint(url):
+    """A server's System One endpoint from what the user typed: its base
+    URL with or without the /v1 that LM Studio, llama-server and Ollama
+    addresses usually end in, or the endpoint itself."""
+    url = (url or '').strip().rstrip('/')
+    if url.endswith(('/systemone', '/decide')):
+        return url
+    return url + ('/systemone' if url.endswith('/v1') else '/v1/systemone')
+
+
+def _target(config):
+    """(provider, url, api key, model) for the chosen decision model."""
+    which = provider(config)
+    if which == 'api':
+        return which, endpoint(config['decision_api_url']), config['decision_api_key'], \
+            (config['decision_api_model'] or '').strip()
+    if which == 'local':
+        return which, endpoint(decision_local.base_url(config['decision_local_model'])), '', ''
+    return which, JEV_URL, config['typesafe_api_key'], (config['jev_model'] or '').strip() or JEV_MODEL
+
+
+def ask(config, state, qs, *, timeout=None, assets=None):
+    """POST one request to the decision model `config` (the config row)
+    chooses; returns the parsed body. Raises on HTTP errors.
     `assets` maps a reference string used in the state to an image
     ({'type': 'image', 'format': 'jpg', 'data_base64': ...}); images and Box
-    questions are opt-in per request (docs.typesafe.ai/images)."""
-    headers = {'Authorization': f'Bearer {api_key}'}
-    body = {'model': (model or '').strip() or JEV_MODEL, 'state': state, 'questions': to_request(qs)}
+    questions are opt-in per request (docs.typesafe.ai/images). The local
+    model's process takes the same request (decision_sidecar.py)."""
+    which, url, api_key, model = _target(config)
+    if (assets or any(q['type'] == 'box' for q in qs.values())) and not can_box(config):
+        raise RuntimeError('The chosen decision model does not take images and Box questions.')
+    headers = {'Authorization': f'Bearer {api_key}'} if api_key else {}
+    body = {'state': state, 'questions': to_request(qs)}
+    if model:
+        body['model'] = model
     if assets:
         headers['TypeSafe-Danger-Zone-Images'] = 'true'
         body['assets'] = assets
-    resp = _session().post(JEV_URL, headers=headers, json=body, timeout=timeout or TIMEOUT)
+    timeout = timeout or TIMEOUT
+    if which == 'local':
+        # How long this caller waits: the local model answers one request
+        # at a time, and drops one that is still queued by then.
+        headers['X-Rexclaw-Wait'] = str(timeout[1])
+    resp = _session().post(url, headers=headers, json=body, timeout=timeout)
     resp.raise_for_status()
-    return resp.json()
+    out = resp.json()
+    if which != 'jev' and isinstance(out, dict):
+        # input_ticks prices TypeSafe's tokens; nobody else's are billed here.
+        out.pop('usage', None)
+    return out
 
 
 def answers(body, qs):
@@ -107,29 +184,46 @@ def input_ticks(body):
         return 0
 
 
-def test_key(api_key, model):
-    """Settings "Test": does the key work, and how fast is a round trip
-    from here — once cold, once on the warm connection a call reuses."""
-    if not api_key:
+def test(config):
+    """Settings "Test": does the chosen decision model answer, and how fast
+    is a round trip from here — once cold, once on the warm connection a
+    call reuses. It waits as long as the features do (TIMEOUT), so a model
+    too slow for them fails here too. `config` holds the form's values
+    (unsaved ones included)."""
+    which = provider(config)
+    if which == 'jev' and not config['typesafe_api_key']:
         return {'ok': False, 'error': 'No TypeSafe API key.'}
-    qs = {'q': {'type': 'noul', 'instructions': 'Is `line` a greeting?'}}
+    if which == 'api' and not (config['decision_api_url'] or '').strip():
+        return {'ok': False, 'error': 'No server address.'}
+    try:
+        _, url, api_key, model = _target(config)
+    except RuntimeError as e:  # the local model is not installed, or still loading
+        return {'ok': False, 'error': str(e)}
+    who = 'TypeSafe' if which == 'jev' else 'The decision model server'
+    body = {'state': {'line': 'Hello there!'},
+            'questions': {'q': {'type': 'noul', 'instructions': 'Is `line` a greeting?'}}}
+    if model:
+        body['model'] = model
+    headers = {'Authorization': f'Bearer {api_key}'} if api_key else {}
+    if which == 'local':
+        headers['X-Rexclaw-Wait'] = str(TIMEOUT[1])  # as ask() does
     times = []
     try:
         for _ in range(2):
             t0 = time.perf_counter()
-            resp = _session().post(
-                JEV_URL, headers={'Authorization': f'Bearer {api_key}'},
-                json={'model': (model or '').strip() or JEV_MODEL, 'state': {'line': 'Hello there!'}, 'questions': qs},
-                timeout=TIMEOUT)
+            resp = _session().post(url, headers=headers, json=body, timeout=TIMEOUT)
             times.append(round((time.perf_counter() - t0) * 1000))
             if resp.status_code == 401:
-                return {'ok': False, 'error': 'TypeSafe rejected the key (401).'}
+                return {'ok': False, 'error': f'{who} rejected the key (401).'}
             if 400 <= resp.status_code < 500:
                 # The request is fixed but for the key and the model, so
                 # anything else it refuses is most likely the model name.
-                return {'ok': False, 'error': f'TypeSafe rejected the request ({resp.status_code}): '
-                                              f'{resp.text[:160]} Check the Jev model name.'}
+                return {'ok': False, 'error': f'{who} rejected the request ({resp.status_code}): '
+                                              f'{resp.text[:160]} Check the model name.'}
             resp.raise_for_status()
-        return {'ok': True, 'model': resp.json().get('model'), 'cold_ms': times[0], 'warm_ms': times[1]}
-    except requests.RequestException as e:
-        return {'ok': False, 'error': f'TypeSafe unreachable: {e}'}
+        if not isinstance((resp.json().get('answers') or {}).get('q', {}).get('noul'), (int, float)):
+            return {'ok': False, 'error': f'{who} answered, but not in the System One format: {resp.text[:160]}'}
+        return {'ok': True, 'model': resp.json().get('model') or model or '?',
+                'cold_ms': times[0], 'warm_ms': times[1]}
+    except (requests.RequestException, ValueError) as e:
+        return {'ok': False, 'error': f'{who} unreachable: {e}'}

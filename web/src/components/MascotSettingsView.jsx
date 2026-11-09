@@ -585,7 +585,7 @@ export default function MascotSettingsView() {
                                     mascot?.roam,
                                     (v) => send({ type: "set", key: "roam", value: v }))}
                                 {check("rx_ms_roam_tricks", _t("Play with what's on the screen"),
-                                    _t("Every twenty seconds or so while they roam, a screenshot goes to Jev to find links, videos, pictures and the like, so they can eat a link or sit on a video. Needs a TypeSafe API key and the jev-preview model. Whatever is on the screen goes in those screenshots, so turn this off before opening anything private. On Windows they also dance to your music and jump at loud sounds."),
+                                    _t("Every twenty seconds or so while they roam, a screenshot goes to the decision model to find links, videos, pictures and the like, so they can eat a link or sit on a video. Needs Jev (a TypeSafe API key and the jev-preview model) or a local Valen model, picked in Settings → Decision model. Whatever is on the screen goes in those screenshots, so turn this off before opening anything private. On Windows they also dance to your music and jump at loud sounds."),
                                     mascot?.roamTricks,
                                     (v) => send({ type: "set", key: "roamTricks", value: v }))}
                                 <label>{_t("Size while roaming")}</label>

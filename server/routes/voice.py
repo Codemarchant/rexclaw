@@ -396,8 +396,9 @@ def session_point_at_screen(session_id: int, payload: dict = Body(default={}), c
     if not targets:
         return {"ok": False, "error": "Name at least one thing to point at in `targets`."}
     config = get_config(con)
-    if not config["typesafe_api_key"]:
-        return {"ok": False, "error": "Pointing needs a TypeSafe API key (Settings → TypeSafe (Jev))."}
+    if not jev.can_box(config):
+        return {"ok": False, "error": "Pointing needs a decision model that finds things on a screenshot: "
+                                      "Jev, or a local Valen model (Settings → Decision model)."}
     data = payload.get("image_data_url") or ""
     try:
         frame = Image.open(io.BytesIO(base64.b64decode(data.partition(",")[2], validate=True)))
@@ -405,12 +406,12 @@ def session_point_at_screen(session_id: int, payload: dict = Body(default={}), c
     except Exception:
         raise ValidationError("image_data_url must be a data:image/... URI.")
     try:
-        results, ticks = screen_pointer.locate(config["typesafe_api_key"], config["jev_model"], frame, targets)
+        results, ticks = screen_pointer.locate(config, frame, targets)
     except requests.HTTPError as e:
         detail = e.response.text[:200] if e.response is not None else ""
         hint = (" Box questions need Jev 1.14: set the Jev model to jev-preview in Settings."
-                if e.response is not None and e.response.status_code == 400 else "")
-        return {"ok": False, "error": f"Pointing failed: TypeSafe said {detail}.{hint}"}
+                if e.response is not None and e.response.status_code == 400 and jev.provider(config) == "jev" else "")
+        return {"ok": False, "error": f"Pointing failed: the decision model said {detail}.{hint}"}
     except Exception as e:
         return {"ok": False, "error": f"Pointing failed: {e}"}
     store.accrue_usd_ticks(con, ticks)
@@ -511,7 +512,8 @@ def roam_look(payload: dict = Body(default={}), con=Depends(db_con)):
     are on the frame and where (box edges as fractions of it). Not tied to
     a session (roaming happens between calls) and nothing is stored."""
     config = get_config(con)
-    if not config["typesafe_api_key"]:
+    # Looking at the screen needs a model that takes images (jev.can_box).
+    if not jev.can_box(config):
         return {"ok": False, "reason": "no_key"}
     data = payload.get("image_data_url") or ""
     try:
@@ -525,16 +527,21 @@ def roam_look(payload: dict = Body(default={}), con=Depends(db_con)):
     scene_q = {"s": {"type": "choice", "instructions": "What is the user doing in `screen`?",
                      "criteria": _shuffled(ROAM_SCENES)}}
     scene_job = screen_pointer._pool.submit(
-        screen_pointer._ask, config["typesafe_api_key"], config["jev_model"],
+        screen_pointer._ask, config,
         screen_pointer._scaled(frame, min(screen_pointer.MAX_SIDE, max(frame.size))), scene_q)
     targets = [random.choice(ROAM_WHICH_FOR.get(k, ROAM_WHICH)).format(ROAM_LOOKS[k]) for k in keys]
     try:
-        results, ticks = screen_pointer.locate(config["typesafe_api_key"], config["jev_model"], frame, targets,
+        results, ticks = screen_pointer.locate(config, frame, targets,
                                                refine={i for i, k in enumerate(keys) if k in ROAM_REFINE},
                                                plain=[_roam_plain(ROAM_LOOKS[k]) for k in keys],
                                                refine_below=ROAM_BOX_CONFIDENT)
     except requests.HTTPError as e:
-        # Box needs Jev 1.14 (jev-preview while jev-latest is 1.13).
+        if e.response is not None and e.response.status_code == 503:
+            # The local model was still answering something else: this
+            # look is skipped, the next one asks again.
+            return {"ok": False, "reason": "busy"}
+        # Box needs Jev 1.14 (jev-preview while jev-latest is 1.13). The
+        # client stops looking for the session on this one.
         return {"ok": False, "reason": "jev_error",
                 "status": e.response.status_code if e.response is not None else None}
     except Exception as e:
@@ -572,7 +579,7 @@ def roam_memory_doodle(payload: dict = Body(default={}), con=Depends(db_con)):
     """A doodle for a roaming companion to draw from something they remember
     about the user: {kind} or {kind: None}."""
     config = get_config(con)
-    if not config["typesafe_api_key"]:
+    if not jev.ready(config):
         return {"kind": None}
     agent = resolve_agent(con, payload.get("agent_id"))
     row = con.execute(
@@ -583,7 +590,7 @@ def roam_memory_doodle(payload: dict = Body(default={}), con=Depends(db_con)):
     qs = {"d": {"type": "choice", "instructions": "Which little drawing goes best with `memory`?",
                 "criteria": _shuffled(ROAM_DOODLES)}}
     try:
-        body = jev.ask(config["typesafe_api_key"], config["jev_model"], {"memory": row["content"][:600]}, qs)
+        body = jev.ask(config, {"memory": row["content"][:600]}, qs)
     except Exception as e:
         _logger.info("roam memory doodle failed: %s", e)
         return {"kind": None}

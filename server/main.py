@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import call_music, heartbeat, memory_vectors, parent_watch, plugins
+from . import call_music, decision_local, heartbeat, memory_vectors, parent_watch, plugins
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, get_config, init_db
 from .errors import UserError
@@ -54,7 +54,11 @@ def startup():
         # After the scan: moves legacy "## Default outfit" prompt sections
         # onto the avatar record (no-op once every prompt is clean).
         migrate_default_outfit_sections(con)
-        games_port = get_config(con)['games_neuro_port']
+        config = get_config(con)
+        games_port = config['games_neuro_port']
+        # The local decision model, when it is the chosen one: loads in
+        # its own process, nothing waits for it.
+        decision_local.apply(config)
     finally:
         con.close()
     # The Neuro API's own port, when switched on in the Games tab.
@@ -77,6 +81,7 @@ def startup():
 def shutdown():
     plugins.emit('shutdown')
     games.stop_listener()
+    decision_local.stop()
 
 
 app.include_router(voice.router)

@@ -12,6 +12,7 @@ import HotkeysSettings from "./HotkeysSettings.jsx";
 import ModelsDialog from "./ModelsDialog.jsx";
 import CreditsDialog from "./CreditsDialog.jsx";
 import VoiceLabSettings from "./VoiceLabSettings.jsx";
+import DecisionLocalSettings from "./DecisionLocalSettings.jsx";
 import VoiceSetupsSettings from "./VoiceSetupsSettings.jsx";
 import ExtensionsSettings from "./ExtensionsSettings.jsx";
 import GrokSignIn from "./GrokSignIn.jsx";
@@ -90,6 +91,11 @@ export default function SettingsView({ active }) {
     // So does the Text-To-VRMA access token (Gesture generation).
     const [vrmaTokenDraft, setVrmaTokenDraft] = useState("");
     const [typesafeKeyDraft, setTypesafeKeyDraft] = useState("");
+    // And the key of another decision model server.
+    const [decisionKeyDraft, setDecisionKeyDraft] = useState("");
+    // Saves so far: saving starts or stops the local decision model, so its
+    // status line reads again after each one.
+    const [savedCount, setSavedCount] = useState(0);
     const [jevTest, setJevTest] = useState(null);
     const [vrmaTest, setVrmaTest] = useState(null);     // null | "busy" | {ok, ...} | {error}
     const onUserPhotoSelected = async (ev) => {
@@ -257,7 +263,14 @@ export default function SettingsView({ active }) {
     const testJev = async () => {
         setJevTest("busy");
         try {
-            setJevTest(await rpc("/api/face_director/test", { key: typesafeKeyDraft || "", model: config.jev_model || "" }));
+            setJevTest(await rpc("/api/face_director/test", {
+                decision_provider: config.decision_provider || "jev",
+                typesafe_api_key: typesafeKeyDraft || "", jev_model: config.jev_model || "",
+                decision_api_url: config.decision_api_url || "", decision_api_key: decisionKeyDraft || "",
+                decision_api_model: config.decision_api_model || "",
+                decision_local_device: config.decision_local_device || "",
+                decision_local_model: config.decision_local_model || "",
+            }));
         } catch (e) {
             setJevTest({ error: e?.message || _t("Connection failed") });
         }
@@ -298,12 +311,19 @@ export default function SettingsView({ active }) {
             delete payload.has_typesafe_api_key;
             if (typesafeKeyDraft?.trim()) payload.typesafe_api_key = typesafeKeyDraft.trim();
             else if (typesafeKeyDraft === null) payload.typesafe_api_key = null;
+            delete payload.has_decision_api_key;
+            delete payload.decision_ready;
+            delete payload.decision_can_box;
+            if (decisionKeyDraft?.trim()) payload.decision_api_key = decisionKeyDraft.trim();
+            else if (decisionKeyDraft === null) payload.decision_api_key = null;
             await rpc("/api/config/set", payload);
             setApiKeyDraft("");
             setAuthDraft("");
             setYtKeyDraft("");
             setVrmaTokenDraft("");
             setTypesafeKeyDraft("");
+            setDecisionKeyDraft("");
+            setSavedCount((n) => n + 1);
             // Re-bind immediately — including the OS-wide registration, which
             // only the shell can change.
             applyHotkeys({
@@ -341,6 +361,7 @@ export default function SettingsView({ active }) {
         setYtKeyDraft("");
         setVrmaTokenDraft("");
         setTypesafeKeyDraft("");
+        setDecisionKeyDraft("");
         load();
     };
 
@@ -442,80 +463,6 @@ export default function SettingsView({ active }) {
                 </section>
 
                 <section>
-                    <h3><i className="fa fa-bolt" /> {_t("TypeSafe (Jev)")}</h3>
-                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
-                        {_t("Jev is a judgment model: it answers a pile of small questions about "
-                            + "one line at once, in a fraction of a second. Features that have to "
-                            + "read something while it is still happening use it, and share this "
-                            + "one key. Usage is billed by TypeSafe. Reads "
-                            + "English best.")}
-                    </p>
-                    <div className="rx_row">
-                        <div style={{ flex: 2 }}>
-                            <label>
-                                {_t("TypeSafe API key")}
-                                {config.has_typesafe_api_key && typesafeKeyDraft !== null && (
-                                    <span className="text-muted"> ({_t("saved")}{" "}
-                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setTypesafeKeyDraft(null); }}>{_t("remove")}</a>)
-                                    </span>
-                                )}
-                            </label>
-                            <input type="password" value={typesafeKeyDraft || ""}
-                                   placeholder={config.has_typesafe_api_key && typesafeKeyDraft !== null
-                                       ? _t("•••••••• (leave blank to keep current key)")
-                                       : ""}
-                                   onChange={(ev) => { markDirty(true); setTypesafeKeyDraft(ev.target.value); }} />
-                        </div>
-                        <div>
-                            <label title={_t("jev-latest is TypeSafe's alias for their newest Jev release. Enter a version such as jev-1.13.0 to stay on it when a new one comes out. Test shows the version the name resolves to.")}>
-                                {_t("Jev model")}
-                            </label>
-                            <input type="text" value={config.jev_model || ""}
-                                   placeholder="jev-latest"
-                                   onChange={(ev) => setField("jev_model", ev.target.value)} />
-                        </div>
-                        <div style={{ alignSelf: "flex-end" }}>
-                            <button className="btn btn-light" onClick={testJev} disabled={jevTest === "busy"}>
-                                <i className={jevTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test")}
-                            </button>
-                        </div>
-                    </div>
-                    {jevTest && jevTest !== "busy" && (
-                        <p className={"small " + (jevTest.ok ? "text-muted" : "text-danger")}>
-                            {jevTest.ok
-                                ? `${jevTest.model} · ${_t("first call")} ${jevTest.cold_ms} ms · ${_t("then")} ${jevTest.warm_ms} ms`
-                                : jevTest.error}
-                        </p>
-                    )}
-                    <p className="text-muted small">
-                        {_t("Used by: Expressive face and head, Automated background gestures, "
-                            + "Live memory recall, picking who speaks next in a group call, and pointing things out on "
-                            + "your shared screen (point_at_screen, which needs a Jev 1.14 model such as jev-preview). "
-                            + "Background gestures and group-call turn selection fall back to the turn director model without a key, "
-                            + "and without an xAI key either to the quick model of your companion's voice setup brain.")}
-                    </p>
-                    <div className="rx_check">
-                        <input id="rx_live_memory" type="checkbox"
-                               checked={config.live_memory_mode === "on"}
-                               onChange={(ev) => setField("live_memory_mode", ev.target.checked ? "on" : "off")} />
-                        <label htmlFor="rx_live_memory">{_t("Live memory recall (experimental)")}</label>
-                    </div>
-                    <p className="text-muted small">
-                        {_t("Recall a shared joke, distinctive event or familiar habit while you speak. Uses the Jev model above and requires memory tools on the companion. Available in voice calls with one companion; start a new call after changing this setting.")}
-                    </p>
-                    <p className="text-muted small">
-                        {_t("An inserted note can slightly delay the reply. You can read the exact note in History → Sessions.")}
-                    </p>
-                    <label htmlFor="rx_live_memory_cooldown">{_t("Live memory cooldown (seconds)")}</label>
-                    <input id="rx_live_memory_cooldown" type="number" min="0" max="3600" step="1"
-                           value={config.live_memory_cooldown_seconds ?? 60}
-                           onChange={(ev) => setField("live_memory_cooldown_seconds", ev.target.value === "" ? "" : Number(ev.target.value))} />
-                    <p className="text-muted small">
-                        {_t("Pause memory lookups after a note is admitted. Default: 60 seconds. Set to 0 for no pause; either way the same memory waits two weeks before it can come up again. Start a new call after changing this setting.")}
-                    </p>
-                </section>
-
-                <section>
                     <h3><i className="fa fa-child" /> {_t("Background Avatar Motion")}</h3>
                     <p className="text-muted">
                         {_t("Extra body language on top of the avatar's own gesture set, "
@@ -536,15 +483,15 @@ export default function SettingsView({ active }) {
                     </p>
                     {!!config.speech_gestures && (
                     <p className="text-muted small">
-                        {config.has_typesafe_api_key
-                            ? _t("Jev reads each sentence against the clip library and answers in "
-                                + "about a quarter of a second, so the gesture is ready well before "
-                                + "the line is spoken. Sent for each line: the sentence itself and "
+                        {config.decision_ready
+                            ? _t("The decision model reads each sentence against the clip library, "
+                                + "so the gesture is ready before the line is spoken (Jev answers in "
+                                + "about a quarter of a second). Sent for each line: the sentence itself and "
                                 + "your companion's \"## Identity\" and \"## Personality\" sections.")
                             : _t("The turn director model set below reads each sentence against the "
                                 + "clip library (without an xAI key: the quick model of your companion's "
-                                + "voice setup brain). Set a TypeSafe API key above and Jev does it "
-                                + "instead — faster, cheaper and a better match.")}
+                                + "voice setup brain). Set up a decision model below and it does it "
+                                + "instead; Jev is faster, cheaper and a better match.")}
                     </p>
                     )}
                     <div className="rx_check">
@@ -552,7 +499,7 @@ export default function SettingsView({ active }) {
                                checked={!!config.face_director}
                                onChange={(ev) => setField("face_director", ev.target.checked ? 1 : 0)} />
                         <label htmlFor="rx_face_director">
-                            {_t("Expressive face and head while speaking (experimental - requires Jev)")}
+                            {_t("Expressive face and head while speaking (experimental - requires a decision model)")}
                         </label>
                     </div>
                     <p className="text-muted">
@@ -560,12 +507,12 @@ export default function SettingsView({ active }) {
                             + "what you say to them as you say it: a smile, a frown, a nod on a yes, a shake on "
                             + "a no, a look away while they think. Built from the avatar's own "
                             + "expressions, so any VRM works. Their own big emotions still play on "
-                            + "top. Needs a TypeSafe API key for Jev, set above. Applies from the "
+                            + "top. Needs a decision model, set below. Applies from the "
                             + "next call.")}
                     </p>
                     {!!config.face_director && (
                     <p className="text-muted small">
-                        {_t("Sent to TypeSafe for each line: the sentence itself (yours as text, "
+                        {_t("Sent to the decision model for each line: the sentence itself (yours as text, "
                             + "about once a second while you speak), the last two "
                             + "messages of the conversation, and your companion's \"## Identity\" "
                             + "and \"## Personality\" sections, each up to the next heading. "
@@ -875,6 +822,156 @@ export default function SettingsView({ active }) {
                         </button>
                     </div>
                     {modelsOpen && <ModelsDialog apiKey={apiKeyDraft} onClose={() => setModelsOpen(false)} />}
+                </section>
+
+                <section>
+                    <h3><i className="fa fa-bolt" /> {_t("Decision model")}</h3>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("A decision model answers a pile of small questions about one line "
+                            + "at once, in a fraction of a second. Features that have to read "
+                            + "something while it is still happening use it, and share the one "
+                            + "picked here.")}
+                    </p>
+                    <label htmlFor="rx_decision_provider">{_t("Decision model")}</label>
+                    <select id="rx_decision_provider" value={config.decision_provider || "jev"}
+                            onChange={(ev) => { setJevTest(null); setField("decision_provider", ev.target.value); }}>
+                        <option value="jev">{_t("Jev (TypeSafe)")}</option>
+                        <option value="api">{_t("Another model, over an API")}</option>
+                        <option value="local">{_t("Local model, in Rexclaw")}</option>
+                    </select>
+                    {config.decision_provider === "api" && (<>
+                    <p className="text-muted small" style={{ margin: "0.5rem 0" }}>
+                        {_t("Any server that answers the System One request format Jev introduced: "
+                            + "a hosted open decision model, or one you run yourself with LM Studio, "
+                            + "llama-server or Ollama. Each line goes to that server instead of TypeSafe. "
+                            + "The features here were tuned on Jev's answers, so another model may show "
+                            + "more or less than Jev does.")}
+                    </p>
+                    <div className="rx_row">
+                        <div style={{ flex: 2 }}>
+                            <label title={_t("The server's address. /v1/systemone is added unless the address already ends in an endpoint.")}>
+                                {_t("Server address")}
+                            </label>
+                            <input type="text" value={config.decision_api_url || ""}
+                                   placeholder="http://127.0.0.1:8200"
+                                   onChange={(ev) => setField("decision_api_url", ev.target.value)} />
+                        </div>
+                        <div style={{ flex: 2 }}>
+                            <label>
+                                {_t("API key (optional)")}
+                                {config.has_decision_api_key && decisionKeyDraft !== null && (
+                                    <span className="text-muted"> ({_t("saved")}{" "}
+                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setDecisionKeyDraft(null); }}>{_t("remove")}</a>)
+                                    </span>
+                                )}
+                            </label>
+                            <input type="password" value={decisionKeyDraft || ""}
+                                   placeholder={config.has_decision_api_key && decisionKeyDraft !== null
+                                       ? _t("•••••••• (leave blank to keep current key)")
+                                       : ""}
+                                   onChange={(ev) => { markDirty(true); setDecisionKeyDraft(ev.target.value); }} />
+                        </div>
+                        <div>
+                            <label title={_t("The model name the server expects, when it serves more than one. Leave empty for its default.")}>
+                                {_t("Model")}
+                            </label>
+                            <input type="text" value={config.decision_api_model || ""}
+                                   onChange={(ev) => setField("decision_api_model", ev.target.value)} />
+                        </div>
+                        <div style={{ alignSelf: "flex-end" }}>
+                            <button className="btn btn-light" onClick={testJev} disabled={jevTest === "busy"}>
+                                <i className={jevTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test")}
+                            </button>
+                        </div>
+                    </div>
+                    </>)}
+                    {config.decision_provider === "local" && (<>
+                    <div style={{ marginTop: "0.5rem" }}>
+                        <DecisionLocalSettings saved={savedCount}
+                                               model={config.decision_local_model}
+                                               onModel={(v) => { setJevTest(null); setField("decision_local_model", v); }}
+                                               device={config.decision_local_device}
+                                               onDevice={(v) => setField("decision_local_device", v)} />
+                    </div>
+                    <div>
+                        <button className="btn btn-light" onClick={testJev} disabled={jevTest === "busy"}>
+                            <i className={jevTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test")}
+                        </button>
+                    </div>
+                    </>)}
+                    {(config.decision_provider || "jev") === "jev" && (<>
+                    <p className="text-muted small" style={{ margin: "0.5rem 0" }}>
+                        {_t("TypeSafe's hosted model. Usage is billed by TypeSafe. Reads English best.")}
+                    </p>
+                    <div className="rx_row">
+                        <div style={{ flex: 2 }}>
+                            <label>
+                                {_t("TypeSafe API key")}
+                                {config.has_typesafe_api_key && typesafeKeyDraft !== null && (
+                                    <span className="text-muted"> ({_t("saved")}{" "}
+                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setTypesafeKeyDraft(null); }}>{_t("remove")}</a>)
+                                    </span>
+                                )}
+                            </label>
+                            <input type="password" value={typesafeKeyDraft || ""}
+                                   placeholder={config.has_typesafe_api_key && typesafeKeyDraft !== null
+                                       ? _t("•••••••• (leave blank to keep current key)")
+                                       : ""}
+                                   onChange={(ev) => { markDirty(true); setTypesafeKeyDraft(ev.target.value); }} />
+                        </div>
+                        <div>
+                            <label title={_t("jev-latest is TypeSafe's alias for their newest Jev release. Enter a version such as jev-1.13.0 to stay on it when a new one comes out. Test shows the version the name resolves to.")}>
+                                {_t("Jev model")}
+                            </label>
+                            <input type="text" value={config.jev_model || ""}
+                                   placeholder="jev-latest"
+                                   onChange={(ev) => setField("jev_model", ev.target.value)} />
+                        </div>
+                        <div style={{ alignSelf: "flex-end" }}>
+                            <button className="btn btn-light" onClick={testJev} disabled={jevTest === "busy"}>
+                                <i className={jevTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test")}
+                            </button>
+                        </div>
+                    </div>
+                    </>)}
+                    {jevTest && jevTest !== "busy" && (
+                        <p className={"small " + (jevTest.ok ? "text-muted" : "text-danger")}>
+                            {jevTest.ok
+                                ? `${jevTest.model} · ${_t("first call")} ${jevTest.cold_ms} ms · ${_t("then")} ${jevTest.warm_ms} ms`
+                                : jevTest.error}
+                        </p>
+                    )}
+                    <p className="text-muted small">
+                        {_t("Used by: Expressive face and head, Automated background gestures, "
+                            + "Live memory recall and picking who speaks next in a group call. "
+                            + "Background gestures and group-call turn selection fall back to the turn director model without a decision model, "
+                            + "and without an xAI key either to the quick model of your companion's voice setup brain.")}
+                    </p>
+                    <p className="text-muted small">
+                        {_t("Pointing things out on your shared screen (point_at_screen) and a roaming "
+                            + "companion playing with what's on the screen need a decision model that finds "
+                            + "things on a screenshot: Jev (a Jev 1.14 model such as jev-preview), or a local "
+                            + "Valen model. They are left out with a model over an API.")}
+                    </p>
+                    <div className="rx_check">
+                        <input id="rx_live_memory" type="checkbox"
+                               checked={config.live_memory_mode === "on"}
+                               onChange={(ev) => setField("live_memory_mode", ev.target.checked ? "on" : "off")} />
+                        <label htmlFor="rx_live_memory">{_t("Live memory recall (experimental)")}</label>
+                    </div>
+                    <p className="text-muted small">
+                        {_t("Recall a shared joke, distinctive event or familiar habit while you speak. Uses the decision model above and requires memory tools on the companion. Available in voice calls with one companion; start a new call after changing this setting.")}
+                    </p>
+                    <p className="text-muted small">
+                        {_t("An inserted note can slightly delay the reply. You can read the exact note in History → Sessions.")}
+                    </p>
+                    <label htmlFor="rx_live_memory_cooldown">{_t("Live memory cooldown (seconds)")}</label>
+                    <input id="rx_live_memory_cooldown" type="number" min="0" max="3600" step="1"
+                           value={config.live_memory_cooldown_seconds ?? 60}
+                           onChange={(ev) => setField("live_memory_cooldown_seconds", ev.target.value === "" ? "" : Number(ev.target.value))} />
+                    <p className="text-muted small">
+                        {_t("Pause memory lookups after a note is admitted. Default: 60 seconds. Set to 0 for no pause; either way the same memory waits two weeks before it can come up again. Start a new call after changing this setting.")}
+                    </p>
                 </section>
 
                 <section>

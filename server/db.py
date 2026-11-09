@@ -260,6 +260,19 @@ CREATE TABLE IF NOT EXISTS config (
     -- The Jev model those calls ask. jev-latest is TypeSafe's alias for
     -- their newest release; a pinned version holds the director tuning.
     jev_model TEXT NOT NULL DEFAULT 'jev-latest',
+    -- Which decision model answers them (jev.py): 'jev' (TypeSafe, the
+    -- two columns above), 'api' (another server speaking the same request
+    -- format: its address, optional key and model name) or 'local' (an
+    -- optional download, decision_local.py; decision_local_model is which
+    -- of its MODELS).
+    decision_provider TEXT NOT NULL DEFAULT 'jev',
+    decision_api_url TEXT NOT NULL DEFAULT '',
+    decision_api_key TEXT NOT NULL DEFAULT '',
+    decision_api_model TEXT NOT NULL DEFAULT '',
+    -- Where the local model runs: '' (the graphics card when it can hold
+    -- the weights, else the processor), 'cuda' or 'cpu'.
+    decision_local_device TEXT NOT NULL DEFAULT '',
+    decision_local_model TEXT NOT NULL DEFAULT 'valen-2b',
     live_memory_mode TEXT NOT NULL DEFAULT 'off', -- off | on
     live_memory_cooldown_seconds INTEGER NOT NULL DEFAULT 60,
     -- Web/X search calls per request (text replies / multi-agent tasks).
@@ -1486,6 +1499,12 @@ MIGRATIONS = (
     "ALTER TABLE avatars ADD COLUMN neural_motion TEXT",
     "ALTER TABLE config ADD COLUMN typesafe_api_key TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN jev_model TEXT NOT NULL DEFAULT 'jev-latest'",
+    "ALTER TABLE config ADD COLUMN decision_provider TEXT NOT NULL DEFAULT 'jev'",
+    "ALTER TABLE config ADD COLUMN decision_api_url TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN decision_api_key TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN decision_api_model TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN decision_local_device TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN decision_local_model TEXT NOT NULL DEFAULT 'valen-2b'",
     "ALTER TABLE config ADD COLUMN live_memory_mode TEXT NOT NULL DEFAULT 'off'",
     # Retire diagnostic-only mode without enabling injection for its users.
     "UPDATE config SET live_memory_mode='off' WHERE live_memory_mode='shadow'",

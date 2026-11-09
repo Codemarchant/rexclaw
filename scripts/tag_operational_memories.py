@@ -42,7 +42,10 @@ def classify(key, model, rows):
                                       'keywords': (r['keywords'] or '')[:150]} for r in rows}}
     qs = {f'r{r["id"]}_op': {'type': 'noul', 'instructions': QUESTION.format(key=f'r{r["id"]}')}
           for r in rows}
-    answers = jev.answers(jev.ask(key, model, state, qs, timeout=(3, 30)), qs)
+    # Always Jev, whichever decision model the app is set to: the threshold
+    # above was judged on its answers.
+    config = {'decision_provider': 'jev', 'typesafe_api_key': key, 'jev_model': model}
+    answers = jev.answers(jev.ask(config, state, qs, timeout=(3, 30)), qs)
     return {r['id']: answers.get(f'r{r["id"]}_op', {}).get('yes') for r in rows}
 
 

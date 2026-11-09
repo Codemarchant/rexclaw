@@ -142,11 +142,15 @@ Companions need somewhere to think and speak. Pick one:
   Add connection**, build a voice setup from it and make it the default.
   Details in [Models & providers](#-models--providers).
 
-> **Optional:** a [TypeSafe](https://typesafe.ai) API key switches on the expressive face
-> and head, and hands the background gestures and group-call turn-taking to TypeSafe's Jev
-> judgment model, a per-sentence read in ~250 ms for a fraction of a penny an hour. Without
-> one, gestures and turn-taking fall back to the xAI turn director (or, with no xAI key, to
-> the quick model of the companion's voice setup brain) and the expressive face stays off.
+> **Optional:** a decision model switches on the expressive face and head, and takes over
+> the background gestures and group-call turn-taking with a read of every sentence. Pick one
+> in **Settings → Decision model**: TypeSafe's hosted [Jev](https://typesafe.ai) on an API
+> key (~250 ms a line, for a fraction of a penny an hour), another model over an API, or
+> [Valen-Decision](https://huggingface.co/Valen-Team) as an optional download that runs on
+> your own graphics card (the smallest size fits 8 GB beside the app; the larger, sharper
+> sizes want 12 GB and up). Without one, gestures and turn-taking fall
+> back to the xAI turn director (or, with no xAI key, to the quick model of the companion's
+> voice setup brain) and the expressive face stays off.
 
 ## 🧠 Models & providers
 
