@@ -69,7 +69,7 @@ def preview_voice_prompt(con, agent_row):
     config = get_config(con)
     setup = voice_setups.for_agent(con, agent_row, config)
     return (
-        _env_preamble(config)
+        _env_preamble(config, grok_voice=setup is None)
         + _appearance_section(con, agent_row)
         + _render_prompt(agent_row)
         + _env_postamble(con, agent_row, mode='voice', face=bool(config['face_director']),
@@ -231,7 +231,7 @@ def _note_resume_affection(con, session, agent):
     ))
 
 
-def _env_preamble(config, stable=False, clock_at_end=False):
+def _env_preamble(config, stable=False, clock_at_end=False, grok_voice=False):
     """Static environmental context prepended to every agent's system prompt.
 
     Small, static, foundational: the app surface, the user's local datetime
@@ -247,7 +247,26 @@ def _env_preamble(config, stable=False, clock_at_end=False):
     after the conversation instead (_brain_leg): a stateless brain resends
     the prompt every leg, and a clock in its first lines would stop a local
     server's prompt cache from reusing any of it.
+
+    `grok_voice=True`: a Grok realtime voice call. xAI puts its own voice mode
+    block ahead of these instructions, with a line to keep responses concise;
+    since Voice 3.0 that line outweighs the companion's own conversational
+    style and replies come out short. The bullet sits here, the closest spot
+    to that block. Handing length back to the prompt below was not enough on
+    its own (the model's default is short too), so it asks for longer,
+    richer replies itself and still yields to the prompt below - the user
+    may have written their own style.
     """
+    reply_length_line = ""
+    if grok_voice:
+        reply_length_line = (
+            "- **Reply length:** The Grok voice mode line above, \"Keep "
+            "responses concise and verbal\", is for operational exchanges - "
+            "status checks, quick confirms, brief progress updates. Everything "
+            "else (casual conversation, roleplay, etc.) gets longer, richer "
+            "replies: take the room to react, add detail and follow a thought "
+            "through, unless the guidance below says otherwise.\n"
+        )
     now_local = datetime.now().astimezone()
     if stable:
         now_str = '<now>'
@@ -267,7 +286,8 @@ def _env_preamble(config, stable=False, clock_at_end=False):
         f"- **Current datetime (user local):** {now_str}\n"
         f"  Resolve relative date/time phrases (\"today\", \"tomorrow\", "
         f"\"this week\", \"in 2 hours\") against this clock.\n"
-        f"- **Language:** Respond in the language the user speaks.\n\n"
+        f"- **Language:** Respond in the language the user speaks.\n"
+        f"{reply_length_line}\n"
     )
 
 
@@ -1416,7 +1436,8 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         voice_speed=voice_speed,
         keyterms=keyterms,
         instructions=(
-            _env_preamble(config)
+            # Not on a group call: its note asks for short turns.
+            _env_preamble(config, grok_voice=setup is None and not group_peers)
             + _appearance_section(con, agent)
             + _render_prompt(agent)
             + _group_call_note(agent, group_peers, manual_turn)
