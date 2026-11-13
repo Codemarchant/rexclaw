@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { notification } from "../lib/notification";
 import { _t } from "../lib/i18n";
@@ -62,15 +62,22 @@ export default function SessionsView({ active }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
 
+    const transcriptLoads = useRef({});   // id → number of the latest load
     const toggleExpand = async (id) => {
         setExpanded((prev) => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id); else next.add(id);
             return next;
         });
-        if (!transcripts[id]) {
+        // Loaded again on every open: the conversation may have gone on
+        // since. The copy from last time shows until the new one arrives.
+        if (!expanded.has(id)) {
+            // Only the newest load of a session lands: an earlier one that
+            // answers late would put older rows back.
+            const load = (transcriptLoads.current[id] = (transcriptLoads.current[id] || 0) + 1);
             try {
                 const t = await rpc("/api/sessions/messages", { id });
+                if (transcriptLoads.current[id] !== load) return;
                 setTranscripts((t0) => ({ ...t0, [id]: t }));
             } catch (e) {
                 notification.add(e?.message || _t("Could not load the transcript"), { type: "danger" });
