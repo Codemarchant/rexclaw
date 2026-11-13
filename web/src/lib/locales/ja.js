@@ -635,6 +635,15 @@ export const JA = {
   "voice: %s": "音声: %s",
   // Engine descriptions and fields (server/pipeline/*.py)
   "xAI (streaming)": "xAI（ストリーミング）",
+  "ElevenLabs (streaming)": "ElevenLabs（ストリーミング）",
+  "ElevenLabs Scribe speech recognition over a live connection, with interim words and built-in end-of-turn detection (elevenlabs.io API key).":
+    "常時接続の ElevenLabs Scribe 音声認識。話している途中の文字起こしと、発話終了の判定を内蔵（elevenlabs.io の API キー）。",
+  "scribe_v3_live (most accurate, predicts where your turn ends) or scribe_v2_realtime (ends turns on silence alone).":
+    "scribe_v3_live（最も高精度で、発話の終わりを予測します）または scribe_v2_realtime（無音だけで区切ります）。",
+  "Optional code (en, ja, ...). Empty: the language is detected.":
+    "任意のコード（en、ja など）。空欄の場合は言語を自動判定します。",
+  "The turn ends after this much silence even if the model thinks you are not done (192-3000). ElevenLabs' own example uses 1500 ms.":
+    "モデルがまだ話し終えていないと判断しても、この長さの無音で区切ります（192〜3000）。ElevenLabs 自身の例では 1500 ms。",
   "Grok speech recognition over a live connection, with interim words and built-in end-of-turn detection. Uses your xAI key.":
     "常時接続の Grok 音声認識。話している途中の文字起こしと、発話終了の判定を内蔵。xAI キーを使用します。",
   "Model": "モデル",

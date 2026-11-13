@@ -1,6 +1,7 @@
 # Copyright 2026 Codemarchant
 """Speech-to-text engines."""
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -93,6 +94,7 @@ class _XaiSttStream(SttStream):
     # other events keep flowing: this many tries, then the call ends
     # (Pipecat's WebsocketService: 3 tries with backoff).
     RECONNECT_TRIES = 3
+    NAME = 'xAI STT'   # in log lines
 
     def __init__(self, url, config):
         self.url, self.config = url, config
@@ -141,7 +143,7 @@ class _XaiSttStream(SttStream):
                 return
             except Exception as e:
                 error = e
-                _logger.warning('xAI STT reconnect failed (%d/%d): %s', attempt + 1, self.RECONNECT_TRIES, e)
+                _logger.warning('%s reconnect failed (%d/%d): %s', self.NAME, attempt + 1, self.RECONNECT_TRIES, e)
         # events() raises it, which ends the call (PipelineSession._deaf).
         self._closed = True
         await self._queue.put(RuntimeError(f'the connection could not be reopened: {error}'))
@@ -183,9 +185,13 @@ class _XaiSttStream(SttStream):
                 self._reconnecting = asyncio.create_task(self._reconnect())
             return
         try:
-            await self.ws.send(data)
+            await self._send(data)
         except Exception:
             self.ws = None
+
+    async def _send(self, pcm):
+        """One chunk of 16-bit PCM in the service's own framing."""
+        await self.ws.send(pcm)
 
     async def finalize(self):
         if self.ws is not None:
@@ -335,4 +341,154 @@ class OpenAiCloudStt(OpenAiStt):
         return hints
 
 
-ENGINES = [XaiStt, OpenAiStt, OpenAiCloudStt]
+class ElevenLabsStt(SttEngine):
+    """ElevenLabs realtime speech-to-text (Scribe): one WebSocket for the
+    whole call, interim words while the user talks, and the service decides
+    where a turn ends. Scribe v3 Live (released 2026-11-10) predicts the end
+    of a turn from what was said - it commits once its turn probability
+    reaches 0.9 - with a silence threshold as the backstop; Scribe v2
+    Realtime has the silence threshold alone, and refuses turn prediction.
+    Billed per hour of audio streamed. Sources: elevenlabs.io/docs → API
+    reference → Speech to Text → Realtime, and the guide "Transcripts and
+    commit strategies" (2026-11-13)."""
+    id = 'elevenlabs'
+    label = 'ElevenLabs (streaming)'
+    kind_label = 'ElevenLabs'
+    description = ('ElevenLabs Scribe speech recognition over a live connection, with interim '
+                   'words and built-in end-of-turn detection (elevenlabs.io API key).')
+    streaming = True
+    fields = (
+        Field('api_key', 'API key', 'secret', '', scope='connection',
+              help='From elevenlabs.io → Developers → API keys.'),
+        Field('model', 'Model', 'text', 'scribe_v3_live', placeholder='scribe_v3_live',
+              help='scribe_v3_live (most accurate, predicts where your turn ends) or '
+                   'scribe_v2_realtime (ends turns on silence alone).'),
+        Field('language', 'Language', 'text', '',
+              placeholder='auto',
+              help='Optional code (en, ja, ...). Empty: the language is detected.'),
+        # Named as xAI's field: the pipeline reads it for its own safety
+        # timeout (PipelineSession._configure_listening).
+        Field('smart_turn_timeout', 'Longest pause inside a turn (ms)', 'number', 1500,
+              help='The turn ends after this much silence even if the model thinks you are '
+                   'not done (192-3000). ElevenLabs\' own example uses 1500 ms.'),
+    )
+
+    @property
+    def model_name(self):
+        return self.get('model') or 'scribe_v3_live'
+
+    async def open_stream(self, *, keyterms=()):
+        silence_ms = max(192, min(3000, int(self.get('smart_turn_timeout') or 1500)))
+        params = [('model_id', self.model_name), ('audio_format', f'pcm_{VAD_RATE}'),
+                  ('commit_strategy', 'turn_prediction' if self.model_name.startswith('scribe_v3') else 'vad'),
+                  ('vad_silence_threshold_secs', silence_ms / 1000)]
+        if self.get('language'):
+            params.append(('language_code', self.get('language')))
+        params += [('keyterms', t) for t in keyterms]
+        stream = _ElevenLabsSttStream(
+            f'wss://api.elevenlabs.io/v1/speech-to-text/realtime?{urlencode(params)}', self.config,
+            self.get('api_key') or '')
+        await stream.connect()
+        return stream
+
+
+class _ElevenLabsSttStream(_XaiSttStream):
+    """The same reconnecting stream as xAI's, speaking ElevenLabs' messages:
+    audio goes up as base64 inside JSON, `partial_transcript` is the words
+    of the segment so far and `committed_transcript` a finished one. The
+    service stops listening 15 s after audio stops arriving (a muted mic),
+    which lands here as a dropped connection and is reopened on the next
+    audio; a new session hears about 2 s before its first words come back."""
+    NAME = 'ElevenLabs STT'
+    # Refusals that trying again won't cure: they end the call with their
+    # message instead of a reconnect loop.
+    FATAL = {'auth_error', 'quota_exceeded', 'unaccepted_terms', 'invalid_request'}
+    # Errors that end a session in the ordinary run of a call - a mic left
+    # muted, the service's session length - and are cured by a new one.
+    EXPECTED = {'insufficient_audio_activity', 'session_time_limit_exceeded'}
+
+    def __init__(self, url, config, api_key):
+        super().__init__(url, config)
+        self.api_key = api_key
+        # Sessions in a row that the service ended with an error before any
+        # words came back (a rate limit, say). Each reopening is a new
+        # billed session with the companion deaf meanwhile, and a connect
+        # that succeeds never trips RECONNECT_TRIES: after that many, the
+        # call ends with the error instead.
+        self._refused = 0
+
+    async def connect(self):
+        import websockets
+        try:
+            ws = await websockets.connect(self.url, additional_headers={'xi-api-key': self.api_key},
+                                          max_size=None)
+        except websockets.InvalidStatus as e:
+            body = e.response.body.decode('utf-8', 'replace')[:300]
+            raise RuntimeError(f'ElevenLabs speech to text refused the connection '
+                               f'({e.response.status_code}): {body}') from e
+        try:
+            first = json.loads(await asyncio.wait_for(ws.recv(), 15))
+            if first.get('message_type') != 'session_started':
+                raise RuntimeError(f"ElevenLabs speech to text did not start: {first.get('error') or first}")
+        except BaseException:
+            await ws.close()
+            raise
+        self.ws = ws
+        self._reader = asyncio.create_task(self._read(ws))
+
+    async def _read(self, ws):
+        refusal = None   # an unexpected error this session, before any words
+        try:
+            async for raw in ws:
+                ev = json.loads(raw)
+                etype = ev.get('message_type')
+                text = (ev.get('text') or '').strip()
+                if etype == 'partial_transcript':
+                    if text:   # empty ones are keepalives
+                        self._refused, refusal = 0, None
+                        await self._queue.put(('partial', text))
+                elif etype == 'committed_transcript':
+                    if text:
+                        self._refused, refusal = 0, None
+                        await self._queue.put(('final', text))
+                elif etype in self.FATAL:
+                    await self._fatal(ws, ev.get('error') or etype)
+                    return
+                elif 'error' in ev:
+                    _logger.warning('ElevenLabs STT %s: %s', etype, ev.get('error'))
+                    if etype not in self.EXPECTED:
+                        refusal = ev.get('error') or etype
+        except Exception as e:   # connection dropped — reconnect on the next push
+            if not self._closed:
+                _logger.warning('ElevenLabs STT connection lost: %s', e)
+        finally:
+            if self.ws is ws:
+                self.ws = None
+        if refusal and not self._closed:
+            self._refused += 1
+            if self._refused >= self.RECONNECT_TRIES:
+                await self._fatal(ws, refusal)
+
+    async def _fatal(self, ws, error):
+        """End the call with the service's own message: events() raises it
+        (PipelineSession._deaf)."""
+        self._closed = True
+        try:
+            await ws.close()
+        except Exception:
+            pass
+        await self._queue.put(RuntimeError(f'ElevenLabs speech to text: {error}'))
+
+    async def _send(self, pcm, commit=False):
+        await self.ws.send(json.dumps({
+            'message_type': 'input_audio_chunk', 'audio_base_64': base64.b64encode(pcm).decode('ascii'),
+            'commit': commit, 'sample_rate': VAD_RATE}))
+
+    async def finalize(self):
+        # A commit is an audio message with nothing in it (as the SDK's
+        # commit() sends).
+        if self.ws is not None:
+            await self._send(b'', commit=True)
+
+
+ENGINES = [XaiStt, OpenAiStt, OpenAiCloudStt, ElevenLabsStt]
