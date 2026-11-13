@@ -363,8 +363,8 @@ def _group_call_note(agent_row, group_peers, manual_turn):
         "are call-management notes, not spoken by anyone.\n",
         "- Never speak on behalf of the other participants and never "
         "fabricate their lines. React only as yourself.\n",
-        "- Keep turns conversational and reasonably short - it's a group "
-        "conversation, not a monologue. You may address the other "
+        "- Keep turns conversational and natural, it's a group "
+        "conversation. You may address the other "
         "companion(s) by name to hand them the floor, or ask them "
         "questions; you may also address the user directly.\n",
         "- While chatting with the other companion(s), do NOT close your "
@@ -1436,8 +1436,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         voice_speed=voice_speed,
         keyterms=keyterms,
         instructions=(
-            # Not on a group call: its note asks for short turns.
-            _env_preamble(config, grok_voice=setup is None and not group_peers)
+            _env_preamble(config, grok_voice=setup is None)
             + _appearance_section(con, agent)
             + _render_prompt(agent)
             + _group_call_note(agent, group_peers, manual_turn)
