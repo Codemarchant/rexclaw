@@ -767,6 +767,11 @@ export const JA = {
   "Speech-to-speech": "音声対音声",
   "Brain for text chat, summaries and tasks": "テキストチャット・要約・タスク用のブレイン",
   "%s Realtime (%s) · text and tasks: %s": "%s Realtime（%s）· テキストとタスク：%s",
+  "%s · text and tasks: %s": "%s · テキストとタスク：%s",
+  "Same as the brain for calls": "通話のブレインと同じ",
+  "Brain for calls": "通話用のブレイン",
+  "Calls need a brain that answers at once. Pick one here to give text chat, summaries and tasks a model of their own - one that thinks before it writes, say. Text chat uses it for companions whose Text chat brain is the voice setup's.":
+    "通話にはすぐに答えるブレインが必要です。ここで選ぶと、テキストチャット・要約・タスクに専用のモデルを使えます（書く前に考えるモデルなど）。テキストチャットでは、「テキストチャットの頭脳」が音声セットアップのものになっているコンパニオンが使います。",
   "On calls, web search and code run through delegate_task on the brain above (when it is Claude or OpenAI's own API); MCP servers run at OpenAI during the call.":
     "通話中の Web 検索とコード実行は、上のブレイン（Claude または OpenAI 公式 API の場合）で delegate_task を通して行います。MCP サーバーは通話中に OpenAI 側で実行されます。",
   "OpenAI's voices don't render Grok speech tags ([laugh], <whisper>), so companions aren't taught them on calls. Voice messages use the voice above.":

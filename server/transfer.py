@@ -751,7 +751,7 @@ def _setup_shape(stages, connections):
     """A setup's stages with every default filled in, for comparing two
     setups field by field."""
     shape = {"turn": pipeline_engines.with_defaults(pipeline_engines.TURN_FIELDS, stages.get("turn"))}
-    for stage in (*pipeline_engines.STAGES, pipeline_engines.REALTIME):
+    for stage in (*pipeline_engines.STAGES, pipeline_engines.REALTIME, pipeline_engines.TEXT_LLM):
         saved = stages.get(stage)
         conn = connections.get(voice_setups._conn_id(saved.get("connection"))) \
             if isinstance(saved, dict) else None
@@ -773,7 +773,7 @@ def _link_setup(con, ref, linked, added):
     described = ref.get("connections") if isinstance(ref.get("connections"), dict) else {}
     if isinstance(stages, dict):
         stages = {k: s for k, s in stages.items()
-                  if k in (*pipeline_engines.STAGES, pipeline_engines.REALTIME, "turn")
+                  if k in (*pipeline_engines.STAGES, pipeline_engines.REALTIME, pipeline_engines.TEXT_LLM, "turn")
                   and isinstance(s, dict)}
         needed = {str(s["connection"]) for k, s in stages.items() if k != "turn" and "connection" in s}
         missing = needed - linked.keys()

@@ -3268,7 +3268,8 @@ def vision_brain(con, agent, config, mode):
 
 def delegate_brain(con, agent, config):
     """(LlmEngine class, settings) delegate_task runs on: the companion's
-    voice setup brain when its provider runs web search and code itself
+    voice setup brain (its text chat brain when it has one - Setup.text_brain)
+    when its provider runs web search and code itself
     (Claude, OpenAI's own API) - the companion's deep-focus mode on its own
     model, with its files, sandbox and summaries there too. Else None: the
     app's Grok (delegation was built on xAI's tools; a local brain has
@@ -3276,7 +3277,7 @@ def delegate_brain(con, agent, config):
     setup = voice_setups.for_agent(con, agent, config)
     if setup is None:
         return None
-    cls, settings = setup.stages['llm']
+    cls, settings = setup.text_brain
     if cls.uses_xai_key or not {'web_search', 'code_interpreter'} <= set(cls.hosted_for(settings)):
         return None
     return cls, settings
@@ -3315,9 +3316,16 @@ def brain_runs_code(con, agent, config, mode):
 def _background_complete(con, session, config):
     """Where a session's summary, title and memory extraction run: on the
     brain the session itself runs on when that isn't xAI's (_session_brain),
-    so a conversation held on a local model stays local. None = the app's
-    Grok (config.summary_model). Returns xai_client's `complete` hook."""
+    so a conversation held on a local model stays local. A call on a setup
+    with a text chat brain of its own has that one write them
+    (Setup.text_brain): the call brain is picked to answer at once, and none
+    of this is waited for. None = the app's Grok (config.summary_model).
+    Returns xai_client's `complete` hook."""
     brain = _session_brain(con, session, config)
+    if brain is not None and session['mode'] == 'voice' and session['origin'] != 'delegated':
+        agent = store.get_agent(con, session['agent_id'])
+        setup = voice_setups.for_agent(con, agent, config) if agent else None
+        brain = setup.text_brain if setup else brain
     if brain is None or brain[0].uses_xai_key:
         return None
 

@@ -11,7 +11,9 @@
                 in: xAI's speech-to-speech API, no row. A setup can instead
                 run its calls on another provider's speech-to-speech model
                 (stages['realtime'], realtime.py); its brain still serves
-                text chat, summaries and delegated tasks.
+                text chat, summaries and delegated tasks. A pipeline
+                setup can name a second brain for those
+                (stages['text_llm']), leaving the first to its calls.
 
 A companion picks a setup (agents.voice_setup: '' = the app default,
 'realtime', or a setup id) and keeps its own voice per voice connection
@@ -64,7 +66,8 @@ def _conn_id(value):
 class Setup:
     """One resolved voice setup, ready to build engines from."""
 
-    def __init__(self, row_id, name, stages, turn, tts_connection=XAI, realtime=None, realtime_connection=None):
+    def __init__(self, row_id, name, stages, turn, tts_connection=XAI, realtime=None, realtime_connection=None,
+                 text_llm=None):
         self.id, self.name = row_id, name
         self.stages = stages   # {stage: (EngineClass, settings)}
         self.turn = turn
@@ -75,6 +78,18 @@ class Setup:
         # stage, voice messages.
         self.realtime = realtime
         self.realtime_connection = realtime_connection
+        # A pipeline setup's own brain for text chat, summaries and
+        # delegate_task (E.TEXT_LLM): (LlmEngine class, settings), or None -
+        # the brain stage does those too. See text_brain.
+        self.text_llm = text_llm
+
+    @property
+    def text_brain(self):
+        """(LlmEngine class, settings) for text chat, summaries and
+        delegate_task: the setup's text chat brain when it has one, else
+        the brain stage its calls think on. Calls want a model that
+        answers at once; written chat can wait for one that reasons."""
+        return self.text_llm or self.stages['llm']
 
     @property
     def uses_xai_key(self):
@@ -222,8 +237,18 @@ def _resolve_row(con, row, connections=None):
             realtime = (cls, {**E.with_defaults(conn_fields, conn['settings']),
                               **E.with_defaults(E.setup_fields(cls), saved)})
             realtime_connection = conn['id']
+    # A speech-to-speech setup's brain stage is already its text brain.
+    text_llm = None
+    saved = stages_saved.get(E.TEXT_LLM)
+    if saved and realtime is None:
+        conn = connections.get(_conn_id(saved.get('connection')))
+        cls = E.engine_for(E.TEXT_LLM, conn['kind']) if conn else None
+        if cls is not None:   # its connection gone: the brain stage takes text chat
+            conn_fields = [f for f in cls.fields if f.scope == 'connection']
+            text_llm = (cls, {**E.with_defaults(conn_fields, conn['settings']),
+                              **E.with_defaults(E.setup_fields(cls), saved)})
     return Setup(row['id'], row['name'], stages, E.with_defaults(E.TURN_FIELDS, stages_saved.get('turn')),
-                 tts_connection, realtime, realtime_connection)
+                 tts_connection, realtime, realtime_connection, text_llm)
 
 
 def get(con, setup_id):
@@ -262,7 +287,7 @@ def text_brain_for(con, agent, config=None):
     setup = for_agent(con, agent, config)
     if setup is None:
         return None
-    brain = setup.stages['llm']
+    brain = setup.text_brain
     return brain if follow or not brain[0].uses_xai_key else None
 
 
@@ -298,6 +323,11 @@ def public(con):
         conn = connections.get(_conn_id(s.get('connection'))) if s else None
         cls = E.engine_for(E.REALTIME, conn['kind']) if conn else None
         stages[E.REALTIME] = {'connection': conn['id'], **E.with_defaults(E.setup_fields(cls), s)} if cls else None
+        # null = text chat on the brain stage.
+        s = saved.get(E.TEXT_LLM)
+        conn = connections.get(_conn_id(s.get('connection'))) if s else None
+        cls = E.engine_for(E.TEXT_LLM, conn['kind']) if conn else None
+        stages[E.TEXT_LLM] = {'connection': conn['id'], **E.with_defaults(E.setup_fields(cls), s)} if cls else None
         setups.append({'id': r['id'], 'name': r['name'], 'stages': stages})
     return {'connections': conns, 'setups': setups}
 
@@ -408,6 +438,24 @@ def save(con, payload):
                     if v != f.default:
                         out[f.key] = v
             stored[E.REALTIME] = out
+        text = stages_in.get(E.TEXT_LLM)
+        if text:
+            ref = text.get('connection')
+            conn = connections.get(ids.get(str(ref), _conn_id(ref)))
+            if conn and conn['kind'] not in kinds and old:
+                # Its extension isn't loaded: keep the stage as stored.
+                stored[E.TEXT_LLM] = _json(old['stages']).get(E.TEXT_LLM) or {'connection': conn['id']}
+            else:
+                cls = E.engine_for(E.TEXT_LLM, conn['kind']) if conn else None
+                if cls is None:
+                    raise UserError(f'"{name}": pick a connection that can do the text chat brain.')
+                out = {'connection': conn['id']}
+                for f in E.setup_fields(cls):
+                    if f.key in text:
+                        v = E.coerce(f, text[f.key])
+                        if v != f.default:
+                            out[f.key] = v
+                stored[E.TEXT_LLM] = out
         if old:
             con.execute('UPDATE voice_setups SET name = ?, stages = ?, sequence = ? WHERE id = ?',
                         (name, json.dumps(stored), i, old_id))
@@ -448,7 +496,9 @@ def seed_grok_pipeline(con):
     """Add the all-xAI pipeline (xAI speech to text → Grok brain → Grok
     voice, every field at its default) once, as an ordinary editable
     setup next to built-in Grok Realtime: speech-to-text bills per hour of
-    audio ($0.20/hr) where Realtime bills ~$3-4.80 per connected hour. Not
+    audio ($0.20/hr) where Realtime bills ~$3-4.80 per connected hour. Its
+    text chat brain is Grok too, on its text chat defaults
+    (XaiLlm.text_defaults): the call brain's are sized for calls. Not
     again once deleted, nor when an all-xAI pipeline setup already exists."""
     if con.execute('SELECT seeded_grok_pipeline FROM config WHERE id = 1').fetchone()[0]:
         return
@@ -459,7 +509,8 @@ def seed_grok_pipeline(con):
     if not has_one:
         con.execute('INSERT INTO voice_setups (name, stages) VALUES (?, ?)', (
             'Grok TTS pipeline (cheaper)',
-            json.dumps({stage: {'connection': XAI} for stage in E.STAGES})))
+            json.dumps({**{stage: {'connection': XAI} for stage in E.STAGES},
+                        E.TEXT_LLM: {'connection': XAI, **E.engine_for(E.TEXT_LLM, XAI).text_defaults}})))
     con.execute('UPDATE config SET seeded_grok_pipeline = 1 WHERE id = 1')
 
 

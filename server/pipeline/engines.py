@@ -33,6 +33,10 @@ STAGES = ('stt', 'llm', 'tts')
 # pipeline stage, but registered and offered per connection kind the same way.
 REALTIME = 'realtime'
 ALL_STAGES = STAGES + (REALTIME,)
+# A pipeline setup's optional second brain, for text chat, summaries and
+# tasks, where its calls stay on the 'llm' stage (setups.Setup.text_brain).
+# Stored next to the stages and served by the same engines as 'llm'.
+TEXT_LLM = 'text_llm'
 
 
 @dataclass(frozen=True)
@@ -187,6 +191,9 @@ class LlmEngine(Engine):
     # own (xAI Responses) shape: the engine translates them for its
     # provider. Others are dropped from the call.
     hosted_tools = ()
+    # Setup field values this engine starts with as a setup's text chat brain
+    # (TEXT_LLM), where its field defaults are sized for calls.
+    text_defaults = {}
 
     @classmethod
     def hosted_for(cls, settings):
@@ -325,6 +332,8 @@ def _builtin():
 def engines(stage):
     """{id: EngineClass} for a stage, built-ins first, then extensions'."""
     from .. import plugins
+    if stage == TEXT_LLM:
+        stage = 'llm'
     out = {cls.id: cls for cls in _builtin()[stage]}
     for cls in plugins.voice_engines(stage):
         out.setdefault(cls.id, cls)
@@ -372,6 +381,7 @@ def catalog():
             entry['voice_hint'] = cls.voice_hint
         if stage == 'llm':
             entry['hosted_tools'] = list(cls.hosted_tools)
+            entry['text_defaults'] = dict(cls.text_defaults)
         return entry
     return {
         'kinds': [{'kind': k, 'label': v['label'], 'stages': v['stages'],

@@ -114,6 +114,11 @@ def setup_options(con=Depends(db_con)):
             continue
         tts_cls, tts_settings = setup.stages['tts']
         grok_voice = setup.tts_connection == setups.XAI
+        # brain / hosted_tools describe the text-chat brain here too: the
+        # setup's own text chat brain when it has one, else the call brain
+        # (`call_hosted_tools` are the call brain's either way).
+        call_hosted = list(llm_cls.hosted_for(llm_settings))
+        llm_cls, llm_settings = setup.text_brain
         options.append({'value': str(row['id']), 'label': row['name'],
                         'voice_hint': None if grok_voice else tts_cls.voice_hint,
                         'tts_connection': None if grok_voice else str(setup.tts_connection),
@@ -122,7 +127,8 @@ def setup_options(con=Depends(db_con)):
                         'tts_label': tts_cls.label, 'tag_guide': tts_cls.tag_guide(tts_settings),
                         'brain': ' · '.join(filter(None, [llm_cls.label, llm_settings.get('model')])),
                         'brain_is_xai': llm_cls.uses_xai_key, 'speech_tags': bool(tts_cls.speech_tags),
-                        'hosted_tools': list(llm_cls.hosted_for(llm_settings))})
+                        'hosted_tools': list(llm_cls.hosted_for(llm_settings)),
+                        'call_hosted_tools': call_hosted})
     # has_xai_key: whether a Grok voice can be used at all (videos, songs)
     # by a companion whose calls speak in another engine's voice.
     return {'default': config['default_voice_setup'] or setups.REALTIME, 'options': options,
@@ -156,12 +162,20 @@ async def pipeline_test(payload: dict = Body(default={})):
             await llm.close()
         out['realtime'] = await asyncio.to_thread(_test_realtime, setup.realtime)
         return out
-    if setup.uses_xai_key and not config['xai_api_key']:
+    # The text chat brain is tested too, and isn't one of the call's engines.
+    needs_xai = setup.uses_xai_key or bool(setup.text_llm and setup.text_llm[0].uses_xai_key)
+    if needs_xai and not config['xai_api_key']:
         raise UserError('Set your xAI API key first - an engine you chose runs on it.')
     stt, llm, tts = setup.build(config)
     out = {}
     try:
         out['llm'] = await _test_llm(llm)
+        if setup.text_llm:
+            text_llm = setup.text_llm[0](setup.text_llm[1], config)
+            try:
+                out['text_llm'] = await _test_llm(text_llm)
+            finally:
+                await text_llm.close()
         voice = setup.voice_for({'voice': 'eve', 'pipeline_voice': ''})
         tts_result, audio = await _test_tts(tts, voice)
         out['tts'] = tts_result

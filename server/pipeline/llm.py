@@ -251,6 +251,14 @@ class XaiLlm(LlmEngine):
     description = 'Grok text models through the Responses API. Uses your xAI key.'
     hosted_tools = ('web_search', 'x_search', 'mcp')
     uses_xai_key = True
+    # As a text chat brain it starts on the call brain's model with its
+    # reasoning on: written chat can wait for a model that thinks before a
+    # tool call, and one conversation moves between calls and text, so the
+    # two read alike. No reasoning effort - 4.20 has no such setting and
+    # refuses a request that names one. Summarised at the app's own Grok
+    # text budget (config.summary_threshold_tokens_text's default); the
+    # model holds 1M tokens (docs.x.ai/developers/models, 2026-11-13).
+    text_defaults = {'model': 'grok-4.20', 'compact_at': 1000000}
     # grok-4.20-non-reasoning, not grok-4.3: on a companion's voice prompt
     # (2026-09-30, three prompts each) grok-4.3 wrote avatar tool calls into
     # its speech ("[play_gesture: spin]") in 1 of 3 replies and narrated

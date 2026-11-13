@@ -7,7 +7,7 @@ import { _t } from "../lib/i18n";
 // engine shows up here with its own settings, no UI change needed.
 const STAGES = [
     ["stt", "fa-microphone", "Speech to text"],
-    ["llm", "fa-comments", "Brain"],
+    ["llm", "fa-comments", "Brain for calls"],
     ["tts", "fa-volume-up", "Voice"],
 ];
 
@@ -140,7 +140,8 @@ export default function VoiceSetupsSettings({ connections, setups, defaultSetup,
             ...s,
             stages: Object.fromEntries(Object.entries(s.stages).map(([stage, st]) => {
                 const uses = st && stage !== "turn" && String(st.connection) === String(id);
-                return [stage, !uses ? st : stage === "realtime" ? null : stageFor(stage, "xai")];
+                // The optional ones (speech-to-speech, the text chat brain) are dropped.
+                return [stage, !uses ? st : stage === "realtime" || stage === "text_llm" ? null : stageFor(stage, "xai")];
             })),
         })),
     });
@@ -288,13 +289,22 @@ function SetupCard({ setup, connections, catalog, smartTurnAvailable, engineFor,
     const where = (stage) => connOf(setup.stages[stage]?.connection ?? "xai")?.name || "xAI";
     const model = setup.stages.llm?.model || engines.llm?.fields?.find((f) => f.key === "model")?.default;
     const brainSummary = model ? `${where("llm")} (${model})` : where("llm");
+    // A pipeline setup's own brain for text chat, summaries and tasks
+    // (server: Setup.text_brain); null = the brain stage does those too.
+    const text = (!rt && setup.stages.text_llm) || null;
+    const textEngine = text ? engineFor("llm", kindOf(text.connection)) : null;
+    const textModel = text && (text.model || textEngine?.fields?.find((f) => f.key === "model")?.default);
+    const textWhere = text ? connOf(text.connection ?? "xai")?.name || "xAI" : "";
+    const stagesSummary = [where("stt"), brainSummary, where("tts")].join(" → ");
     const summary = rt
         ? _t("%s Realtime (%s) · text and tasks: %s", connOf(rt.connection)?.name || "", rt.model || "", brainSummary)
-        : [where("stt"), brainSummary, where("tts")].join(" → ");
+        : text ? _t("%s · text and tasks: %s", stagesSummary, textModel ? `${textWhere} (${textModel})` : textWhere)
+        : stagesSummary;
     const brainTools = hostedTools(engines.llm, connOf(setup.stages.llm?.connection), setup.stages.llm || {});
     const pickCalls = (connectionId) => {
         if (connectionId == null) return onStages({ realtime: null });
-        const patch = { realtime: stageFor("realtime", connectionId) };
+        // Its brain stage is the text chat brain, so a separate one goes.
+        const patch = { realtime: stageFor("realtime", connectionId), text_llm: null };
         // Text chat and tasks start on the same provider's brain.
         const conn = connOf(connectionId);
         if (String(setup.stages.llm?.connection ?? "xai") === "xai" && engineFor("llm", conn?.kind)) {
@@ -365,6 +375,37 @@ function SetupCard({ setup, connections, catalog, smartTurnAvailable, engineFor,
                         </div>
                     );
                 })}
+                {!rt && (() => {
+                    const usable = connections.filter((c) => engineFor("llm", c.kind)
+                        && (serves(c, "llm") || String(c.id) === String(text?.connection)));
+                    return (
+                        <div className="rx_pipeline_stage">
+                            <h4><i className="fa fa-pencil" /> {_t("Brain for text chat, summaries and tasks")}</h4>
+                            <select value={text ? String(text.connection ?? "xai") : ""}
+                                    onChange={(ev) => {
+                                        if (!ev.target.value) return onStage("text_llm", null);
+                                        const value = ev.target.value === "xai" ? "xai" : usable.find((c) => String(c.id) === ev.target.value)?.id;
+                                        // An engine's own start for text chat (Grok: the app's
+                                        // text model and budget) over its defaults, sized for calls.
+                                        const kind = value === "xai" ? "xai" : usable.find((c) => c.id === value)?.kind;
+                                        onStage("text_llm", { ...stageFor("llm", value), ...engineFor("llm", kind)?.text_defaults });
+                                    }}>
+                                <option value="">{_t("Same as the brain for calls")}</option>
+                                {usable.map((c) => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                            </select>
+                            {!text && (
+                                <p className="text-muted small">
+                                    {_t("Calls need a brain that answers at once. Pick one here to give text chat, summaries and tasks a model of their own - one that thinks before it writes, say. Text chat uses it for companions whose Text chat brain is the voice setup's.")}
+                                </p>
+                            )}
+                            {text && textEngine?.description && <p className="text-muted small">{_t(textEngine.description)}</p>}
+                            {text && (textEngine?.fields || []).map((f) => (
+                                <EngineField key={f.key} field={f} value={text[f.key]}
+                                             onChange={(v) => onStage("text_llm", { ...text, [f.key]: v })} />
+                            ))}
+                        </div>
+                    );
+                })()}
             </div>
             {rt ? (
             <ul className="rx_pipeline_notes text-muted small">
@@ -506,6 +547,7 @@ function TestResult({ result }) {
     const rows = [
         ["realtime", _t("Speech-to-speech")],
         ["llm", _t("Brain")],
+        ["text_llm", _t("Text chat brain")],
         ["tts", _t("Voice")],
         ["stt", _t("Speech to text")],
     ];
