@@ -2568,6 +2568,77 @@ export const JA = {
   "Type": "種類",
   "Prompt only": "プロンプトのみ",
   "Read stream chat": "配信チャットを読む",
+  // Conversation coach (companion editor)
+  "Conversation coach": "会話コーチ",
+  "A second model reads this companion's voice calls from the side. When one of the rules below fires - it has been a while since a joke, a gesture, a running gag - it looks for an opening and hands the companion a short thought of their own before one of their next replies. Replies never wait for it. Works in group calls too, each companion with its own coach. Takes effect from the next call.":
+    "別のモデルがこのコンパニオンの音声通話を横から読みます。下のルールのどれかが発動すると（冗談やジェスチャー、お決まりのネタからしばらく経ったときなど）、きっかけを探し、次の返答のどれかの前に、コンパニオン自身の短い気づきとして渡します。返答がそれを待つことはありません。グループ通話でも、コンパニオンごとのコーチで動きます。次の通話から有効になります。",
+  "Enable the conversation coach on voice calls": "音声通話で会話コーチを有効にする",
+  "Coach brain": "コーチの頭脳",
+  "The model the coach thinks on: the text chat brain of one of your voice setups (Settings → Models & providers), so a call on a fast voice model can be coached by a slower one that reasons. The conversation is sent to that model's provider.":
+    "コーチが考えるのに使うモデルです。音声セットアップ（設定 → モデルとプロバイダー）のどれかのテキストチャットの頭脳を選べるので、速い音声モデルの通話を、じっくり推論する遅いモデルにコーチさせられます。会話はそのモデルのプロバイダーに送られます。",
+  "This companion's text chat brain": "このコンパニオンのテキストチャットの頭脳",
+  "(setup no longer exists - the coach is off until you pick a brain)":
+    "（セットアップはもうありません — 頭脳を選ぶまでコーチはオフです）",
+  "The coach can": "コーチにできること",
+  "What the coach may use to look things up before it writes a thought - a fact, a name, something recent. The search runs at the brain's provider, so it needs a brain whose provider offers it (Grok, OpenAI, Claude); a local model has none. Each search adds a few seconds and its cost. Settings' search limit for a text reply applies.":
+    "コーチが気づきを書く前に、事実や名前、最近の出来事を調べるのに使えるものです。検索は頭脳のプロバイダー側で実行されるため、それを提供するプロバイダーの頭脳（Grok、OpenAI、Claude）が必要です。ローカルモデルにはありません。検索のたびに数秒とその費用がかかります。設定のテキスト返答の検索上限が適用されます。",
+  "Search the web": "ウェブを検索",
+  "Search X (a Grok brain only)": "X を検索（Grok の頭脳のみ）",
+  "Replies between thoughts": "気づきの間隔（返答数）",
+  "After the coach sends a thought, no rule is looked at until the companion has given this many replies - so rules that came due together during a long scene are handed over one at a time, spaced out, rather than back to back. One rule fires per reply at most, the most overdue first. 0 = no spacing.":
+    "コーチが気づきを送ったあと、コンパニオンがこの数だけ返答するまで、どのルールも確認されません。長い場面のあいだに同時に期限が来たルールが、立て続けではなく、間をあけて1つずつ渡されます。1回の返答で発動するルールは最大1つで、最も期限を過ぎたものが先です。0 = 間隔なし。",
+  "Tracked moments": "記録する出来事",
+  "Add moment": "出来事を追加",
+  "A yes/no question the decision model answers about every reply, only to keep count: 'Did the companion make a joke in `last_reply`?' gives a rule a 'replies since the last joke' to wait on. Counts are in this companion's own replies, start at zero and carry over from one call to the next. Requires a decision model (Settings → Decision model). A moment an active rule waits on is counted even when it is switched off here.":
+    "判断モデルが返答のたびに答える、はい／いいえの質問です。数を数えるためだけに使います。「Did the companion make a joke in `last_reply`?」なら、ルールが待てる「最後の冗談からの返答数」になります。数はこのコンパニオン自身の返答で数え、0 から始まり、通話をまたいで引き継がれます。判断モデル（設定 → 判断モデル）が必要です。有効なルールが待っている出来事は、ここでオフにしていても数えられます。",
+  "No tracked moments yet.": "記録する出来事はまだありません。",
+  "Name, e.g. Joke": "名前（例：冗談）",
+  "e.g. 'Did the companion make a joke in `last_reply`?'": "例：「Did the companion make a joke in `last_reply`?」",
+  "Rules": "ルール",
+  "Add the examples": "例を追加",
+  "Adds the example tracked moments and rules that are not in the lists yet, switched off.":
+    "まだリストにない例の出来事とルールを、オフの状態で追加します。",
+  "Add rule": "ルールを追加",
+  "No rules yet.": "ルールはまだありません。",
+  "(no advice)": "（依頼内容なし）",
+  "now %s": "現在 %s",
+  "Save rule": "ルールを保存",
+  "e.g. Time for a joke": "例：そろそろ冗談を",
+  "Wait for": "待つ長さ",
+  "replies since": "返答（次の時点から）：",
+  "(no wait)": "（待たない）",
+  "An optional wait before this rule is looked at: so many of the companion's replies since something last happened. With two different numbers the wait is a random length between them, drawn again each time the rule fires, so rules don't come due like clockwork or all at once. A count starts at zero when it is first asked for, so nothing is overdue on the first call. When the rule fires, it waits the whole length again whether or not the companion acts on the thought. 'This rule' makes the rule look at most once every so many replies.":
+    "このルールを確認するまでの待ち時間（任意）です。何かが最後に起きてから、コンパニオンがこの数だけ返答するまで待ちます。2つの数字が異なる場合、その間のランダムな長さになり、ルールが発動するたびに選び直されるので、ルールが規則的に、あるいは一斉に期限を迎えることがありません。数は最初に必要になったときに 0 から始まるので、最初の通話で期限切れになっているものはありません。ルールが発動すると、コンパニオンがその気づきを使ったかどうかにかかわらず、もう一度同じ長さだけ待ちます。「このルール」を選ぶと、ルールは最大でその返答数ごとに1回だけ確認されます。",
+  "this rule last went to the coach": "このルールが最後にコーチに渡ったとき",
+  "the coach last sent a thought": "コーチが最後に気づきを送ったとき",
+  "tracked moment: %s": "記録する出来事：%s",
+  "tool: %s": "ツール：%s",
+  "(missing: %s)": "（見つかりません：%s）",
+  "%s replies since %s": "%s 返答（%s から）",
+  "Decided by": "判断するもの",
+  "Who decides the moment has come, once the wait is over. The coach model reads the whole conversation and decides for itself - a full coach request every time the rule is looked at, so give it a wait. The decision model (Settings → Decision model) answers a yes/no question about the last few lines first - quick and cheap - and the coach only runs on the answer you pick.":
+    "待ち時間が過ぎたあと、今がその時かを誰が決めるかです。コーチのモデルは会話全体を読んで自分で判断します。ルールを確認するたびにコーチへのリクエストが丸ごと1回かかるので、待ち時間を設定してください。判断モデル（設定 → 判断モデル）は、まず直近の数行について、はい／いいえの質問に答えます。速くて安価で、選んだ答えのときだけコーチが動きます。",
+  "The decision model, from a question": "判断モデル（質問で判断）",
+  "The coach model itself": "コーチのモデル自身",
+  "coach decides": "コーチが判断",
+  "when the answer is yes": "答えが「はい」のとき",
+  "when the answer is no": "答えが「いいえ」のとき",
+  "Ask the coach when the answer is": "コーチに渡す答え",
+  "Which answer brings the coach in. 'No' suits questions about something that has been missing.":
+    "どちらの答えでコーチを呼ぶかです。「いいえ」は、足りていなかったものについての質問に向いています。",
+  "Yes": "はい",
+  "No": "いいえ",
+  "Question about the conversation": "会話についての質問",
+  "A yes/no question about the last few lines of the call. Write `conversation` for those lines, `last_reply` for the companion's latest one, and `character` for who the companion is (their name and personality). Ask about one thing that either happened or did not: a narrow question fires seldom, a broad one all the time.":
+    "通話の直近の数行についての、はい／いいえの質問です。その数行は `conversation`、コンパニオンの最新の返答は `last_reply`、コンパニオンがどんな人物か（名前と性格）は `character` と書きます。起きたか起きなかったかがはっきりする1つのことを尋ねてください。狭い質問はめったに発動せず、広い質問はいつも発動します。",
+  "e.g. 'Is `conversation` at a point where something new could come in naturally?'":
+    "例：「Is `conversation` at a point where something new could come in naturally?」",
+  "What to ask the coach for": "コーチに依頼すること",
+  "What the coach is asked to work out when this rule fires. The coach reads the companion's whole prompt, the whole conversation and the counts, then writes the companion a short thought - or nothing, if it finds no opening.":
+    "このルールが発動したとき、コーチに考えてもらう内容です。コーチはコンパニオンのプロンプト全体、会話全体、数を読んだうえで、コンパニオンに短い気づきを書きます。きっかけが見つからなければ何も書きません。",
+  "e.g. 'Find an opening to bring up the fishing trip again.'": "例：「Find an opening to bring up the fishing trip again.」",
+  "The open coach rule is missing its question or what to ask the coach for — finish it or cancel it, then save again.":
+    "開いているコーチのルールに、質問またはコーチへの依頼内容がありません。入力するかキャンセルしてから、もう一度保存してください。",
   "How many of the newest unread chat messages to add. Each read catches up: older unread chat is skipped, the way a streamer glances at chat, and no message is read twice.":
     "添える最新の未読チャットメッセージの数です。読むたびに追いつくので、それより古い未読チャットは配信者がチャットをちらっと見るときのように飛ばされ、同じメッセージが二度読まれることはありません。",
   "Latest messages to read": "読む最新メッセージ数",

@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, call_music, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, store, text_to_vrma, turn_director, voicemail_tools, xai_oauth
+from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, store, text_to_vrma, turn_director, voicemail_tools, xai_oauth
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 from .pipeline import session as pipeline_session, setups as voice_setups
@@ -1618,6 +1618,10 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # unanswered cap (None = off). The browser runs the clock, same
         # reasoning as above - see web/src/lib/idle_events.js.
         'idle_events': idle_events.call_payload(agent),
+        # Conversation coach: whether this leg asks for a review after each
+        # reply (web/src/lib/coach.js). Every leg of a group call carries
+        # its own companion's.
+        'coach': coach.call_payload(agent),
     }
 
 
@@ -1793,7 +1797,7 @@ def _transcript_rows(con, session, limit=None):
     and so are the model-only prompt rows that would otherwise bloat the
     view with boilerplate: the scheduled-heartbeat context block (the diary
     reply it produced stays), the time-aware resume note, the affection
-    resync note, idle-event notes and live-memory notes. All still replay to the model - this
+    resync note, idle-event notes, coach notes and live-memory notes. All still replay to the model - this
     is display-only.
     Optional `limit` keeps the most-recent N. Returns (rows, truncated).
     Shared by the voice resume feed (_build_transcript_history) and the text
@@ -1809,10 +1813,12 @@ def _transcript_rows(con, session, limit=None):
         " AND NOT (role = 'system' AND content LIKE ?)"
         " AND NOT (role = 'system' AND content LIKE ?)"
         " AND NOT (role = 'system' AND content LIKE ?)"
+        " AND NOT (role = 'system' AND content LIKE ?)"
     )
     # Live memory notes: the current header, and the one older rows carry.
     shown_params = (heartbeat.CONTEXT_PREFIX + '%', RESUME_NOTE_PREFIX + '%',
                     AFFECTION_NOTE_PREFIX + '%', idle_events.NOTE_PREFIX + '%',
+                    coach.NOTE_PREFIX + '%',
                     '[System] (Automatic memory recall %', '[System] (live memory %')
     if limit and limit > 0:
         recent = con.execute(

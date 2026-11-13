@@ -15,7 +15,7 @@ from .. import affection_tools, companion_texting, delegate_tools, games, imagin
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
-from .. import jev, live_memory
+from .. import coach, jev, live_memory
 from ..pipeline import setups as voice_setups
 
 _logger = logging.getLogger(__name__)
@@ -33,6 +33,34 @@ def live_memory_candidate(session_id: int, payload: dict = Body(default={}), con
 @router.post('/session/{session_id}/live-memory/delivered')
 def live_memory_delivered(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
     live_memory.delivered(con, resolve_session(con, session_id), payload.get('memory_id'))
+    return {'ok': True}
+
+
+@router.post('/session/{session_id}/coach')
+def coach_review(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """The conversation coach reads the call as saved: {'note': text | None}."""
+    return coach.review(con, resolve_session(con, session_id),
+                        replies=payload.get('replies'), tools=payload.get('tools'))
+
+
+@router.post('/coach/counts')
+def coach_counts(payload: dict = Body(default={}), con=Depends(db_con)):
+    """One companion's coach counters, for the companion editor."""
+    if not payload.get('agent_id'):
+        raise ValidationError('agent_id is required')
+    return coach.counts(con, resolve_agent(con, payload['agent_id']))
+
+
+@router.post('/session/{session_id}/coach/fits')
+def coach_fits(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """Whether a note written a few turns back still belongs in the call."""
+    return coach.still_fits(con, resolve_session(con, session_id), payload.get('note'))
+
+
+@router.post('/session/{session_id}/coach/delivered')
+def coach_delivered(session_id: int, con=Depends(db_con)):
+    """A thought reached the companion."""
+    coach.delivered(con, resolve_session(con, session_id))
     return {'ok': True}
 
 # xAI's PCM validator only accepts this exact set. Snap any other value to the

@@ -10,6 +10,7 @@ import {
     arrayBufferToBase64,
 } from "../models/agent_connection";
 import { IdleEventScheduler } from "../lib/idle_events";
+import { Coach } from "../lib/coach";
 import { MotionDirector } from "../models/motion_director";
 import { neuralMotion, peerNeuralMotion } from "./neural_motion/neural_motion_service";
 
@@ -146,6 +147,9 @@ class VoiceCallService {
         // Idle events: the companion's prompts for when the call goes quiet
         // (lib/idle_events.js), armed per call from the primary's start.
         this.idleEvents = new IdleEventScheduler(this);
+        // Conversation coach: notes from a second model reading the call
+        // (lib/coach.js), per leg.
+        this.coach = new Coach(this);
         // Set by queueSilentContext: the primary's next server-VAD reply is
         // swapped for one that sees the queued note.
         this._refreshNextAutoReply = false;
@@ -716,6 +720,7 @@ class VoiceCallService {
     sendText(text) {
         this.noteActivity();
         this.idleEvents.noteUser();
+        this.coach.noteUser();
         if (!this.hasPeers()) {
             return this.primary.sendText(text);
         }
@@ -1542,6 +1547,7 @@ class VoiceCallService {
         this.noteActivity();
         if (conn === this.primary) this._userVoiceAt = Date.now();
         this.idleEvents.noteUser();
+        this.coach.noteUser();
         // The base avatar's listening face (face director, when on).
         if (conn === this.primary) {
             this.env.services.motion_director?.onUserLine?.(text);
@@ -1713,6 +1719,7 @@ class VoiceCallService {
      *  cap). */
     onAgentFinalTranscript(conn, text) {
         this.noteActivity();
+        this.coach.review(conn);
         // The companion's games show what it said (a speech bubble), and
         // games that pace themselves on Neuro's speech_finished get ours.
         // Sent when the transcript is done, which can be a moment before

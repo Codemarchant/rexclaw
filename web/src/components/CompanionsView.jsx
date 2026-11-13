@@ -10,6 +10,7 @@ import { useListSort } from "../lib/list_sort";
 import Portrait from "./Portrait.jsx";
 import LoreStoriesPanel from "./LoreStoriesPanel.jsx";
 import HeartbeatsPanel from "./HeartbeatsPanel.jsx";
+import CoachSection from "./CoachSection.jsx";
 import Pager, { usePager } from "./Pager.jsx";
 
 /** Companions tab — create, edit and delete companions with room to breathe.
@@ -370,6 +371,12 @@ export default function CompanionsView({ active }) {
             idle_events_max_seconds: 10,
             idle_events_max_unanswered: 6,
             idle_events: "[]",
+            coach_enabled: 0,
+            coach_setup: "",
+            coach_rules: "[]",
+            coach_moments: "[]",
+            coach_tools: "[]",
+            coach_gap: 0,
             core_memory_cap: 100,
         });
     };
@@ -731,6 +738,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
     const regMcp = useCallback((e) => registerChildEditor("mcp", e), [registerChildEditor]);
     const regLore = useCallback((e) => registerChildEditor("lore", e), [registerChildEditor]);
     const regIdle = useCallback((e) => registerChildEditor("idle_events", e), [registerChildEditor]);
+    const regCoach = useCallback((e) => registerChildEditor("coach_rules", e), [registerChildEditor]);
     const [promptPreview, setPromptPreview] = useState(null);
     // The voice setup this companion's calls run on: its own pick, else the
     // app default (Settings → Models & providers).
@@ -1252,6 +1260,8 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
                                       registerEditor={regIdle} />
                 )}
             </section>
+            <CoachSection editingAgent={editingAgent} setEditingAgent={setEditingAgent} idScope={idScope}
+                          registerEditor={regCoach} voiceSetups={voiceSetups} />
             <section>
                 {editingAgent.id != null ? (
                     <McpConnections agentId={editingAgent.id} registerEditor={regMcp} />

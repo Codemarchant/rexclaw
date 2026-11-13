@@ -557,6 +557,8 @@ export class AgentConnection {
             this.manager.setIdleEvents?.(payload.idle_events);
             this.manager.setChainTurnLimit?.(payload.group_chain_turns);
         }
+        // Conversation coach: this leg's own companion's (lib/coach.js).
+        this.coachOn = !!payload.coach;
         // Compact-budget display (see the original singleton for details).
         this._tokensAtLastSummary = payload.tokens_at_last_summary || 0;
         this.state.tokenLimit = payload.summary_threshold_tokens || 0;
@@ -2253,6 +2255,7 @@ export class AgentConnection {
         }
         if (!this._dispatchedCallIds) this._dispatchedCallIds = new Set();
         this._dispatchedCallIds.add(callId);
+        this.manager.coach?.noteTool(this, name);
         this.state.thinking = true;  // hide the freeze gap during execute + audio drain
         if (!SILENT_BROWSER_TOOLS.has(name)) {
             this._appendMessage({

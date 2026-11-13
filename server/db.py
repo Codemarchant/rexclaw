@@ -730,7 +730,28 @@ CREATE TABLE IF NOT EXISTS agents (
     idle_events_min_seconds INTEGER NOT NULL DEFAULT 10,
     idle_events_max_seconds INTEGER NOT NULL DEFAULT 10,
     idle_events_max_unanswered INTEGER NOT NULL DEFAULT 6,
-    idle_events TEXT NOT NULL DEFAULT '[]'
+    idle_events TEXT NOT NULL DEFAULT '[]',
+    -- Conversation coach (voice calls): after each reply a second model may
+    -- hand the companion a hidden thought (server/coach.py). coach_rules is
+    -- a JSON list of {name, judge, question, when, stat, stat_min, stat_max,
+    -- advice, active}: an optional wait on a counter (coach_counters), its
+    -- length drawn from stat_min..stat_max each time, who decides whether
+    -- the moment has come - the decision model answering a yes/no question
+    -- about the last stretch of the call, or the coach itself -, and what
+    -- the coach is asked for when the rule fires. One rule fires per reply
+    -- at most, and none until coach_gap replies after the last thought.
+    -- coach_setup names the voice setup whose text chat brain the coach
+    -- thinks on ('' = the brain this companion's text chat uses). Opt-in.
+    coach_enabled INTEGER NOT NULL DEFAULT 0,
+    coach_setup TEXT NOT NULL DEFAULT '',
+    coach_rules TEXT NOT NULL DEFAULT '[]',
+    -- coach_moments: this companion's tracked moments, a JSON list of {id,
+    -- name, question, active} - yes/no questions asked about each reply
+    -- only to keep count (coach_counters). coach_tools: the searches the
+    -- coach may run, a JSON list out of coach.COACH_TOOLS.
+    coach_moments TEXT NOT NULL DEFAULT '[]',
+    coach_tools TEXT NOT NULL DEFAULT '[]',
+    coach_gap INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS mcp_connections (
@@ -878,6 +899,19 @@ CREATE TABLE IF NOT EXISTS live_memory_deliveries (
     memory_id INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
     delivered_at TEXT NOT NULL,
     PRIMARY KEY(session_id, memory_id)
+);
+
+-- Conversation coach (coach.py): per companion, how many replies ago each
+-- thing a rule can wait on last happened. 'tool:<name>' a tool call,
+-- 'stat:<id>' a tracked moment (agents.coach_moments), 'rule:<id>' a rule
+-- going to the coach, 'note' and 'sent' a thought reaching the companion.
+-- A rule that fires resets its own 'rule:<id>'. 'wait:<id>' is not a
+-- count: it holds the length a rule's wait was drawn at this time round.
+CREATE TABLE IF NOT EXISTS coach_counters (
+    agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    replies INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(agent_id, key)
 );
 
 -- Audio studio (audio_studio.py). Scripts are the user's own saved scripts
@@ -1461,6 +1495,13 @@ MIGRATIONS = (
     "ALTER TABLE agents ADD COLUMN idle_events_max_seconds INTEGER NOT NULL DEFAULT 10",
     "ALTER TABLE agents ADD COLUMN idle_events_max_unanswered INTEGER NOT NULL DEFAULT 6",
     "ALTER TABLE agents ADD COLUMN idle_events TEXT NOT NULL DEFAULT '[]'",
+    # Conversation coach on voice calls — see the agents schema comment.
+    "ALTER TABLE agents ADD COLUMN coach_enabled INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agents ADD COLUMN coach_setup TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE agents ADD COLUMN coach_rules TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE agents ADD COLUMN coach_moments TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE agents ADD COLUMN coach_tools TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE agents ADD COLUMN coach_gap INTEGER NOT NULL DEFAULT 0",
     # Live-stream chat for idle events — see the config schema comment.
     "ALTER TABLE config ADD COLUMN live_chat_twitch_channel TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN live_chat_youtube_video TEXT NOT NULL DEFAULT ''",

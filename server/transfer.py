@@ -659,15 +659,15 @@ def import_heartbeats(con, rows, agent_id):
 def _agent_portable_fields():
     """The agent save/duplicate whitelist minus avatar_id — the avatar link
     travels by pack_key/name instead — and singing_profile_id, voice_setup,
-    pipeline_voice and speech_tag_guides: a Voice Lab model, and a voice
-    setup, voices and speech tags keyed by ids that only exist on this
+    coach_setup, pipeline_voice and speech_tag_guides: a Voice Lab model, and
+    voice setups, voices and speech tags keyed by ids that only exist on this
     install. The setup, voices and tags travel by their settings and names
     instead (voice_setup_ref). Imported lazily: routes.misc imports this module at
     load time."""
     from .routes.misc import _AGENT_FIELDS
     return tuple(k for k in _AGENT_FIELDS
-                 if k not in ("avatar_id", "singing_profile_id", "voice_setup", "pipeline_voice",
-                              "speech_tag_guides"))
+                 if k not in ("avatar_id", "singing_profile_id", "voice_setup", "coach_setup",
+                              "pipeline_voice", "speech_tag_guides"))
 
 
 def _json_map(text):
@@ -1007,6 +1007,11 @@ def import_companion_zip(con, zip_path):
             # stream chat) in calls on its own - the list is there to review.
             if "idle_events_enabled" in vals:
                 vals["idle_events_enabled"] = 0
+            # The conversation coach too: its rules send the call to a
+            # second model and put thoughts in the companion's head, which
+            # the person importing has to switch on themselves.
+            if "coach_enabled" in vals:
+                vals["coach_enabled"] = 0
             name = str(vals.get("name") or "").strip()
             if not name or not str(vals.get("system_prompt") or "").strip():
                 raise UserError("Companion file has no name or system prompt.")

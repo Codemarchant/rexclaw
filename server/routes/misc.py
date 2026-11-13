@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, Depends, File, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, decision_local, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client, xai_oauth
+from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client, xai_oauth
 from ..db import ASSETS_DIR, FILES_DIR, get_config, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
@@ -92,6 +92,8 @@ _AGENT_FIELDS = (
     "time_aware_resume", "speaks_first",
     "idle_events_enabled", "idle_events_min_seconds", "idle_events_max_seconds",
     "idle_events_max_unanswered", "idle_events",
+    "coach_enabled", "coach_setup", "coach_rules", "coach_moments", "coach_tools",
+    "coach_gap",
 )
 
 
@@ -569,6 +571,14 @@ def agents_save(payload: dict = Body(default={}), con=Depends(db_con)):
         updates["transcription_keyterms"] = xai_client.validate_keyterms(updates["transcription_keyterms"])
     if "idle_events" in updates:
         updates["idle_events"] = idle_events.events_json(updates["idle_events"])
+    if "coach_rules" in updates:
+        updates["coach_rules"] = coach.rules_json(updates["coach_rules"])
+    if "coach_moments" in updates:
+        updates["coach_moments"] = coach.moments_json(updates["coach_moments"])
+    if "coach_tools" in updates:
+        updates["coach_tools"] = coach.tools_json(updates["coach_tools"])
+    if "coach_setup" in updates:
+        updates["coach_setup"] = str(updates["coach_setup"] or "")
     if "text_brain" in updates and updates["text_brain"] not in ("app", "voice_setup"):
         updates["text_brain"] = "app"
     if "voice_setup" in updates:
