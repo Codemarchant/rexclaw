@@ -11,7 +11,7 @@ import requests
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 from PIL import Image
 
-from .. import affection_tools, companion_texting, delegate_tools, games, imagine_tools, local_tools, lore_tools, memory_tools, minecraft_tools, plugins, screen_pointer, session_service, store, text_to_vrma, xai_client
+from .. import affection_tools, companion_texting, delegate_tools, games, imagine_tools, local_mcp, local_tools, lore_tools, memory_tools, minecraft_tools, plugins, screen_pointer, session_service, store, text_to_vrma, xai_client
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -213,6 +213,9 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
     result = plugins.execute_tool(con, session, agent, tool_name, arguments, 'voice')
     if result is not None:
         con.commit()
+        return result
+    result = local_mcp.execute_tool(con, agent["id"], 'voice', tool_name, arguments)
+    if result is not None:
         return result
     raise ValidationError(f"Unknown native tool: {tool_name}")
 

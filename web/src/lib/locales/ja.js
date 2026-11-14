@@ -648,10 +648,10 @@ export const JA = {
   "Turns end when the voice detector hears a pause and Smart Turn judges the thought finished.":
     "音声検出が間を聞き取り、Smart Turn が話し終えたと判断した時点で発話を区切ります。",
   "Turns end after a set silence (see Turn taking below).": "一定の無音で発話を区切ります（下の「ターンの取り方」を参照）。",
-  "Web search, X search and MCP servers run at the brain's provider (xAI, OpenAI's own API or Anthropic), so companions don't have them with this brain.":
-    "ウェブ検索・X 検索・MCP サーバーは頭脳のプロバイダー（xAI、OpenAI 本家の API、Anthropic）側で動くため、この頭脳ではコンパニオンは使えません。",
-  "X search is Grok's own, so companions don't have it with this brain. Web search and MCP servers run at its provider.":
-    "X 検索は Grok 専用のため、この頭脳ではコンパニオンは使えません。ウェブ検索と MCP サーバーはそのプロバイダー側で動きます。",
+  "Web search and X search run at the brain's provider (xAI, OpenAI's own API or Anthropic), so companions don't have them with this brain. MCP connections work: this app connects to them itself.":
+    "ウェブ検索と X 検索は頭脳のプロバイダー（xAI、OpenAI 本家の API、Anthropic）側で動くため、この頭脳ではコンパニオンは使えません。MCP 接続は使えます。このアプリ自身が接続するためです。",
+  "X search is Grok's own, so companions don't have it with this brain. Web search runs at its provider.":
+    "X 検索は Grok 専用のため、この頭脳ではコンパニオンは使えません。ウェブ検索はそのプロバイダー側で動きます。",
   "This voice doesn't render Grok speech tags ([laugh], <whisper>), so companions aren't taught them on calls or for voice messages. Whatever a companion writes is sent to the voice as written. If the model behind it has tags of its own, describe them in each companion's editor (Speech tags).":
     "この音声は Grok のスピーチタグ（[laugh]、<whisper>）を表現しないため、通話でもボイスメッセージでもコンパニオンにタグを教えません。コンパニオンが書いた内容は、そのまま音声に送られます。この音声のモデルに独自のタグがある場合は、各コンパニオンの編集画面（スピーチタグ）に書いてください。",
   "Offers speech to text": "音声認識に対応",
@@ -927,8 +927,8 @@ export const JA = {
   "App default (%s)": "アプリの既定（%s）",
   "This companion's voice on this setup's voice server. Kept per server, so switching setups never sends it to a different engine. Leave empty for the setup's default voice.":
     "このセットアップの音声サーバーでのこのコンパニオンの声。サーバーごとに保存されるため、セットアップを切り替えても別のエンジンに送られることはありません。空欄ならセットアップの既定の声。",
-  "Text chat runs on the app's Grok text model (Settings → Text model), or on the brain of this companion's voice setup - a local model, OpenAI or Claude, say. Web search and MCP servers need a brain whose provider runs them; X search is Grok's own.":
-    "テキストチャットは、アプリの Grok テキストモデル（設定 → テキストモデル）か、このコンパニオンの音声セットアップの頭脳（ローカルモデル、OpenAI、Claude など）で動きます。ウェブ検索と MCP サーバーはそれらを実行するプロバイダーの頭脳が必要で、X 検索は Grok 専用です。",
+  "Text chat runs on the app's Grok text model (Settings → Text model), or on the brain of this companion's voice setup - a local model, OpenAI or Claude, say. Web search needs a brain whose provider runs it; X search is Grok's own.":
+    "テキストチャットは、アプリの Grok テキストモデル（設定 → テキストモデル）か、このコンパニオンの音声セットアップの頭脳（ローカルモデル、OpenAI、Claude など）で動きます。ウェブ検索はそれを実行するプロバイダーの頭脳が必要で、X 検索は Grok 専用です。",
   "Text chat brain": "テキストチャットの頭脳",
   "Grok (Settings → Text model)": "Grok（設定 → テキストモデル）",
   "The voice setup's brain (needs a voice setup)": "音声セットアップの頭脳（音声セットアップが必要）",
@@ -1722,22 +1722,58 @@ export const JA = {
     "ストーリー「%s」を削除しますか？ タグ付けされたすべてのコンパニオンから消えます。",
 
   // ── Settings: MCP ─────────────────────────────────────────────────────
-  "Remote MCP connections": "リモート MCP 接続",
-  "Remote MCP connections can be added after the companion is saved.":
-    "リモート MCP 接続は、コンパニオンの保存後に追加できます。",
+  "MCP connections": "MCP 接続",
+  "MCP connections can be added after the companion is saved.":
+    "MCP 接続は、コンパニオンの保存後に追加できます。",
   "Add connection": "接続を追加",
-  "None configured. An MCP server gives this companion extra tools; the brain's provider (xAI, OpenAI or Anthropic) connects to it directly, so the URL must be public HTTPS.":
-    "未設定です。MCP サーバーはこのコンパニオンにツールを追加します。頭脳のプロバイダー（xAI、OpenAI、Anthropic）が直接接続するため、URL は公開 HTTPS である必要があります。",
+  "None configured. An MCP server gives this companion extra tools, with any brain. Add one by its URL, or with the JSON entry from its setup instructions (for a server started by a command on this computer).":
+    "未設定です。MCP サーバーは、どの頭脳でもこのコンパニオンにツールを追加します。URL で追加するか、サーバーのセットアップ手順にある JSON エントリ（このコンピューターでコマンドから起動するサーバー用）で追加してください。",
+  "Server": "サーバー",
+  "At a web address: a remote server, or one already running on this computer or network - enter its URL. From its JSON config: the entry MCP servers publish for Claude Desktop, Cursor, LM Studio and other apps, for a server this app starts with a command, or to paste any entry as it is.":
+    "ウェブアドレス：リモートのサーバー、またはこのコンピューターやネットワーク上ですでに動いているサーバーです。URL を入力します。JSON 設定から：MCP サーバーが Claude Desktop、Cursor、LM Studio などのアプリ向けに公開しているエントリです。このアプリがコマンドで起動するサーバーや、エントリをそのまま貼り付ける場合に使います。",
+  "At a web address (URL)": "ウェブアドレス（URL）",
+  "From its JSON config (a command, or a pasted entry)": "JSON 設定から（コマンド、または貼り付けたエントリ）",
+  "Server URL": "サーバー URL",
+  "Extra headers (JSON object, optional)": "追加ヘッダー（JSON オブジェクト、任意）",
+  "Extra headers must be a JSON object, like {\"X-Tenant\": \"acme\"}.":
+    "追加ヘッダーは {\"X-Tenant\": \"acme\"} のような JSON オブジェクトにしてください。",
+  "Server config (JSON, as the server's instructions give it)": "サーバー設定（JSON、サーバーの手順どおり）",
+  "Paste the entry from the server's own setup instructions: the JSON that Claude Desktop, Cursor, LM Studio and other MCP apps take. Either a \"command\" with \"args\" and \"env\", which this app starts on the computer its server runs on, with your user's rights, while the app is open - so only add servers you trust. Or a \"url\" with optional \"headers\", which this app connects to. A whole \"mcpServers\" block works too: each server in it becomes a connection.":
+    "サーバー自身のセットアップ手順にあるエントリを貼り付けます。Claude Desktop、Cursor、LM Studio などの MCP アプリが受け取るのと同じ JSON です。\"command\"（\"args\" と \"env\" 付き）の場合、このアプリのサーバーが動いているコンピューター上で、あなたのユーザー権限のまま、アプリを開いている間このアプリが起動します。信頼できるサーバーだけを追加してください。\"url\"（任意で \"headers\" 付き）の場合、このアプリが接続します。\"mcpServers\" ブロック全体でも構いません。中の各サーバーがそれぞれ 1 つの接続になります。",
+  "Name (a-z, 0-9, _ — shown to the model)": "名前（a-z・0-9・_ — モデルに表示）",
+  "Blank = the name in the config": "空欄 = 設定内の名前",
+  "For a server that takes a fixed token. Kept apart from the config and never shown again. Leave it blank for a server you sign in to.":
+    "固定のトークンを受け取るサーバー用です。設定とは別に保存され、再表示されません。サインインするサーバーでは空欄のままにします。",
+  "Let the brain's provider connect instead (Grok, OpenAI or Claude brains only)":
+    "代わりに頭脳のプロバイダーに接続させる（Grok・OpenAI・Claude の頭脳のみ）",
+  "Off: this app connects to the server, which works with any brain and any address, and lets you sign in. On: the brain's provider (xAI, OpenAI's own API or Anthropic) connects from its own servers during a reply, so the address must be public https:// and the brain one of theirs. Only a bearer token and headers reach it, not a sign-in.":
+    "オフ：このアプリがサーバーに接続します。どの頭脳・どのアドレスでも使え、サインインもできます。オン：頭脳のプロバイダー（xAI、OpenAI 本家の API、Anthropic）が返信中に自社のサーバーから接続するため、アドレスは公開 https:// で、頭脳もそのいずれかである必要があります。渡されるのは Bearer トークンとヘッダーだけで、サインインは使えません。",
+  "Connects the way this draft describes and lists the server's tools.":
+    "この下書きの内容で接続し、サーバーのツールを一覧表示します。",
+  "Connected. Tools: %s": "接続しました。ツール：%s",
+  "Could not connect: %s": "接続できませんでした：%s",
+  "Sign in": "サインイン",
+  "For a server that asks you to sign in (OAuth): opens its sign-in page in your browser. The sign-in is kept for this server's address and shared by every companion that uses it.":
+    "サインイン（OAuth）を求めるサーバー用です。ブラウザでサインインページを開きます。サインインはこのサーバーのアドレスごとに保存され、それを使うすべてのコンパニオンで共有されます。",
+  "Forgets this server's sign-in, for every companion that uses it.":
+    "このサーバーのサインインを、それを使うすべてのコンパニオンについて破棄します。",
+  "Finish signing in in your browser.": "ブラウザでサインインを完了してください。",
+  "Open the sign-in page again": "サインインページをもう一度開く",
+  "the sign-in was not finished": "サインインが完了しませんでした",
+  "Sign-in callback address: %s": "サインインのコールバックアドレス：%s",
+  "Where a server's sign-in page sends your browser back to. Most servers register this app by themselves when you sign in. For one that wants an OAuth app you create with it first, give this address as the app's redirect URL.":
+    "サーバーのサインインページがブラウザを戻す先です。ほとんどのサーバーは、サインイン時にこのアプリを自動で登録します。先に OAuth アプリを作成する必要があるサーバーでは、このアドレスをアプリのリダイレクト URL として登録してください。",
+  "OAuth client ID": "OAuth クライアント ID",
+  "OAuth client secret": "OAuth クライアントシークレット",
+  "Only for a server that doesn't register this app by itself when you sign in (Slack, Google and Asana, for example). Create an OAuth app with them, give it the sign-in callback address shown below as its redirect URL, and enter the client ID and secret they hand you here. Leave both blank otherwise.":
+    "サインイン時にこのアプリを自動で登録しないサーバー（Slack、Google、Asana など）専用です。そのサービスで OAuth アプリを作成し、下に表示されるサインインのコールバックアドレスをリダイレクト URL として登録して、発行されたクライアント ID とシークレットをここに入力します。それ以外は両方とも空欄のままにします。",
   "Could not load MCP connections": "MCP 接続を読み込めませんでした",
   "Remove MCP connection %s?": "MCP 接続 %s を削除しますか？",
-  "Server label (a-z, 0-9, _ — shown to the model)": "サーバーラベル（a-z・0-9・_ — モデルに表示）",
-  "Server URL (public https://)": "サーバー URL（公開 https://）",
   "Description (hint to the model about when to use this server)":
     "説明（このサーバーをいつ使うかのモデルへのヒント）",
   "Bearer token": "Bearer トークン",
   "(saved — blank keeps it)": "（保存済み — 空欄のままなら維持）",
   "(optional)": "（任意）",
-  "Extra headers (JSON object, optional)": "追加ヘッダー（JSON オブジェクト、任意）",
   "Allowed tools (one per line — blank allows all)": "許可ツール（1 行に 1 つ — 空欄で全許可）",
   "Voice sessions": "音声セッション",
   "Text sessions": "テキストセッション",

@@ -424,9 +424,9 @@ function SetupCard({ setup, connections, catalog, smartTurnAvailable, engineFor,
                         ? _t("Turns end when the voice detector hears a pause and Smart Turn judges the thought finished.")
                         : _t("Turns end after a set silence (see Turn taking below).")}</li>}
                 {!brainTools.includes("web_search") ? (
-                    <li>{_t("Web search, X search and MCP servers run at the brain's provider (xAI, OpenAI's own API or Anthropic), so companions don't have them with this brain.")}</li>
+                    <li>{_t("Web search and X search run at the brain's provider (xAI, OpenAI's own API or Anthropic), so companions don't have them with this brain. MCP connections work: this app connects to them itself.")}</li>
                 ) : !brainTools.includes("x_search") && (
-                    <li>{_t("X search is Grok's own, so companions don't have it with this brain. Web search and MCP servers run at its provider.")}</li>
+                    <li>{_t("X search is Grok's own, so companions don't have it with this brain. Web search runs at its provider.")}</li>
                 )}
                 {engines.tts?.own_tags && (
                     <li>{_t("This voice has expression tags of its own, so companions are taught those instead of Grok's, on calls and for voice messages. Each companion's version is in its editor (Speech tags).")}</li>

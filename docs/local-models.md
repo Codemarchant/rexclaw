@@ -32,9 +32,11 @@ The companion editor marks the tools that need more:
   xAI key they're left out.
 - **The Minecraft bot's planner** runs on the connection picked on the Games
   tab: Grok, OpenAI, Claude or a local server.
-- **Provider tools**: web search, code execution and remote MCP servers run
-  at the brain's provider (xAI, OpenAI's own API or Anthropic), and X search
-  is Grok's own. A brain on your own computer has none of them.
+- **Provider tools**: web search and code execution run at the brain's
+  provider (xAI, OpenAI's own API or Anthropic), and X search is Grok's own.
+  A brain on your own computer has none of them.
+- **MCP connections** (Companions → Edit → MCP connections) work with a
+  local brain: Rexclaw connects to the servers itself.
 
 Teaching a new song still needs xAI's voice: singing is built from its
 per-character timings. Manga Diary's storyboard also runs on xAI.

@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, sound_effects, store, text_to_vrma, turn_director, voicemail_tools, xai_oauth
+from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_mcp, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, sound_effects, store, text_to_vrma, turn_director, voicemail_tools, xai_oauth
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 from .pipeline import session as pipeline_session, setups as voice_setups
@@ -1444,6 +1444,8 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
     face_on = bool(config['face_director'])
     tools, native_function_tools = _voice_tools(con, agent, config, group_peers=group_peers)
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='voice')
+    # MCP servers the app runs itself: ordinary function tools to the brain.
+    native_function_tools = native_function_tools + local_mcp.tools_for(con, agent['id'], 'voice')
 
     live_memory_mode = config['live_memory_mode'] if (
         jev.ready(config) and agent['enable_memory_tools'] and not manual_turn and not group_peers
@@ -3820,6 +3822,11 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     if not xai_key and brain is None:
         raise UserError("xAI API key is not configured.")
 
+    # MCP servers the app runs itself: ordinary function tools to the brain.
+    # Asked for before anything is written: the first use starts the server,
+    # which can take a while, and the write lock must not be held meanwhile.
+    local_mcp_tools = [] if minimal_tools else local_mcp.tools_for(con, agent['id'], 'text')
+
     # Persist the user message + attachments on the FIRST leg only.
     user_msg_id = None
     if user_text is not None:
@@ -3905,6 +3912,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         enable_browser_tools=not headless,
         plugin_origin=None if minimal_tools else session['origin'],
     )
+    tools += local_mcp_tools
     instructions = _text_instructions(con, config, agent, clock_at_end=brain is not None)
     instructions_hash = _instructions_hash(con, config, agent)
 
@@ -4409,6 +4417,12 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                         companion_texts_sent += 1
             else:
                 result = plugins.execute_tool(con, session, agent, name, args, 'text')
+                if result is None:
+                    # An MCP server can take a minute to answer: the rows
+                    # written so far are committed first, so the write lock
+                    # isn't held over the call.
+                    con.commit()
+                    result = local_mcp.execute_tool(con, agent['id'], 'text', name, args)
                 if result is None:
                     result = {'error': f'Unknown tool: {name}'}
             output_str = json.dumps(result, default=str)

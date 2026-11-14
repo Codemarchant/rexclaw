@@ -1,6 +1,7 @@
 # Copyright 2026 Codemarchant
 """Settings + memories + agent management routes for the standalone UI."""
 import base64
+import html
 import json
 import logging
 import os
@@ -12,16 +13,17 @@ import threading
 import uuid
 import zipfile
 from pathlib import Path
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Body, Depends, File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client, xai_oauth
+from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client, xai_oauth
 from ..db import ASSETS_DIR, FILES_DIR, get_config, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
-from ..errors import UserError
+from ..errors import AccessError, UserError
 from . import games as games_routes
 from .common import db_con
 
@@ -906,32 +908,102 @@ def agents_restore_presets(payload: dict = Body(default={}), con=Depends(db_con)
 
 _SERVER_LABEL_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
+# What the connection editor sends beside the server's config.
 _MCP_FIELDS = (
     "name", "sequence", "active", "enable_for_voice", "enable_for_text",
-    "server_url", "server_label", "server_description", "allowed_tools",
-    "authorization", "headers",
+    "server_label", "server_description", "allowed_tools", "authorization", "runs_on",
 )
 
 
-def _validate_mcp(payload):
-    """Mirror the Odoo connection model's constraints."""
-    label = (payload.get("server_label") or "").strip()
-    if not _SERVER_LABEL_RE.match(label):
-        raise UserError("Server label must contain only letters, digits, and underscores.")
-    url = (payload.get("server_url") or "").strip()
-    if not url.startswith("https://"):
-        # xAI's servers dial this URL from their infrastructure, so it must be
-        # publicly reachable over HTTPS — a localhost/http URL can never work.
-        raise UserError("Server URL must start with https:// (xAI connects to it "
-                        "from their side, so it must be publicly reachable).")
-    headers = payload.get("headers")
-    if headers:
-        try:
-            parsed = json.loads(headers)
-        except (TypeError, ValueError) as e:
-            raise UserError(f"Extra headers must be valid JSON: {e}")
-        if not isinstance(parsed, dict):
-            raise UserError('Extra headers must be a JSON object (e.g. {"X-Tenant": "acme"}).')
+def _mcp_servers(payload):
+    """The connections a save, test or sign-in payload describes, as
+    mcp_connections columns. Its `config` is the JSON entry MCP servers
+    publish (local_mcp.parse_config), which may hold several servers."""
+    try:
+        servers = local_mcp.parse_config(payload.get("config"))
+    except ValueError as e:
+        raise UserError(str(e))
+    typed = (payload.get("server_label") or "").strip()
+    runs_on = "provider" if payload.get("runs_on") == "provider" else "local"
+    out = []
+    for name, entry in servers:
+        # One server takes the name typed in the form; several each take
+        # their own from the config ("brave-search" becomes brave_search).
+        label = typed if typed and len(servers) == 1 else re.sub(r"[^A-Za-z0-9_]", "_", name or "")
+        if not label:
+            raise UserError("Give the connection a name.")
+        if not _SERVER_LABEL_RE.match(label):
+            raise UserError("The name must contain only letters, digits, and underscores.")
+        if runs_on == "provider" and not (entry.get("url") or "").startswith("https://"):
+            # The provider dials the URL from its own servers: a command, a
+            # localhost or a plain http URL can never work there.
+            raise UserError(f"{label}: the brain's provider connects from its own servers, so it needs "
+                            "a public https:// URL. Anything else is run by this app.")
+        columns = {**local_mcp.columns_of(entry), "server_label": label, "runs_on": runs_on}
+        if "active" in entry:
+            columns["_active"] = entry["active"]   # "disabled" in a pasted config; new connections only
+        out.append(columns)
+    return out
+
+
+_LOOPBACK = ("localhost", "127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+
+def _at_this_computer(request):
+    """Whether a request was made on the computer the app runs on, by the
+    app's own page or a local program: it arrives over loopback, is
+    addressed to a loopback name (a web page that had its own name
+    re-pointed here - DNS rebinding - is not), and names no other machine
+    it was passed on for."""
+    def hostname(value):
+        return (urlparse(value if "//" in value else f"//{value}").hostname or "").lower()
+
+    headers = request.headers
+    return bool(
+        request.client and request.client.host in _LOOPBACK
+        and hostname(headers.get("host", "")) in _LOOPBACK
+        and ("origin" not in headers or hostname(headers["origin"]) in _LOOPBACK)
+        and not any(h in headers for h in ("x-forwarded-for", "forwarded", "x-real-ip", "cf-connecting-ip"))
+    )
+
+
+def _check_mcp_command(con, request, columns, conn_id):
+    """A connection that starts a command runs a program with the user's
+    rights, and the app has no login: so a command is only taken from the
+    computer the app runs on. From anywhere else (a phone or headset on
+    the LAN, another machine) a connection can be used, switched and
+    edited, as long as what it starts stays what was set up here."""
+    if not columns.get("command") or _at_this_computer(request):
+        return
+    if os.environ.get("REXCLAW_MCP_REMOTE_COMMANDS") == "1":
+        return
+    if conn_id:
+        kept = con.execute("SELECT command, args, env, cwd FROM mcp_connections WHERE id = ?",
+                           (conn_id,)).fetchone()
+        if kept and kept["command"] and local_mcp.entry_of(kept) == local_mcp.entry_of(columns):
+            return
+    raise AccessError(
+        "A server started by a command runs a program on the computer Rexclaw runs on, so it can only be "
+        "added or changed there: in the desktop app, or a browser on that computer opened at localhost. "
+        "(To allow it from other devices, start Rexclaw with REXCLAW_MCP_REMOTE_COMMANDS=1.)")
+
+
+def _mcp_draft(con, request, payload):
+    """The one connection an editor draft describes, as a row local_mcp can
+    connect to. A saved connection's bearer is write-only, so a blank one
+    here means the stored one."""
+    servers = _mcp_servers(payload)
+    if len(servers) != 1:
+        raise UserError("This config holds several servers: save it first, each becomes a connection of its own.")
+    servers[0].pop("_active", None)
+    _check_mcp_command(con, request, servers[0], payload.get("id"))
+    draft = {**servers[0], "authorization": payload.get("authorization") or None,
+             "allowed_tools": payload.get("allowed_tools")}
+    if not draft["authorization"] and payload.get("id"):
+        row = con.execute("SELECT authorization FROM mcp_connections WHERE id = ?",
+                          (payload["id"],)).fetchone()
+        draft["authorization"] = row["authorization"] if row else None
+    return draft
 
 
 @router.post("/mcp/list")
@@ -948,36 +1020,61 @@ def mcp_list(payload: dict = Body(default={}), con=Depends(db_con)):
         d = {k: r[k] for k in ("id", "agent_id") + _MCP_FIELDS}
         # Never echo the bearer back to the browser — write-only, like the API key.
         d["has_authorization"] = bool(d.pop("authorization"))
+        entry = local_mcp.entry_of(r)
+        d["config"] = json.dumps(entry, indent=2)
+        d["is_url"] = not entry.get("command")
+        # The editor's plain fields for a URL server.
+        d["server_url"] = entry.get("url") or ""
+        d["headers"] = json.dumps(entry["headers"]) if entry.get("headers") else ""
+        d["oauth_client_id"] = (entry.get("oauth") or {}).get("clientId") or ""
+        d["oauth_client_secret"] = (entry.get("oauth") or {}).get("clientSecret") or ""
+        d["summary"] = entry["url"] if d["is_url"] else " ".join([entry["command"], *entry["args"]])
+        d["signed_in"] = r["runs_on"] == "local" and local_mcp.signed_in(r)
         out.append(d)
     return out
 
 
 @router.post("/mcp/save")
-def mcp_save(payload: dict = Body(default={}), con=Depends(db_con)):
-    _validate_mcp(payload)
-    updates = {k: payload[k] for k in _MCP_FIELDS if k in payload}
+def mcp_save(request: Request, payload: dict = Body(default={}), con=Depends(db_con)):
+    servers = _mcp_servers(payload)
+    conn_id = payload.get("id")
+    for columns in servers:
+        _check_mcp_command(con, request, columns, conn_id)
+    if conn_id and len(servers) > 1:
+        raise UserError("This config holds several servers. Add it as a new connection: "
+                        "each server becomes a connection of its own.")
+    common = {k: payload[k] for k in _MCP_FIELDS if k in payload and k not in ("server_label", "runs_on")}
     # Blank bearer on update = keep the stored one (the field is write-only in
     # the UI); the literal null clears it.
-    if "authorization" in updates and updates["authorization"] == "":
-        del updates["authorization"]
-    if not updates.get("name"):
-        updates["name"] = updates.get("server_label") or "Connection"
-    conn_id = payload.get("id")
-    if conn_id:
-        cols = ", ".join(f"{k} = ?" for k in updates)
-        con.execute(f"UPDATE mcp_connections SET {cols} WHERE id = ?",
-                    (*updates.values(), conn_id))
-    else:
-        if not isinstance(payload.get("agent_id"), int):
-            raise UserError("agent_id is required.")
-        updates["agent_id"] = payload["agent_id"]
-        cols = ", ".join(updates)
-        marks = ", ".join("?" * len(updates))
-        cur = con.execute(f"INSERT INTO mcp_connections ({cols}) VALUES ({marks})",
-                          tuple(updates.values()))
-        conn_id = cur.lastrowid
+    if common.get("authorization") == "":
+        del common["authorization"]
+    ids = []
+    for columns in servers:
+        active = columns.pop("_active", None)
+        updates = {**common, **columns}
+        if columns["command"]:
+            updates["authorization"] = None   # a bearer belongs to a URL
+        if not updates.get("name") or len(servers) > 1:
+            updates["name"] = columns["server_label"]
+        if conn_id:
+            cols = ", ".join(f"{k} = ?" for k in updates)
+            con.execute(f"UPDATE mcp_connections SET {cols} WHERE id = ?",
+                        (*updates.values(), conn_id))
+            ids.append(conn_id)
+        else:
+            if not isinstance(payload.get("agent_id"), int):
+                raise UserError("agent_id is required.")
+            updates["agent_id"] = payload["agent_id"]
+            if active is not None:
+                updates["active"] = active
+            cols = ", ".join(updates)
+            marks = ", ".join("?" * len(updates))
+            cur = con.execute(f"INSERT INTO mcp_connections ({cols}) VALUES ({marks})",
+                              tuple(updates.values()))
+            ids.append(cur.lastrowid)
     con.commit()
-    return {"ok": True, "id": conn_id}
+    local_mcp.reset()
+    return {"ok": True, "id": ids[0], "ids": ids}
 
 
 @router.post("/mcp/delete")
@@ -987,7 +1084,69 @@ def mcp_delete(payload: dict = Body(default={}), con=Depends(db_con)):
         raise UserError("id must be an integer.")
     con.execute("DELETE FROM mcp_connections WHERE id = ?", (conn_id,))
     con.commit()
+    local_mcp.reset()
     return {"ok": True}
+
+
+@router.post("/mcp/test")
+def mcp_test(request: Request, payload: dict = Body(default={}), con=Depends(db_con)):
+    """Connect to a server as the editor's draft describes it and list its
+    tools."""
+    draft = _mcp_draft(con, request, payload)
+    try:
+        return {"ok": True, "tools": local_mcp.probe(draft)}
+    except (RuntimeError, ValueError) as e:
+        return {"ok": False, "error": str(e)}
+
+
+# Signing in to a URL server with OAuth (local_mcp.sign_in). The editor
+# starts it, opens the page the server sends the user to, and polls the
+# state until the browser has come back to the callback below.
+@router.post("/mcp/oauth/start")
+def mcp_oauth_start(request: Request, payload: dict = Body(default={}), con=Depends(db_con)):
+    draft = _mcp_draft(con, request, payload)
+    origin = str(payload.get("origin") or "")
+    if not origin.startswith(("http://", "https://")):
+        raise UserError("origin must be this app's address.")
+    try:
+        return local_mcp.sign_in(draft, origin)
+    except (RuntimeError, ValueError) as e:
+        return {"error": str(e)}
+
+
+@router.post("/mcp/oauth/state")
+def mcp_oauth_state(request: Request, payload: dict = Body(default={}), con=Depends(db_con)):
+    draft = _mcp_draft(con, request, payload)
+    try:
+        return {**local_mcp.sign_in_state(draft), "signed_in": local_mcp.signed_in(draft)}
+    except (RuntimeError, ValueError) as e:
+        return {"state": "error", "error": str(e), "signed_in": False}
+
+
+@router.post("/mcp/oauth/sign_out")
+def mcp_oauth_sign_out(request: Request, payload: dict = Body(default={}), con=Depends(db_con)):
+    local_mcp.sign_out(_mcp_draft(con, request, payload))
+    return {}
+
+
+@router.get("/mcp/oauth/callback")
+def mcp_oauth_callback(state: str = "", code: str = "", iss: str = "",
+                       error: str = "", error_description: str = ""):
+    """Where the server's sign-in page sends the browser back to."""
+    failure = (error_description or error) if (error or not code) else ""
+    if not code and not error:
+        failure = "the sign-in page sent no code back"
+    known = local_mcp.sign_in_answer(state, code, iss or None, failure)
+    if not known:
+        message = "This sign-in is no longer waiting for an answer. Start it again from the connection's editor."
+    elif failure:
+        message = f"The sign-in did not go through: {failure}"
+    else:
+        message = "Signed in. You can close this tab and go back to Rexclaw."
+    return HTMLResponse(
+        "<!doctype html><meta charset=utf-8><title>Rexclaw</title>"
+        "<body style='font-family:system-ui,sans-serif;margin:3rem;max-width:40rem'>"
+        f"<p>{html.escape(message)}</p></body>")
 
 
 @router.post("/sessions/list")

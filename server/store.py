@@ -376,11 +376,12 @@ def agent_gesture_dicts(con, agent_row):
 
 def mcp_entries_for(con, agent_id, *, surface):
     """Build the `type:'mcp'` tool entries for this agent's active remote MCP
-    connections. Mirrors rexclaw.voice.connection.to_xai_mcp_entry()."""
+    connections. Mirrors rexclaw.voice.connection.to_xai_mcp_entry().
+    Connections the app runs itself are local_mcp's."""
     flag = 'enable_for_voice' if surface == 'voice' else 'enable_for_text'
     rows = con.execute(
         f"SELECT * FROM mcp_connections WHERE agent_id = ? AND active = 1 AND {flag} = 1 "
-        "ORDER BY sequence, id",
+        "AND runs_on = 'provider' ORDER BY sequence, id",
         (agent_id,),
     ).fetchall()
     entries = []

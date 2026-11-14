@@ -72,7 +72,7 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 | 🕵️ **Background tasks** | `delegate_task` hands research, document and image analysis or coding to a background session with search, code execution and file reading, which the companion can continue across turns ("now fix the bug you just found"). In a call, the paperclip takes any file type. |
 | 🛠️ **Local computer tasks** | Opt-in (`local_task`): real files, code and shell on your machine through the [Grok Build CLI](https://docs.x.ai/build), confined to a working folder you choose (Settings → Local computer tasks). It runs without confirmation prompts inside that folder, so it's **off by default**. Never offered in Docker. |
 | ⛏️ **Minecraft bot** | Opt-in: your companion joins your Minecraft world as a real player, plays on your spoken directions and reacts aloud to what happens ("found diamonds!"). **Off by default**: it runs model-written scripts in your world, so use your own or trusted servers. |
-| 🔌 **Remote MCP tools** | Attach remote MCP servers per companion, with bearer auth and per-tool whitelists, all from the UI. |
+| 🔌 **MCP tools** | Attach MCP servers per companion, remote ones or ones on your own computer, with bearer auth and per-tool whitelists, all from the UI. |
 | 🎮 **Games (Neuro API)** | Your companion plays games built for Neuro-sama's open game API (Slay the Spire 2, Inscryption, Buckshot Roulette and many community mods) and talks it through with you. Eleven built-in mini-games, from chess to heads-up poker. |
 | 🧩 **Extensions** | Drop-in folders that add your own companion tools, pages, voice engines and games. |
 
@@ -132,6 +132,11 @@ VR headset on your network, enable HTTPS mode in `docker-compose.yml`
 (port mapping `"8990:8990"` + `REXCLAW_SSL=1` under `environment:`) —
 details in [Using VR](#-using-vr).
 
+An MCP server started by a command can only be added in Docker with
+`REXCLAW_MCP_REMOTE_COMMANDS=1` under `environment:`. It lets anyone who
+can reach the app run programs in the container, so set it only on a
+network you trust.
+
 ### 🔑 First run
 
 Companions need somewhere to think and speak. Pick one:
@@ -187,10 +192,10 @@ setups detect the end of your turn on your computer (Silero VAD + Smart
 Turn). A few things depend on the provider, and the companion editor badges
 each tool with what it needs:
 
-- **Web search, code execution and MCP servers** run at the brain's
-  provider, so they need a Grok, OpenAI (its own API) or Claude brain.
-  X search is Grok only. Other brains, local ones included, have none of
-  them.
+- **Web search and code execution** run at the brain's provider, so they
+  need a Grok, OpenAI (its own API) or Claude brain. X search is Grok only.
+  Other brains, local ones included, have none of them.
+- **MCP connections** work with any brain: Rexclaw connects to them itself.
 - **`delegate_task`** runs on the companion's own brain when that is OpenAI
   or Claude, otherwise on Grok.
 - **Images and video** need an xAI key (Grok Imagine) or your own ComfyUI
@@ -414,19 +419,20 @@ trust. (A PCVR/OpenXR setup works as well — the Windows app's cube button
 opens the scene in a VR-capable browser window — but the headset-browser
 flow above is the recommended one.)
 
-## 🔌 Remote MCP connections
+## 🔌 MCP connections
 
-Give a companion extra tools by attaching remote MCP servers:
-**Companions → Edit → Remote MCP connections**. Each connection takes a
-server label, the endpoint URL, an optional bearer token (stored write-only,
-never echoed back to the browser), optional extra headers, an allowed-tools
-whitelist, and toggles for voice and text sessions.
+Give a companion extra tools from MCP servers: **Companions → Edit → MCP
+connections → Add connection**. They work with any brain, on calls and in
+text chat.
 
-The connection is added to the session's tool list and **the brain's
-provider calls the MCP endpoint directly** (xAI, OpenAI's own API or
-Anthropic), so the URL must be **publicly reachable over HTTPS**. Claude
-takes the bearer token but not extra headers. Other brains (local models,
-Groq, OpenRouter, DeepSeek) have no MCP tools.
+- **A server at a URL**: enter its name and URL. Press **Sign in** if it
+  asks you to sign in, or fill in **Bearer token** if it takes a fixed one.
+- **A server started by a command**: switch **Server** to its JSON config
+  and paste the entry from the server's instructions, for example
+  `{ "time": { "command": "uvx", "args": ["mcp-server-time"] } }`. It runs
+  on your computer with your user's rights, so only add servers you trust.
+
+**Test** lists a server's tools.
 
 ## ⛏️ Minecraft bot
 

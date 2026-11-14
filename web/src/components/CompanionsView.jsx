@@ -998,7 +998,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
                             </select>
                         </div>
                         <div>
-                            <label title={_t("Text chat runs on the app's Grok text model (Settings → Text model), or on the brain of this companion's voice setup - a local model, OpenAI or Claude, say. Web search and MCP servers need a brain whose provider runs them; X search is Grok's own.")}>
+                            <label title={_t("Text chat runs on the app's Grok text model (Settings → Text model), or on the brain of this companion's voice setup - a local model, OpenAI or Claude, say. Web search needs a brain whose provider runs it; X search is Grok's own.")}>
                                 {_t("Text chat brain")}
                             </label>
                             <select value={editingAgent.text_brain || "app"}
@@ -1270,9 +1270,9 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
                     <McpConnections agentId={editingAgent.id} registerEditor={regMcp} />
                 ) : (
                     <>
-                        <h3><i className="fa fa-server" /> {_t("Remote MCP connections")}</h3>
+                        <h3><i className="fa fa-server" /> {_t("MCP connections")}</h3>
                         <p className="text-muted small" style={{ margin: 0 }}>
-                            {_t("Remote MCP connections can be added after the companion is saved.")}
+                            {_t("MCP connections can be added after the companion is saved.")}
                         </p>
                     </>
                 )}
@@ -1523,23 +1523,232 @@ function IdleEventsEditor({ editingAgent, setEditingAgent, idScope, registerEdit
 const EMPTY_MCP = {
     id: null,
     server_label: "",
-    server_url: "",
     server_description: "",
     allowed_tools: "",
     authorization: "",
+    // How the server is described: "url" = the plain fields (address, extra
+    // headers), "json" = the config entry MCP servers publish, for a
+    // command to start or anything pasted. The server is sent `config`
+    // either way (see McpConnections.draft).
+    kind: "url",
+    server_url: "",
     headers: "",
+    oauth_client_id: "",
+    oauth_client_secret: "",
+    config: "",
+    runs_on: "local",
     enable_for_voice: 1,
     enable_for_text: 1,
     active: 1,
 };
 
-/** Remote MCP connections for one companion. Saved independently of the
- *  agent form (separate rows, immediate persistence). xAI's servers dial the
- *  configured URL directly, so it must be publicly reachable over HTTPS. */
+// Shown in the empty config box: two real servers from the MCP project's
+// own collection, in the shape servers publish their entry for Claude
+// Desktop, Cursor, LM Studio and the rest. The first tells the time (uvx
+// comes with uv), the second reads and writes files in the folders it is
+// given (npx comes with Node).
+const MCP_CONFIG_EXAMPLE = `{
+  "time": { "command": "uvx", "args": ["mcp-server-time"] },
+  "files": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\\\Users\\\\me\\\\Documents"]
+  }
+}`;
+
+const MCP_URL_KEYS = ["url", "serverUrl", "httpUrl", "uri"];
+const mcpUrlOf = (entry) => MCP_URL_KEYS.map((k) => entry[k]).find((v) => typeof v === "string" && v) || "";
+
+/** A connection draft has what it needs to be saved: an address, or a
+ *  config. (A config can carry the name too.) */
+const mcpComplete = (c) => !!(c.kind === "url" ? c.server_url : c.config || "").trim();
+// What a draft describes, at a glance - the server has the final say: a
+// URL server (rather than a command), and one given its own Authorization
+// header.
+const mcpIsUrl = (c) => c.kind === "url" || (!/"(command|cmd)"\s*:/.test(c.config || "")
+    && /"(url|serverUrl|httpUrl|uri)"\s*:/.test(c.config || ""));
+const mcpHasAuthHeader = (c) => /"authorization"\s*:/i.test((c.kind === "url" ? c.headers : c.config) || "")
+    || !!c.authorization || !!(c.id && c.has_authorization);
+
+/** The one server a config text describes, as {name, entry} - out of a
+ *  whole file, a named pair or a bare entry - or null when it isn't one
+ *  server (or isn't JSON yet). Only for moving between the two ways of
+ *  describing a server; the server's parser is the real one. */
+const mcpPeek = (text) => {
+    let data;
+    try { data = JSON.parse(text); } catch { return null; }
+    const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+    if (!isObject(data)) return null;
+    for (const key of ["mcpServers", "servers", "context_servers"]) {
+        if (isObject(data[key])) data = data[key];
+    }
+    if (mcpUrlOf(data) || data.command) return { name: typeof data.name === "string" ? data.name : "", entry: data };
+    const names = Object.keys(data);
+    return names.length === 1 && isObject(data[names[0]]) ? { name: names[0], entry: data[names[0]] } : null;
+};
+
+/** The OAuth client an entry names, in either common spelling. */
+const mcpOauthClient = (entry) => {
+    const oauth = entry.oauth && typeof entry.oauth === "object" ? entry.oauth : {};
+    return { id: oauth.clientId || oauth.client_id || "", secret: oauth.clientSecret || oauth.client_secret || "" };
+};
+
+/** The plain URL fields of a draft as a config entry. What the entry they
+ *  came from holds beside them (the transport, OAuth scopes) is kept. */
+const mcpUrlConfig = (c) => {
+    const kept = mcpPeek(c.config)?.entry || {};
+    const entry = {};
+    if (!kept.command) {
+        for (const key of Object.keys(kept)) {
+            if (![...MCP_URL_KEYS, "headers", "http_headers", "name"].includes(key)) entry[key] = kept[key];
+        }
+    }
+    const { clientId, client_id, clientSecret, client_secret, ...oauth } =
+        entry.oauth && typeof entry.oauth === "object" ? entry.oauth : {};
+    if ((c.oauth_client_id || "").trim()) oauth.clientId = c.oauth_client_id.trim();
+    if ((c.oauth_client_secret || "").trim()) oauth.clientSecret = c.oauth_client_secret.trim();
+    delete entry.oauth;
+    if (Object.keys(oauth).length) entry.oauth = oauth;
+    entry.url = c.server_url.trim();
+    if ((c.headers || "").trim()) {
+        let headers = null;
+        try { headers = JSON.parse(c.headers); } catch { /* reported below */ }
+        if (!headers || typeof headers !== "object" || Array.isArray(headers)) {
+            throw new Error(_t("Extra headers must be a JSON object, like {\"X-Tenant\": \"acme\"}."));
+        }
+        entry.headers = headers;
+    }
+    return JSON.stringify(entry, null, 2);
+};
+/** Where a sign-in page sends the browser back to (local_mcp.callback_address). */
+const mcpCallbackAddress = () =>
+    `${window.location.origin.replace("//localhost", "//127.0.0.1")}/api/mcp/oauth/callback`;
+
+/** MCP connections for one companion. Saved independently of the agent
+ *  form (separate rows, immediate persistence). A connection is the JSON
+ *  entry its server publishes: a command the app starts, or a URL the app
+ *  opens - signed in to with OAuth when the server asks. Both work with
+ *  any brain. A URL server can be handed to the brain's provider instead
+ *  (its servers dial the URL directly, so it must be public HTTPS). */
 function McpConnections({ agentId, registerEditor = null }) {
     const [conns, setConns] = useState([]);
     const [editing, setEditing] = useState(null);
     const [busy, setBusy] = useState(false);
+    // What Test or Sign in last said about the open draft: {ok, tools},
+    // {ok: false, error} or {waiting, url} while the user is in the browser.
+    const [tested, setTested] = useState(null);
+    const [signedIn, setSignedIn] = useState(false);
+    const signInTimer = useRef(null);
+    useEffect(() => {
+        clearTimeout(signInTimer.current);
+        setTested(null);
+        setSignedIn(!!editing?.signed_in);
+        /* eslint-disable-next-line react-hooks/exhaustive-deps */
+    }, [editing?.id, editing == null]);
+    useEffect(() => () => clearTimeout(signInTimer.current), []);
+
+    // The open draft as the routes take it: always a config, built from the
+    // plain fields when those describe the server (throws on headers that
+    // aren't JSON). Only a URL server can be the provider's: a config
+    // edited into a command goes back to the app.
+    const draft = () => {
+        const { _snap, ...fields } = editing;
+        if (fields.kind === "url") fields.config = mcpUrlConfig(fields);
+        return { ...fields, runs_on: mcpIsUrl(fields) ? fields.runs_on : "local" };
+    };
+
+    // Moving between the two ways of describing a server carries what was
+    // entered across, where it can be.
+    const setKind = (kind) => setEditing((c) => {
+        if (kind === "json") {
+            let config = c.config;
+            if (c.server_url.trim()) {
+                try { config = mcpUrlConfig(c); } catch { /* headers half typed: the config stays as it was */ }
+            }
+            return { ...c, kind, config };
+        }
+        const seen = mcpPeek(c.config);
+        const url = seen && !seen.entry.command ? mcpUrlOf(seen.entry) : "";
+        if (!url) return { ...c, kind };
+        const client = mcpOauthClient(seen.entry);
+        return {
+            ...c, kind, server_url: url,
+            oauth_client_id: client.id, oauth_client_secret: client.secret,
+            headers: seen.entry.headers ? JSON.stringify(seen.entry.headers) : "",
+            server_label: c.server_label || seen.name.replace(/[^A-Za-z0-9_]/g, "_"),
+        };
+    });
+
+    const test = async () => {
+        setBusy(true);
+        setTested(null);
+        try {
+            setTested(await rpc("/api/mcp/test", draft()));
+        } catch (e) {
+            setTested({ ok: false, error: e?.message || "Test failed" });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    // The server answers once the browser has come back from the sign-in page.
+    const pollSignIn = (fields) => {
+        clearTimeout(signInTimer.current);
+        signInTimer.current = setTimeout(async () => {
+            try {
+                const res = await rpc("/api/mcp/oauth/state", fields);
+                if (res.state === "pending") return pollSignIn(fields);
+                if (res.state === "connected") {
+                    setTested({ ok: true, tools: res.tools || [] });
+                    setSignedIn(!!res.signed_in);
+                    load();
+                } else {
+                    setTested({ ok: false, error: res.error || _t("the sign-in was not finished") });
+                }
+            } catch (e) {
+                setTested({ ok: false, error: e?.message || "Sign-in failed" });
+            }
+        }, 2000);
+    };
+
+    const signIn = async () => {
+        setBusy(true);
+        setTested(null);
+        try {
+            const fields = draft();
+            const res = await rpc("/api/mcp/oauth/start", { ...fields, origin: window.location.origin });
+            if (res.error) {
+                setTested({ ok: false, error: res.error });
+            } else if (res.url) {
+                window.open(res.url, "_blank", "noopener");
+                setTested({ waiting: true, url: res.url });
+                pollSignIn(fields);
+            } else {
+                // It connected as it is: already signed in, or no sign-in asked.
+                const now = await rpc("/api/mcp/oauth/state", fields);
+                setTested({ ok: true, tools: now.tools || [] });
+                setSignedIn(!!now.signed_in);
+            }
+        } catch (e) {
+            setTested({ ok: false, error: e?.message || "Sign-in failed" });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const signOut = async () => {
+        setBusy(true);
+        try {
+            await rpc("/api/mcp/oauth/sign_out", draft());
+            clearTimeout(signInTimer.current);
+            setSignedIn(false);
+            setTested(null);
+            load();
+        } catch (e) {
+            notification.add(e?.message || _t("Something went wrong"), { type: "danger" });
+        } finally {
+            setBusy(false);
+        }
+    };
 
     const load = async () => {
         try {
@@ -1553,8 +1762,7 @@ function McpConnections({ agentId, registerEditor = null }) {
     const save = async () => {
         setBusy(true);
         try {
-            const { _snap, ...fields } = editing;
-            await rpc("/api/mcp/save", { ...fields, agent_id: agentId });
+            await rpc("/api/mcp/save", { ...draft(), agent_id: agentId });
             setEditing(null);
             load();
             return true;
@@ -1569,7 +1777,7 @@ function McpConnections({ agentId, registerEditor = null }) {
     // The companion form's Save commits an open connection draft too.
     useRegisterChildEditor(registerEditor, editorDirty(editing), async () => {
         if (!editing || !editorDirty(editing)) return true;
-        if (!editing.server_label.trim() || !editing.server_url.trim()) {
+        if (!mcpComplete(editing)) {
             notification.add(
                 _t("The open MCP connection draft is incomplete — finish it or cancel it, then save again."),
                 { type: "warning" });
@@ -1601,6 +1809,10 @@ function McpConnections({ agentId, registerEditor = null }) {
     };
 
     const set = (key, value) => setEditing((c) => ({ ...c, [key]: value }));
+    const isUrl = !!editing && mcpIsUrl(editing);
+    // Only a URL server can be handed to the brain's provider.
+    const provider = isUrl && editing.runs_on === "provider";
+    const canSignIn = isUrl && !provider && !mcpHasAuthHeader(editing);
 
     // Rendered at the top for a NEW connection, in place of the edited row
     // otherwise — a form jumping to the top of the list is disorienting.
@@ -1608,33 +1820,92 @@ function McpConnections({ agentId, registerEditor = null }) {
         <div className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
             <div className="rx_row">
                 <div>
-                    <label>{_t("Server label (a-z, 0-9, _ — shown to the model)")}</label>
-                    <input type="text" value={editing.server_label}
-                           onChange={(ev) => set("server_label", ev.target.value)} />
+                    <label title={_t("At a web address: a remote server, or one already running on this computer or network - enter its URL. From its JSON config: the entry MCP servers publish for Claude Desktop, Cursor, LM Studio and other apps, for a server this app starts with a command, or to paste any entry as it is.")}>
+                        {_t("Server")}
+                    </label>
+                    <select value={editing.kind} onChange={(ev) => setKind(ev.target.value)}>
+                        <option value="url">{_t("At a web address (URL)")}</option>
+                        <option value="json">{_t("From its JSON config (a command, or a pasted entry)")}</option>
+                    </select>
                 </div>
                 <div>
-                    <label>{_t("Server URL (public https://)")}</label>
+                    <label>{_t("Name (a-z, 0-9, _ — shown to the model)")}</label>
+                    <input type="text" placeholder={editing.kind === "json" ? _t("Blank = the name in the config") : ""}
+                           value={editing.server_label}
+                           onChange={(ev) => set("server_label", ev.target.value)} />
+                </div>
+            </div>
+            {editing.kind === "url" ? (
+                <>
+                    <label>{_t("Server URL")}</label>
                     <input type="text" placeholder="https://mcp.example.com/mcp"
                            value={editing.server_url}
                            onChange={(ev) => set("server_url", ev.target.value)} />
+                </>
+            ) : (
+                <>
+                    <label title={_t("Paste the entry from the server's own setup instructions: the JSON that Claude Desktop, Cursor, LM Studio and other MCP apps take. Either a \"command\" with \"args\" and \"env\", which this app starts on the computer its server runs on, with your user's rights, while the app is open - so only add servers you trust. Or a \"url\" with optional \"headers\", which this app connects to. A whole \"mcpServers\" block works too: each server in it becomes a connection.")}>
+                        {_t("Server config (JSON, as the server's instructions give it)")}
+                    </label>
+                    <textarea rows={8} spellCheck={false} style={{ fontFamily: "monospace" }}
+                              placeholder={MCP_CONFIG_EXAMPLE}
+                              value={editing.config || ""}
+                              onChange={(ev) => set("config", ev.target.value)} />
+                </>
+            )}
+            {isUrl && (
+                <div className="rx_row">
+                    <div>
+                        <label title={_t("For a server that takes a fixed token. Kept apart from the config and never shown again. Leave it blank for a server you sign in to.")}>
+                            {_t("Bearer token")} {editing.id && editing.has_authorization ? _t("(saved — blank keeps it)") : _t("(optional)")}
+                        </label>
+                        <input type="password" value={editing.authorization || ""}
+                               onChange={(ev) => set("authorization", ev.target.value)} />
+                    </div>
+                    {editing.kind === "url" && (
+                        <div>
+                            <label>{_t("Extra headers (JSON object, optional)")}</label>
+                            <input type="text" placeholder='{"X-Tenant": "acme"}'
+                                   value={editing.headers || ""}
+                                   onChange={(ev) => set("headers", ev.target.value)} />
+                        </div>
+                    )}
                 </div>
-            </div>
-            <label>{_t("Description (hint to the model about when to use this server)")}</label>
-            <input type="text" value={editing.server_description || ""}
-                   onChange={(ev) => set("server_description", ev.target.value)} />
-            <div className="rx_row">
-                <div>
-                    <label>{_t("Bearer token")} {editing.id && editing.has_authorization ? _t("(saved — blank keeps it)") : _t("(optional)")}</label>
-                    <input type="password" value={editing.authorization || ""}
-                           onChange={(ev) => set("authorization", ev.target.value)} />
+            )}
+            {isUrl && (
+                <span className="rx_check">
+                    <input id={`mcp-${editing.id ?? "new"}-provider`} type="checkbox"
+                           checked={provider}
+                           onChange={(ev) => set("runs_on", ev.target.checked ? "provider" : "local")} />
+                    <label htmlFor={`mcp-${editing.id ?? "new"}-provider`}
+                           title={_t("Off: this app connects to the server, which works with any brain and any address, and lets you sign in. On: the brain's provider (xAI, OpenAI's own API or Anthropic) connects from its own servers during a reply, so the address must be public https:// and the brain one of theirs. Only a bearer token and headers reach it, not a sign-in.")}>
+                        {_t("Let the brain's provider connect instead (Grok, OpenAI or Claude brains only)")}
+                    </label>
+                </span>
+            )}
+            {canSignIn && editing.kind === "url" && (
+                <div className="rx_row">
+                    <div>
+                        <label title={_t("Only for a server that doesn't register this app by itself when you sign in (Slack, Google and Asana, for example). Create an OAuth app with them, give it the sign-in callback address shown below as its redirect URL, and enter the client ID and secret they hand you here. Leave both blank otherwise.")}>
+                            {_t("OAuth client ID")} {_t("(optional)")}
+                        </label>
+                        <input type="text" value={editing.oauth_client_id || ""}
+                               onChange={(ev) => set("oauth_client_id", ev.target.value)} />
+                    </div>
+                    <div>
+                        <label>{_t("OAuth client secret")} {_t("(optional)")}</label>
+                        <input type="password" value={editing.oauth_client_secret || ""}
+                               onChange={(ev) => set("oauth_client_secret", ev.target.value)} />
+                    </div>
                 </div>
-                <div>
-                    <label>{_t("Extra headers (JSON object, optional)")}</label>
-                    <input type="text" placeholder='{"X-Tenant": "acme"}'
-                           value={editing.headers || ""}
-                           onChange={(ev) => set("headers", ev.target.value)} />
-                </div>
-            </div>
+            )}
+            {provider && (
+                <>
+                    <label>{_t("Description (hint to the model about when to use this server)")}</label>
+                    <input type="text" value={editing.server_description || ""}
+                           onChange={(ev) => set("server_description", ev.target.value)} />
+                </>
+            )}
             <label>{_t("Allowed tools (one per line — blank allows all)")}</label>
             <textarea rows={3} value={editing.allowed_tools || ""}
                       onChange={(ev) => set("allowed_tools", ev.target.value)} />
@@ -1652,8 +1923,45 @@ function McpConnections({ agentId, registerEditor = null }) {
             </div>
             <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.5rem" }}>
                 <button className="btn btn-primary btn-sm" disabled={busy} onClick={save}>{_t("Save connection")}</button>
+                {!provider && (
+                    <button className="btn btn-sm" disabled={busy || !mcpComplete(editing)} onClick={test}
+                            title={_t("Connects the way this draft describes and lists the server's tools.")}>
+                        {_t("Test")}
+                    </button>
+                )}
+                {canSignIn && (signedIn ? (
+                    <button className="btn btn-sm" disabled={busy} onClick={signOut}
+                            title={_t("Forgets this server's sign-in, for every companion that uses it.")}>
+                        {_t("Sign out")}
+                    </button>
+                ) : (
+                    <button className="btn btn-sm" disabled={busy || !mcpComplete(editing)} onClick={signIn}
+                            title={_t("For a server that asks you to sign in (OAuth): opens its sign-in page in your browser. The sign-in is kept for this server's address and shared by every companion that uses it.")}>
+                        {_t("Sign in")}
+                    </button>
+                ))}
                 <button className="btn btn-sm" onClick={() => setEditing(null)}>{_t("Cancel")}</button>
             </div>
+            {tested?.waiting && (
+                <p className="small text-muted" style={{ margin: "0.4rem 0 0" }}>
+                    {_t("Finish signing in in your browser.")}{" "}
+                    <a href={tested.url} target="_blank" rel="noopener noreferrer">{_t("Open the sign-in page again")}</a>
+                </p>
+            )}
+            {tested && !tested.waiting && (
+                <p className={`small ${tested.ok ? "text-muted" : "text-danger"}`}
+                   style={{ margin: "0.4rem 0 0", whiteSpace: "pre-wrap" }}>
+                    {tested.ok
+                        ? _t("Connected. Tools: %s", tested.tools.join(", ") || _t("none"))
+                        : _t("Could not connect: %s", tested.error)}
+                </p>
+            )}
+            {canSignIn && (
+                <p className="small text-muted" style={{ margin: "0.4rem 0 0" }}
+                   title={_t("Where a server's sign-in page sends your browser back to. Most servers register this app by themselves when you sign in. For one that wants an OAuth app you create with it first, give this address as the app's redirect URL.")}>
+                    {_t("Sign-in callback address: %s", mcpCallbackAddress())}
+                </p>
+            )}
         </div>
     );
 
@@ -1663,7 +1971,7 @@ function McpConnections({ agentId, registerEditor = null }) {
                 its first button, so clicking the heading text (or the empty
                 row space) would trigger Add connection. */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                <h3 style={{ margin: 0 }}><i className="fa fa-server" /> {_t("Remote MCP connections")}</h3>
+                <h3 style={{ margin: 0 }}><i className="fa fa-server" /> {_t("MCP connections")}</h3>
                 <button className="btn btn-sm" onClick={() => setEditing(withEditorSnapshot({ ...EMPTY_MCP }))}>
                     <i className="fa fa-plus" /> {_t("Add connection")}
                 </button>
@@ -1671,7 +1979,7 @@ function McpConnections({ agentId, registerEditor = null }) {
             {editing && editing.id == null && editorForm}
             {!conns.length && !editing && (
                 <p className="text-muted small" style={{ margin: "0.25rem 0" }}>
-                    {_t("None configured. An MCP server gives this companion extra tools; the brain's provider (xAI, OpenAI or Anthropic) connects to it directly, so the URL must be public HTTPS.")}
+                    {_t("None configured. An MCP server gives this companion extra tools, with any brain. Add one by its URL, or with the JSON entry from its setup instructions (for a server started by a command on this computer).")}
                 </p>
             )}
             {conns.map((c) => (editing && editing.id === c.id) ? (
@@ -1681,14 +1989,16 @@ function McpConnections({ agentId, registerEditor = null }) {
                     <input type="checkbox" checked={!!c.active} title={_t("Active")}
                            onChange={() => toggleActive(c)} />
                     <strong>{c.server_label}</strong>
-                    <span className="rx_memory_content text-muted small">{c.server_url}</span>
+                    <span className="rx_memory_content text-muted small">{c.summary}</span>
                     <span className="rx_memory_meta">
                         {c.active ? "" : "inactive · "}
+                        {c.runs_on === "provider" ? "provider · " : ""}
                         {c.enable_for_voice ? "voice " : ""}{c.enable_for_text ? "text" : ""}
-                        {c.has_authorization ? " · 🔑" : ""}
+                        {c.has_authorization || c.signed_in ? " · 🔑" : ""}
                     </span>
                     <button className="btn btn-sm btn-link p-0"
-                            onClick={() => setEditing(withEditorSnapshot({ ...c, authorization: "" }))}>
+                            onClick={() => setEditing(withEditorSnapshot(
+                                { ...c, authorization: "", kind: c.is_url ? "url" : "json" }))}>
                         {_t("Edit")}
                     </button>
                     <button className="btn btn-sm btn-link p-0" title={_t("Remove")} onClick={() => remove(c)}>

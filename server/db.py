@@ -791,7 +791,31 @@ CREATE TABLE IF NOT EXISTS mcp_connections (
     server_description TEXT,
     allowed_tools TEXT,                -- newline-separated
     authorization TEXT,                -- bearer token
-    headers TEXT                       -- JSON object
+    headers TEXT,                      -- JSON object
+    -- Who connects to the server: 'provider' (the brain's provider dials
+    -- server_url) or 'local' (the app itself, see local_mcp.py: it starts
+    -- `command` with `args`, `env` and `cwd`, or opens server_url).
+    runs_on TEXT NOT NULL DEFAULT 'provider',
+    command TEXT,
+    args TEXT,                         -- JSON array
+    env TEXT,                          -- JSON object
+    cwd TEXT,
+    -- What the config says a URL server speaks: 'http' (streamable HTTP),
+    -- 'sse' (the old HTTP+SSE), or empty = try the first, then the second.
+    transport TEXT NOT NULL DEFAULT '',
+    -- JSON: an OAuth client registered by hand ({client_id, client_secret,
+    -- scopes}), for a server that doesn't register clients itself.
+    oauth TEXT
+);
+
+-- OAuth sign-ins for MCP servers the app connects to itself (local_mcp.py),
+-- one per server URL: every companion with that server shares it.
+CREATE TABLE IF NOT EXISTS mcp_oauth (
+    server_url TEXT PRIMARY KEY,
+    redirect_uri TEXT NOT NULL DEFAULT '',   -- the callback the client below was registered with
+    client_info TEXT,                        -- JSON: the registered OAuth client
+    tokens TEXT,                             -- JSON: access + refresh token
+    expires_at REAL                          -- when the access token runs out (unix time)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -1663,6 +1687,14 @@ MIGRATIONS = (
     "ALTER TABLE avatars ADD COLUMN sound_effects_library INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE avatars ADD COLUMN sound_effects_off TEXT",
     "ALTER TABLE agents ADD COLUMN enable_sound_effects INTEGER NOT NULL DEFAULT 0",
+    # MCP connections the app runs itself (local_mcp.py).
+    "ALTER TABLE mcp_connections ADD COLUMN runs_on TEXT NOT NULL DEFAULT 'provider'",
+    "ALTER TABLE mcp_connections ADD COLUMN command TEXT",
+    "ALTER TABLE mcp_connections ADD COLUMN env TEXT",
+    "ALTER TABLE mcp_connections ADD COLUMN args TEXT",
+    "ALTER TABLE mcp_connections ADD COLUMN cwd TEXT",
+    "ALTER TABLE mcp_connections ADD COLUMN transport TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE mcp_connections ADD COLUMN oauth TEXT",
 )
 
 

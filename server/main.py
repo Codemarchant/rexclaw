@@ -29,6 +29,31 @@ WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 app = FastAPI(title="Rexclaw Companions", docs_url=None, redoc_url=None)
 
 
+class _NoCrossSiteWrites:
+    """Turns down a request that changes something when the browser says
+    another website sent it (Sec-Fetch-Site: cross-site, which a page can't
+    forge). The app has no login, so without this any page open in the
+    user's browser could drive it. The app's own pages are same-origin
+    wherever they are served from - the desktop window, a phone or headset
+    on the LAN, a reverse proxy - and anything that isn't a browser sends
+    no such header, so neither is touched."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if (scope["type"] == "http" and scope["method"] not in ("GET", "HEAD", "OPTIONS")
+                and dict(scope["headers"]).get(b"sec-fetch-site") == b"cross-site"):
+            refusal = JSONResponse(status_code=403, content={"error": {
+                "message": "This request came from another website and was not carried out."}})
+            await refusal(scope, receive, send)
+            return
+        await self.inner(scope, receive, send)
+
+
+app.add_middleware(_NoCrossSiteWrites)
+
+
 @app.exception_handler(UserError)
 async def user_error_handler(request: Request, exc: UserError):
     # Shape matches what the frontend rpc helper expects: {error: {message}}.
