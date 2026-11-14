@@ -63,6 +63,22 @@ const CREDITS = [
         ],
     },
     {
+        title: "Sound effects",
+        items: [
+            ["Freesound: 29 contributors",
+             "https://freesound.org",
+             "CC0. The built-in sound effects companions play in calls, by 5ro4, adriann, "
+             + "audiosmedia, bone666138, Breviceps, CapsLok, cdiupe, facklere, FlashTrauma, "
+             + "fortnight, GreatNate98, guitarguy1985, Higgs01, jayfrosting, KenRT, "
+             + "kirbydx, laft2k, magnuswaker, mbthetd, musicvision31, Nox_Sound, Patrick_Corra, "
+             + "plasterbrain, Pól, roboroo, trijohnstone, v0idation, valeriebbb96 and Vein_Adams. "
+             + "Sources in assets/audio/effects/CREDITS.md."],
+            ["Wilhelm scream (Wikimedia Commons)",
+             "https://commons.wikimedia.org/wiki/File:Wilhelm_Scream.ogg",
+             "CC0 as tagged on Wikimedia Commons. The stock movie scream first recorded in 1951."],
+        ],
+    },
+    {
         title: "Companion background music",
         items: [
             ["Kevin MacLeod (incompetech.com)",

@@ -10,9 +10,13 @@ import Pager, { usePager } from "./Pager.jsx";
  *  sound effects (server/audio_sounds.py). Each upload gets the fields the
  *  script grammar needs: the name scripts call it by, the kind (which
  *  directive plays it), a description companions read in their guide, a
- *  default level, and a credit line for the user's own licence records. */
+ *  default level, and a credit line for the user's own licence records.
+ *  The "effect" kind is the odd one out: a call sound effect, played by
+ *  companions on voice calls and kept out of scripts. */
 
-const USE = { bed: "{bed %s}", music: "{music %s}", sound: "{sound %s}" };
+// A call sound effect has no directive: scripts never see it, and
+// companions play it by name on calls (play_sound_effect).
+const USE = { bed: "{bed %s}", music: "{music %s}", sound: "{sound %s}", effect: "%s" };
 const BLANK = { name: "", kind: "bed", description: "", level: 0, credit: "" };
 
 /** "Velvet Pad (loop).wav" → "velvet-pad-loop" */
@@ -32,7 +36,7 @@ function SoundFields({ value, kinds, onChange }) {
                            onChange={(ev) => set("name", ev.target.value.toLowerCase())} />
                 </div>
                 <div>
-                    <label title={_t("Which directive plays it: a looping bed, a looping music layer that can play alongside a bed, or a one-shot effect.")}>
+                    <label title={_t("Which directive plays it: a looping bed, a looping music layer that can play alongside a bed, or a one-shot effect. A call sound effect is different: it is for voice calls only (the companion's soundboard, play_sound_effect) and never shows up in scripts or voice messages.")}>
                         {_t("Kind")}
                     </label>
                     <select value={value.kind} onChange={(ev) => set("kind", ev.target.value)}>
@@ -147,6 +151,9 @@ export default function SoundLibrary({ sounds, kinds, keepDownloads, onKeepDownl
         <>
             <p className="text-muted small" style={{ margin: "0.4rem 0 0.2rem" }}>
                 {_t("Upload your own beds, music and sound effects (WAV, FLAC, OGG or MP3). Scripts call them by name, and companions see each one with your description in their guide, so they can use it in voice messages. Only upload audio you have the rights to use.")}
+            </p>
+            <p className="text-muted small" style={{ margin: "0 0 0.2rem" }}>
+                {_t("Call sound effects are kept apart: they join the soundboard companions play on voice calls (Sound effects, switched on per companion) and are left out of scripts and voice messages, just as the three script kinds are left out of calls. Add one here and every avatar that uses the sound effect library gets it; the ones that come with the app are under App sounds.")}
             </p>
             <details className="rx_studio_help" style={{ margin: "0 0 0.4rem" }}>
                 <summary>{_t("How sounds play in a script")}</summary>

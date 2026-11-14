@@ -267,7 +267,9 @@ def fetch(con, url, *, title=None, keep=False):
     url = (url or '').strip()
     if not re.match(r'^https?://', url):
         raise UserError(f'"{url}" is not a link.')
-    known = con.execute("SELECT * FROM audio_sounds WHERE source_filename = ?", (url,)).fetchone()
+    # A link kept as a call sound effect is a one-shot, not a track to loop.
+    known = con.execute("SELECT * FROM audio_sounds WHERE source_filename = ? AND kind != ?",
+                        (url, audio_sounds.CALL_EFFECT)).fetchone()
     if known:
         return {'name': known['name'], 'url': known['file_path'], 'description': known['description'] or '',
                 'credit': known['credit'] or '', 'source': 'library'}

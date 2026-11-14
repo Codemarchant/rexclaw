@@ -8,6 +8,13 @@ Uploaded audio becomes a named sound that scripts call by kind:
   music   {music NAME}  a looping music layer that plays alongside a bed
   sound   {sound NAME}  a one-shot effect at that moment, like {chime}
 
+A fourth kind is not for scripts at all:
+
+  effect  a call sound effect: a one-shot companions play on voice calls
+          (play_sound_effect, sound_effects.py). The studio never sees
+          these (catalog leaves them out), and calls never see the three
+          studio kinds, so neither tool's list fills up with the other's.
+
 Uploads are decoded (soundfile: WAV, FLAC, OGG, MP3), mixed to stereo
 and stored as Ogg Vorbis under data/files/sounds/, at their own sample
 rate up to 48 kHz: music also plays on its own in calls (call_music.py),
@@ -68,7 +75,10 @@ KINDS = {
     'bed': 'Bed loop',
     'music': 'Music',
     'sound': 'Sound effect',
+    'effect': 'Call sound effect',
 }
+STUDIO_KINDS = ('bed', 'music', 'sound')   # what scripts (and voice messages) can call
+CALL_EFFECT = 'effect'
 NAME_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 MAX_UPLOAD_BYTES = 80 * 1024 * 1024
 MAX_SECONDS = 30 * 60          # an upload is decoded whole into memory; beds and music
@@ -93,7 +103,7 @@ def validate(con, *, name, kind, level, sound_id=None):
     if clash:
         raise UserError(f'You already have a sound called "{name}".')
     if kind not in KINDS:
-        raise UserError('Kind must be bed, music or sound.')
+        raise UserError('Kind must be bed, music, sound or effect.')
     try:
         level = max(-24.0, min(12.0, float(level or 0)))
     except (TypeError, ValueError):
@@ -148,11 +158,23 @@ def fetch(url):
 
 
 def catalog(con):
-    """name → row dict for every sound, for the parser and the guide."""
+    """name → row dict for every sound a script can call (STUDIO_KINDS),
+    for the parser and the guide. Call sound effects are not among them."""
     if con is None:
         return {}
     return {r['name']: dict(r) for r in con.execute(
-        "SELECT * FROM audio_sounds ORDER BY kind, name").fetchall()}
+        "SELECT * FROM audio_sounds WHERE kind != ? ORDER BY kind, name", (CALL_EFFECT,)).fetchall()}
+
+
+def call_effects(con):
+    """The user's call sound effects (sound_effects.py), by name."""
+    return [dict(r) for r in con.execute(
+        "SELECT * FROM audio_sounds WHERE kind = ? ORDER BY name", (CALL_EFFECT,)).fetchall()]
+
+
+def all_sounds(con):
+    """Every sound in the library, whatever its kind (Your sounds' list)."""
+    return [dict(r) for r in con.execute("SELECT * FROM audio_sounds ORDER BY kind, name").fetchall()]
 
 
 def load(row):

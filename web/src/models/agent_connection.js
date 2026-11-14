@@ -43,7 +43,8 @@ const CONTINUE_MAX_IN_A_ROW = 6;
 // affectionate exchange is where it most wants to, so the score went up and
 // the reply stopped on a single line. It takes the flag like the rest now.
 const END_TURN_TOOLS = new Set(["set_emotion", "play_gesture", "generate_gesture", "move_around", "perform_song",
-    "play_background_music", "remember", "forget", "minecraft_command", "game_action", "adjust_affection"]);
+    "play_background_music", "play_sound_effect", "remember", "forget", "minecraft_command", "game_action",
+    "adjust_affection"]);
 
 /** Whether a call's arguments ask to end the turn on it. Malformed arguments
  *  read as "no" — the default, a follow-up reply. */
@@ -290,6 +291,7 @@ export class AgentConnection {
         // next chunk should start at.
         this._scheduledSources = [];
         this._nextPlayTime = 0;
+        this._speechHoldUntil = 0;   // context time speech may next start at (holdSpeechFor)
         this._turnAudioSec = 0;   // voice scheduled for the current response
         this.toolDispatcher = null;
         this.pendingFunctionCalls = new Map();   // call_id → { name, argsBuffer }
@@ -381,6 +383,7 @@ export class AgentConnection {
             try { await this.playbackContext.close(); } catch (e) { /* swallow */ }
         }
         this.playbackContext = null;
+        this._speechHoldUntil = 0;   // a time on the context just closed
         // Drop any audio queued for the next session — stale frames from a
         // dead WS shouldn't leak into the new one.
         this._earlyAudioBuffer = [];
@@ -846,9 +849,11 @@ export class AgentConnection {
         // Re-anchor to now (+ cushion) whenever the schedule has fallen behind
         // real time: a fresh turn, or an underrun where chunks stopped arriving
         // and playback caught up to _nextPlayTime.
+        // Not before a sound effect this leg is playing has finished
+        // (holdSpeechFor).
         const now = ctx.currentTime;
         if (this._nextPlayTime < now) {
-            this._nextPlayTime = now + PLAYBACK_JITTER_BUFFER_S;
+            this._nextPlayTime = Math.max(now + PLAYBACK_JITTER_BUFFER_S, this._speechHoldUntil);
         }
         const startAt = this._nextPlayTime;
         source.start(startAt);
@@ -878,6 +883,16 @@ export class AgentConnection {
      *  the peer's own stream otherwise (null when it's off). */
     _neuralMotion() {
         return this.role === "primary" ? neuralMotion : peerNeuralMotion(this.connId);
+    }
+
+    /** Keep this leg's next speech from starting for `seconds`. A sound
+     *  effect it just played is sounding that long (models/sound_effects.js):
+     *  the reply that follows is asked for at once and generated meanwhile,
+     *  and its first words start as the sound ends, instead of the reply
+     *  only being asked for then. */
+    holdSpeechFor(seconds) {
+        const ctx = this._ensurePlaybackContext();
+        this._speechHoldUntil = ctx.currentTime + Math.max(0, seconds || 0);
     }
 
     /** Seconds of assistant audio scheduled but not yet played — i.e. how

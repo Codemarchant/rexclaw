@@ -93,7 +93,7 @@ def _sounds_parameter(keep):
                 'url': {'type': 'string',
                         'description': 'A YouTube link (or a link from any video or music site), or a '
                                        'direct link to an audio file.'},
-                'kind': {'type': 'string', 'enum': sorted(audio_sounds.KINDS),
+                'kind': {'type': 'string', 'enum': sorted(audio_sounds.STUDIO_KINDS),
                          'description': 'bed (a looping background), music (a looping music layer) or '
                                         'sound (a one-shot effect).'},
                 'description': {'type': 'string', 'description': 'What it sounds like and what it suits.'},
@@ -167,10 +167,14 @@ def download_sounds(con, items, *, keep):
             name = (item.get('name') or '').strip().lower()
             if name in out:
                 raise UserError(f'sounds: "{name}" is listed twice.')
-            known = con.execute("SELECT * FROM audio_sounds WHERE source_filename = ?", (url,)).fetchone()
+            # A link kept as a call sound effect is not a script's to call.
+            known = con.execute("SELECT * FROM audio_sounds WHERE source_filename = ? AND kind != ?",
+                                (url, audio_sounds.CALL_EFFECT)).fetchone()
             if known and known['name'] == name:
                 out[name] = dict(known)
                 continue
+            if item.get('kind') not in audio_sounds.STUDIO_KINDS:
+                raise UserError('sounds: kind must be bed, music or sound.')
             name, kind, level = audio_sounds.validate(con, name=name, kind=item.get('kind'), level=0)
             if known:
                 # Downloaded before under another name: the same file, called as asked.

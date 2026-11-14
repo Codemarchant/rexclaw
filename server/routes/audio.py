@@ -13,7 +13,7 @@ import time
 import requests
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 
-from .. import audio_examples, audio_sounds, audio_studio, call_music, voicemail_tools
+from .. import audio_examples, audio_sounds, audio_studio, call_music, sound_effects, voicemail_tools
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import UserError
 from ..pipeline import setups as voice_setups
@@ -169,6 +169,7 @@ def audio_bootstrap(payload: dict = Body(default={}), con=Depends(db_con)):
         'voices': _fetch_voices(config),
         'engine_voices': _engine_voices(con, config),
         'sounds': _sounds(con),
+        'app_sounds': _app_sounds(con),
         'sound_kinds': audio_sounds.KINDS,
         'keep_downloaded_sounds': bool(config['keep_downloaded_sounds']),
         'guide': audio_studio.guide(config, audio_sounds.catalog(con)),
@@ -176,13 +177,44 @@ def audio_bootstrap(payload: dict = Body(default={}), con=Depends(db_con)):
 
 
 def _sounds(con):
-    return list(audio_sounds.catalog(con).values())
+    return audio_sounds.all_sounds(con)
+
+
+def _app_sounds(con):
+    """Every recorded sound that ships with the app, for the App sounds
+    list, by what it is for: {group: [{name, url, description, credit, …}]}.
+      effects        call sound effects (sound_effects.BUNDLED); `replaced`
+                     when a call sound effect of the user's has its name
+      beds, music    the studio's recorded beds and music (audio_sounds.BUNDLED)
+      avatar_music   the bundled avatars' own background music (`avatar`:
+                     whose it is)
+    Sounds the studio generates as it renders (the ocean, rain and noise
+    beds, the chime) have no file and are not listed."""
+    mine = {e['name'] for e in audio_sounds.call_effects(con)}
+    out = {
+        'effects': [{'name': name, 'url': f'/assets/audio/effects/{fname}', 'description': desc,
+                     'credit': '', 'replaced': name in mine}
+                    for name, (fname, desc) in sound_effects.BUNDLED.items()
+                    if (sound_effects.BUNDLED_DIR / fname).is_file()],
+        'beds': [], 'music': [],
+        'avatar_music': [{'name': r['name'], 'url': r['file_path'], 'description': r['description'],
+                          'credit': r['credit'], 'avatar': r['avatar']}
+                         for r in con.execute(
+                             """SELECT a.name AS avatar, m.* FROM avatar_music m JOIN avatars a ON a.id = m.avatar_id
+                                WHERE m.file_path LIKE '/assets/avatars/%' ORDER BY a.sequence, a.name, m.sequence""")],
+    }
+    for name, (fname, kind, desc) in audio_sounds.BUNDLED.items():
+        out['beds' if kind == 'bed' else 'music'].append(
+            {'name': name, 'url': f'/assets/audio/beds/{fname}', 'description': desc, 'credit': ''})
+    return out
 
 
 def _sounds_payload(con):
-    """What the playground refreshes after a library change: the list, and
-    the guide (whose "Your sounds" section follows it)."""
+    """What the playground refreshes after a library change: the list, the
+    app's own sounds (a call sound effect of the user's can replace one),
+    and the guide (whose "Your sounds" section follows the list)."""
     return {'sounds': _sounds(con),
+            'app_sounds': _app_sounds(con),
             'guide': audio_studio.guide(get_config(con), audio_sounds.catalog(con))}
 
 
@@ -258,6 +290,7 @@ def audio_sound_delete(payload: dict = Body(default={}), con=Depends(db_con)):
     row = con.execute("SELECT * FROM audio_sounds WHERE id = ?", (payload.get('id'),)).fetchone()
     if row:
         users = call_music.sound_users(con, row['name'] if row['kind'] == 'music' else None, row['file_path'])
+        users += sound_effects.sound_users(con, row['file_path'])
         if users:
             raise UserError(f'"{row["name"]}" is used in {", ".join(users)}. Remove it there in the '
                             f'avatar editor first.')

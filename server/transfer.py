@@ -237,6 +237,9 @@ def _iter_manifest_refs(manifest):
     for m in manifest.get("music") or []:
         if isinstance(m, dict):
             yield m, "file"
+    for e in manifest.get("sound_effects") or []:
+        if isinstance(e, dict):
+            yield e, "file"
 
 
 def manifest_local_files(manifest):

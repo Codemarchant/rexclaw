@@ -395,7 +395,28 @@ CREATE TABLE IF NOT EXISTS avatars (
     -- Background music in calls (call_music.py): 1 = the whole music library
     -- (History → Recordings → Your sounds) plays alongside the avatar's own
     -- tracks (avatar_music); 0 = only its own.
-    music_library INTEGER NOT NULL DEFAULT 1
+    music_library INTEGER NOT NULL DEFAULT 1,
+    -- Sound effects in calls (sound_effects.py): 1 = the whole sound effect
+    -- library (the bundled effects plus History → Recordings → Your sounds'
+    -- call sound effects) is offered alongside the avatar's own effects
+    -- (avatar_sound_effects); 0 = only its own. sound_effects_off: JSON list
+    -- of library effect names this avatar leaves out (NULL = none).
+    sound_effects_library INTEGER NOT NULL DEFAULT 1,
+    sound_effects_off TEXT
+);
+
+-- An avatar's own sound effects (manifest "sound_effects"): a file in the
+-- pack, or a library / bundled effect picked by its web path. The
+-- description says what it sounds like and when to use it. Replaced
+-- wholesale on each scan, like the other child rows.
+CREATE TABLE IF NOT EXISTS avatar_sound_effects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    avatar_id INTEGER NOT NULL REFERENCES avatars(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    sequence INTEGER NOT NULL DEFAULT 10,
+    file_path TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    credit TEXT NOT NULL DEFAULT ''
 );
 
 -- An avatar's own background-music tracks (manifest "music"): a file in the
@@ -652,6 +673,9 @@ CREATE TABLE IF NOT EXISTS agents (
     -- avatar's tracks (call_music.py); _downloads lets it take links too.
     enable_background_music INTEGER NOT NULL DEFAULT 1,
     enable_background_music_downloads INTEGER NOT NULL DEFAULT 1,
+    -- play_sound_effect: voice calls — soundboard one-shots from the
+    -- avatar's effects (sound_effects.py). Off unless switched on.
+    enable_sound_effects INTEGER NOT NULL DEFAULT 0,
     -- Extensions' tool switches (plugins.py): JSON {extension id: true}.
     extension_tools TEXT NOT NULL DEFAULT '{}',
     -- perform_song: voice calls — the companion performs a song it has learned
@@ -951,7 +975,7 @@ CREATE INDEX IF NOT EXISTS idx_audio_recordings_created ON audio_recordings (cre
 CREATE TABLE IF NOT EXISTS audio_sounds (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,             -- what scripts call it: {bed NAME} etc.
-    kind TEXT NOT NULL,                    -- bed | music | sound
+    kind TEXT NOT NULL,                    -- bed | music | sound | effect (calls only)
     description TEXT NOT NULL DEFAULT '',  -- what it sounds like; shown to companions
     level REAL NOT NULL DEFAULT 0,         -- default dB offset
     credit TEXT NOT NULL DEFAULT '',       -- author / licence / source, the user's record
@@ -1635,6 +1659,10 @@ MIGRATIONS = (
     # create_video edit/extend run on their own model (see the config schema
     # comment): xAI offers neither on the -1.5 line.
     "ALTER TABLE config ADD COLUMN imagine_video_edit_model TEXT NOT NULL DEFAULT 'grok-imagine-video'",
+    # Sound effects in calls (sound_effects.py).
+    "ALTER TABLE avatars ADD COLUMN sound_effects_library INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE avatars ADD COLUMN sound_effects_off TEXT",
+    "ALTER TABLE agents ADD COLUMN enable_sound_effects INTEGER NOT NULL DEFAULT 0",
 )
 
 

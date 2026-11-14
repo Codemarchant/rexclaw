@@ -77,7 +77,7 @@ const NEW_COACH_RULE = {
 // them; any other tool joins the list once it has been called on a call.
 const KNOWN_TOOLS = [
     "play_gesture", "set_emotion", "generate_gesture", "move_around", "change_outfit", "change_background",
-    "play_background_music", "create_image", "create_video", "create_voicemail", "perform_song",
+    "play_background_music", "play_sound_effect", "create_image", "create_video", "create_voicemail", "perform_song",
     "remember", "recall", "recall_stories", "adjust_affection",
 ];
 // What the coach can look things up with (server/coach.py COACH_TOOLS).

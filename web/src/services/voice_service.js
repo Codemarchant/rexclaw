@@ -3,6 +3,7 @@ import { _t } from "../lib/i18n";
 import { MASCOT_MODE } from "../lib/ui_state";
 import { makeConversationState } from "../models/conversation_state";
 import { backgroundMusic } from "../models/background_music";
+import { soundEffects } from "../models/sound_effects";
 import {
     AgentConnection,
     GAME_RAPID_MS,
@@ -1269,8 +1270,9 @@ class VoiceCallService {
         // However the call died (End click, ws death, token cap, idle
         // hangup), there's nothing left to time out.
         this._stopInactivityWatch();
-        // Background music stops with the call.
+        // Background music stops with the call, and so do sound effects.
         backgroundMusic.callEnded();
+        soundEffects.callEnded();
     }
 
     // ------------------------------------------------------------------
@@ -1317,6 +1319,8 @@ class VoiceCallService {
                 toolsCleared: () => this.env.services.motion_director?.toolsCleared?.(),
                 prepareBackgroundPortal: (bg) => this.env.services.motion_director?.prepareBackgroundPortal?.(bg),                // Live audio-schedule probe, for diagnosing gesture timing.
                 audioLookahead: () => conn._audioLookaheadSec?.() ?? 0,
+                // A sound effect's length: this leg's next words start after it.
+                holdSpeechFor: (seconds) => conn.holdSpeechFor?.(seconds),
             };
         }
         const id = conn.connId;
@@ -1410,6 +1414,8 @@ class VoiceCallService {
             toolEnded: (c, r) => conn._motion?.toolEnded(c, r),
             toolsCleared: () => conn._motion?.toolsCleared(),
             prepareBackgroundPortal: (bg) => conn._motion?.prepareBackgroundPortal(bg),            audioLookahead: () => conn._audioLookaheadSec?.() ?? 0,
+            // A sound effect's length: this leg's next words start after it.
+            holdSpeechFor: (seconds) => conn.holdSpeechFor?.(seconds),
         };
     }
 

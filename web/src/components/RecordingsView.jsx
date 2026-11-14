@@ -7,6 +7,7 @@ import { useUnsavedGuard } from "../lib/unsaved_guard";
 import { formatClock } from "../lib/format_clock";
 import { fmtLocal } from "./HeartbeatsPanel.jsx";
 import SoundLibrary from "./SoundLibrary.jsx";
+import AppSounds, { countAppSounds } from "./AppSounds.jsx";
 import MusicPlaylists from "./MusicPlaylists.jsx";
 import Pager, { usePager } from "./Pager.jsx";
 
@@ -191,7 +192,7 @@ export default function RecordingsView({ active }) {
     const [recFilter, setRecFilter] = useState("all");      // recordings list: category shown
     const [recCompanion, setRecCompanion] = useState("all"); // …and whose (STUDIO = playground renders)
     const [recQuery, setRecQuery] = useState("");            // …and matching this text
-    const [libTab, setLibTab] = useState("recordings");      // tab under the studio: recordings | sounds
+    const [libTab, setLibTab] = useState("recordings");      // tab under the studio: recordings | sounds | app
     const loaded = useRef(false);
 
     const load = async () => {
@@ -682,6 +683,7 @@ export default function RecordingsView({ active }) {
                         {[
                             ["recordings", "fa-list", _t("Recordings"), data.recordings.length],
                             ["sounds", "fa-music", _t("Your sounds"), data.sounds.length],
+                            ["app", "fa-cube", _t("App sounds"), countAppSounds(data.app_sounds)],
                         ].map(([id, icon, label, n]) => (
                             <button key={id} type="button"
                                     className={"rx_mem_chip" + (libTab === id ? " is-active" : "")}
@@ -694,8 +696,12 @@ export default function RecordingsView({ active }) {
                         <SoundLibrary sounds={data.sounds} kinds={data.sound_kinds}
                                       keepDownloads={data.keep_downloaded_sounds}
                                       onKeepDownloads={(keep) => setData((d) => ({ ...d, keep_downloaded_sounds: keep }))}
-                                      onChange={(p) => setData((d) => ({ ...d, sounds: p.sounds, guide: p.guide }))} />
+                                      onChange={(p) => setData((d) => ({ ...d, sounds: p.sounds, guide: p.guide,
+                                                                        app_sounds: p.app_sounds ?? d.app_sounds }))} />
                         <MusicPlaylists sounds={data.sounds} />
+                    </div>
+                    <div style={{ display: libTab === "app" ? "" : "none" }}>
+                        <AppSounds appSounds={data.app_sounds} />
                     </div>
                     <div style={{ display: libTab === "recordings" ? "" : "none" }}>
                         {data.recordings.length > 0 && (

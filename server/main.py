@@ -17,7 +17,7 @@ from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, get_config, init_db
 from .errors import UserError
 from .routes import (audio, avatars, extensions, games, heartbeats, live_chat, manga, minecraft, misc,
-                     music, neural_motion, pipeline, songs, text, voice, voicelab)
+                     music, neural_motion, pipeline, songs, sound_effects, text, voice, voicelab)
 from .lore_seeds import seed_lore_if_empty
 from .seeds import migrate_default_outfit_sections, seed_if_empty
 
@@ -96,6 +96,7 @@ app.include_router(live_chat.router)
 app.include_router(audio.router)
 app.include_router(songs.router)
 app.include_router(music.router)
+app.include_router(sound_effects.router)
 app.include_router(voicelab.router)
 app.include_router(manga.router)
 app.include_router(extensions.router)

@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, store, text_to_vrma, turn_director, voicemail_tools, xai_oauth
+from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, sound_effects, store, text_to_vrma, turn_director, voicemail_tools, xai_oauth
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 from .pipeline import session as pipeline_session, setups as voice_setups
@@ -883,6 +883,18 @@ def _tool_habits_section(con, agent_row, solo=True):
             "up dressed for it - but the tool call happens either way, in "
             "the same turn.\n"
         )
+    # Only with something to play (same gate as _voice_tools). Proactive on
+    # purpose, like move_around: nothing in a conversation asks for a sound
+    # effect. Which sound fits which moment is the tool description's job.
+    if sound_effects.offered(con, agent_row):
+        lines.append(
+            "- You have a soundboard: `play_sound_effect` plays a sound "
+            "effect out loud in the call, and it is yours to reach for "
+            "unprompted to flavour the conversation - a moment that a sound "
+            "would land better than words alone. Each sound's description "
+            "in the tool says what it is and when it fits; go by those. Say "
+            "your line first and the sound lands right after it.\n"
+        )
     if not lines:
         return None
     return "## Tool habits\n" + ''.join(lines)
@@ -1114,8 +1126,8 @@ def _cross_mode_token_vals(config, session, into_mode):
 # it already has for the other bookkeeping it never announces (remember,
 # forget): speak first and end on the call, or leave it off and go on.
 _END_TURN_TOOLS = frozenset({'set_emotion', 'play_gesture', 'generate_gesture',
-                             'move_around', 'perform_song', 'play_background_music', 'remember', 'forget',
-                             'minecraft_command', 'game_action', 'adjust_affection'})
+                             'move_around', 'perform_song', 'play_background_music', 'play_sound_effect',
+                             'remember', 'forget', 'minecraft_command', 'game_action', 'adjust_affection'})
 # The nudge for the silent tools belongs HERE and not in the prompt's Affection
 # section: that section is assembled once for both surfaces, and a text session
 # never gets this flag, so naming it there would point a text companion at a
@@ -1191,6 +1203,11 @@ def _voice_tools(con, agent, config, *, group_peers=None):
         music = call_music.build_tool(con, agent)
         if music:
             tools.append(music)
+    # The soundboard. Group calls too: any companion in the call may play one.
+    if agent['enable_sound_effects']:
+        effects = sound_effects.build_tool(con, agent)
+        if effects:
+            tools.append(effects)
     if gesture_gen:
         # Looping needs play_gesture in the session: its 'idle' ends a loop.
         tools.append(text_to_vrma.build_tool(can_loop=play_gesture is not None,

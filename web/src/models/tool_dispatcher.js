@@ -1,5 +1,6 @@
 import { rpc } from "../lib/rpc";
 import { backgroundMusic } from "./background_music";
+import { soundEffects } from "./sound_effects";
 import { EMOTION_GESTURE_MAP, GESTURE_FILE_MAP, GESTURE_LOOP_MAP } from "./avatar_catalog";
 // The shared renderer singleton (imported directly, not via services/index,
 // to avoid an import cycle through voice_service). take_selfie snapshots the
@@ -356,6 +357,15 @@ export class ToolDispatcher {
                     agentId: this.conversationState?.agentId,
                     agentName: this.conversationState?.agentName,
                     call: this.callManager,
+                });
+            case "play_sound_effect":
+                // Timed against this companion's own queued speech, or
+                // played over it (models/sound_effects.js).
+                return soundEffects.runTool(args || {}, {
+                    agentId: this.conversationState?.agentId,
+                    lookahead: () => this.avatarApi?.audioLookahead?.() ?? 0,
+                    holdSpeech: this.avatarApi?.holdSpeechFor
+                        ? (seconds) => this.avatarApi.holdSpeechFor(seconds) : null,
                 });
             case "change_outfit":
                 return this._changeOutfit(args);

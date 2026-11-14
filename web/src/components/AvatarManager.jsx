@@ -12,6 +12,7 @@ import FaceTuningDialog from "./FaceTuningDialog.jsx";
 import { AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS } from "../lib/render_prefs";
 import { avatarRenderer } from "../services/avatar_renderer";
 import { GESTURES } from "../models/avatar_catalog";
+import { soundEffects } from "../models/sound_effects";
 
 /** Avatar manager — create/edit/delete avatar packs from the desktop UI.
  *  Round-trips through the manifest: uploads land in the pack folder, Save
@@ -487,6 +488,58 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     useEffect(() => {
         rpc("/api/music/playlists", {}).then((r) => setLibraryPlaylists(r.playlists || [])).catch(() => {});
     }, []);
+    // The sound effect library (sound_effects.library_effects): what the
+    // Sound effects section's picker offers, and what "Use the whole sound
+    // effect library too" adds.
+    const [effectLibrary, setEffectLibrary] = useState([]);
+    useEffect(() => {
+        rpc("/api/sound_effects/list", { whole_library: true })
+            .then((r) => setEffectLibrary(r.effects || [])).catch(() => {});
+    }, []);
+    const effectPicks = effectLibrary.map((e) => ({ kind: "audio", name: e.name, url: e.url, source: e.source }));
+    // One preview at a time: ▶ starts an effect (cutting the one before),
+    // and is ■ while that effect sounds.
+    const [previewing, setPreviewing] = useState(null);   // the url sounding now
+    const stopPreview = useRef(null);
+    useEffect(() => () => stopPreview.current?.(), []);
+    const togglePreview = async (ref, level = 0) => {
+        const url = fileUrl(ref);
+        stopPreview.current?.();
+        stopPreview.current = null;
+        if (previewing === url) return;   // it was the stop button
+        try {
+            const sound = await soundEffects.preview(url, level);
+            stopPreview.current = sound.stop;
+            setPreviewing(url);
+            sound.ended.then(() => setPreviewing((now) => (now === url ? null : now)));
+        } catch (e) {
+            notification.add(e?.message || _t("Could not play the sound"), { type: "danger" });
+        }
+    };
+    const previewButton = (ref, level = null, withLabel = false) => {
+        // An effect taken from Your sounds plays at the level set there.
+        level ??= effectLibrary.find((e) => e.url === ref)?.level || 0;
+        const on = previewing === fileUrl(ref);
+        return (
+            <button className={withLabel ? "btn btn-sm" : "btn btn-sm btn-link p-0"}
+                    style={withLabel ? { marginTop: "0.3rem" } : undefined}
+                    title={on ? _t("Stop") : _t("Play")} onClick={() => togglePreview(ref, level)}>
+                <i className={on ? "fa fa-stop" : "fa fa-play"} />{withLabel ? ` ${on ? _t("Stop") : _t("Play")}` : ""}
+            </button>
+        );
+    };
+    // Library effects this avatar leaves out (manifest sound_effects_off),
+    // and the ones its own effects replace by name.
+    const effectsOff = new Set((manifest.sound_effects_off || []).map((n) => String(n).toLowerCase()));
+    const ownEffectNames = new Set((manifest.sound_effects || [])
+        .map((s) => (s.name || "").trim().toLowerCase()).filter(Boolean));
+    const setEffectOn = (name, on) => {
+        const rest = (manifest.sound_effects_off || []).filter((n) => String(n).toLowerCase() !== name.toLowerCase());
+        const off = on ? rest : [...rest, name];
+        setM({ sound_effects_off: off.length ? off : undefined });   // none off = no key, as saved packs have it
+    };
+    const offeredEffects = effectLibrary.filter((e) => !ownEffectNames.has(e.name.toLowerCase()));
+    const offeredOn = offeredEffects.filter((e) => !effectsOff.has(e.name.toLowerCase())).length;
     const playlistNames = [...new Set([
         ...(manifest.playlists || []).map((p) => (p.name || "").trim()).filter(Boolean),
         ...(ownMusic.length >= 2 ? ["All my tracks"] : []),
@@ -1245,6 +1298,87 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                         {rowButtons}
                     </div>
                 ))}
+            </Section>
+
+            {/* Sound effects in calls (server/sound_effects.py) */}
+            <Section title={_t("Sound effects")}
+                     onAdd={() => addItem("sound_effects", { name: "", file: "", description: "", credit: "" })}>
+                <p className="text-muted small" style={{ margin: "0.3rem 0" }}>
+                    {_t("The companion's soundboard in calls, when Sound effects is switched on for them (Companions → Tools). Add effects of this avatar's own here, or give a library effect a description that suits this character: an effect here replaces the library's effect of the same name.")}
+                </p>
+                <label className="rx_check" style={{ margin: "0.3rem 0" }}
+                       title={_t("On: in calls this avatar can play the sound effect library (the built-in effects, plus the ones you add in History → Recordings → Your sounds with the Call sound effect kind) as well as its own effects below; untick single effects in the list underneath. Off: the companion picks only from its own.")}>
+                    <input type="checkbox" checked={manifest.sound_effects_library !== false}
+                           onChange={(ev) => setM({ sound_effects_library: ev.target.checked })} />
+                    <span>{_t("Use the whole sound effect library too")}</span>
+                </label>
+                {(manifest.sound_effects || []).map((s, i) => !isOpen("sound_effects", i) ? (
+                    <div key={i} className="rx_memory_row">
+                        <strong>{s.name || _t("(unnamed)")}</strong>
+                        <span className="rx_memory_content text-muted small">
+                            {s.description || s.file || _t("(none)")}
+                        </span>
+                        {s.file && previewButton(s.file)}
+                        <button className="btn btn-sm btn-link p-0" onClick={() => openFor("sound_effects", i, s)}>
+                            {_t("Edit")}
+                        </button>
+                        <button className="btn btn-sm btn-link p-0" title={_t("Remove")}
+                                onClick={() => removeItem("sound_effects", i)}>
+                            <i className="fa fa-trash-o" />
+                        </button>
+                    </div>
+                ) : (
+                    <div key={i} className="rx_agent_editor" style={{ marginTop: "0.5rem" }}>
+                        <label title={_t("What the companion calls it in the tool.")}>{_t("Name")}</label>
+                        <input type="text" value={s.name || ""} placeholder={_t("e.g. ship-bell")}
+                               onChange={(ev) => setList("sound_effects", i, { name: ev.target.value })} />
+                        <FileField label={_t("Audio file")} kind="audio" packKey={pack_key} value={s.file}
+                                   library={effectPicks} accept="audio/*,.mp3,.ogg,.opus,.m4a,.aac,.flac,.wav"
+                                   onUploaded={(fn) => {
+                                       const lib = effectLibrary.find((e) => e.url === fn);
+                                       setList("sound_effects", i, {
+                                           file: fn,
+                                           name: s.name || (lib ? lib.name : fn.replace(/\.[^.]+$/, "")),
+                                           description: s.description || lib?.description || "",
+                                           credit: s.credit || lib?.credit || "",
+                                       });
+                                   }} />
+                        {s.file && previewButton(s.file, null, true)}
+                        <label title={_t("Companions read this to pick the right sound for the moment: say what it sounds like, then when to use it.")}>{_t("Description")}</label>
+                        <input type="text" value={s.description || ""}
+                               placeholder={_t("e.g. 'a ship's bell rung twice; when a decision is final or a round ends'")}
+                               onChange={(ev) => setList("sound_effects", i, { description: ev.target.value })} />
+                        <label title={_t("For your own records: who made it, where it came from, its licence.")}>{_t("Credit / licence")}</label>
+                        <input type="text" value={s.credit || ""}
+                               onChange={(ev) => setList("sound_effects", i, { credit: ev.target.value })} />
+                        {rowButtons}
+                    </div>
+                ))}
+                {manifest.sound_effects_library !== false && effectLibrary.length > 0 && (
+                    <details style={{ marginTop: "0.4rem" }}>
+                        <summary className="text-muted small" style={{ cursor: "pointer" }}
+                                 title={_t("Untick a library effect to keep it from this avatar. New effects added to the library start ticked.")}>
+                            {_t("Library effects: %s of %s on (open to choose)", offeredOn, offeredEffects.length)}
+                        </summary>
+                        {effectLibrary.map((e) => {
+                            const replaced = ownEffectNames.has(e.name.toLowerCase());
+                            return (
+                                <div key={e.url} className="rx_memory_row" style={replaced ? { opacity: 0.55 } : undefined}>
+                                    <input type="checkbox" disabled={replaced}
+                                           title={replaced ? _t("Replaced by this avatar's own effect of the same name")
+                                               : _t("Offered to this avatar's companion")}
+                                           checked={!replaced && !effectsOff.has(e.name.toLowerCase())}
+                                           onChange={(ev) => setEffectOn(e.name, ev.target.checked)} />
+                                    <strong>{e.name}</strong>
+                                    <span className="rx_memory_content text-muted small">
+                                        {replaced ? _t("Replaced by this avatar's own effect of the same name") : e.description}
+                                    </span>
+                                    {previewButton(e.url, e.level)}
+                                </div>
+                            );
+                        })}
+                    </details>
+                )}
             </Section>
 
             <EditorBar

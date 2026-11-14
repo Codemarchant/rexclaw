@@ -83,6 +83,16 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
       "music": [                         // background music in calls (call_music.py)
         {"name": "Tavern jig", "file": "jig.ogg", "description": "…", "credit": "…"},
         {"name": "Space pad", "file": "/assets/audio/beds/space-pad.ogg"}
+      ],
+      "sound_effects_library": true,     // optional; default true — the whole
+                                         // sound effect library is offered as
+                                         // well as "sound_effects"
+      "sound_effects_off": ["air-horn"], // optional: library effects this
+                                         // avatar leaves out, by name
+      "sound_effects": [               // sound effects in calls (sound_effects.py);
+                                         // the description says when to use it
+        {"name": "ship-bell", "file": "bell.ogg", "description": "…", "credit": "…"},
+        {"name": "rimshot", "file": "/assets/audio/effects/rimshot.mp3"}
       ]
     }
 
@@ -311,6 +321,15 @@ def _id_list(value):
     return ",".join(ids) or None
 
 
+def _name_list(value):
+    """Manifest list of names → the JSON list stored in the DB (trimmed, no
+    blanks or repeats), or None when empty."""
+    if not isinstance(value, (list, tuple)):
+        return None
+    names = list(dict.fromkeys(str(n).strip() for n in value if str(n).strip()))
+    return json.dumps(names, ensure_ascii=False) if names else None
+
+
 def _upsert_avatar(con, pack_key, vals):
     """Insert or update the avatars row for this pack. Returns the row id.
 
@@ -333,27 +352,30 @@ def _upsert_avatar(con, pack_key, vals):
             " fidget_interval = ?, restrict_base_gestures = ?, base_gestures = ?,"
             " physical_description = ?, main_outfit_name = ?, main_outfit_description = ?,"
             " face_tuning = ?, face_map = ?, pose_tuning = ?, music_library = ?, neural_motion = ?,"
-            " active = 1 WHERE id = ?",
+            " sound_effects_library = ?, sound_effects_off = ?, active = 1 WHERE id = ?",
             (pack_key, vals["name"], vals["description"], vals["sequence"],
              vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
              vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
              vals["base_gestures"], vals["physical_description"],
              vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
-             vals["face_map"], vals["pose_tuning"], vals["music_library"], vals["neural_motion"], row["id"]),
+             vals["face_map"], vals["pose_tuning"], vals["music_library"], vals["neural_motion"],
+             vals["sound_effects_library"], vals["sound_effects_off"], row["id"]),
         )
         return row["id"]
     cur = con.execute(
         "INSERT INTO avatars (pack_key, name, description, sequence, vrm_path, vrma_idle_path,"
         " emotion_decay, fidgets, fidget_interval, restrict_base_gestures, base_gestures,"
         " physical_description, main_outfit_name, main_outfit_description, face_tuning,"
-        " face_map, pose_tuning, music_library, neural_motion)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " face_map, pose_tuning, music_library, neural_motion, sound_effects_library,"
+        " sound_effects_off)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (pack_key, vals["name"], vals["description"], vals["sequence"],
          vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
          vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
          vals["base_gestures"], vals["physical_description"],
          vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
-         vals["face_map"], vals["pose_tuning"], vals["music_library"], vals["neural_motion"]),
+         vals["face_map"], vals["pose_tuning"], vals["music_library"], vals["neural_motion"],
+         vals["sound_effects_library"], vals["sound_effects_off"]),
     )
     return cur.lastrowid
 
@@ -398,6 +420,8 @@ def _scan_pack(con, pack_dir, url_root):
         "pose_tuning": _pose_tuning(manifest.get("pose_tuning")),
         "music_library": 0 if manifest.get("music_library") is False else 1,
         "neural_motion": _neural_motion(manifest.get("neural_motion")),
+        "sound_effects_library": 0 if manifest.get("sound_effects_library") is False else 1,
+        "sound_effects_off": _name_list(manifest.get("sound_effects_off")),
     })
 
     # Children are replaced wholesale — manifest is the source of truth.
@@ -420,6 +444,23 @@ def _scan_pack(con, pack_dir, url_root):
             " VALUES (?, ?, ?, ?, ?, ?)",
             (avatar_id, name, (i + 1) * 10, path, str(m.get("description") or ""),
              str(m.get("credit") or "")),
+        )
+
+    con.execute("DELETE FROM avatar_sound_effects WHERE avatar_id = ?", (avatar_id,))
+    seen_effects = set()
+    for i, e in enumerate(manifest.get("sound_effects") or []):
+        if not isinstance(e, dict):
+            continue
+        name = str(e.get("name") or "").strip()
+        path = _resolve(e.get("file"), pack_dir, url_base, pack=pack_key, field=f"sound_effects[{i}].file")
+        if not name or not path or name.lower() in seen_effects:
+            continue
+        seen_effects.add(name.lower())
+        con.execute(
+            "INSERT INTO avatar_sound_effects (avatar_id, name, sequence, file_path, description, credit)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (avatar_id, name, (i + 1) * 10, path, str(e.get("description") or ""),
+             str(e.get("credit") or "")),
         )
 
     con.execute("DELETE FROM avatar_playlists WHERE avatar_id = ?", (avatar_id,))
@@ -626,7 +667,8 @@ _ALLOWED_UPLOAD_EXT = {
     "scene": {".glb", ".gltf"},
     "image": {".png", ".jpg", ".jpeg", ".webp"},
     "video": {".mp4", ".webm"},
-    # Background music (call_music.py): what Chromium plays in an <audio>.
+    # Background music (call_music.py) and sound effects (sound_effects.py):
+    # what Chromium plays.
     "audio": {".mp3", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".flac", ".wav"},
 }
 # Every media extension a pack may hold — THE list: the uploader, the zip
@@ -851,6 +893,16 @@ def _validate_manifest(pack_dir, m):
             raise UserError(f"Two music tracks are called '{name}'.")
         tracks.add(name.lower())
         _check_file(t.get("file"), f"Music track '{name}'")
+
+    effects = set()
+    for i, e in enumerate(m.get("sound_effects") or []):
+        name = (e.get("name") or "").strip()
+        if not name:
+            raise UserError(f"Sound effect #{i + 1} needs a name.")
+        if name.lower() in effects:
+            raise UserError(f"Two sound effects are called '{name}'.")
+        effects.add(name.lower())
+        _check_file(e.get("file"), f"Sound effect '{name}'")
 
     lists = set()
     for i, p in enumerate(m.get("playlists") or []):

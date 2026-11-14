@@ -26,11 +26,11 @@ import { _t } from "../lib/i18n";
 
 const VOLUME_KEY = "rexclaw.backgroundMusic.volume";
 // Events that count as a tap for WebKit's audio unlock (see the constructor).
-const UNLOCK_EVENTS = ["touchend", "pointerup", "click", "keydown"];
+export const UNLOCK_EVENTS = ["touchend", "pointerup", "click", "keydown"];
 // WebKit (Safari, and every browser on iOS/iPadOS) wants the tap for each
 // media element; Chromium (Electron, Chrome, Android) remembers any earlier
 // tap on the page, so it needs no unlock ahead of time.
-const NEEDS_TAP_UNLOCK = typeof navigator !== "undefined"
+export const NEEDS_TAP_UNLOCK = typeof navigator !== "undefined"
     && /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg|Electron/.test(navigator.userAgent);
 // A tenth of a second of silence (8 kHz, 8-bit mono WAV), played to unlock
 // the layers' elements.

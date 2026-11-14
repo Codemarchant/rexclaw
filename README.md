@@ -67,6 +67,7 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 | 📸 **Screen & camera sharing** | Share your screen or camera and your companion can look when asked (`take_screenshot`, `analyze_screen`) or record a clip of up to 90 s. Camera sharing also works on phones, tablets and headsets. Nothing is captured unless you armed the share and the companion asks. |
 | 👀 **Camera awareness** | Optional, with the camera shared: small on-device face and hand models let them react to a wave, a thumbs up, a yawn or you stepping away. Only short text hints reach the companion; no images leave your device. |
 | 🎧 **Voice messages & recording studio** | Ask in chat for a voice note, a bedtime story or a guided meditation and they record it in their own voice (`create_voicemail`), with timed silences, guided breathing, ambient beds, binaural beats and voice effects. Write and render your own scripts in History → Recordings. |
+| 📣 **Sound effects** | Opt-in per companion (`play_sound_effect`): a soundboard for calls. A drum roll before the reveal, a rimshot after the joke, a crowd laughing, a honk, a bonk, timed to land after the line it belongs to. Built-in effects plus your own, each with a description of when to use it (avatar editor → Sound effects). |
 | 📖 **Manga Diary** | Turns an episode of a conversation into a manga page: a storyboard is written from that stretch, your companion poses for every panel, and the shots are inked into screentone art and lettered (History → Manga). |
 | 🕵️ **Background tasks** | `delegate_task` hands research, document and image analysis or coding to a background session with search, code execution and file reading, which the companion can continue across turns ("now fix the bug you just found"). In a call, the paperclip takes any file type. |
 | 🛠️ **Local computer tasks** | Opt-in (`local_task`): real files, code and shell on your machine through the [Grok Build CLI](https://docs.x.ai/build), confined to a working folder you choose (Settings → Local computer tasks). It runs without confirmation prompts inside that folder, so it's **off by default**. Never offered in Docker. |
@@ -630,7 +631,10 @@ each project.
   recorded beds and music: `heartbeat-drone` and `void-drone` by bassimat,
   `relaxation-pads` and `angelic-pad` by PhonZz, `emanation` by Kronek9,
   `space-pad` and `cosmic-glow` by Andrewkn. Sources in
-  `assets/audio/beds/CREDITS.md`.
+  `assets/audio/beds/CREDITS.md`. Also the built-in sound effects companions
+  play in calls, by 29 Freesound contributors (all CC0), plus the Wilhelm
+  scream from Wikimedia Commons (CC0 as tagged there), each listed with its
+  source in `assets/audio/effects/CREDITS.md`.
 - Companion background music — Kevin MacLeod,
   **[incompetech.com](https://incompetech.com)** (CC-BY 4.0): "Easy Lemon",
   "Clear Air", "Lobby Time", "Midnight Tale" and "Mirage"; "Hearth" by Rest
