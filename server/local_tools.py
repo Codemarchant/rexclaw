@@ -302,12 +302,31 @@ def _materialize_files(con, workdir, refs):
     return paths, errors, row_ids
 
 
+def _server_is_loopback_only():
+    """Mirrors the per-request local-origin restriction that gates the
+    equivalent local MCP command: this tool runs a full coding agent with
+    --always-approve and the server process's OS privileges, so it must
+    never be reachable by anything but the local machine. enable_local_tasks
+    alone isn't that guarantee — it's a per-agent convenience toggle a user
+    can flip without realising the server was also bound for LAN/remote
+    access (REXCLAW_HOST), which would hand that same privileged tool to
+    anyone who can reach the API."""
+    host = os.environ.get('REXCLAW_HOST', '127.0.0.1')
+    return host in ('127.0.0.1', 'localhost', '::1')
+
+
 def execute_local_task(con, session, arguments):
     """Run one Grok Build turn for `session` (the calling voice/text session).
     Same {'error': str} contract as the other native tool executors."""
     agent = store.get_agent(con, session['agent_id'])
     if not agent['enable_local_tasks']:
         return {'error': 'Local computer tasks are disabled on this agent.'}
+    if not _server_is_loopback_only():
+        return {'error': (
+            'Local computer tasks are only available when the server is '
+            'bound to localhost; this server is reachable over the '
+            'network, so this tool stays disabled for safety.'
+        )}
 
     args = arguments or {}
     task = args.get('task')
