@@ -8,11 +8,7 @@ const { execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-// Version from pyproject.toml — the project's single source of truth — so
-// the zip name tracks releases without also bumping desktop/package.json.
-const pyproject = fs.readFileSync(path.join(__dirname, "..", "..", "pyproject.toml"), "utf8");
-const version = (pyproject.match(/^version\s*=\s*"([^"]+)"/m)
-    || [null, require("../package.json").version])[1];
+const version = require("./version");
 const dist = path.join(__dirname, "..", "dist");
 const src = path.join(dist, "win-unpacked");
 const name = `Rexclaw-${version}-win`;

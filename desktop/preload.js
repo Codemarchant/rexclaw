@@ -109,6 +109,12 @@ contextBridge.exposeInMainWorld("rexclawDesktop", {
     // this executable (Windows/macOS; supported:false elsewhere).
     launchAtLogin: () => ipcRenderer.invoke("launch-at-login-get"),
     setLaunchAtLogin: (flag) => ipcRenderer.invoke("launch-at-login-set", !!flag),
+    // In-app updates: {supported, checkAtLaunch}. supported is true only in
+    // a copy made by the Windows installer. checkForUpdates answers with the
+    // shell's own dialogs.
+    updateInfo: () => ipcRenderer.invoke("update-info"),
+    setUpdateCheckAtLaunch: (flag) => ipcRenderer.invoke("update-check-at-launch-set", !!flag),
+    checkForUpdates: () => ipcRenderer.invoke("update-check"),
     // Mascot settings window (/#mascot-settings): the island's ⚙ and the
     // tray both open it here — the shell owns window creation.
     openMascotSettings: () => ipcRenderer.invoke("mascot-settings-open"),

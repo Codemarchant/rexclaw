@@ -60,6 +60,7 @@ export default function SettingsView({ active }) {
     const [headset, setHeadset] = useState(null);   // desktop shell only: HTTPS-on-WiFi state
     const [startInMascot, setStartInMascot] = useState(null);  // desktop shell only
     const [launchAtLogin, setLaunchAtLogin] = useState(null);  // desktop shell only: {supported, enabled}
+    const [updates, setUpdates] = useState(null);  // desktop shell only: {supported, checkAtLaunch}
     const [modelsOpen, setModelsOpen] = useState(false);   // "See all models" dialog
     const [creditsOpen, setCreditsOpen] = useState(false);
     // Hotkey overrides, parsed out of config.hotkeys_json for editing and
@@ -155,6 +156,7 @@ export default function SettingsView({ active }) {
             window.rexclawDesktop?.headsetInfo?.().then(setHeadset).catch(() => {});
             window.rexclawDesktop?.startupMascot?.().then((v) => setStartInMascot(!!v)).catch(() => {});
             window.rexclawDesktop?.launchAtLogin?.().then(setLaunchAtLogin).catch(() => {});
+            window.rexclawDesktop?.updateInfo?.().then(setUpdates).catch(() => {});
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
@@ -183,6 +185,19 @@ export default function SettingsView({ active }) {
             if (res?.error) notification.add(res.error, { type: "danger" });
         } catch (e) {
             setLaunchAtLogin(previous);
+            notification.add(e?.message || _t("Could not save that."), { type: "danger" });
+        }
+    };
+
+    /** Kept in the shell's settings file (read at launch, before any
+     *  window), so it applies immediately, independent of Save settings. */
+    const toggleUpdateCheckAtLaunch = async (flag) => {
+        const previous = updates;
+        setUpdates((v) => ({ ...v, checkAtLaunch: flag }));
+        try {
+            setUpdates(await window.rexclawDesktop.setUpdateCheckAtLaunch(flag));
+        } catch (e) {
+            setUpdates(previous);
             notification.add(e?.message || _t("Could not save that."), { type: "danger" });
         }
     };
@@ -376,6 +391,34 @@ export default function SettingsView({ active }) {
     return (
         <div className="rx_settings">
             <div className="rx_settings_inner">
+                {(config.app_version || updates?.supported) && (
+                    <section>
+                        <h3><i className="fa fa-info-circle" /> Rexclaw {config.app_version || ""}</h3>
+                        {/* Only a copy made by the Windows installer updates
+                            itself; every other build shows the version alone. */}
+                        {updates?.supported && (
+                            <>
+                                <div className="rx_check">
+                                    <input id="rx_update_check" type="checkbox"
+                                           checked={!!updates.checkAtLaunch}
+                                           onChange={(ev) => toggleUpdateCheckAtLaunch(ev.target.checked)} />
+                                    <label htmlFor="rx_update_check">
+                                        {_t("Check for updates when Rexclaw starts")}
+                                    </label>
+                                </div>
+                                <p className="text-muted">
+                                    {_t("When a new version is out, Rexclaw asks before downloading "
+                                        + "it and installs it only when you choose to restart. With "
+                                        + "this off, it checks only when you use the button below.")}
+                                </p>
+                                <button className="btn btn-secondary"
+                                        onClick={() => window.rexclawDesktop.checkForUpdates?.()}>
+                                    <i className="fa fa-refresh" /> {_t("Check for updates")}
+                                </button>
+                            </>
+                        )}
+                    </section>
+                )}
                 <section>
                     <h3><i className="fa fa-user" /> {_t("You")}</h3>
                     <div className="rx_row">

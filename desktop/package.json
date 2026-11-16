@@ -10,7 +10,10 @@
   "scripts": {
     "start": "electron .",
     "predist": "node -e \"require('fs').existsSync('runtime/python') || (console.error('desktop/runtime/python missing - run build-runtime.ps1 first (see desktop/README.md)'), process.exit(1))\"",
-    "dist": "electron-builder && node scripts/make-zip.js"
+    "dist": "node scripts/build-win.js && node scripts/make-zip.js"
+  },
+  "dependencies": {
+    "electron-updater": "6.3.9"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -27,6 +30,7 @@
       "preload.js",
       "picker_preload.js",
       "roam_windows.js",
+      "updater.js",
       "package.json"
     ],
     "extraResources": [
@@ -36,7 +40,18 @@
       { "from": "../pyproject.toml", "to": "app-server/pyproject.toml" },
       { "from": "runtime/python", "to": "python" }
     ],
-    "win": { "target": "dir", "icon": "build/icon.ico" },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "verifyUpdateCodeSignature": false,
+      "publish": { "provider": "github", "owner": "Codemarchant", "repo": "rexclaw" }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
+      "artifactName": "Rexclaw-${version}-win-setup.${ext}"
+    },
     "linux": {
       "target": "dir",
       "icon": "build/icon.png",

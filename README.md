@@ -88,17 +88,22 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 
 ### 💻 Desktop app — recommended
 
-Grab `Rexclaw-<version>-win.zip` from the
-[latest release](https://github.com/Codemarchant/rexclaw/releases/latest),
-unzip, run `Rexclaw.exe`. Self-contained: no Python, Node or Docker needed
+Grab `Rexclaw-<version>-win-setup.exe` from the
+[latest release](https://github.com/Codemarchant/rexclaw/releases/latest)
+and run it. Self-contained: no Python, Node or Docker needed
 (Windows 10/11, 64-bit). It also has what the browser version can't offer:
 the pop-out desktop mascot (ghost mode, tray controls, transcript window),
 system-wide hotkeys and one-click VR / HTTPS device access.
 
-- The app isn't code-signed yet, so the first launch shows a SmartScreen
+- The app isn't code-signed yet, so the installer shows a SmartScreen
   warning: **More info → Run anyway**.
-- Your data lives in `%APPDATA%\Rexclaw\data\`, not in the unzipped folder.
-  To update, download the new zip and replace the folder; nothing is lost.
+- **Updates:** the installed app checks for a new version when it starts,
+  and asks before it downloads and before it installs. The switch for that
+  check is at the top of Settings, next to **Check for updates**.
+- **No installer:** `-win.zip` is the same app as a folder: unzip, run
+  `Rexclaw.exe`. To update it, download the new zip and replace the folder.
+- Your data lives in `%APPDATA%\Rexclaw\data\`, apart from the app, so
+  updating or uninstalling never touches it.
 - **macOS 14+ (Apple Silicon):** `-mac-arm64.zip`, open `Rexclaw.app`, then
   **System Settings → Privacy & Security → Open Anyway** once.
 - **Linux (x64):** `-linux-x64.tar.gz`, run `./Rexclaw`.

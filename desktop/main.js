@@ -16,6 +16,7 @@ const { app, BrowserWindow, Menu, Notification, Tray, dialog, globalShortcut, ip
         nativeImage, session, shell, systemPreferences } = require("electron");
 const { execFile, execFileSync, spawn } = require("child_process");
 const { startWindowFeed } = require("./roam_windows");
+const { createUpdater } = require("./updater");
 const http = require("http");
 const https = require("https");
 const net = require("net");
@@ -54,7 +55,8 @@ let mascotShareWindow = null;    // mascot screen/camera share panel (normal win
 let transcriptWindow = null;     // pop-out transcript mirror (normal window)
 let captionsWindow = null;       // stream captions strip that comes with the mascot (transparent)
 let tray = null;
-let cursorTimer = null;          // mascot cursor feed interval (ghost / cursor-follow)
+let updater = null;              // in-app updates; null unless the installer put this copy in place
+let cursorTimer = null;         // mascot cursor feed interval (ghost / cursor-follow)
 let cursorFeedGhost = false;     // ghost mode on (page-owned; shell mirrors for the feed)
 let cursorFeedFollow = false;    // page wants the feed for gaze cursor-follow
 let roamState = null;            // mascot roaming the desktop: {prevBounds, displayId, stopFeed, ...}
@@ -278,6 +280,22 @@ function stopServer() {
         try { serverProc.kill("SIGTERM"); } catch (e) { /* already gone */ }
         serverProc = null;
     }
+}
+
+/** Before an update installs (Windows only): end the server and anything it
+ *  started, and resolve once the server process has exited. The installer
+ *  closes Rexclaw.exe by itself but knows nothing of the bundled python.exe,
+ *  and it cannot replace a file that is still running. */
+function stopServerForUpdate(timeoutMs = 5000) {
+    quitting = true;   // this exit is ours: no "server stopped" dialog
+    const proc = serverProc;
+    serverProc = null;
+    return new Promise((resolve) => {
+        if (!proc || proc.exitCode !== null || proc.signalCode !== null) return resolve();
+        const giveUp = setTimeout(resolve, timeoutMs);
+        proc.once("exit", () => { clearTimeout(giveUp); resolve(); });
+        execFile("taskkill", ["/pid", String(proc.pid), "/t", "/f"], { windowsHide: true }, () => {});
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1691,6 +1709,7 @@ function trayMenuTemplate() {
         // With "Hide avatar controls" on, this is the only other in-app path
         // to the mascot settings window (the island's ⚙ never renders).
         { label: "Full mascot settings", click: createMascotSettingsWindow },
+        ...(updater ? [updater.menuItem()] : []),
         { label: "Quit Rexclaw", click: () => app.quit() },
     ];
 }
@@ -1852,6 +1871,25 @@ ipcMain.handle("launch-at-login-set", (event, flag) => {
         return { ...info, error: `Could not update the login item: ${err.message}` };
     }
     return launchAtLoginInfo();
+});
+
+// In-app updates, for Settings. `supported` is false in a copy that does not
+// update itself (the zip, itch.io, macOS, Linux, a dev run). The launch
+// check is on unless the user turned it off; it lives in the shell's
+// settings because it is read before any window exists.
+function updateInfo() {
+    return { supported: !!updater, checkAtLaunch: loadSettings().updateCheckAtLaunch !== false };
+}
+
+ipcMain.handle("update-info", () => updateInfo());
+
+ipcMain.handle("update-check-at-launch-set", (event, flag) => {
+    saveSettings({ updateCheckAtLaunch: !!flag });
+    return updateInfo();
+});
+
+ipcMain.handle("update-check", () => {
+    if (updater) updater.check(true);
 });
 
 ipcMain.handle("mascot-align", (event, corner) => {
@@ -2335,8 +2373,15 @@ if (!app.requestSingleInstanceLock()) {
             const port = await ensureServer();
             serverPort = port;
             createWindow(port, { show: !startInMascot });
+            updater = createUpdater({
+                getWindow: () => mainWindow,
+                onChange: rebuildTrayMenu,
+                stopServer: stopServerForUpdate,
+                hasUnsavedEdits: () => mainUnsaved,
+            });
             createTray();
             if (startInMascot) createMascotWindow(false);
+            if (updater && loadSettings().updateCheckAtLaunch !== false) updater.check();
             // macOS Dock click. The main window exists until quit (only
             // hidden behind the mascot), so this is "show", not "create".
             app.on("activate", () => {

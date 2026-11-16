@@ -61,9 +61,21 @@ jobs:
           npm ci
           npm run dist
 
-      - name: Attach zip to release
+      # The installer's update metadata (latest.yml) goes up last, on its
+      # own: installed copies read it to find the new installer, so it must
+      # not name a file that is still uploading or failed to. For the same
+      # reason a re-run takes the old latest.yml down first: it holds the
+      # checksum of the installer about to be replaced. (Nothing to delete
+      # on a first run, which is fine.)
+      - name: Attach zip and installer to release
         if: github.event_name == 'release'
-        run: gh release upload ${{ github.event.release.tag_name }} (Get-Item desktop/dist/Rexclaw-*-win.zip).FullName --clobber
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          gh release delete-asset $tag latest.yml --yes 2>$null
+          $files = (Get-Item desktop/dist/Rexclaw-*-win.zip, desktop/dist/Rexclaw-*-win-setup.exe, desktop/dist/Rexclaw-*-win-setup.exe.blockmap).FullName
+          gh release upload $tag $files --clobber
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          gh release upload $tag desktop/dist/latest.yml --clobber
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -90,12 +102,14 @@ jobs:
           Copy-Item desktop/dist/win-unpacked itch-staging/Rexclaw -Recurse
           ./butler/butler.exe push itch-staging codemarchant/rexclaw:windows --userversion $version
 
-      - name: Store zip as CI artifact (manual run)
+      - name: Store zip and installer as CI artifact (manual run)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: rexclaw-windows
-          path: desktop/dist/Rexclaw-*-win.zip
+          path: |
+            desktop/dist/Rexclaw-*-win.zip
+            desktop/dist/Rexclaw-*-win-setup.exe
 
   # macOS (Apple Silicon) and Linux (x64): the same pipeline with
   # build-runtime.sh (python-build-standalone) in place of the .ps1, plus a

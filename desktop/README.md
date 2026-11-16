@@ -42,7 +42,7 @@ must be win_amd64):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build-runtime.ps1   # once, and after dependency changes
-npm run dist                                                 # → dist/Rexclaw-<version>-win.zip
+npm run dist                                                 # → dist/Rexclaw-<version>-win-setup.exe and -win.zip
 ```
 
 `build-runtime.ps1` downloads the official Windows embeddable Python
@@ -54,11 +54,18 @@ runs from the bundled source tree so its `Path(__file__)`-relative asset
 lookups resolve.
 
 `npm run dist` then packages the shell + `server/` + `assets/` + `web/dist`
-+ the runtime into a ~320 MB zip. The result is fully standalone: unzip,
-run `Rexclaw.exe`, no Python/Node/install required. User state goes to the
-per-user app-data folder, never the unzipped directory. The exe is unsigned,
-so first launch shows a SmartScreen warning ("More info → Run anyway") until
-there's a signing certificate.
++ the runtime twice: as an installer (`-win-setup.exe`, with the
+`latest.yml` and `.blockmap` its in-app updates read) and as a zip of the
+same app. Both are fully standalone, no Python/Node required. User state
+goes to the per-user app-data folder, never the app's own directory. Nothing
+is signed, so the first run shows a SmartScreen warning ("More info → Run
+anyway") until there's a signing certificate.
+
+Only a copy the installer put in place updates itself (`updater.js`): the
+zip and the itch.io build carry the same code with the updater off. The
+installer asks for the folder and always installs for the current user
+(`build/installer.nsh`), so neither installing nor updating needs
+administrator rights.
 
 The app icon (`build/icon.ico` / `icon.png`) is generated from the PWA icon
 (`web/public/icons/icon-512.png`).

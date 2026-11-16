@@ -1149,6 +1149,10 @@ export const JA = {
   "End-call tool (hang up on request)": "通話終了ツール（頼まれたら切る）",
 
   // ── Settings: desktop app ─────────────────────────────────────────────
+  "Check for updates when Rexclaw starts": "Rexclaw の起動時にアップデートを確認する",
+  "When a new version is out, Rexclaw asks before downloading it and installs it only when you choose to restart. With this off, it checks only when you use the button below.":
+    "新しいバージョンがあると、ダウンロードの前に確認し、再起動を選んだときにだけインストールします。オフにすると、下のボタンを押したときだけ確認します。",
+  "Check for updates": "アップデートを確認",
   "Desktop app": "デスクトップアプリ",
   "Launch Rexclaw when you sign in to your computer": "パソコンにサインインしたとき Rexclaw を起動する",
   "Starts Rexclaw by itself each time you sign in. Pair it with mascot mode below to have your companion waiting on the desktop.":

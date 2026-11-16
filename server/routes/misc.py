@@ -31,6 +31,19 @@ _logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
+
+def _app_version():
+    """The release this server is, for Settings to show. pyproject.toml sits
+    beside server/ in every run mode (the repo, the Docker image, the
+    desktop app's bundle); None if it cannot be read."""
+    try:
+        text = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    found = re.search(r'^version\s*=\s*"([^"]+)"', text, re.M)
+    return found.group(1) if found else None
+
+
 # Config columns the settings UI may read/write. The API key is write-only
 # from the UI's perspective — reads return a masked placeholder.
 _CONFIG_FIELDS = (
@@ -103,6 +116,7 @@ _AGENT_FIELDS = (
 def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     row = con.execute("SELECT * FROM config WHERE id = 1").fetchone()
     out = {k: row[k] for k in _CONFIG_FIELDS}
+    out["app_version"] = _app_version()
     out["has_api_key"] = bool(row["xai_api_key"])
     out["api_key_hint"] = (
         f"…{row['xai_api_key'][-4:]}" if row["xai_api_key"] and len(row["xai_api_key"]) > 8 else None
