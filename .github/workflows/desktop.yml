@@ -61,6 +61,34 @@ jobs:
           npm ci
           npm run dist
 
+      # Launch the packaged app as a user would, against a throwaway data
+      # folder, and wait for the server it spawns to answer. A build that
+      # cannot start must not reach the release: installed copies are
+      # offered it as an update, and a copy that cannot start cannot update
+      # itself out of it. Same check as the macOS/Linux jobs.
+      - name: Smoke test
+        run: |
+          $env:REXCLAW_DATA_DIR = Join-Path $env:RUNNER_TEMP "rexclaw-data"
+          $exe = (Resolve-Path desktop/dist/win-unpacked/Rexclaw.exe).Path
+          $app = Start-Process -FilePath $exe -PassThru `
+            -RedirectStandardOutput "$env:RUNNER_TEMP\app.log" `
+            -RedirectStandardError "$env:RUNNER_TEMP\app-err.log"
+          $up = $false
+          for ($i = 0; $i -lt 90; $i++) {
+            try {
+              $page = Invoke-WebRequest http://127.0.0.1:8990/ -UseBasicParsing -TimeoutSec 3
+              if ($page.Content -match "rexclaw") { $up = $true; break }
+            } catch {}
+            Start-Sleep -Seconds 2
+          }
+          taskkill /pid $app.Id /t /f | Out-Null
+          Get-Content "$env:RUNNER_TEMP\app.log", "$env:RUNNER_TEMP\app-err.log" -ErrorAction SilentlyContinue
+          if (-not $up) {
+            Write-Host "::error::packaged app never served on :8990"
+            exit 1
+          }
+          exit 0
+
       # The installer's update metadata (latest.yml) goes up last, on its
       # own: installed copies read it to find the new installer, so it must
       # not name a file that is still uploading or failed to. For the same
