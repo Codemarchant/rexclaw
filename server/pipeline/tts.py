@@ -315,7 +315,10 @@ async def _decode_stream(resp, fmt, pcm_rate):
 # Overview → Natural Language Control; "bracket cues can use natural
 # language descriptions and are not limited to a fixed set"; emotions at
 # the start of a sentence, one primary emotion per sentence, up to 3
-# combined, text after a sound effect). The opening paragraph mirrors the
+# combined, text after a sound effect; "Use concise natural language
+# descriptions", "Don't make bracket descriptions so long that they
+# interrupt readability"). Actions said in words rather than bracketed
+# mirrors the ElevenLabs guide below. The opening paragraph mirrors the
 # Grok section's (session_service._expression_section). Nothing in the
 # request switches cues on: the S2 models read brackets as part of the text.
 FISH_TAG_GUIDE = """\
@@ -335,7 +338,7 @@ Tips:
 - Tone and sound cues go wherever they happen: `Come closer. [whispering] It is a secret.`
 - Cues combine - `[sad][whispering] I miss you so much.` - around one main emotion per sentence; up to three combine well.
 - A sound lands best with a word of its own after it: `[laughing] Ha ha!`, `[sighing] Ugh.`
-- A cue works best as a few words.
+- A cue works best as a few words about your voice. What you do - moving closer, taking a hand - is said in words, not put in a cue: `I tuck the blanket around you. [soft tone] There.`
 
 When the user asks for a delivery - whisper this, say it softer - the cue is how you do it: `[whispering]` in front of the words, not a description of whispering."""
 
@@ -401,11 +404,17 @@ class FishTts(TtsEngine):
 # after" a segment, combine, must "describe something auditory" (not
 # [standing], [grinning], [pacing], [music]); describe the voice quality so
 # a tag isn't read as a sound effect; ellipses pause, CAPITALS stress; match
-# tags to the voice; v3/v4 take no SSML.
+# tags to the voice; v3/v4 take no SSML. Cue length (2026-11-17): a tag is
+# "a short instruction" (help centre → How do audio tags work) that "affects
+# approximately the next 4-5 words" (ElevenAgents → Expressive mode), and
+# narration is never turned into one ("DO NOT create audio tags from existing
+# narrative descriptions", Enhance prompt). Measured the same day on
+# eleven_v4: a cue of 80+ characters ahead of one to three words has those
+# words spoken over and over ("There, there, there…").
 ELEVENLABS_TAG_GUIDE = """\
 Your voice performs cues written in square brackets. A cue is never spoken: it shapes how the words around it sound, or puts a sound at that spot. Reach for them freely - they are most of what separates a voice that sounds like a person from one reading lines aloud. Anything audible - a laugh, a sigh, a whisper - belongs in a cue inside the line (`[laughs] okay, that's actually wild`), never narrated as an action ("I laugh"). Which cues are yours, and how thickly you lay them on, is your character's call.
 
-A cue is plain words describing the delivery, so the lists below are a starting point, not a limit: `[low, gravelly voice]`, `[warm, conversational tone, faint amusement]`, `[quietly, with controlled fear]`, `[softening, reflective]`, `[gentle laugh, then sincere]` and `[frustrated sigh]` work too.
+A cue is a few plain words describing the delivery, so the lists below are a starting point, not a limit: `[low, gravelly voice]`, `[quietly]`, `[softening, reflective]`, `[gentle laugh]` and `[frustrated sigh]` work too.
 
 - Feeling and delivery: `[happy]`, `[sad]`, `[excited]`, `[angry]`, `[annoyed]`, `[appalled]`, `[thoughtful]`, `[surprised]`, `[curious]`, `[sarcastic]`, `[mischievously]`, `[crying]`, `[whispers]`, `[whispering]`, `[shouting]`, `[muttering]`
 - Sounds you make: `[laughs]`, `[laughing]`, `[laughs harder]`, `[starts laughing]`, `[chuckles]`, `[giggles]`, `[wheezing]`, `[snorts]`, `[sighs]`, `[exhales]`, `[exhales sharply]`, `[inhales deeply]`, `[clears throat]`, `[gulps]`, `[swallows]`
@@ -416,7 +425,8 @@ A cue is plain words describing the delivery, so the lists below are a starting 
 Tips:
 - A cue goes right before the words it colours, or right after the line it reacts to: `[annoyed] This is hard.` or `This is hard. [sighs]`. A change of feeling gets a new cue: `[excited] We won! [whispers] Don't tell anyone yet.`
 - Cues combine: `[whispers][mischievously] I have an idea.`
-- A cue must be something you can hear: not `[smiles]`, `[standing]`, `[grinning]`, `[pacing]` or `[music]`.
+- A cue colours about the next four or five words, so a few words is all it needs: `[warmly] That was a long day, wasn't it?`
+- A cue must be something you can hear in your voice: not `[smiles]`, `[standing]`, `[grinning]`, `[pacing]` or `[music]`. What you do - moving closer, taking a hand - is said in words, not put in a cue: `I tuck the blanket around you. [softly] There.`
 - Describe the voice, not the scene: `[low, gravelly voice]` reads as delivery, while a cue that could be a noise in the room may come out as a sound effect.
 - Ellipses add a pause and weight (`It was... a lot.`); CAPITALS stress a word (`a VERY long day`).
 - Match the cue to your character: a serious voice may not take playful cues like `[giggles]` well, and a calm one whispers more convincingly than it shouts.
