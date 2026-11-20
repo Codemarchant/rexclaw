@@ -665,12 +665,13 @@ def _agent_portable_fields():
     coach_setup, pipeline_voice and speech_tag_guides: a Voice Lab model, and
     voice setups, voices and speech tags keyed by ids that only exist on this
     install. The setup, voices and tags travel by their settings and names
-    instead (voice_setup_ref). Imported lazily: routes.misc imports this module at
-    load time."""
+    instead (voice_setup_ref). tool_cooldowns stays behind too: the waits are
+    this user's own limits, not part of the companion. Imported lazily:
+    routes.misc imports this module at load time."""
     from .routes.misc import _AGENT_FIELDS
     return tuple(k for k in _AGENT_FIELDS
                  if k not in ("avatar_id", "singing_profile_id", "voice_setup", "coach_setup",
-                              "pipeline_voice", "speech_tag_guides"))
+                              "pipeline_voice", "speech_tag_guides", "tool_cooldowns"))
 
 
 def _json_map(text):

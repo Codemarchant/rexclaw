@@ -98,8 +98,11 @@ const POINT_HOLD_MS = 5000;
 const EMOTION_REPEAT_TURNS = 10;
 
 export class ToolDispatcher {
-    constructor({ avatarApi, avatarRenderer, sendWs, conversationState, sessionId, callManager, faceDirector = false, nativeTools = [] }) {
+    constructor({ avatarApi, avatarRenderer, sendWs, conversationState, sessionId, callManager, faceDirector = false, nativeTools = [], cooldownTools = [] }) {
         this.faceDirector = faceDirector;   // the face director runs this call (see _setEmotion)
+        // The tools this companion has a cooldown on (see _invokeCooled).
+        // Voice calls only: a text turn's are checked by the server.
+        this.cooldownTools = new Set(cooldownTools);
         // The session's own list of server-side tools: covers the ones an
         // extension adds, which NATIVE_TOOL_NAMES can't know about.
         this.nativeTools = new Set([...NATIVE_TOOL_NAMES, ...nativeTools]);
@@ -173,7 +176,7 @@ export class ToolDispatcher {
             // A slow tool's waiting motion, if it has one (tool_motion.js).
             this.avatarApi?.toolStarted?.(callId, name, responseId);
             try {
-                result = await this._invoke(name, args, { responseId });
+                result = await this._invokeCooled(callId, name, args, { responseId });
             } catch (e) {
                 result = { error: String(e?.message || e) };
             } finally {
@@ -324,6 +327,28 @@ export class ToolDispatcher {
                 effectsState.affectionPulse = null;
             }
         }, 4200);
+    }
+
+    /** _invoke, behind the tool's cooldown when it has one
+     *  (server/tool_cooldowns.py). A call inside the wait is not run: the
+     *  companion gets the server's "on cooldown" result instead. A call
+     *  that fails gives the tool back, so only one that worked starts the
+     *  wait; the call's id says whose wait it is to give back. */
+    async _invokeCooled(callId, name, args, opts) {
+        if (!this.cooldownTools.has(name)) return this._invoke(name, args, opts);
+        const url = `/api/voice/session/${this.sessionId}/tool_cooldown`;
+        const { blocked } = await rpc(url, { tool_name: name, call_id: callId });
+        if (blocked) return blocked;
+        let result;
+        try {
+            result = await this._invoke(name, args, opts);
+        } catch (e) {
+            result = { error: String(e?.message || e) };
+        }
+        if (result?.error || result?.ok === false) {
+            await rpc(url, { tool_name: name, call_id: callId, release: true }).catch(() => {});
+        }
+        return result;
     }
 
     async _invoke(name, args, { responseId = null } = {}) {

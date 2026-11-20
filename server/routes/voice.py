@@ -11,7 +11,7 @@ import requests
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 from PIL import Image
 
-from .. import affection_tools, companion_texting, delegate_tools, games, imagine_tools, local_mcp, local_tools, lore_tools, memory_tools, minecraft_tools, plugins, screen_pointer, session_service, store, text_to_vrma, xai_client
+from .. import affection_tools, companion_texting, delegate_tools, games, imagine_tools, local_mcp, local_tools, lore_tools, memory_tools, minecraft_tools, plugins, screen_pointer, session_service, store, text_to_vrma, tool_cooldowns, xai_client
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -218,6 +218,26 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
     if result is not None:
         return result
     raise ValidationError(f"Unknown native tool: {tool_name}")
+
+
+@router.post("/session/{session_id}/tool_cooldown")
+def session_tool_cooldown(session_id: int, payload: dict = Body(default={}), con=Depends(db_con)):
+    """Tool cooldowns (tool_cooldowns.py), asked by the browser's tool
+    dispatcher around a call to a tool that has one. Before the call:
+    {'blocked': None} when it may run, else the result the companion gets
+    instead. With `release`, after a call that failed: the tool is given
+    back."""
+    session = resolve_session(con, session_id)
+    agent = store.get_agent(con, session["agent_id"])
+    tool_name = payload.get("tool_name") or ""
+    call_id = payload.get("call_id")
+    blocked = None
+    if payload.get("release"):
+        tool_cooldowns.release(con, agent, tool_name, call_id)
+    else:
+        blocked = tool_cooldowns.claim(con, agent, tool_name, call_id)
+    con.commit()
+    return {"blocked": blocked}
 
 
 def _store_session_image(con, session_id, image_data_url, *, kind, name,

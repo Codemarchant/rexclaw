@@ -11,6 +11,7 @@ import Portrait from "./Portrait.jsx";
 import LoreStoriesPanel from "./LoreStoriesPanel.jsx";
 import HeartbeatsPanel from "./HeartbeatsPanel.jsx";
 import CoachSection from "./CoachSection.jsx";
+import ToolCooldownsDialog from "./ToolCooldownsDialog.jsx";
 import Pager, { usePager } from "./Pager.jsx";
 
 /** Companions tab — create, edit and delete companions with room to breathe.
@@ -743,6 +744,11 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
     const regIdle = useCallback((e) => registerChildEditor("idle_events", e), [registerChildEditor]);
     const regCoach = useCallback((e) => registerChildEditor("coach_rules", e), [registerChildEditor]);
     const [promptPreview, setPromptPreview] = useState(null);
+    // The "Tool cooldowns" dialog, and how many tools have one (its button).
+    const [cooldownsOpen, setCooldownsOpen] = useState(false);
+    const cooldownCount = (() => {
+        try { return Object.keys(JSON.parse(editingAgent.tool_cooldowns || "{}")).length; } catch { return 0; }
+    })();
     // The voice setup this companion's calls run on: its own pick, else the
     // app default (Settings → Models & providers).
     const setupByValue = (v) => voiceSetups?.options.find((o) => o.value === v);
@@ -954,6 +960,19 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
                     </span>
                 ))}
             </div>
+            {editingAgent.id != null && (
+                <div style={{ margin: "0.5rem 0" }}>
+                    <button className="btn btn-sm" onClick={() => setCooldownsOpen(true)}
+                            title={_t("Optional: make this companion wait before it can use a tool again. One list of every tool it has, each with its own cooldown.")}>
+                        <i className="fa fa-clock-o" /> {cooldownCount
+                            ? _t("Tool cooldowns (%s)", cooldownCount) : _t("Tool cooldowns")}
+                    </button>
+                </div>
+            )}
+            {cooldownsOpen && (
+                <ToolCooldownsDialog editingAgent={editingAgent} setEditingAgent={setEditingAgent}
+                                     onClose={() => setCooldownsOpen(false)} />
+            )}
             {!!editingAgent.enable_memory_tools && (
                 <div className="rx_row">
                     <div>

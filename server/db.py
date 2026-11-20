@@ -775,7 +775,21 @@ CREATE TABLE IF NOT EXISTS agents (
     -- coach may run, a JSON list out of coach.COACH_TOOLS.
     coach_moments TEXT NOT NULL DEFAULT '[]',
     coach_tools TEXT NOT NULL DEFAULT '[]',
-    coach_gap INTEGER NOT NULL DEFAULT 0
+    coach_gap INTEGER NOT NULL DEFAULT 0,
+    -- Tool cooldowns (tool_cooldowns.py): a JSON object {tool name: seconds
+    -- before the companion can call it again}. Empty = none.
+    tool_cooldowns TEXT NOT NULL DEFAULT '{}'
+);
+
+-- When each tool with a cooldown was last used (tool_cooldowns.py), in
+-- epoch seconds, and the id of the call that used it: a call that fails
+-- only takes back its own use. Shared by a companion's calls and text chat.
+CREATE TABLE IF NOT EXISTS tool_cooldown_uses (
+    agent_id INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    tool_name TEXT NOT NULL,
+    used_at REAL NOT NULL,
+    call_id TEXT,
+    PRIMARY KEY(agent_id, tool_name)
 );
 
 CREATE TABLE IF NOT EXISTS mcp_connections (
@@ -1695,6 +1709,9 @@ MIGRATIONS = (
     "ALTER TABLE mcp_connections ADD COLUMN cwd TEXT",
     "ALTER TABLE mcp_connections ADD COLUMN transport TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE mcp_connections ADD COLUMN oauth TEXT",
+    # Tool cooldowns — see the agents schema comment.
+    "ALTER TABLE agents ADD COLUMN tool_cooldowns TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE tool_cooldown_uses ADD COLUMN call_id TEXT",
 )
 
 

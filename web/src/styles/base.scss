@@ -1435,6 +1435,36 @@ body {
     .btn-link:hover { color: #334155; text-decoration: underline; }
 }
 
+// Tool cooldowns — a scrolling list of tools, a wait and its unit per row.
+.rx_dialog--cooldowns {
+    max-width: 34rem;
+    .rx_cooldowns_body {
+        max-height: 55vh;
+        overflow: auto;
+        margin: 0 0 0.75rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+    }
+    .rx_cooldowns_msg { padding: 0.5rem 0.75rem; font-size: 0.85rem; color: #64748b; &.is-error { color: #b91c1c; } }
+    .rx_cooldowns_row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 5.5rem 7rem;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.3rem 0.75rem;
+        & + .rx_cooldowns_row { border-top: 1px solid #f1f5f9; }
+        &.is-set { background: #fef3c7; }
+        input[type="number"], select { padding: 0.25rem 0.4rem; }
+    }
+    .rx_cooldowns_name {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.82rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
 // "See all models" — wider dialog with a scrolling, grouped id list.
 .rx_dialog--models {
     max-width: 40rem;

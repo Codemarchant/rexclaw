@@ -19,7 +19,7 @@ from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, transfer, xai_client, xai_oauth
+from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, tool_cooldowns, transfer, xai_client, xai_oauth
 from ..db import ASSETS_DIR, FILES_DIR, get_config, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
@@ -109,6 +109,7 @@ _AGENT_FIELDS = (
     "idle_events_max_unanswered", "idle_events",
     "coach_enabled", "coach_setup", "coach_rules", "coach_moments", "coach_tools",
     "coach_gap",
+    "tool_cooldowns",
 )
 
 
@@ -595,6 +596,8 @@ def agents_save(payload: dict = Body(default={}), con=Depends(db_con)):
         updates["coach_tools"] = coach.tools_json(updates["coach_tools"])
     if "coach_setup" in updates:
         updates["coach_setup"] = str(updates["coach_setup"] or "")
+    if "tool_cooldowns" in updates:
+        updates["tool_cooldowns"] = tool_cooldowns.cooldowns_json(updates["tool_cooldowns"])
     if "text_brain" in updates and updates["text_brain"] not in ("app", "voice_setup"):
         updates["text_brain"] = "app"
     if "voice_setup" in updates:
@@ -887,6 +890,15 @@ def agents_preview_prompt(payload: dict = Body(default={}), con=Depends(db_con))
     system prompt + dynamic postamble sections), plus approximate token
     counts for it and the voice/text tool lists. `values` overlays the
     editor's unsaved draft, so the counts follow tool toggles live."""
+    agent = _draft_agent(con, payload)
+    from ..session_service import preview_token_counts, preview_voice_prompt
+    prompt = preview_voice_prompt(con, agent)
+    return {"prompt": prompt, "tokens": preview_token_counts(con, agent, prompt)}
+
+
+def _draft_agent(con, payload):
+    """The saved companion `id` with the editor's unsaved draft (`values`)
+    laid over it."""
     row = con.execute(
         "SELECT * FROM agents WHERE id = ?", (payload.get("id"),)
     ).fetchone()
@@ -894,11 +906,17 @@ def agents_preview_prompt(payload: dict = Body(default={}), con=Depends(db_con))
         raise UserError("Companion not found.")
     # Neither of the two columns agents_save normalises reaches the prompt.
     draft = payload.get("values") or {}
-    agent = {**dict(row), **{k: draft[k] for k in _AGENT_FIELDS if k in draft
-                             and k not in ("transcription_keyterms", "idle_events")}}
-    from ..session_service import preview_token_counts, preview_voice_prompt
-    prompt = preview_voice_prompt(con, agent)
-    return {"prompt": prompt, "tokens": preview_token_counts(con, agent, prompt)}
+    return {**dict(row), **{k: draft[k] for k in _AGENT_FIELDS if k in draft
+                            and k not in ("transcription_keyterms", "idle_events")}}
+
+
+@router.post("/agents/cooldown_tools")
+def agents_cooldown_tools(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Read-only: the tools the "Tool cooldowns" dialog lists for this
+    companion (tool_cooldowns.py) - every tool the app runs for it right
+    now, following the draft's tool toggles like the preview above."""
+    from ..session_service import preview_app_tools
+    return {"tools": preview_app_tools(con, _draft_agent(con, payload))}
 
 
 @router.post("/agents/restore_presets")

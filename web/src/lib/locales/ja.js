@@ -2803,6 +2803,23 @@ export const JA = {
   "Third Party Integration Tools": "サードパーティ連携ツール",
   "Tools that need a separate app running on your computer. Each is only offered to the companion while that app is connected.":
     "お使いのパソコンで別のアプリを起動しておく必要があるツールです。それぞれ、そのアプリが接続されている間だけコンパニオンに提供されます。",
+  "Tool cooldowns": "ツールのクールダウン",
+  "Tool cooldowns (%s)": "ツールのクールダウン（%s）",
+  "Optional: make this companion wait before it can use a tool again. One list of every tool it has, each with its own cooldown.":
+    "任意：このコンパニオンが同じツールをもう一度使えるまでの待ち時間を設定します。持っているツールがすべて一覧で表示され、それぞれにクールダウンを設定できます。",
+  "Make this companion wait before it can use a tool again. A call made during the wait isn't run: the companion is told the tool is on cooldown and how long is left. Leave a tool empty for no cooldown. Applies from the next call or message once saved, and isn't included in companion exports.":
+    "このコンパニオンが同じツールをもう一度使えるまでの待ち時間を設定します。待ち時間中の呼び出しは実行されず、コンパニオンにはツールがクールダウン中であることと残り時間が伝えられます。空欄のツールにはクールダウンがありません。保存後、次の通話またはメッセージから適用されます。コンパニオンのエクスポートには含まれません。",
+  "Web search, X search, code execution and remote MCP servers are run by the brain's provider, not the app, so they can't have a cooldown.":
+    "ウェブ検索、X 検索、コード実行、リモート MCP サーバーはアプリではなく頭脳のプロバイダー側で動くため、クールダウンを設定できません。",
+  "Could not load the tools.": "ツールを読み込めませんでした。",
+  "This companion has no tools switched on.": "このコンパニオンにはオンになっているツールがありません。",
+  "not offered right now": "現在は提供されていません",
+  "calls only": "通話のみ",
+  "text chat only": "テキストチャットのみ",
+  "Cooldown for %s": "%s のクールダウン",
+  "Unit": "単位",
+  "seconds": "秒",
+  "Clear all": "すべてクリア",
   "When ANOTHER companion texts this one (affects text_companion), let this one use its own tools (memory, pictures, delegated tasks, Minecraft, MCP servers) while writing the reply — so a companion can ask this one to do something it isn't equipped for itself. Two things to know: the sender waits for the whole reply, so a slow tool here is silence in their live call, and anything generated lands in this companion's own chat and the library rather than coming back to the sender. Turn it off for a companion whose tools are slow or expensive.":
     "「別の」コンパニオンがこのコンパニオンにテキストを送ってきたとき（text_companion に影響）、返信を書く間にこのコンパニオン自身のツール（メモリ、画像、委任タスク、Minecraft、MCP サーバー）を使えるようにします。これにより、あるコンパニオンが自分ではできないことをこのコンパニオンに頼めます。注意点が 2 つあります。送信側は返信全体を待つため、ここでツールが遅いと相手のライブ通話が無音になります。また、生成されたものは送信側には戻らず、このコンパニオン自身のチャットとライブラリに保存されます。ツールが遅い、または高コストなコンパニオンではオフにしてください。",
   "Let this companion use tools when texted": "テキストを受け取ったときにツールを使えるようにする",

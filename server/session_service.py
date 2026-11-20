@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_mcp, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, sound_effects, store, text_to_vrma, turn_director, voicemail_tools, xai_oauth
+from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_mcp, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, sound_effects, store, text_to_vrma, tool_cooldowns, turn_director, voicemail_tools, xai_oauth
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 from .pipeline import session as pipeline_session, setups as voice_setups
@@ -101,8 +101,21 @@ def preview_token_counts(con, agent_row, voice_prompt):
         enable_web_search=bool(agent_row['enable_web_search']),
         enable_x_search=bool(agent_row['enable_x_search']),
     )['session']['tools']
-    # Mirrors an ordinary text turn: user-origin session, browser attached.
-    text_tools = _build_text_tools(
+    text_tools = _preview_text_tools(con, agent_row)
+    return {
+        'voice_prompt': _approx_tokens(voice_prompt, 4.45),
+        'text_prompt': _approx_tokens(_text_instructions(con, config, agent_row), 4.45),
+        'voice_tools': _approx_tokens(json.dumps(voice_tools), 4.0),
+        'voice_tool_count': len(voice_tools),
+        'text_tools': _approx_tokens(json.dumps(text_tools), 4.0),
+        'text_tool_count': len(text_tools),
+    }
+
+
+def _preview_text_tools(con, agent_row):
+    """The tools an ordinary text turn for this agent offers right now:
+    user-origin session, browser attached."""
+    return _build_text_tools(
         con, agent_row,
         mcp_entries=store.mcp_entries_for(con, agent_row['id'], surface='text'),
         enable_web_search=bool(agent_row['enable_web_search']),
@@ -119,14 +132,29 @@ def preview_token_counts(con, agent_row, voice_prompt):
         enable_browser_tools=True,
         plugin_origin='manual',
     )
-    return {
-        'voice_prompt': _approx_tokens(voice_prompt, 4.45),
-        'text_prompt': _approx_tokens(_text_instructions(con, config, agent_row), 4.45),
-        'voice_tools': _approx_tokens(json.dumps(voice_tools), 4.0),
-        'voice_tool_count': len(voice_tools),
-        'text_tools': _approx_tokens(json.dumps(text_tools), 4.0),
-        'text_tool_count': len(text_tools),
-    }
+
+
+def preview_app_tools(con, agent_row):
+    """Every tool the app itself runs for this agent right now - on a solo
+    call, in a text chat, or both - for the companion editor's tool
+    cooldowns dialog: [{name, description, voice, text}]. Its MCP servers
+    the app runs count; what the brain's provider runs (the searches, code
+    execution, remote MCP servers) has no name here and is left out."""
+    browser, native = _voice_tools(con, agent_row, get_config(con))
+    surfaces = (
+        ('voice', browser + native + local_mcp.tools_for(con, agent_row['id'], 'voice')),
+        ('text', _preview_text_tools(con, agent_row) + local_mcp.tools_for(con, agent_row['id'], 'text')),
+    )
+    tools = {}
+    for surface, offered in surfaces:
+        for tool in offered:
+            if not tool.get('name'):
+                continue
+            entry = tools.setdefault(tool['name'], {
+                'name': tool['name'], 'description': tool.get('description') or '',
+                'voice': False, 'text': False})
+            entry[surface] = True
+    return list(tools.values())
 
 
 # Every time-aware resume note starts with this (see _note_resume_gap) —
@@ -1600,6 +1628,9 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         # Every tool the browser proxies to /tool_call — its own list knows
         # the built-in ones, not the ones an extension adds.
         'native_tools': [t['name'] for t in native_function_tools],
+        # The tools with a cooldown: the browser asks before running one
+        # (tool_cooldowns.py).
+        'tool_cooldowns': sorted(tool_cooldowns.parse(agent['tool_cooldowns'])),
         'replay_items': replay_items,
         'transcript_history': transcript_history,
         'transcript_truncated': transcript_truncated,
@@ -3941,6 +3972,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 tool_result_json=output_str,
                 xai_call_id=r['call_id'],
             )
+            tool_cooldowns.settle(con, agent, r.get('name'), output_str, r['call_id'])
             pending_outputs.append({
                 'type': 'function_call_output',
                 'call_id': r['call_id'],
@@ -4347,11 +4379,17 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         # browser-named call there (shouldn't happen; the tools aren't
         # offered) falls through to the unknown-tool error instead of
         # returning a browser_tools payload nobody can answer.
+        # A call to a tool still on its cooldown (tool_cooldowns.py) is
+        # answered here too, whichever side would have run it.
+        on_cooldown = {}
+        for fc in function_calls:
+            blocked = tool_cooldowns.claim(con, agent, fc.get('name') or '', fc.get('call_id'))
+            if blocked:
+                on_cooldown[fc.get('call_id')] = blocked
         native_calls = [fc for fc in function_calls
-                        if headless or (fc.get('name') or '') not in TEXT_BROWSER_TOOL_NAMES]
-        browser_calls = [] if headless else [
-            fc for fc in function_calls
-            if (fc.get('name') or '') in TEXT_BROWSER_TOOL_NAMES]
+                        if headless or fc.get('call_id') in on_cooldown
+                        or (fc.get('name') or '') not in TEXT_BROWSER_TOOL_NAMES]
+        browser_calls = [fc for fc in function_calls if fc not in native_calls]
         native_outputs = []
         for fc in native_calls:
             call_id = fc.get('call_id')
@@ -4360,7 +4398,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 args = json.loads(fc.get('arguments') or '{}')
             except Exception:
                 args = {}
-            if name in imagine_tools.IMAGINE_TOOL_NAMES:
+            if call_id in on_cooldown:
+                result = on_cooldown[call_id]
+            elif name in imagine_tools.IMAGINE_TOOL_NAMES:
                 result = imagine_tools.execute_imagine_tool(con, session, name, args)
             elif name in memory_tools.MEMORY_TOOL_NAMES:
                 if not agent['enable_memory_tools']:
@@ -4425,6 +4465,8 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                     result = local_mcp.execute_tool(con, agent['id'], 'text', name, args)
                 if result is None:
                     result = {'error': f'Unknown tool: {name}'}
+            if call_id not in on_cooldown:
+                tool_cooldowns.settle(con, agent, name, result, call_id)
             output_str = json.dumps(result, default=str)
             _persist_text_message(
                 con, session,
