@@ -940,4 +940,7 @@ def list_agents(payload: dict = Body(default={}), con=Depends(db_con)):
                 store.imagine_payload(imagine_video) if imagine_video else None
             ),
         })
-    return {"default_agent_id": default_id, "agents": out}
+    # Settings → "Your avatar", for walking a scene as yourself (first
+    # person / VR "Walk as me"); None when unset.
+    from .. import manga
+    return {"default_agent_id": default_id, "agents": out, "user_avatar": manga.user_avatar(con, config)}

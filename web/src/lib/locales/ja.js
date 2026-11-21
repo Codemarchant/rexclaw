@@ -121,6 +121,12 @@ export const JA = {
   "Camera": "カメラ",
   "Flies the camera itself; companions untouched":
     "カメラ自体を移動させます。コンパニオンには影響しません",
+  "Walk as me": "自分で歩く",
+  "First person as your own avatar (Settings → Your avatar): WASD walks you, drag to look around, look down to see your body. With no avatar set you walk as an unseen camera at eye height":
+    "自分のアバター（設定 → あなたのアバター）として一人称視点で歩きます。WASDで移動、ドラッグで見回し、下を向くと自分の体が見えます。アバター未設定の場合は、目の高さの見えないカメラとして歩きます",
+  "Face me when I'm close": "近づいたらこちらを向く",
+  "When you come within a few metres, companions turn their head and shoulders toward you, over whatever they're doing, talking included. Works with every movement mode and in VR":
+    "数メートル以内に近づくと、コンパニオンが何をしていても（話している最中も）頭と肩をこちらに向けます。すべての移動モードとVRで機能します",
   "Reset to this scene's default position (discards any hand-placed spot) and its default camera framing":
     "このシーンのデフォルト位置（手動配置は破棄されます）とデフォルトのカメラアングルにリセットします",
   "Reset to default": "デフォルトにリセット",
@@ -3176,6 +3182,8 @@ export const JA = {
   "Your avatar (optional)": "あなたのアバター（任意）",
   "An avatar that plays you in Manga Diary pages: it stands beside your companion in the photoshoot, and its portrait is your likeness in Imagine-drawn panels.":
     "漫画日記であなたを演じるアバターです。撮影ではコンパニオンの隣に立ち、Imagine で描くコマではそのポートレートがあなたの姿になります。",
+  "It is also the body you walk scenes in with the call's movement mode \"Walk as me\".":
+    "通話の移動モード「自分で歩く」でシーンを歩くときの体にもなります。",
   "None: you stay off-panel": "なし（あなたはコマの外）",
   "Main outfit": "メインの衣装",
   "No conversations yet. Talk or chat with a companion first.": "まだ会話がありません。まずコンパニオンと話してみてください。",

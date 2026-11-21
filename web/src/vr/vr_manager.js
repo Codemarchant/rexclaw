@@ -4,6 +4,7 @@ import { VRPanel } from "./vr_panel";
 import { VRRagdoll } from "./vr_ragdoll";
 import { EMOTIONS, EMOTION_GESTURE_MAP } from "../models/avatar_catalog";
 import { emotionDecayEnabled } from "../models/avatar_catalog";
+import { saveFaceViewerPref } from "../services/face_viewer";
 
 // Grip mechanics (research-grounded: variable-grip / graduated escalation).
 const GRAB_RADIUS = 0.18;      // metres — squeeze this close to a region = a "grab"
@@ -241,6 +242,7 @@ export class VRManager {
             getGestures: this._getGestures,
             getOptions: () => [
                 { id: "move", label: `Move: ${this.moveMode ? "On" : "Off"}` },
+                { id: "face_me", label: `Face me: ${this.avatar.faceViewer ? "On" : "Off"}` },
                 { id: "reactions", label: `Reactions: ${this.reactionsEnabled ? "On" : "Off"}` },
                 { id: "ragdoll", label: this._ragdollBusy ? "Ragdoll: loading…"
                     : `Ragdoll: ${this.ragdoll?.enabled ? "On" : "Off"}` },
@@ -482,6 +484,10 @@ export class VRManager {
                 if (this._reticle) this._reticle.visible = false;
                 this.avatar.stopMoving?.();
             }
+        } else if (id === "face_me") {
+            const on = !this.avatar.faceViewer;
+            this.avatar.setFaceViewer?.(on);
+            saveFaceViewerPref(on);
         } else if (id === "reactions") {
             this.reactionsEnabled = !this.reactionsEnabled;
         } else if (id === "ragdoll") {

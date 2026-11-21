@@ -50,6 +50,7 @@ import { MoodMarks } from "./mood_marks";
 import { Ambience, MOOD_AMBIENCE } from "./ambience";
 import { ToolProps } from "./tool_props";
 import { PortalStage, backgroundKey } from "./background_portal";
+import { FaceViewer } from "./face_viewer";
 import { applyEyelids, restoreSpringRest, startVrmExtras, takeSpringRest } from "./vrm_extras";
 
 // Kept async + memoized so the renderer code below stays identical to the
@@ -684,7 +685,22 @@ const MOVE_BOUNDS_RADIUS = 35;
 // Camera-mode fly speed: unclamped free-look, so pitched faster than a
 // walking companion — surveying a whole scene at MOVE_SPEED would drag.
 const CAMERA_FLY_SPEED = 4.5;
-const WALK_FADE_IN = 0.25;            // s — idle/gesture → walk crossfade
+// First person (movement mode "avatar"): you walk the scene as your own
+// avatar (Settings → Your avatar) at MOVE_SPEED, the camera at its eyes.
+// Look is a drag at OrbitControls' rate (2π per canvas height, as the
+// Ctrl + right-drag turn already uses), pitch held just inside ±90° — Unity
+// Starter Assets' FirstPersonController clamps at ±90° (TopClamp 90,
+// BottomClamp -90); exactly 90° would leave lookAt no forward to turn from.
+// The near plane comes in from the scene's 0.1 m so looking down at your
+// own chest doesn't cut it open; the far plane stays put.
+const FP_PITCH_MAX = Math.PI / 2 - 0.02;
+const FP_NEAR = 0.02;
+// three-vrm's own defaults for VRMFirstPerson.setup (9 and 10): the camera
+// sees the first-person-only layer (your avatar without its head) and not
+// the third-person-only one (with it). The XR camera inherits the mask.
+const FP_FIRST_PERSON_LAYER = 9;
+const FP_THIRD_PERSON_LAYER = 10;
+const WALK_FADE_IN = 0.25;           // s — idle/gesture → walk crossfade
 const WALK_FADE_OUT = 0.35;           // s — walk → idle settle
 // Camera follow smoothing: per-frame lerp factor 1 - exp(-RATE·dt). 5 settles
 // in ~0.6 s — a soft trailing dolly rather than a rigid lock.
@@ -926,7 +942,20 @@ class AvatarRenderer {
         // camera directed for you — see _updateAutoCamera), or 'camera'
         // (WASD flies the camera + orbit target instead; companions are
         // untouched). Only meaningful while _moveMode is on.
+        // 'avatar' is first person as yourself: WASD walks your own avatar
+        // with the camera at its eyes (_updateFirstPerson).
         this._moveKind = "walk";
+        // Your own avatar (Settings → Your avatar), stood up while you walk
+        // as yourself (first person, movement mode "avatar"). An actor
+        // like a call peer's (_makePeerActor), but never in _peers: nobody
+        // lays it out, looks at it or talks through it.
+        this._selfPayload = null;         // its avatar payload (setSelfAvatar)
+        this._self = null;                // the actor, while one is wanted
+        this._fp = null;                  // first-person look: { x, z, yaw, pitch }
+        // Companions turn head and shoulders to you when you're close
+        // (face_viewer.js) — the Movement panel's switch / the VR panel's.
+        this._faceViewerOn = false;
+        this._faceViewer = null;          // FaceViewer, built with three
         this._autoCam = null;             // auto-follow director state, built lazily
         // Staging: the companion's own movement (move_around tool) — see
         // stageMove. While one is in play the follow camera stands still,
@@ -1044,6 +1073,7 @@ class AvatarRenderer {
         this.renderer.setPixelRatio(window.devicePixelRatio || 1);
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this._bindCtrlDrag(this.renderer.domElement);
+        this._bindFirstPersonLook(this.renderer.domElement);
 
         this.scene = new THREE.Scene();
         this._buildLightRig();
@@ -1921,8 +1951,11 @@ class AvatarRenderer {
         const q = this._neuralBaseQuat || (this._neuralBaseQuat = new this.libs.THREE.Quaternion());
         bones.forEach((name, i) => {
             const node = humanoid.getNormalizedBoneNode(name);
-            if (node) q.set(flip ? -node.quaternion.x : node.quaternion.x, node.quaternion.y,
-                flip ? -node.quaternion.z : node.quaternion.z, node.quaternion.w);
+            // Under the turn toward the viewer (face_viewer.js), which is
+            // laid over whatever this layer outputs: told it starts turned,
+            // the model would carry the turn and get it a second time.
+            const b = node && (this._faceViewer?.preLayer(actor, name) || node.quaternion);
+            if (node) q.set(flip ? -b.x : b.x, b.y, flip ? -b.z : b.z, b.w);
             else q.identity();
             // Fingers back into the model's own rest hand (the inverse of _applyNeuralMotion's).
             const fix = fixes?.get(name);
@@ -2809,8 +2842,9 @@ class AvatarRenderer {
             if (peer._loadGeneration === generation) peer._loadedVrmUrl = null;
             return;
         }
-        // Superseded while downloading (newer load / removePeer) — discard.
-        if (peer._loadGeneration !== generation || !this._peers.has(peer.id)) {
+        // Superseded while downloading (newer load / removePeer / your own
+        // avatar no longer wanted) — discard.
+        if (peer._loadGeneration !== generation || !this._actorLive(peer)) {
             try { VRMUtils.deepDispose(gltf.scene); } catch (e) { /* non-fatal */ }
             return;
         }
@@ -2899,8 +2933,19 @@ class AvatarRenderer {
             }
         }
 
+        if (!this._actorLive(peer) || peer.vrm !== vrm) return;   // went during the idle's download
+        if (peer === this._self) {
+            this._setupSelf(peer);
+            console.log("[voice] your avatar loaded:", vrmUrl);
+            return;
+        }
         this._layoutCallAvatars();
         console.log(`[voice] peer avatar loaded (${peer.id}):`, vrmUrl);
+    }
+
+    /** Still wanted: a call peer still in the call, or your own avatar. */
+    _actorLive(actor) {
+        return actor === this._self || this._peers.get(actor.id) === actor;
     }
 
     _disposePeerModel(peer) {
@@ -3344,6 +3389,7 @@ class AvatarRenderer {
     /** Enable/disable manual (WASD) movement. Disabling releases held input
      *  and settles the avatar to a stop. Driven by the full view's toggle. */
     setMoveMode(enabled) {
+        const wasFp = this._fpActive();
         this._moveMode = !!enabled;
         if (!enabled) {
             this._moveInput.x = 0;
@@ -3352,6 +3398,7 @@ class AvatarRenderer {
             // Next walk session starts predictably on the main avatar.
             this._moveActorId = "base";
         }
+        this._fpSwitched(wasFp);
     }
 
     /** Switch what WASD input does without a full on/off toggle — see the
@@ -3364,16 +3411,260 @@ class AvatarRenderer {
      *  leave you stuck controlling a companion you can't see. */
     setMoveKind(kind) {
         if (kind === "walk-no-snap") kind = "walk";   // retired: walk no longer snaps back
-        if (kind !== "walk" && kind !== "camera" && kind !== "auto") return;
+        if (kind !== "walk" && kind !== "camera" && kind !== "auto" && kind !== "avatar") return;
         if (kind === this._moveKind) return;
+        const wasFp = this._fpActive();
         // Camera mode hands the camera over as it stands — with nothing of a
-        // close-up lift or a staged move left acting on it.
-        if (kind === "camera") { this.stopMoving(); this._dropLift(); if (this._staging) this._staging.queue = []; }
-        else this._applyCameraPreset();
+        // close-up lift or a staged move left acting on it. So does first
+        // person, which then takes it to your eyes (_fpSwitched).
+        if (kind === "camera" || kind === "avatar") {
+            this.stopMoving(); this._dropLift(); if (this._staging) this._staging.queue = [];
+        } else if (!wasFp) this._applyCameraPreset();
         this._moveKind = kind;
         // The director starts from whatever is on screen and takes its
         // first shot at the next cue — never a jump on the mode switch.
         this._autoCam = null;
+        this._fpSwitched(wasFp);
+    }
+
+    // ------------------------------------------------------------------
+    // Walking as yourself: first person (movement mode "avatar"). Your
+    // avatar is Settings → Your avatar.
+    // ------------------------------------------------------------------
+
+    /** Your own avatar's payload (the server's user_avatar), or null for
+     *  none — first person then walks a bodiless camera at eye height. */
+    setSelfAvatar(payload) {
+        this._selfPayload = payload?.vrm_url ? payload : null;
+        this._syncSelf();
+    }
+
+    _fpActive() {
+        return !!(this._moveMode && this._moveKind === "avatar" && !this._xrActive && !this._roam);
+    }
+
+    /** First person just started or ended (`wasFp` = before the change):
+     *  hand the camera to your eyes, or back to the usual framing. */
+    _fpSwitched(wasFp) {
+        const now = this._fpActive();
+        if (now && !wasFp) {
+            this._disableOrbit();
+            // You stand where the camera stood, looking where it looked.
+            if (this.camera && this.libs) {
+                const dir = this.camera.getWorldDirection(new this.libs.THREE.Vector3());
+                this._fp = {
+                    x: this.camera.position.x, z: this.camera.position.z,
+                    yaw: Math.atan2(dir.x, dir.z),
+                    pitch: Math.max(-FP_PITCH_MAX, Math.min(FP_PITCH_MAX, Math.asin(Math.max(-1, Math.min(1, dir.y))))),
+                };
+                this.camera.near = FP_NEAR;
+                this.camera.updateProjectionMatrix();
+            }
+        } else if (!now && wasFp) {
+            this._fp = null;
+            if (this.camera) {
+                this.camera.near = 0.1;
+                this.camera.updateProjectionMatrix();
+                if (!this._xrActive) {
+                    this._applyCameraPreset();
+                    if (this._fullBody) this._enableOrbit();
+                }
+            }
+        }
+        this._syncSelf();
+    }
+
+    /** Stand your avatar up while it is wanted (and set), take it down
+     *  when not. Safe to call any time: a load in flight is superseded by
+     *  the next call's outcome. */
+    async _syncSelf() {
+        const payload = this._fpActive() ? this._selfPayload : null;
+        if (!payload) { this._dropSelf(); return; }
+        if (this._self && this._self.avatarPayload?.vrm_url !== payload.vrm_url) this._dropSelf();
+        if (!this._self) this._self = this._makePeerActor("self");
+        const self = this._self;
+        if (self._loadedVrmUrl === payload.vrm_url) return;   // loaded, or on its way
+        self.avatarPayload = payload;
+        await this._ensureRenderer();
+        if (this._self !== self) return;
+        await this._loadPeerModel(self, payload.vrm_url, payload.vrma_idle_url || null);
+    }
+
+    _dropSelf() {
+        const self = this._self;
+        if (!self) return;
+        this._self = null;
+        self._loadGeneration++;   // a load in flight disposes itself
+        this._disposePeerModel(self);
+        if (this.camera) {
+            this.camera.layers.disable(FP_FIRST_PERSON_LAYER);
+            this.camera.layers.enable(FP_THIRD_PERSON_LAYER);
+        }
+    }
+
+    /** Your avatar just loaded: its head is drawn only for other views
+     *  (VRM first-person annotations — three-vrm splits each "auto" mesh
+     *  into a headless copy for the first-person layer), it stands where
+     *  you are, and walks only when you do. */
+    _setupSelf(self) {
+        const { THREE } = this.libs;
+        try {
+            self.vrm.firstPerson?.setup({
+                firstPersonOnlyLayer: FP_FIRST_PERSON_LAYER,
+                thirdPersonOnlyLayer: FP_THIRD_PERSON_LAYER,
+            });
+        } catch (e) { console.warn("[voice] first-person setup failed", e); }
+        this.camera.layers.enable(FP_FIRST_PERSON_LAYER);
+        this.camera.layers.disable(FP_THIRD_PERSON_LAYER);
+        // Where its eyes are at rest, measured once while it still faces +Z:
+        // their height above its feet (the camera holds that height, so the
+        // view doesn't bob with the walk or the idle sway) and how far they
+        // sit in front of the head bone. The eye bones' midpoint where the
+        // rig has them; the look-at offset otherwise, which usually has no
+        // forward part — the camera then sits over the neck.
+        self.vrm.scene.updateMatrixWorld(true);
+        const h = self.vrm.humanoid;
+        const l = h?.getNormalizedBoneNode("leftEye");
+        const r = h?.getNormalizedBoneNode("rightEye");
+        const eye = l && r
+            ? l.getWorldPosition(new THREE.Vector3()).add(r.getWorldPosition(new THREE.Vector3())).multiplyScalar(0.5)
+            : self.vrm.lookAt?.getLookAtWorldPosition?.(new THREE.Vector3())
+              || this.getHeadWorldPosition(new THREE.Vector3(), self);
+        self._eyeHeight = eye ? eye.y - self.vrm.scene.position.y : null;
+        // The eyes' rest spot in front of its feet: first person's camera
+        // rides on that, not on the posed head, which sways side to side
+        // with every step of the walk.
+        self._eyeAhead = eye ? eye.z - self.vrm.scene.position.z : 0;
+        self._walkManual = true;   // never turns itself to face the camera (_stopWalkAnim)
+        // No eye contact to make with yourself.
+        if (self.vrm.lookAt) self.vrm.lookAt.target = null;
+        this._placeSelf(0);
+    }
+
+    /** Your avatar onto first person's spot, its body easing round to the
+     *  way you face (MOVE_TURN_SPEED, as a walking companion turns);
+     *  `delta` 0 snaps it. */
+    _placeSelf(delta) {
+        const self = this._self;
+        const spot = self?.vrm && this._fp;
+        if (!spot) return;
+        self.vrm.scene.position.x = spot.x;
+        self.vrm.scene.position.z = spot.z;
+        let diff = spot.yaw - (self._moveYaw || 0);
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        const step = MOVE_TURN_SPEED * delta;
+        this._setMoveYaw(self, !delta || Math.abs(diff) <= step ? spot.yaw : self._moveYaw + Math.sign(diff) * step);
+    }
+
+    /** First-person steering, per frame: WASD relative to where you look,
+     *  your avatar walking while you do (backwards when that's all you
+     *  press). */
+    _updateFirstPerson(delta) {
+        const fp = this._fp;
+        if (!fp) return;
+        const ix = this._moveInput.x;
+        const iz = this._moveInput.z;
+        const moving = !!(ix || iz);
+        if (moving) {
+            const fx = Math.sin(fp.yaw), fz = Math.cos(fp.yaw);
+            // Right of the facing, as _cameraRelativeMoveDir takes it.
+            let dx = fx * iz - fz * ix;
+            let dz = fz * iz + fx * ix;
+            const len = Math.hypot(dx, dz) || 1;
+            fp.x += (dx / len) * MOVE_SPEED * delta;
+            fp.z += (dz / len) * MOVE_SPEED * delta;
+            const r = Math.hypot(fp.x, fp.z);
+            if (r > MOVE_BOUNDS_RADIUS) {
+                fp.x *= MOVE_BOUNDS_RADIUS / r;
+                fp.z *= MOVE_BOUNDS_RADIUS / r;
+            }
+        }
+        this._walkSelf(moving, iz < 0 && !ix ? -1 : 1);
+        this._placeSelf(delta);
+    }
+
+    /** Start/stop your avatar's walk cycle; `rate` -1 plays it backwards. */
+    _walkSelf(moving, rate = 1) {
+        const self = this._self;
+        if (!self?.vrm) return;
+        if (moving && !self._moving) this._startWalkAnim(self);
+        else if (!moving && self._moving) this._stopWalkAnim(self);
+        if (moving) self._walkAction?.setEffectiveTimeScale(rate);
+    }
+
+    /** The first-person camera, after the frame's posing: at your eyes,
+     *  looking along fp.yaw/pitch. */
+    _updateFirstPersonCamera() {
+        const fp = this._fp;
+        if (!fp || !this.camera) return;
+        const self = this._self?.vrm ? this._self : null;
+        const eyeH = self?._eyeHeight ?? this._eyeWorldY ?? FACE_FALLBACK_HEAD_Y;
+        // At the eyes' rest spot over where you stand, turned with the body
+        // — never the posed head, whose walk sway would shuffle the view.
+        const ahead = self?._eyeAhead || 0;
+        const yaw = self ? self._moveYaw || 0 : fp.yaw;
+        const x = fp.x + Math.sin(yaw) * ahead;
+        const z = fp.z + Math.cos(yaw) * ahead;
+        const y = (self ? self.vrm.scene.position.y : 0) + eyeH;
+        this.camera.position.set(x, y, z);
+        const cp = Math.cos(fp.pitch);
+        this.camera.lookAt(x + Math.sin(fp.yaw) * cp, y + Math.sin(fp.pitch), z + Math.cos(fp.yaw) * cp);
+        if (this._lookAtTarget) this._lookAtTarget.position.set(x, y, z);
+    }
+
+    /** First-person look: drag anywhere on the canvas (mouse, pen or a
+     *  finger). Ctrl/Shift drags stay _bindCtrlDrag's. */
+    _bindFirstPersonLook(canvas) {
+        let drag = null;
+        canvas.addEventListener("pointerdown", (ev) => {
+            if (!this._fpActive() || ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+            drag = { id: ev.pointerId, x: ev.clientX, y: ev.clientY };
+            try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* non-fatal */ }
+        });
+        canvas.addEventListener("pointermove", (ev) => {
+            if (!drag || ev.pointerId !== drag.id || !this._fp) return;
+            const k = (2 * Math.PI) / (canvas.clientHeight || 1);
+            this._fp.yaw -= (ev.clientX - drag.x) * k;
+            this._fp.pitch = Math.max(-FP_PITCH_MAX, Math.min(FP_PITCH_MAX, this._fp.pitch - (ev.clientY - drag.y) * k));
+            drag.x = ev.clientX;
+            drag.y = ev.clientY;
+        });
+        const end = (ev) => {
+            if (!drag || ev.pointerId !== drag.id) return;
+            try { canvas.releasePointerCapture(ev.pointerId); } catch (e) { /* non-fatal */ }
+            drag = null;
+        };
+        canvas.addEventListener("pointerup", end);
+        canvas.addEventListener("pointercancel", end);
+    }
+
+    /** Head and shoulders turn to you when you're close (face_viewer.js). */
+    setFaceViewer(on) {
+        this._faceViewerOn = !!on;
+    }
+
+    get faceViewer() { return this._faceViewerOn; }
+
+    /** Per frame, after all of an actor's posing: the turn toward you. In
+     *  the flat view only while movement mode is on (the switch lives on
+     *  its panel); anything that must stay exactly as authored — a dance,
+     *  roaming, a tool motion or a toy's routine, a two-character combo —
+     *  eases it out. */
+    _applyFaceViewerLayer(actor, delta) {
+        if (!this._faceViewer) {
+            if (!this._faceViewerOn) return;
+            this._faceViewer = new FaceViewer(this.libs.THREE);
+        }
+        const busy = actor._perf || (actor === this && this._perf) || actor._roam || this._roam
+            || actor.toyBusy || actor._toolMotion || (actor === this && this._comboPartner);
+        const on = this._faceViewerOn && (this._xrActive || this._moveMode) && !busy;
+        let viewer = null;
+        if (on) {
+            viewer = (this._fvViewer ||= new this.libs.THREE.Vector3());
+            if (this._xrActive) this.renderer.xr.getCamera().getWorldPosition(viewer);
+            else viewer.copy(this.camera.position);
+        }
+        this._faceViewer.apply(actor, viewer, delta, on);
     }
 
     /** Current position + facing of the base companion — for placement
@@ -3730,8 +4021,11 @@ class AvatarRenderer {
      *  camera around (stageMove "follow_camera"). */
     _updateMovement(delta) {
         if (this._roam) { this._updateRoam(delta); return; }
-        const flying = this._moveMode && this._moveKind === "camera";
-        if (flying) this._updateCameraFly(delta);
+        // Flying the camera, or walking yourself: either way the keys
+        // steer no companion (their own walks still play out below).
+        const flying = this._moveMode && (this._moveKind === "camera" || this._moveKind === "avatar");
+        if (this._fpActive()) this._updateFirstPerson(delta);
+        else if (flying && this._moveKind === "camera") this._updateCameraFly(delta);
         const actor = this._moveActor();
         if (!actor.vrm || !this.libs) return;
         const { THREE } = this.libs;
@@ -5987,7 +6281,8 @@ class AvatarRenderer {
     }
 
     _enableOrbit() {
-        if (this._orbitControls || !this.activeCanvas || this._roam) return;
+        // First person looks by its own drag (_bindFirstPersonLook).
+        if (this._orbitControls || !this.activeCanvas || this._roam || this._fpActive()) return;
         const { OrbitControls } = this.libs;
         if (!OrbitControls) return;
         // OrbitControls binds to the renderer's DOM element for input. We pass
@@ -7161,6 +7456,7 @@ class AvatarRenderer {
             this._applyReturnBlend(this, delta);
             if (this._perf) this._applyPerformance(delta, dancePose);
             this._applyNeuralMotion(this, delta);
+            this._applyFaceViewerLayer(this, delta);
             this._face.update(delta);
             this._applyBlink(this);
             this._applyBreath(this);
@@ -7195,6 +7491,7 @@ class AvatarRenderer {
                 this._applyIdle(peer, delta);
                 this._applyReturnBlend(peer, delta);
                 this._applyNeuralMotion(peer, delta);
+                this._applyFaceViewerLayer(peer, delta);
                 peer._face.update(delta);
                 this._applyBlink(peer);
                 this._applyBreath(peer);
@@ -7210,7 +7507,22 @@ class AvatarRenderer {
                 } catch (e) { /* non-fatal */ }
             }
         }
-        if (!this._xrActive && this._roam) {
+        // Your own avatar: just a body — walk cycle or idle, springs.
+        const self = this._self;
+        if (self?.vrm) {
+            restoreSpringRest(self._vrmExtras);
+            self.mixer?.update(delta);
+            this._flushReleases(self);
+            this._applyIdle(self, delta);
+            this._applyReturnBlend(self, delta);
+            takeSpringRest(self._vrmExtras);
+            try { self.vrm.update(delta); } catch (e) { /* non-fatal */ }
+        }
+        if (!this._xrActive && this._fpActive() && !this._stageCam) {
+            // Walking as yourself: the camera is your eyes.
+            this._updateFirstPersonCamera();
+            this._updateStaging(delta);
+        } else if (!this._xrActive && this._roam) {
             // Roaming: the one fixed shot, the page moves the host.
             this._applyRoamCamera();
         } else if (!this._xrActive && this._stageCam) {
@@ -7495,6 +7807,8 @@ class AvatarRenderer {
         const hasScene = !!this._room || this._currentBackground?.type === "scene";
         this._xrEnvMode = (this._xrMode === "immersive-ar" && !hasScene) ? "passthrough" : "skybox";
         this._applyXREnvironment();
+        // First person's body isn't wanted in the headset.
+        this._syncSelf();
         this.renderer.setAnimationLoop(() => this._renderFrame());
         // Notify VR add-ons (renderer is the WebGLRenderer; controllers parent
         // to ctx.scene — their poses already include the reference-space offset).
@@ -7535,6 +7849,7 @@ class AvatarRenderer {
         this.renderer.setClearAlpha?.(0);
         this._xrActive = false;
         this._xrMode = null;
+        this._syncSelf();   // back to first person's body, if that's the mode
         // Re-frame the flat camera and resume the rAF loop.
         this._applyCameraPreset();
         if (this._fullBody) this._enableOrbit();

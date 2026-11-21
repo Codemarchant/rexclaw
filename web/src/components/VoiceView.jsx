@@ -10,6 +10,7 @@ import { wakeState } from "../lib/wake_word";
 import { offerAffection } from "../lib/affection_offer";
 import { EMOTIONS, EMOTION_GESTURE_MAP, GESTURES } from "../models/avatar_catalog";
 import { VRManager } from "../vr/vr_manager";
+import { loadFaceViewerPref, saveFaceViewerPref } from "../services/face_viewer";
 import AvatarCanvas from "./AvatarCanvas.jsx";
 import Transcript from "./Transcript.jsx";
 import StagePanel from "./StagePanel.jsx";
@@ -187,9 +188,22 @@ export default function VoiceView({ active = true }) {
     const [fullBody, setFullBody] = useState(false);
     const [moveMode, setMoveMode] = useState(false);
     // "walk" (default; the companion stays facing however it stopped), "auto"
-    // (same walking, with the camera directing itself), or "camera" (WASD
-    // flies the camera instead; companions untouched).
+    // (same walking, with the camera directing itself), "camera" (WASD
+    // flies the camera instead; companions untouched), or "avatar" (first
+    // person as your own avatar).
     const [moveKind, setMoveKindState] = useState("walk");
+    // Companions turn head and shoulders to you when you're close — per
+    // browser, shared with the VR panel's "Face me".
+    const [faceViewer, setFaceViewerState] = useState(() => {
+        const on = loadFaceViewerPref();
+        avatarRenderer.setFaceViewer?.(on);
+        return on;
+    });
+    const setFaceViewer = useCallback((on) => {
+        setFaceViewerState(on);
+        avatarRenderer.setFaceViewer?.(on);
+        saveFaceViewerPref(on);
+    }, []);
     // Walk mode's settings panel — collapsed by default (minimal UI once
     // you've set what you want); the little arrow button next to the
     // gamepad toggle opens it. The live position readout just lives inside
@@ -232,6 +246,7 @@ export default function VoiceView({ active = true }) {
         try {
             const data = await rpc("/api/voice/agents", {});
             setAgents(data.agents || []);
+            avatarRenderer.setSelfAvatar?.(data.user_avatar || null);
         } catch (e) {
             console.error("[voice] could not refresh agents", e);
         }
@@ -264,6 +279,7 @@ export default function VoiceView({ active = true }) {
                 const data = await rpc("/api/voice/agents", {});
                 const list = data.agents || [];
                 setAgents(list);
+                avatarRenderer.setSelfAvatar?.(data.user_avatar || null);
                 // Resolution: previous user pick → first in the list.
                 const candidates = [voice.preferredAgentId, list[0]?.id];
                 for (const id of candidates) {
@@ -544,6 +560,8 @@ export default function VoiceView({ active = true }) {
             setPositionStats(null);
             return;
         }
+        // The VR panel's "Face me" may have flipped it since.
+        setFaceViewerState(!!avatarRenderer.faceViewer);
         const tick = () => setPositionStats({
             avatar: avatarRenderer.getBasePlacement?.() || null,
             camera: avatarRenderer.getCameraPosition?.() || null,
@@ -1846,6 +1864,7 @@ export default function VoiceView({ active = true }) {
                                     ["walk", _t("Walk"), _t("Moves the companion. It stays facing however it stopped, so you can pose it")],
                                     ["camera", _t("Camera"), _t("Flies the camera itself; companions untouched")],
                                     ["auto", _t("Camera - auto follow"), _t("Walks the companion like Walk, while the camera directs itself: it follows them and changes shot (face, waist-up, full body) when they finish a line or set off walking. Drag or zoom to take the camera back until the next shot")],
+                                    ["avatar", _t("Walk as me"), _t("First person as your own avatar (Settings → Your avatar): WASD walks you, drag to look around, look down to see your body. With no avatar set you walk as an unseen camera at eye height")],
                                 ].map(([id, label, hint]) => (
                                     <button key={id}
                                             className={"btn btn-sm " + (moveKind === id ? "btn-primary" : "btn-outline-light")}
@@ -1854,6 +1873,14 @@ export default function VoiceView({ active = true }) {
                                         {label}
                                     </button>
                                 ))}
+                            </div>
+                            <div className="o_voice_full_settings_row">
+                                <input id="rx_walk_face_me" type="checkbox" checked={faceViewer}
+                                       onChange={(ev) => setFaceViewer(ev.target.checked)} />
+                                <label htmlFor="rx_walk_face_me"
+                                       title={_t("When you come within a few metres, companions turn their head and shoulders toward you, over whatever they're doing, talking included. Works with every movement mode and in VR")}>
+                                    {_t("Face me when I'm close")}
+                                </label>
                             </div>
                             <div className="o_voice_full_settings_grid">
                                 <button className="btn btn-sm btn-outline-light" onClick={resetToDefaultPlacement}

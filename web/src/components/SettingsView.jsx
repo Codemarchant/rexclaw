@@ -474,6 +474,7 @@ export default function SettingsView({ active }) {
                         <label>{_t("Your avatar (optional)")}</label>
                         <p className="text-muted small" style={{ margin: "0 0 0.4rem" }}>
                             {_t("An avatar that plays you in Manga Diary pages: it stands beside your companion in the photoshoot, and its portrait is your likeness in Imagine-drawn panels.")}
+                            {" "}{_t("It is also the body you walk scenes in with the call's movement mode \"Walk as me\".")}
                         </p>
                         {(() => {
                             const chosen = avatarOptions.find((a) => Number(a.id) === Number(config.user_avatar_id));
