@@ -489,8 +489,9 @@ export default function MascotView() {
             if (roamLive) {
                 inside = !!hr && c.x >= hr.left - 24 && c.x <= hr.right + 24
                     && c.y >= hr.top - 24 && c.y <= hr.bottom + 24;
-                // Riding the pointer, it's always under them: no fade.
-                if (roamRef.current?.riding) inside = false;
+                // Riding the pointer, it's always under them: no fade. Nor
+                // while a set piece has their box over the whole screen.
+                if (roamRef.current?.riding || roamRef.current?.noGhost) inside = false;
             }
             // Their props and leftovers elsewhere on the screen (a pillow
             // fort, a dug-up mound, a stolen tab) fade by themselves under

@@ -2523,6 +2523,63 @@ def make_santahat(b, legs):
     return tm._join(parts, "santahat")
 
 
+def make_hatchet(b, legs):
+    """A dragon axe along the thumb: a dark haft in the fist, and a deep
+    red head — one broad blade fanning out to a horn above and a beard
+    below, two spikes off the back of it and one out of the top. The blade
+    is on the knuckles' side (-X, as the grip turns it), the way an
+    overhand swing brings it down."""
+    red, edge = (0.5, 0.03, 0.04), (0.78, 0.1, 0.1)
+    dark = (0.16, 0.1, 0.08)
+
+    def metal(name, ring, half, color=red, chamfer=0.0):
+        return _slab(name, ring, -half, half, color, chamfer=chamfer, rough=0.3, metal=0.75)
+
+    parts = [
+        _cyl("hatchet_haft", 0.014, 0.016, -0.08, 0.35, dark, rough=0.7),
+        _cyl("hatchet_pommel", 0.02, 0.016, -0.1, -0.08, red, rough=0.3, metal=0.75),
+        _cyl("hatchet_band", 0.018, 0.018, 0.2, 0.225, red, rough=0.3, metal=0.75),
+        metal("hatchet_eye", _rect(-0.024, 0.255, 0.024, 0.325), 0.013),
+        # The blade's cheek, then its bright edge, the horn and the beard.
+        metal("hatchet_cheek", [(-0.024, 0.268), (-0.085, 0.215), (-0.108, 0.25), (-0.108, 0.335), (-0.08, 0.362),
+                                (-0.024, 0.312)], 0.008, chamfer=0.002),
+        metal("hatchet_edge", [(-0.108, 0.25), (-0.128, 0.265), (-0.134, 0.293), (-0.128, 0.32), (-0.108, 0.335)], 0.004, edge),
+        metal("hatchet_horn", [(-0.08, 0.362), (-0.108, 0.335), (-0.14, 0.4)], 0.005, edge),
+        metal("hatchet_beard", [(-0.085, 0.215), (-0.145, 0.17), (-0.108, 0.25)], 0.005, edge),
+        metal("hatchet_spike_a", [(0.024, 0.298), (0.024, 0.322), (0.085, 0.34)], 0.006),
+        metal("hatchet_spike_b", [(0.024, 0.26), (0.075, 0.245), (0.024, 0.284)], 0.006),
+        metal("hatchet_spike_top", [(-0.013, 0.325), (0.013, 0.325), (0.0, 0.405)], 0.006),
+    ]
+    return tm._join(parts, "hatchet")
+
+
+def make_partyhat(b, legs):
+    """A paper crown out of a cracker, in the head's frame: a band round
+    the Santa hat's brim, cut into eight points. One sheet of paper, seen
+    from both sides; the app colours it."""
+    y0, z0, R = HAT_BRIM_Y, HAT_BRIM_Z, HAT_R + 0.004
+    points, per = 8, 6
+    n = points * per
+
+    def crown(bm):
+        lo, hi = [], []
+        for i in range(n):
+            a = 2 * math.pi * i / n
+            # Up to a point and back down, eight times round.
+            s = abs((i % per) / per * 2 - 1)
+            x, z = math.sin(a) * R, z0 + math.cos(a) * R
+            lo.append(bm.verts.new(tm._g(x, y0 - 0.012, z)))
+            hi.append(bm.verts.new(tm._g(x * 1.04, y0 + 0.03 + 0.06 * (1 - s), z0 + (z - z0) * 1.04)))
+        for i in range(n):
+            j = (i + 1) % n
+            bm.faces.new([lo[i], lo[j], hi[j], hi[i]])
+    c = tm._mesh_object("partyhat", crown)
+    paper = tm._material("partyhat", (0.15, 0.39, 0.92), rough=0.85)
+    paper.use_backface_culling = False
+    c.data.materials.append(paper)
+    return c
+
+
 # id → (builder, bone, grip). Grips are in the bone's normalized frame.
 ROAM_PROPS = {
     "umbrella": (make_umbrella, "rightHand", lambda: rod_grip("R")),
@@ -2551,6 +2608,12 @@ ROAM_PROPS = {
         "position": [0, 0, 0], "rotation": [0, 0, 0, 1],
         "fit": {"kind": "crown", "brim": [0.0, HAT_BRIM_Y, HAT_BRIM_Z], "radius": HAT_R, "height": HAT_DOME,
                 "uniform": ["catears_earl", "catears_earr"]},
+    }),
+    "hatchet": (make_hatchet, "rightHand", lambda: rod_grip("R")),
+    # A paper crown round the same brim as the Santa hat.
+    "partyhat": (make_partyhat, "head", lambda: {
+        "position": [0, 0, 0], "rotation": [0, 0, 0, 1],
+        "fit": {"kind": "crown", "brim": [0.0, HAT_BRIM_Y, HAT_BRIM_Z], "radius": HAT_R + 0.004, "height": HAT_DOME},
     }),
 }
 BONE_KEY = {"rightHand": "right_hand", "leftHand": "left_hand", "upperChest": "upper_chest", "head": "head", "hips": "hips"}

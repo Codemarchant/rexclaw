@@ -31,6 +31,8 @@ import { GAG_ACTIONS, installGags } from "./roam_gags";
 import { MORE_GAG_ACTIONS, installMoreGags, noteMusic } from "./roam_gags_more";
 import { SEASON_GAG_ACTIONS, installSeasonGags } from "./roam_gags_seasons";
 import { REXCLAW_GAG_ACTIONS, installRexclawGags } from "./roam_gags_rexclaw";
+import { GAME_GAG_ACTIONS, installGameGags } from "./roam_gags_games";
+import { SPLAT_GAG_ACTIONS, installSplatGags } from "./roam_gags_splat";
 import { lateNight, toNewYearS } from "./roam_seasons";
 import { RoamEars } from "./roam_ears";
 import { toySfx } from "./toys/sfx";
@@ -111,6 +113,9 @@ export const ROAM_NAP_MINUTES = [0, 2, 5, 10, 20, 30];   // 0: never
 // The New Year's countdown starts this long before midnight: the walk to
 // the middle of the screen, then ten seconds counted down.
 const NEW_YEAR_LEAD_S = 16;
+
+// Groups whose actions play out: a sound or a toy doesn't cut in on them.
+const PLAYS_OUT = new Set(["rexclaw", "holiday", "game_oldschool", "game_blocks", "splat"]);
 
 // Two looks count as the same screen below this mean difference of a 32×18
 // grey thumbnail (0-255 per pixel; by eye: a blinking caret or a clock
@@ -301,11 +306,11 @@ export class RoamDirector {
         // Not every loud moment of a film: a reaction keeps its cooldown.
         const a = ACTIONS.find((x) => x.id === id);
         if (now() - (this._cooldowns.get(id) ?? -Infinity) < (a?.cooldown || 0) * 1000) return;
-        // In mid-air (falling in, flung), or in one of the crew's set pieces
-        // or a holiday (those play out): music starting waits for after
+        // In mid-air (falling in, flung), or in a set piece (the crew's, a
+        // holiday, a game's, the splats: those play out): music starting waits for after
         // (the brain picks it up); a startle or a drop just passes.
         const cur = ACTIONS.find((x) => x.id === this._currentId);
-        if (this.b.mode !== "ground" || cur?.group === "rexclaw" || cur?.group === "holiday") {
+        if (this.b.mode !== "ground" || PLAYS_OUT.has(cur?.group)) {
             if (id === "music_dance") this._pendingReact = id;
             return;
         }
@@ -320,7 +325,7 @@ export class RoamDirector {
     toyReact(r) {
         if (!this.running || !this.toys) return;
         const cur = ACTIONS.find((x) => x.id === this._currentId);
-        if (cur?.group === "rexclaw" || cur?.group === "holiday" || this._currentId === "new_year_fireworks") {
+        if (PLAYS_OUT.has(cur?.group) || this._currentId === "new_year_fireworks") {
             this._toyNext = r;
             return;
         }
@@ -921,6 +926,7 @@ export class RoamDirector {
         this.clipRect = null;
         this.behindAll = false;
         this.r.setRoamShot?.("full");
+        this.noGhost = false;
         this.r.roamEyeScale?.(1);
         this.host.style.filter = "";
         if (this.scale !== 1 && this.b.mode !== "air") {
@@ -1639,13 +1645,18 @@ const ACTIONS = [
       when: (d) => d.b.mode === "ground" && (d.toys?.idleWeight() || 0) > 0, run: RoamDirector.prototype.toyTime },
     // The props, memes and big moments (models/roam_gags.js, roam_gags_more.js),
     // the weather, seasons and holidays (roam_gags_seasons.js), the crew's
-    // world (roam_gags_rexclaw.js).
+    // world (roam_gags_rexclaw.js), two games everyone has played
+    // (roam_gags_games.js) and the Gaussian splats (roam_gags_splat.js).
     ...GAG_ACTIONS,
     ...MORE_GAG_ACTIONS,
     ...SEASON_GAG_ACTIONS,
     ...REXCLAW_GAG_ACTIONS,
+    ...GAME_GAG_ACTIONS,
+    ...SPLAT_GAG_ACTIONS,
 ];
 installGags(RoamDirector.prototype);
 installMoreGags(RoamDirector.prototype);
 installSeasonGags(RoamDirector.prototype);
 installRexclawGags(RoamDirector.prototype);
+installGameGags(RoamDirector.prototype);
+installSplatGags(RoamDirector.prototype);

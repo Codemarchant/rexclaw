@@ -307,5 +307,45 @@
         "catears_earr"
       ]
     }
+  },
+  "hatchet": {
+    "file": "props/hatchet.glb",
+    "bone": "rightHand",
+    "position": [
+      -0.05,
+      -0.028,
+      0.0
+    ],
+    "rotation": [
+      0.70711,
+      -0.0,
+      0.0,
+      0.70711
+    ]
+  },
+  "partyhat": {
+    "file": "props/partyhat.glb",
+    "bone": "head",
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "fit": {
+      "kind": "crown",
+      "brim": [
+        0.0,
+        0.12,
+        -0.01
+      ],
+      "radius": 0.122,
+      "height": 0.1
+    }
   }
 }

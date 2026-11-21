@@ -1,0 +1,322 @@
+// Roam mode's game references: the looks of what models/roam_fx_games.js
+// puts on the overlay's layers (mascot.scss has the layers themselves and
+// everything else of roaming's).
+
+// ── the sandbox (blocks) ────────────────────────────────────────────────
+
+// A block: its front face, with a top (::before) and a right side (::after)
+// leaning back at 45°, `--d` deep. The faces share the one texture.
+.rx_mc_block {
+    --d: 12px;
+    background-size: 100% 100%;
+    image-rendering: pixelated;
+    will-change: transform;
+
+    &::before,
+    &::after {
+        content: "";
+        position: absolute;
+        background: inherit;
+        image-rendering: pixelated;
+    }
+
+    &::before {
+        left: 0;
+        bottom: 100%;
+        width: 100%;
+        height: var(--d);
+        transform-origin: bottom left;
+        transform: skewX(-45deg);
+        filter: brightness(1.2);
+    }
+
+    &::after {
+        left: 100%;
+        top: 0;
+        width: var(--d);
+        height: 100%;
+        transform-origin: top left;
+        transform: skewY(-45deg);
+        filter: brightness(0.7);
+    }
+
+    // A piece of a picture of the screen: smooth, and its sides plain.
+    &.rx_mc_block--cut {
+        image-rendering: auto;
+        box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+
+        &::before { background: rgba(255, 255, 255, 0.5); filter: none; }
+        &::after { background: rgba(0, 0, 0, 0.45); filter: none; }
+    }
+
+    // Back in its place in the screen: just the face.
+    &.rx_mc_block--flat {
+        &::before,
+        &::after { display: none; }
+    }
+}
+
+.rx_mc_crack {
+    position: absolute;
+    inset: 0;
+    background-size: 100% 100%;
+    image-rendering: pixelated;
+}
+
+.rx_mc_item {
+    filter: drop-shadow(0 4px 3px rgba(0, 0, 0, 0.4));
+}
+
+.rx_mc_pit {
+    background-size: 100% 100%;
+    image-rendering: pixelated;
+    filter: brightness(0.32);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
+.rx_mc_wisp {
+    background: #c026d3;
+    box-shadow: 0 0 5px 1px rgba(232, 121, 249, 0.8);
+}
+
+.rx_mc_hotbar {
+    display: flex;
+    border: 2px solid #1f1f1f;
+    background: rgba(20, 20, 20, 0.55);
+    box-sizing: content-box;
+}
+
+.rx_mc_slot {
+    position: relative;
+    flex: 1;
+    border: 2px solid #8b8b8b;
+    border-right-color: #373737;
+    border-bottom-color: #373737;
+    background: rgba(139, 139, 139, 0.35);
+
+    &.is-held {
+        outline: 3px solid #f1f1f1;
+        outline-offset: -1px;
+        z-index: 1;
+    }
+}
+
+.rx_mc_slot_icon {
+    position: absolute;
+    inset: 6px;
+    background-size: 100% 100%;
+    image-rendering: pixelated;
+}
+
+%rx_mc_text {
+    font: 700 15px/1.25 "Cascadia Mono", Consolas, "Courier New", monospace;
+    color: #fff;
+    text-shadow: 2px 2px 0 #3f3f3f;
+    letter-spacing: 0.02em;
+}
+
+.rx_mc_slot_n {
+    @extend %rx_mc_text;
+    position: absolute;
+    right: 2px;
+    bottom: 0;
+    font-size: 13px;
+}
+
+.rx_mc_toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px 8px 10px;
+    width: auto !important;
+    height: auto !important;
+    background: #212121;
+    border: 2px solid #555;
+    border-right: 0;
+    box-shadow: inset 0 0 0 2px #0d0d0d, -3px 3px 0 rgba(0, 0, 0, 0.35);
+}
+
+.rx_mc_toast_icon {
+    width: 32px;
+    height: 32px;
+    background-size: 100% 100%;
+    image-rendering: pixelated;
+    flex: none;
+}
+
+.rx_mc_toast_heading {
+    @extend %rx_mc_text;
+    color: #ffff55;
+    font-size: 13px;
+}
+
+.rx_mc_toast_name {
+    @extend %rx_mc_text;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.rx_mc_chat {
+    @extend %rx_mc_text;
+    width: auto !important;
+    height: auto !important;
+    padding: 3px 8px;
+    background: rgba(0, 0, 0, 0.5);
+    white-space: nowrap;
+}
+
+.rx_mc_mob {
+    > img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        image-rendering: pixelated;
+    }
+
+    // About to go off: swelling, flashing white.
+    &.is-fuse > img { animation: rx-mc-fuse 0.3s steps(1) infinite, rx-mc-swell 1.5s ease-in forwards; }
+    // Looked in the eye.
+    &.is-angry > img { animation: rx-mc-jitter 0.09s steps(2) infinite; }
+}
+
+@keyframes rx-mc-fuse {
+    0% { filter: none; }
+    50% { filter: brightness(3) saturate(0.2); }
+}
+
+@keyframes rx-mc-swell {
+    to { scale: 1.22; }
+}
+
+@keyframes rx-mc-jitter {
+    0% { translate: -2px 0; }
+    100% { translate: 2px 1px; }
+}
+
+// ── the old school ──────────────────────────────────────────────────────
+
+.rx_rs_tree,
+.rx_rs_stump { filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.3)); }
+
+.rx_rs_tree .top {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+}
+
+.rx_rs_lady,
+.rx_rs_baguette,
+.rx_rs_chicken,
+.rx_rs_genie,
+.rx_rs_grave { filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.35)); }
+
+.rx_rs_chicken .wing {
+    transform-box: fill-box;
+    transform-origin: 20% 20%;
+    animation: rx-rs-flap 0.22s ease-in-out infinite alternate;
+}
+
+@keyframes rx-rs-flap {
+    to { rotate: -22deg; }
+}
+
+.rx_rs_genie .wisp {
+    transform-box: fill-box;
+    transform-origin: 50% 0;
+    animation: rx-rs-wisp 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes rx-rs-wisp {
+    from { transform: skewX(-6deg); }
+    to { transform: skewX(6deg); }
+}
+
+.rx_rs_cracker .half {
+    transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.3, 1), opacity 0.35s;
+}
+
+.rx_rs_cracker.is-pulled {
+    .half-l { transform: translate(-26px, 6px) rotate(-18deg); }
+    .half-r { transform: translate(26px, 6px) rotate(18deg); }
+}
+
+%rx_rs_text {
+    font: 700 14px/1.3 "Trebuchet MS", Verdana, sans-serif;
+}
+
+.rx_rs_chat {
+    @extend %rx_rs_text;
+    width: min(440px, 46vw) !important;
+    height: auto !important;
+    min-height: 3.2em;
+    padding: 7px 10px;
+    font-weight: 400;
+    color: #000;
+    background: #d6c8a4;
+    border: 2px solid #3e3529;
+    box-shadow: inset 0 0 0 2px #b5a37a, 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+.rx_rs_chat_line--level { color: #000080; }
+.rx_rs_chat_line--bad { color: #7f0000; }
+
+.rx_rs_overhead {
+    width: auto !important;
+    height: auto !important;
+    transform: translate(-50%, -100%);
+    white-space: nowrap;
+}
+
+.rx_rs_overhead_text {
+    @extend %rx_rs_text;
+    display: inline-block;
+    font-size: 16px;
+    color: #ffff00;
+    text-shadow: 1px 1px 0 #000, -1px 0 0 #000, 0 -1px 0 #000;
+}
+
+.rx_rs_overhead_ch { display: inline-block; }
+
+.rx_rs_xp {
+    @extend %rx_rs_text;
+    width: auto !important;
+    height: auto !important;
+    color: #fff;
+    text-shadow: 1px 1px 0 #000;
+    white-space: nowrap;
+}
+
+.rx_rs_hit > svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.rx_rs_menu {
+    @extend %rx_rs_text;
+    width: auto !important;
+    height: auto !important;
+    min-width: 150px;
+    background: #5d5447;
+    border: 1px solid #000;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+    font-weight: 400;
+    font-size: 13px;
+}
+
+.rx_rs_menu_head {
+    padding: 2px 6px;
+    background: #000;
+    color: #5d5447;
+    font-weight: 700;
+}
+
+.rx_rs_menu_row {
+    padding: 1px 6px;
+    color: #fff;
+    white-space: nowrap;
+
+    &.is-on { color: #ffff00; }
+}
+
+.rx_rs_menu_target { color: #00ffff; }

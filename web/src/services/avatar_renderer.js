@@ -5742,6 +5742,15 @@ class AvatarRenderer {
         return c;
     }
 
+    /** The roam shot as the scene sees it (world m): what the camera looks
+     *  at (x, centreY, z) from `distance` away, `span` m of height showing
+     *  through `fov`, the feet at `bottom`, the standing body `body` tall.
+     *  For effects drawn in the avatar's own scene (models/roam_splats.js). */
+    roamShot() {
+        if (!this._roam) return null;
+        return { ...this._roamFrame(), fov: ROAM_FOV, bottom: this._meshBottomY ?? 0, headY: this._headWorldY ?? FACE_FALLBACK_HEAD_Y };
+    }
+
     _applyRoamCamera() {
         if (!this.camera || this._xrActive) return;
         const f = this._roamFrame();
