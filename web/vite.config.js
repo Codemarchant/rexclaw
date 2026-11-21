@@ -36,12 +36,42 @@ function gamesVendor() {
   };
 }
 
+// MediaPipe tasks-vision (Apache-2.0) posts usage metrics — which task ran,
+// how long it took — to Google's logging endpoint every 60 s, with no
+// option to switch it off (its README's privacy notice). Camera awareness
+// promises that nothing leaves the device, so the endpoint is pointed at
+// about:blank in our copy: the first flush fails locally, and its logger
+// then stops for good (it gives up on any send error — fetch rejects
+// about:blank before any network is touched). Camera frames and landmarks
+// were never part of it. The app bundle and the dev server's pre-bundle
+// (a Web Worker importing tasks-vision would need the plugin in
+// `worker.plugins` too — Vite builds workers separately). The /*! notice
+// survives minification (Apache-2.0 §4(b): changed files say so).
+// Re-check after a tasks-vision upgrade: grep dist/ for "odml".
+const MP_METRICS_URL = "https://odml.pa.googleapis.com/v1/log";
+const MP_NOTICE = "/*! @mediapipe/tasks-vision, modified by Rexclaw: usage-metrics endpoint disabled. */\n";
+const noMediapipeMetrics = (code) => code.includes(MP_METRICS_URL)
+  ? MP_NOTICE + code.split(MP_METRICS_URL).join("about:blank")
+  : null;
+
+function mediapipeNoMetrics() {
+  return {
+    name: "rexclaw-mediapipe-no-metrics",
+    enforce: "pre",
+    transform(code, id) {
+      if (!id.includes("@mediapipe/tasks-vision")) return null;
+      const out = noMediapipeMetrics(code);
+      return out ? { code: out, map: null } : null;
+    },
+  };
+}
+
 // Dev: Vite owns the page, FastAPI (port 8990) owns /api, /assets and /files.
 // Prod: `vite build` emits dist/ with hashed bundles under app-assets/ —
 // renamed from Vite's default `assets/` so they don't collide with the
 // FastAPI /assets mount (bundled VRM/VRMA/GLB files).
 export default defineConfig({
-  plugins: [react(), gamesVendor()],
+  plugins: [mediapipeNoMetrics(), react(), gamesVendor()],
   build: {
     assetsDir: "app-assets",
   },
@@ -52,6 +82,18 @@ export default defineConfig({
       "three/examples/jsm/loaders/DRACOLoader.js",
       "three/examples/jsm/loaders/KTX2Loader.js",
     ],
+    esbuildOptions: {
+      plugins: [{
+        name: "rexclaw-mediapipe-no-metrics",
+        setup(b) {
+          b.onLoad({ filter: /@mediapipe[\\/]tasks-vision[\\/].*\.m?js$/ }, async (args) => {
+            const { readFile } = await import("node:fs/promises");
+            const code = await readFile(args.path, "utf8");
+            return { contents: noMediapipeMetrics(code) ?? code, loader: "js" };
+          });
+        },
+      }],
+    },
   },
   server: {
     port: 5990,
