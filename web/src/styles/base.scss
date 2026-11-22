@@ -281,6 +281,24 @@ body {
         > div { flex: 1; min-width: 0; }
     }
 
+    // A look's model fields (AvatarManager LookFields), one row per role:
+    // the type (and a VRM's file), a 2D look's four images, then Generate.
+    .rx_look {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+    }
+    // Each row wraps into as many columns as fit.
+    .rx_look_fields {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+        gap: 0.5rem 1rem;
+        align-items: end;
+        > * { min-width: 0; }
+        // A file name ellipsises inside its cell instead of pushing past it.
+        span { min-width: 0; }
+    }
+
     .rx_check {
         display: flex;
         align-items: center;
@@ -813,7 +831,8 @@ body {
         // was for the flex fallback; in a grid the column is the sizer).
         > input[type="text"], > select { width: 100%; }
     }
-    .rx_subrow--outfit  { grid-template-columns: minmax(8rem, 13rem) minmax(16rem, 2fr) minmax(0, 3fr) max-content; }
+    // Outfit: name, description, remove — its model fields sit on a row below.
+    .rx_subrow--outfit  { grid-template-columns: minmax(8rem, 13rem) minmax(0, 1fr) max-content; }
     .rx_subrow--gesture { grid-template-columns: minmax(8rem, 12rem) minmax(16rem, 2fr) minmax(0, 3fr) max-content max-content; }
     .rx_subrow--bg      {
         grid-template-columns: minmax(7rem, 11rem) max-content minmax(0, 1fr) max-content max-content;
@@ -1433,6 +1452,18 @@ body {
     text-align: center;
     .btn-link { color: #64748b; font-size: 0.85rem; text-decoration: none; }
     .btn-link:hover { color: #334155; text-decoration: underline; }
+}
+
+// Characters (create_character) — setup pickers, then a scrolling list of
+// voices, each with its description.
+.rx_dialog--characters {
+    max-width: 44rem;
+    .rx_character_voices {
+        max-height: 45vh;
+        overflow: auto;
+        margin: 0.25rem 0 0.75rem;
+        padding: 0 0.25rem;
+    }
 }
 
 // Tool cooldowns — a scrolling list of tools, a wait and its unit per row.

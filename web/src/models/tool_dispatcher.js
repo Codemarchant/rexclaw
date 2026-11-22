@@ -72,6 +72,10 @@ const NATIVE_TOOL_NAMES = new Set([
     // lands and the result goes back with it, so whatever the companion says
     // next lines up with the motion instead of running ahead of it.
     "generate_gesture",
+    // New looks drawn with Grok Imagine (server look_tools.py, about a
+    // minute): the outfit is put on, the character invited, in dispatch().
+    "create_outfit",
+    "create_character",
 ]);
 
 // Slow tools that don't run the exact same call twice at once. A companion
@@ -85,6 +89,7 @@ const NATIVE_TOOL_NAMES = new Set([
 // two versions.
 const NO_DUPLICATE_WHILE_RUNNING = new Set([
     "change_background", "create_video", "generate_gesture", "delegate_task",
+    "create_outfit", "create_character",
     "local_task", "text_companion", "analyze_screen", "record_screen_clip",
     "play_background_music",   // a link downloads for up to a minute
 ]);
@@ -200,6 +205,22 @@ export class ToolDispatcher {
                 }
                 if (name === "adjust_affection" && result.ok) {
                     this._applyAffection(result);
+                }
+                if ((name === "create_outfit" && result.vrm_url) || (name === "create_character" && result.agent_id)) {
+                    // The call screen's outfit picker and companion list (VoiceView).
+                    window.dispatchEvent(new CustomEvent("rexclaw:agents-changed"));
+                }
+                if (name === "create_outfit" && result.vrm_url) {
+                    this._wearCreatedOutfit(result);
+                    // The companion needs the outcome, not the wardrobe payload.
+                    const { avatar, vrm_url, ...told } = result;
+                    result = told;
+                }
+                if (name === "create_character" && result.agent_id) {
+                    // Same path as add_agent_to_call; its result's note
+                    // already tells the companion they are joining.
+                    const joined = this._addAgentToCall({ agent_id: result.agent_id });
+                    if (!joined.ok) result = { ...result, status: "not_joined", note: joined.error };
                 }
                 if (name === "generate_gesture" && result.vrma_url) {
                     // Same path as play_gesture: the companion's own choice owns
@@ -993,6 +1014,20 @@ export class ToolDispatcher {
             console.error("[voice] change_outfit setOutfit failed", e);
         });
         return { ok: true, outfit_id: Number(outfit_id), name: outfit.name };
+    }
+
+    /** create_outfit's new outfit: the wardrobe it was added to replaces
+     *  this companion's avatar payload (a save reissues outfit ids), then
+     *  the companion changes into it as change_outfit would. */
+    _wearCreatedOutfit(result) {
+        const state = this.conversationState;
+        if (state && result.avatar && Number(state.avatar?.id) === Number(result.avatar.id)) {
+            state.avatar = result.avatar;
+            state.selectedOutfitId = Number(result.outfit_id);
+            storeOutfitPref(state.agentId, result.outfit_id);
+        }
+        Promise.resolve(this.avatarApi?.setOutfit?.(result.vrm_url, result.avatar?.vrma_idle_url || null))
+            .catch((e) => console.error("[voice] create_outfit setOutfit failed", e));
     }
 
     /** Bring another companion into the live group call. The join itself

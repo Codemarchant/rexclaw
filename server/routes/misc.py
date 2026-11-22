@@ -19,7 +19,7 @@ from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, tool_cooldowns, transfer, xai_client, xai_oauth
+from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, look_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, tool_cooldowns, transfer, xai_client, xai_oauth
 from ..db import ASSETS_DIR, FILES_DIR, get_config, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
@@ -110,6 +110,7 @@ _AGENT_FIELDS = (
     "coach_enabled", "coach_setup", "coach_rules", "coach_moments", "coach_tools",
     "coach_gap",
     "tool_cooldowns",
+    "enable_create_character", "auto_generated", "character_settings", "enable_create_outfit",
 )
 
 
@@ -598,6 +599,8 @@ def agents_save(payload: dict = Body(default={}), con=Depends(db_con)):
         updates["coach_setup"] = str(updates["coach_setup"] or "")
     if "tool_cooldowns" in updates:
         updates["tool_cooldowns"] = tool_cooldowns.cooldowns_json(updates["tool_cooldowns"])
+    if "character_settings" in updates:
+        updates["character_settings"] = look_tools.settings_json(updates["character_settings"])
     if "text_brain" in updates and updates["text_brain"] not in ("app", "voice_setup"):
         updates["text_brain"] = "app"
     if "voice_setup" in updates:
@@ -917,6 +920,19 @@ def agents_cooldown_tools(payload: dict = Body(default={}), con=Depends(db_con))
     now, following the draft's tool toggles like the preview above."""
     from ..session_service import preview_app_tools
     return {"tools": preview_app_tools(con, _draft_agent(con, payload))}
+
+
+@router.post("/agents/starter_prompt")
+def agents_starter_prompt(payload: dict = Body(default={})):
+    """Read-only: the prompt a new companion starts from (seeds.STARTER_PROMPT)."""
+    return {"prompt": seeds.STARTER_PROMPT}
+
+
+@router.post("/agents/character_voice_preset")
+def agents_character_voice_preset(payload: dict = Body(default={})):
+    """Read-only: Grok's voices with descriptions, what the Characters
+    dialog (create_character) fills in and falls back to on Grok's voice."""
+    return {"voices": look_tools.GROK_CHARACTER_VOICES}
 
 
 @router.post("/agents/restore_presets")

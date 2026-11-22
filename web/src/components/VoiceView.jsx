@@ -315,6 +315,15 @@ export default function VoiceView({ active = true }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
 
+    // A companion made something mid-call (create_outfit, create_character —
+    // tool_dispatcher.js): re-read the list so the outfit picker and the
+    // companion selector show it without waiting for the call to end.
+    useEffect(() => {
+        const onChanged = () => refreshAgents();
+        window.addEventListener("rexclaw:agents-changed", onChanged);
+        return () => window.removeEventListener("rexclaw:agents-changed", onChanged);
+    }, [refreshAgents]);
+
     // A wake phrase started a call (lib/wake_word.js owns the start itself) —
     // sync the agent selector so the UI reflects who answered.
     useEffect(() => {

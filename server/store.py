@@ -56,6 +56,22 @@ def background_payload(row):
     return payload
 
 
+def look_url(row):
+    """The URL the renderer loads for a look (an avatars or avatar_outfits
+    row): its model's web path, plus — for a PNG look — its extra frames as
+    a URL fragment the browser never sends ("…/kira.png#mouth_open=…"),
+    read back by web png_puppet.js."""
+    from urllib.parse import urlencode
+    path = row['vrm_path']
+    try:
+        frames = json.loads(row['frames'] or '{}')
+    except (ValueError, IndexError, KeyError):
+        frames = {}
+    if not path or not frames:
+        return path
+    return f"{path}#{urlencode(frames)}"
+
+
 def resolve_gesture_partner(con, gesture_row):
     """Return the gesture row as a plain dict with the combo partner resolved.
 
@@ -77,20 +93,23 @@ def resolve_gesture_partner(con, gesture_row):
     ref = (g.get('partner_avatar') or '').strip()
     if ref:
         row = con.execute(
-            "SELECT a.id, a.vrm_path FROM avatars a"
+            "SELECT a.id, a.vrm_path, a.frames FROM avatars a"
             " JOIN agents ag ON ag.avatar_id = a.id"
             " WHERE ag.active = 1 AND ag.name = ? COLLATE NOCASE LIMIT 1",
             (ref,),
         ).fetchone()
         if not row:
             row = con.execute(
-                "SELECT id, vrm_path FROM avatars WHERE pack_key = ? OR name = ? "
+                "SELECT id, vrm_path, frames FROM avatars WHERE pack_key = ? OR name = ? "
                 "ORDER BY CASE WHEN pack_key = ? THEN 0 ELSE 1 END LIMIT 1",
                 (ref, ref, ref),
             ).fetchone()
         if row:
             g['partner_avatar_id'] = row['id']
-            g['partner_vrm_url'] = row['vrm_path']
+            # The same URL the avatar payload carries (a PNG look's frames
+            # with it), so the renderer recognises a partner already
+            # standing in the call as a peer and borrows it.
+            g['partner_vrm_url'] = look_url(row)
     return g
 
 
@@ -163,7 +182,7 @@ def avatar_payload(con, avatar_id):
     outfits = [{
         'id': 0,
         'name': (av['main_outfit_name'] or '').strip() or MAIN_OUTFIT_FALLBACK_NAME,
-        'vrm_url': av['vrm_path'],
+        'vrm_url': look_url(av),
         'is_default': True,
         'portrait_url': portraits.portrait_url(av['vrm_path']),
         'fullbody_url': portraits.fullbody_url(av['vrm_path']),
@@ -177,7 +196,7 @@ def avatar_payload(con, avatar_id):
         outfits.append({
             'id': o['id'],
             'name': o['name'],
-            'vrm_url': o['vrm_path'],
+            'vrm_url': look_url(o),
             'is_default': False,
             'portrait_url': portraits.portrait_url(o['vrm_path']),
             'fullbody_url': portraits.fullbody_url(o['vrm_path']),
@@ -233,7 +252,7 @@ def avatar_payload(con, avatar_id):
     return {
         'id': av['id'],
         'name': av['name'],
-        'vrm_url': av['vrm_path'],
+        'vrm_url': look_url(av),
         'vrma_idle_url': av['vrma_idle_path'] or False,
         'emotion_decay': bool(av['emotion_decay']),
         # NOTE: the avatars.fidgets / fidget_interval columns are legacy. The
@@ -319,8 +338,9 @@ def current_outfit(con, agent_row):
     the main outfit (agents.current_outfit_name unset, or naming an outfit
     the avatar no longer has — the wardrobe was edited, or the agent moved
     to another avatar — which silently means "main"). Stored by name
-    because outfit ids are reissued on every boot (see the db.py
-    migration note); resolved to this boot's row here."""
+    because outfit ids don't survive the pack itself being replaced (a
+    re-import, a rename; rescans keep them, see avatar_packs._scan_pack);
+    resolved to the current row here."""
     name = (agent_row['current_outfit_name'] or '').strip()
     if not name or not agent_row['avatar_id']:
         return None

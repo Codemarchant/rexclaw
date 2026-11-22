@@ -49,8 +49,14 @@ web paths starting with ``/`` for shared assets like the bundled grid scene):
                                          // skipped where not installed)
       "outfits": [
         {"name": "Winter", "vrm": "kira_winter.vrm", "description": "…",
-         "face_tuning": {}, "face_map": {}, "pose_tuning": {}}  // optional; the
+         "face_tuning": {}, "face_map": {}, "pose_tuning": {}},  // optional; the
                                          // outfit model's own
+        {"name": "Sketch", "vrm": "sketch.png",   // a PNG look: an image
+         "frames": {"mouth_open": "sketch_mo.png",       // instead of a VRM,
+                    "eyes_closed": "sketch_ec.png",      // with optional
+                    "mouth_open_eyes_closed": "sketch_moec.png"}}  // PNGtuber
+                                         // frames (web png_puppet.js); the
+                                         // main look takes "frames" the same way
       ],
       "gestures": [
         {"enum": "wave_hello", "vrma": "wave.vrma", "description": "…",
@@ -308,6 +314,29 @@ def _face_map(value):
     return json.dumps(out, sort_keys=True, ensure_ascii=False) if out else None
 
 
+PNG_LOOK_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+PNG_FRAME_KEYS = ("mouth_open", "eyes_closed", "mouth_open_eyes_closed")
+
+
+def is_png_look(path):
+    """True when a look's model file is an image (a PNG look), not a VRM."""
+    return isinstance(path, str) and path.lower().endswith(PNG_LOOK_EXTS)
+
+
+def _frames(look, model_path, pack_dir, url_base, *, pack, field):
+    """A PNG look's extra frames → the JSON stored on its row ({key: web
+    path}), or None for a VRM look or one without frames."""
+    raw = look.get("frames")
+    if not is_png_look(model_path) or not isinstance(raw, dict):
+        return None
+    out = {}
+    for key in PNG_FRAME_KEYS:
+        path = _resolve(raw.get(key), pack_dir, url_base, pack=pack, field=f"{field}.frames.{key}")
+        if path:
+            out[key] = path
+    return json.dumps(out, sort_keys=True) if out else None
+
+
 def _id_list(value):
     """Manifest id list (JSON array or comma-separated string) → the
     normalised comma-separated form stored in the DB, or None when empty."""
@@ -352,14 +381,14 @@ def _upsert_avatar(con, pack_key, vals):
             " fidget_interval = ?, restrict_base_gestures = ?, base_gestures = ?,"
             " physical_description = ?, main_outfit_name = ?, main_outfit_description = ?,"
             " face_tuning = ?, face_map = ?, pose_tuning = ?, music_library = ?, neural_motion = ?,"
-            " sound_effects_library = ?, sound_effects_off = ?, active = 1 WHERE id = ?",
+            " sound_effects_library = ?, sound_effects_off = ?, frames = ?, active = 1 WHERE id = ?",
             (pack_key, vals["name"], vals["description"], vals["sequence"],
              vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
              vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
              vals["base_gestures"], vals["physical_description"],
              vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
              vals["face_map"], vals["pose_tuning"], vals["music_library"], vals["neural_motion"],
-             vals["sound_effects_library"], vals["sound_effects_off"], row["id"]),
+             vals["sound_effects_library"], vals["sound_effects_off"], vals["frames"], row["id"]),
         )
         return row["id"]
     cur = con.execute(
@@ -367,15 +396,15 @@ def _upsert_avatar(con, pack_key, vals):
         " emotion_decay, fidgets, fidget_interval, restrict_base_gestures, base_gestures,"
         " physical_description, main_outfit_name, main_outfit_description, face_tuning,"
         " face_map, pose_tuning, music_library, neural_motion, sound_effects_library,"
-        " sound_effects_off)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " sound_effects_off, frames)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (pack_key, vals["name"], vals["description"], vals["sequence"],
          vals["vrm_path"], vals["vrma_idle_path"], vals["emotion_decay"],
          vals["fidgets"], vals["fidget_interval"], vals["restrict_base_gestures"],
          vals["base_gestures"], vals["physical_description"],
          vals["main_outfit_name"], vals["main_outfit_description"], vals["face_tuning"],
          vals["face_map"], vals["pose_tuning"], vals["music_library"], vals["neural_motion"],
-         vals["sound_effects_library"], vals["sound_effects_off"]),
+         vals["sound_effects_library"], vals["sound_effects_off"], vals["frames"]),
     )
     return cur.lastrowid
 
@@ -422,10 +451,10 @@ def _scan_pack(con, pack_dir, url_root):
         "neural_motion": _neural_motion(manifest.get("neural_motion")),
         "sound_effects_library": 0 if manifest.get("sound_effects_library") is False else 1,
         "sound_effects_off": _name_list(manifest.get("sound_effects_off")),
+        "frames": _frames(manifest, vrm_path, pack_dir, url_base, pack=pack_key, field="vrm"),
     })
 
     # Children are replaced wholesale — manifest is the source of truth.
-    con.execute("DELETE FROM avatar_outfits WHERE avatar_id = ?", (avatar_id,))
     con.execute("DELETE FROM avatar_gestures WHERE avatar_id = ?", (avatar_id,))
     con.execute("DELETE FROM avatar_backgrounds WHERE avatar_id = ?", (avatar_id,))
     con.execute("DELETE FROM avatar_music WHERE avatar_id = ?", (avatar_id,))
@@ -481,19 +510,39 @@ def _scan_pack(con, pack_dir, url_root):
             (avatar_id, name, (i + 1) * 10, json.dumps(names), int(is_default)),
         )
 
+    # Outfits keep their row (and id) by name across rescans: a call's
+    # change_outfit tool holds the ids it started with, and a save mid-call
+    # (create_outfit adding one, the editor) must not reissue them. New
+    # names get new rows; names gone from the manifest lose theirs.
+    existing = {}
+    for r in con.execute("SELECT id, name FROM avatar_outfits WHERE avatar_id = ? ORDER BY id",
+                         (avatar_id,)):
+        existing.setdefault(r["name"].lower(), r["id"])
+    kept = []
     for i, o in enumerate(manifest.get("outfits") or []):
         if not isinstance(o, dict):
             continue
         path = _resolve(o.get("vrm"), pack_dir, url_base, pack=pack_key, field=f"outfits[{i}].vrm")
         if not path:
             continue
-        con.execute(
-            "INSERT INTO avatar_outfits (avatar_id, name, sequence, vrm_path, outfit_description,"
-            " face_tuning, face_map, pose_tuning) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (avatar_id, str(o.get("name") or f"Outfit {i + 1}"), (i + 1) * 10,
-             path, o.get("description") or None, _face_tuning(o.get("face_tuning")),
-             _face_map(o.get("face_map")), _pose_tuning(o.get("pose_tuning"))),
-        )
+        name = str(o.get("name") or f"Outfit {i + 1}")
+        vals = ((i + 1) * 10, path, o.get("description") or None, _face_tuning(o.get("face_tuning")),
+                _face_map(o.get("face_map")), _pose_tuning(o.get("pose_tuning")),
+                _frames(o, path, pack_dir, url_base, pack=pack_key, field=f"outfits[{i}]"))
+        row_id = existing.pop(name.lower(), None)
+        if row_id:
+            con.execute(
+                "UPDATE avatar_outfits SET name = ?, sequence = ?, vrm_path = ?, outfit_description = ?,"
+                " face_tuning = ?, face_map = ?, pose_tuning = ?, frames = ? WHERE id = ?",
+                (name, *vals, row_id))
+        else:
+            row_id = con.execute(
+                "INSERT INTO avatar_outfits (avatar_id, name, sequence, vrm_path, outfit_description,"
+                " face_tuning, face_map, pose_tuning, frames) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (avatar_id, name, *vals)).lastrowid
+        kept.append(row_id)
+    con.execute(f"DELETE FROM avatar_outfits WHERE avatar_id = ? AND id NOT IN ({','.join('?' * len(kept)) or 'NULL'})",
+                (avatar_id, *kept))
 
     seen_enums = set()
     for i, g in enumerate(manifest.get("gestures") or []):
@@ -810,6 +859,15 @@ def read_manifest(pack_key):
     return {"name": pack_key, "outfits": [], "gestures": [], "backgrounds": []}
 
 
+def manifest_version(pack_key):
+    """A user pack's avatar.json version (its mtime, ns) as a string, or
+    None before its first save. The editor sends back the one it opened,
+    so a manifest written since (create_outfit adding an outfit mid-call)
+    is never overwritten by a stale draft."""
+    path = USER_PACKS_DIR / pack_key / "avatar.json"
+    return str(path.stat().st_mtime_ns) if path.is_file() else None
+
+
 def list_pack_files(pack_key):
     """Filenames present in the pack folder, by inferred kind — lets the editor
     offer existing uploads in dropdowns without re-uploading."""
@@ -856,14 +914,26 @@ def _validate_manifest(pack_dir, m):
         if not (pack_dir / ref).is_file():
             raise UserError(f"{field}: file {ref!r} is not in the pack — upload it first.")
 
-    _check_file(m.get("vrm"), "Main VRM")
+    def _check_frames(look, label):
+        frames = look.get("frames")
+        if frames is None:
+            return
+        if not isinstance(frames, dict):
+            raise UserError(f"{label} frames must be an object.")
+        for key in PNG_FRAME_KEYS:
+            if frames.get(key):
+                _check_file(frames[key], f"{label} {key.replace('_', ' ')} frame")
+
+    _check_file(m.get("vrm"), "Main model")
+    _check_frames(m, "Main look")
     if m.get("vrma_idle"):
         _check_file(m["vrma_idle"], "Idle animation")
 
     for i, o in enumerate(m.get("outfits") or []):
         if not (o.get("name") or "").strip():
             raise UserError(f"Outfit #{i + 1} needs a name.")
-        _check_file(o.get("vrm"), f"Outfit '{o.get('name')}' VRM")
+        _check_file(o.get("vrm"), f"Outfit '{o.get('name')}' model")
+        _check_frames(o, f"Outfit '{o.get('name')}'")
 
     seen = set()
     for i, g in enumerate(m.get("gestures") or []):

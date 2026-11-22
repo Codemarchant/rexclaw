@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_mcp, local_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, sound_effects, store, text_to_vrma, tool_cooldowns, turn_director, voicemail_tools, xai_oauth
+from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_mcp, local_tools, look_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, sound_effects, store, text_to_vrma, tool_cooldowns, turn_director, voicemail_tools, xai_oauth
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 from .pipeline import session as pipeline_session, setups as voice_setups
@@ -923,6 +923,25 @@ def _tool_habits_section(con, agent_row, solo=True):
             "in the tool says what it is and when it fits; go by those. Say "
             "your line first and the sound lands right after it.\n"
         )
+    # Only while create_character is offered (its own gate: the switch and
+    # an image engine). Steers who voices a newcomer to the scene; which
+    # fields to fill is the tool description's job.
+    if look_tools.build_create_character_tool(con, agent_row, get_config(con)) is not None:
+        # Someone already a companion (a crewmate, a character made in an
+        # earlier scene) is invited, not drawn again — named only when the
+        # invite tool is there to name.
+        known = (" If they are already one of the companions you can call, "
+                 "bring them in with `add_agent_to_call` instead; create only "
+                 "someone who isn't." if agent_row['enable_call_agents_tool'] else "")
+        lines.append(
+            "- When the roleplay brings in someone new - a shopkeeper, a "
+            "stranger on the road, a rival - and the scene would play better "
+            "with them speaking for themselves, bring them in with "
+            "`create_character` instead of voicing them yourself." + known +
+            " Do it inside the story, without mentioning the tool or the wait: "
+            "keep the scene going while they're drawn, and let them arrive the "
+            "way the fiction would have them arrive.\n"
+        )
     if not lines:
         return None
     return "## Tool habits\n" + ''.join(lines)
@@ -1205,12 +1224,18 @@ def _voice_tools(con, agent, config, *, group_peers=None):
         )
         if play_gesture is not None:   # None = avatar offers no gestures at all
             tools.append(play_gesture)
-        change_outfit = browser_tools.build_change_outfit_tool(
-            store.agent_outfit_dicts(con, agent), store.agent_appearance(con, agent))
-        if change_outfit is not None:
-            tools.append(change_outfit)
     else:
         tools = [t for t in tools if t['name'] != 'set_emotion']
+    # change_outfit rides the avatar tools — and create_outfit too, which
+    # needs it as the way back (a VRM companion turned 2D returns to 3D
+    # with it), whatever the wardrobe held at the start.
+    creates = look_tools.build_create_outfit_tool(con, agent, config) is not None
+    if agent['enable_gesture_emotion_tools'] or creates:
+        change_outfit = browser_tools.build_change_outfit_tool(
+            store.agent_outfit_dicts(con, agent), store.agent_appearance(con, agent),
+            creates=creates)
+        if change_outfit is not None:
+            tools.append(change_outfit)
     # Solo calls only: a group call lays its characters out in a row, and the
     # renderer refuses the move there — so the tool is not offered either.
     if agent['enable_move_tool'] and not group_peers:
@@ -1310,6 +1335,8 @@ def _voice_tools(con, agent, config, *, group_peers=None):
             agent, [a for a in store.list_agents(con) if a['id'] != agent['id']])
         if text_tool is not None:
             native_function_tools.append(text_tool)
+    # New outfits on a 2D avatar, new characters for a roleplay (look_tools).
+    native_function_tools.extend(look_tools.build_voice_tools(con, agent, config))
     # Extensions (plugins.py) decide for themselves what to offer. Voice
     # calls always have the user on the line, hence origin 'manual'.
     native_function_tools.extend(plugins.tool_definitions(

@@ -11,6 +11,7 @@ import Portrait from "./Portrait.jsx";
 import FaceTuningDialog from "./FaceTuningDialog.jsx";
 import { AMBIENCE_OPTIONS, EFFECTS_PRESET_OPTIONS, LIGHTING_PRESET_OPTIONS } from "../lib/render_prefs";
 import { avatarRenderer } from "../services/avatar_renderer";
+import { isPngLook } from "../services/png_puppet";
 import { GESTURES } from "../models/avatar_catalog";
 import { soundEffects } from "../models/sound_effects";
 
@@ -121,6 +122,7 @@ export default function AvatarManager({ onChange, active = true }) {
                 portrait_url: a.portrait_url,   // from the saved main VRM
                 fullbody_url: a.fullbody_url,
                 outfit_portraits: r.outfit_portraits || {},   // {vrm ref: {face, fullbody}}
+                version: r.version ?? null,   // avatar.json as opened — save refuses a newer one
             });
         } catch (e) {
             notification.add(e?.message || _t("Could not open avatar"), { type: "danger" });
@@ -152,6 +154,7 @@ export default function AvatarManager({ onChange, active = true }) {
                 pack_key: editing.pack_key,
                 manifest: editing.manifest,
                 is_new: editing.isNew,
+                ...(editing.isNew ? {} : { version: editing.version ?? null }),
             });
             setEditing(null);
             load();
@@ -452,6 +455,157 @@ function FileField({ label, kind, packKey, value, accept, onUploaded, onClear, l
     );
 }
 
+// A look's model: a VRM, or an image (a PNG look) with its optional
+// PNGtuber frames — see web/src/services/png_puppet.js.
+const PNG_LOOK_FRAMES = [
+    ["mouth_open", "Mouth open"],
+    ["eyes_closed", "Eyes closed"],
+    ["mouth_open_eyes_closed", "Mouth open + eyes closed"],
+];
+
+// Generate a PNG look on create_image's engine, Grok Imagine or the user's
+// ComfyUI (POST /generate_png_look): from a
+// reference — another look of this avatar or an uploaded picture, which
+// holds the likeness — or from a description alone.
+function GenerateLook({ packKey, name, defaults, references, onDone }) {
+    const [open, setOpen] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [reference, setReference] = useState(references[0]?.ref || "");
+    const [upload, setUpload] = useState(null);   // {name, dataUrl}
+    const [character, setCharacter] = useState(defaults.character || "");
+    const [outfit, setOutfit] = useState(defaults.outfit || "");
+    const fileRef = useRef(null);
+    const pickFile = (ev) => {
+        const file = ev.target.files?.[0];
+        ev.target.value = "";
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => { setUpload({ name: file.name, dataUrl: reader.result }); setReference("upload"); };
+        reader.readAsDataURL(file);
+    };
+    const run = async () => {
+        setBusy(true);
+        try {
+            const r = await rpc("/api/avatars/generate_png_look", {
+                pack_key: packKey, name: name || "look", character, outfit,
+                reference: reference === "upload" ? upload?.dataUrl : reference,
+            });
+            onDone(r);
+            setOpen(false);
+        } catch (e) {
+            notification.add(e?.message || _t("Generation failed"), { type: "danger" });
+        } finally {
+            setBusy(false);
+        }
+    };
+    if (!open) {
+        return (
+            <div>
+                <button className="btn btn-sm" disabled={!packKey} onClick={() => setOpen(true)}
+                        title={_t("Make the image and its talking and blinking frames on create_image's engine: Grok Imagine, or your ComfyUI (Settings → Local generation)")}>
+                    <i className="fa fa-magic" /> {_t("Generate…")}
+                </button>
+            </div>
+        );
+    }
+    return (
+        <div className="rx_agent_editor">
+            <div className="rx_row">
+                <div>
+                    <label>{_t("Likeness from")}</label>
+                    <select value={reference} onChange={(ev) => {
+                        if (ev.target.value === "pick") fileRef.current?.click();
+                        else setReference(ev.target.value);
+                    }}>
+                        {references.map((r) => <option key={r.ref} value={r.ref}>{r.label}</option>)}
+                        {upload && <option value="upload">{upload.name}</option>}
+                        <option value="pick">{_t("Upload a picture…")}</option>
+                        <option value="">{_t("Nothing — describe them below")}</option>
+                    </select>
+                    <input ref={fileRef} type="file" accept=".png,.jpg,.jpeg,.webp" style={{ display: "none" }}
+                           onChange={pickFile} />
+                </div>
+                {!reference && (
+                    <div style={{ flex: 2 }}>
+                        <label>{_t("Character")}</label>
+                        <textarea rows={2} value={character}
+                                  placeholder={_t("Who they are and what they look like")}
+                                  onChange={(ev) => setCharacter(ev.target.value)} />
+                    </div>
+                )}
+                <div style={{ flex: 2 }}>
+                    <label>{_t("Outfit")}</label>
+                    <textarea rows={2} value={outfit}
+                              placeholder={reference ? _t("Empty keeps the outfit in the picture") : _t("What they wear")}
+                              onChange={(ev) => setOutfit(ev.target.value)} />
+                </div>
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", alignItems: "center" }}>
+                {busy && <span className="text-muted small">{_t("Four images — this takes a minute or so.")}</span>}
+                <button className="btn btn-sm" disabled={busy} onClick={() => setOpen(false)}>{_t("Cancel")}</button>
+                <button className="btn btn-sm btn-primary" disabled={busy || (!reference && !character.trim())}
+                        onClick={run}>
+                    <i className={busy ? "fa fa-spinner fa-spin" : "fa fa-magic"} /> {_t("Generate")}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function LookFields({ label, look, onChange, packKey, library, generate }) {
+    // The type follows the look's file whenever it has one, so a row reused
+    // for another look (a removed outfit, Discard) shows that look's; only
+    // an empty look remembers the pick in local state.
+    const [emptyType, setType] = useState("vrm");
+    const type = look.vrm ? (isPngLook(look.vrm) ? "png" : "vrm") : emptyType;
+    const frames = look.frames || {};
+    const setFrame = (key, fn) => {
+        const next = { ...frames, [key]: fn || undefined };
+        Object.keys(next).forEach((k) => next[k] || delete next[k]);
+        onChange({ frames: Object.keys(next).length ? next : undefined });
+    };
+    // Rows by role: the type (with a VRM's one file beside it), then a 2D
+    // look's four images, then Generate on its own line underneath.
+    return (
+        <div className="rx_look">
+            <div className="rx_look_fields">
+                <div>
+                    {label && <label>{label}</label>}
+                    <select value={type}
+                            title={_t("A 3D VRM model, or a 2D image that blinks and talks with optional extra frames")}
+                            onChange={(ev) => { setType(ev.target.value); onChange({ vrm: "", frames: undefined }); }}>
+                        <option value="vrm">{_t("3D model (VRM)")}</option>
+                        <option value="png">{_t("2D image (PNG)")}</option>
+                    </select>
+                </div>
+                {type === "vrm" && (
+                    <FileField library={library} label={_t("VRM")} kind="vrm" packKey={packKey}
+                               value={look.vrm} accept=".vrm"
+                               onUploaded={(fn) => onChange({ vrm: fn })} />
+                )}
+            </div>
+            {type === "png" && (
+                <div className="rx_look_fields">
+                    <FileField library={library} label={_t("Image (eyes open, mouth closed)")} kind="image"
+                               packKey={packKey} value={look.vrm} accept=".png,.jpg,.jpeg,.webp"
+                               onUploaded={(fn) => onChange({ vrm: fn })} />
+                    {PNG_LOOK_FRAMES.map(([key, name]) => (
+                        <FileField key={key} library={library} label={_t(name) + " " + _t("(optional)")} kind="image"
+                                   packKey={packKey} value={frames[key]} accept=".png,.jpg,.jpeg,.webp"
+                                   onUploaded={(fn) => setFrame(key, fn)}
+                                   onClear={() => setFrame(key, null)} />
+                    ))}
+                </div>
+            )}
+            {type === "png" && generate && (
+                <GenerateLook packKey={packKey} name={generate.name} defaults={generate.defaults}
+                              references={generate.references}
+                              onDone={(r) => onChange({ vrm: r.vrm, frames: r.frames })} />
+            )}
+        </div>
+    );
+}
+
 function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     const { pack_key, manifest } = editing;
     const setM = (patch) => setEditing({ ...editing, manifest: { ...manifest, ...patch } });
@@ -605,8 +759,24 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     // outfit's) so each button shows its own spinner; "*" while a
     // generate-all run walks the whole pack.
     const [generating, setGenerating] = useState(null);
-    const canGeneratePortrait = manifest.vrm && !manifest.vrm.startsWith("/");
-    const isPackFile = (ref) => ref && !ref.startsWith("/");
+    // The avatar's other looks, as likeness references for generating one.
+    const lookRefs = (exclude) => [
+        manifest.vrm ? { label: manifest.main_outfit_name || _t("Main look"), ref: manifest.vrm } : null,
+        ...(manifest.outfits || []).filter((o) => o.vrm)
+            .map((o) => ({ label: o.name || _t("(unnamed)"), ref: o.vrm })),
+    ].filter((r) => r && r.ref !== exclude);
+    // A PNG look's portraits are its own image (server portraits.py: the
+    // face one cropped to the head), so they show the moment the image is
+    // uploaded or generated, before Save. The file name is the cache key:
+    // a regenerated look lands under a new name.
+    const lookPortraits = (ref) => {
+        if (!ref || !isPngLook(ref)) return null;
+        const q = `vrm=${encodeURIComponent(fileUrl(ref))}&v=${encodeURIComponent(ref)}`;
+        return { face: `/api/avatars/portrait?${q}`, fullbody: `/api/avatars/fullbody?${q}` };
+    };
+    // A PNG look is its own portrait, so only VRMs render one.
+    const isPackFile = (ref) => ref && !ref.startsWith("/") && !isPngLook(ref);
+    const canGeneratePortrait = isPackFile(manifest.vrm);
     const fileUrl = (ref) => (ref.startsWith("/") ? ref : `/avatars/${pack_key}/${ref}`);
 
     // Tune model: the dialog for one look — { title, vrm, value, map, pose,
@@ -615,7 +785,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
     // spread, idle events switched off); Apply puts them in the draft like
     // any edit.
     const [tuning, setTuning] = useState(null);
-    const tuneButton = (title, vrm, value, map, pose, apply) => (
+    const tuneButton = (title, vrm, value, map, pose, apply) => !isPngLook(vrm) && (
         <button className="btn btn-sm btn-light" disabled={!vrm || !pack_key}
                 title={_t("How strongly the face moves on this model, which of its shapes it uses, and how far its arms hang out when standing — for a model whose expressions come out too big or too small, that has its own, or whose arms go through its body or clothes")}
                 onClick={() => setTuning({ title, vrm, value, map, pose, apply })}>
@@ -756,9 +926,9 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                                           [_t("All — face + full body, main and every outfit"), generateAll],
                                       ]} />
                     )}
-                    <Portrait url={editing.portrait_url} size="lg"
+                    <Portrait url={lookPortraits(manifest.vrm)?.face || editing.portrait_url} size="lg"
                               title={_t("Portrait — generated here, or the thumbnail embedded in the main VRM. Updates when the VRM changes (after Save).")} />
-                    <Portrait url={editing.fullbody_url} size="tall"
+                    <Portrait url={lookPortraits(manifest.vrm)?.fullbody || editing.fullbody_url} size="tall"
                               title={_t("Full-body portrait — generated here; none yet if empty.")} />
                 </span>
             </h3>
@@ -768,13 +938,19 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                     <input type="text" value={manifest.name || ""}
                            onChange={(ev) => setM({ name: ev.target.value })} />
                 </div>
-                <FileField library={library} label={_t("Main VRM (required)")} kind="vrm" packKey={pack_key}
-                           value={manifest.vrm} accept=".vrm"
-                           onUploaded={(fn) => setM({ vrm: fn })} />
                 <FileField library={library} label={_t("Idle animation VRMA (optional)")} kind="vrma" packKey={pack_key}
                            value={manifest.vrma_idle} accept=".vrma"
                            onUploaded={(fn) => setM({ vrma_idle: fn })}
                            onClear={() => setM({ vrma_idle: "" })} />
+            </div>
+            <div className="rx_row">
+                <LookFields label={_t("Main look (required)")} look={manifest} packKey={pack_key}
+                            library={library} onChange={setM}
+                            generate={{
+                                name: manifest.name,
+                                references: lookRefs(manifest.vrm),
+                                defaults: { character: manifest.physical_description, outfit: manifest.main_outfit_description },
+                            }} />
             </div>
             {/* Appearance: rendered into the companion's prompt as its
                 Appearance section and read by the outfit tools — so the
@@ -848,8 +1024,6 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                         <div className="rx_subrow rx_subrow--outfit">
                             <input type="text" placeholder={_t("Name")} value={o.name || ""}
                                    onChange={(ev) => setList("outfits", i, { name: ev.target.value })} />
-                            <FileField library={library} kind="vrm" packKey={pack_key} value={o.vrm} accept=".vrm"
-                                       onUploaded={(fn) => setList("outfits", i, { vrm: fn })} />
                             <input type="text" placeholder={_t("Description (fed to the LLM — when to wear it)")}
                                    value={o.description || ""}
                                    onChange={(ev) => setList("outfits", i, { description: ev.target.value })} />
@@ -858,10 +1032,19 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                                 <i className="fa fa-trash-o" />
                             </button>
                         </div>
+                        <div className="rx_row" style={{ marginTop: "0.5rem" }}>
+                            <LookFields look={o} packKey={pack_key} library={library}
+                                        onChange={(patch) => setList("outfits", i, patch)}
+                                        generate={{
+                                            name: `${manifest.name || "look"}_${o.name || "outfit"}`,
+                                            references: lookRefs(o.vrm),
+                                            defaults: { character: manifest.physical_description, outfit: o.description },
+                                        }} />
+                        </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginTop: "0.5rem" }}>
-                            <Portrait url={editing.outfit_portraits?.[o.vrm]?.face} size="lg"
+                            <Portrait url={(lookPortraits(o.vrm) || editing.outfit_portraits?.[o.vrm])?.face} size="lg"
                                       title={_t("Face portrait")} />
-                            <Portrait url={editing.outfit_portraits?.[o.vrm]?.fullbody} size="tall"
+                            <Portrait url={(lookPortraits(o.vrm) || editing.outfit_portraits?.[o.vrm])?.fullbody} size="tall"
                                       title={_t("Full-body portrait — what the companion looks like in this outfit for pictures of themselves in text chat")} />
                             {isPackFile(o.vrm) && (
                                 <PortraitMenu filename={o.vrm}
@@ -879,7 +1062,7 @@ function AvatarEditor({ editing, setEditing, busy, save, cancel, dirty }) {
                     </div>
                 ) : (
                     <div key={i} className="rx_memory_row rx_memory_row--portrait">
-                        <Portrait url={editing.outfit_portraits?.[o.vrm]?.face} size="sm" />
+                        <Portrait url={(lookPortraits(o.vrm) || editing.outfit_portraits?.[o.vrm])?.face} size="sm" />
                         <strong>{o.name || _t("(unnamed)")}</strong>
                         <span className="rx_memory_content text-muted small">
                             {o.vrm || _t("(none)")}{o.description ? ` · ${o.description}` : ""}

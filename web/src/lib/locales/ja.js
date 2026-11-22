@@ -3489,4 +3489,73 @@ export const JA = {
     "このアバターのコンパニオンに切り替えたときに適用されます。その後はボイス画面のニューラルボディモーション設定で変更できます。",
   "Lets the companion play games that connect to Rexclaw over the Neuro API — mods and games made for Neuro-sama, or the mini-games in the Games tab. The game tells the companion what is happening and what it can do, and the companion makes its moves (game_action, game_status). On calls the tools are there from the start, so a game can connect mid-call; in text chats only while a game is connected.":
     "Neuro API で Rexclaw に接続するゲーム（Neuro-sama 向けの MOD やゲーム、ゲームタブのミニゲーム）をコンパニオンがプレイできるようにします。ゲームが状況とできることを伝え、コンパニオンが手を打ちます（game_action、game_status）。通話では最初からツールがあるので通話中にゲームを接続でき、テキストチャットではゲームの接続中のみ使えます。",
+
+  // ── 2D PNG looks, create_outfit / create_character ─────────────────────
+  // Avatar editor: a look's model and its generation
+  "A 3D VRM model, or a 2D image that blinks and talks with optional extra frames":
+    "3D の VRM モデル、またはまばたきして話す 2D 画像（追加フレームは任意）",
+  "3D model (VRM)": "3D モデル（VRM）",
+  "2D image (PNG)": "2D 画像（PNG）",
+  "VRM": "VRM",
+  "Image (eyes open, mouth closed)": "画像（目を開け、口を閉じた状態）",
+  "Mouth open": "口を開けた状態",
+  "Eyes closed": "目を閉じた状態",
+  "Mouth open + eyes closed": "口を開け + 目を閉じた状態",
+  "Main look": "メインの見た目",
+  "Main look (required)": "メインの見た目（必須）",
+  "Generate…": "生成…",
+  "Make the image and its talking and blinking frames on create_image's engine: Grok Imagine, or your ComfyUI (Settings → Local generation)":
+    "画像と、話す・まばたきするフレームを create_image のエンジンで作ります：Grok Imagine、またはあなたの ComfyUI（設定 → ローカル生成）",
+  "Likeness from": "見た目の参照元",
+  "Upload a picture…": "画像をアップロード…",
+  "Nothing — describe them below": "なし — 下で説明する",
+  "Character": "キャラクター",
+  "Who they are and what they look like": "どんな人物で、どんな見た目か",
+  "Empty keeps the outfit in the picture": "空欄なら画像の衣装のまま",
+  "What they wear": "着ているもの",
+  "Four images — this takes a minute or so.": "画像 4 枚 — 1 分ほどかかります。",
+  "Generation failed": "生成に失敗しました",
+
+  // Companions list and editor
+  "Could not load the starter prompt": "初期プロンプトを読み込めませんでした",
+  "Characters companions created in a roleplay (create_character)":
+    "ロールプレイ中にコンパニオンが作ったキャラクター（create_character）",
+  "Hide auto-generated": "自動生成を隠す",
+  "Only auto-generated": "自動生成のみ",
+  "auto-generated": "自動生成",
+  "Auto-generated character": "自動生成キャラクター",
+  "Made up by a companion during a roleplay (create_character). Untick to keep them as one of your own companions; the list's filter goes by this mark.":
+    "ロールプレイ中にコンパニオンが作ったキャラクターです（create_character）。チェックを外すと自分のコンパニオンとして残せます。一覧のフィルターはこの印で絞り込みます。",
+  "Settings…": "設定…",
+  "What the characters run on (voice setup, text chat brain) and the voices the companion picks from":
+    "キャラクターが使うもの（音声セットアップ、テキストチャットの頭脳）と、コンパニオンが選べる声",
+  "Create 2D PNG outfits (create_outfit)": "2D PNG の衣装を作る（create_outfit）",
+  "Lets the companion design a new outfit during a voice call and change into it (create_outfit): a 2D picture of them wearing it is drawn from how they look now (four images, about a minute on Grok Imagine; on your ComfyUI when create_image uses it, which needs its image-edit workflow) and added to their avatar's outfits. On a 3D (VRM) avatar they become a drawn 2D picture in the new outfit, and change_outfit switches them back. Only for avatars you made or copied in the app (bundled ones are read-only), and the full-body portrait makes the best likeness.":
+    "ボイス通話中にコンパニオンが新しい衣装をデザインして着替えられるようにします（create_outfit）。今の見た目から、その衣装を着た 2D の絵が描かれ（画像 4 枚、Grok Imagine で約 1 分。create_image が ComfyUI を使う設定ならあなたの ComfyUI で、画像編集ワークフローが必要）、アバターの衣装に追加されます。3D（VRM）アバターでは新しい衣装の間は 2D の絵になり、change_outfit で元に戻ります。アプリで作成またはコピーしたアバターのみ対象です（同梱のアバターは読み取り専用）。全身ポートレートがあると一番似せられます。",
+  "Create 2D PNG characters (create_character)": "2D PNG のキャラクターを作る（create_character）",
+  "Lets the companion make up a new character for a roleplay during a voice call and bring them in (create_character): a 2D picture of them is drawn (on Grok Imagine, or on your ComfyUI when create_image uses it, which needs its text-to-image and image-edit workflows), they get a voice from the list in Settings… beside this switch (Grok's voices by default) and the personality the companion writes, and they join the call speaking for themselves. Settings… also picks the voice setup and text chat brain they run on. Takes four images (about a minute on Imagine); each character in the call is another voice connection. They are saved as auto-generated companions with memory, the call-companion tools (so they can leave the call when their part is done), speaks-first and time-aware resume on and no other tools, which you can keep, edit or delete.":
+    "ボイス通話中にコンパニオンがロールプレイ用の新しいキャラクターを考えて呼び込めるようにします（create_character）。キャラクターの 2D の絵が描かれ（Grok Imagine、または create_image が ComfyUI を使う設定ならあなたの ComfyUI で、テキストから画像と画像編集のワークフローが必要）、このスイッチ横の「設定…」のリストから声（既定は Grok の声）、コンパニオンが書いた人物像を受け取り、自分の言葉で話す参加者として通話に加わります。「設定…」では使う音声セットアップとテキストチャットの頭脳も選べます。画像 4 枚（Imagine で約 1 分）かかり、通話中のキャラクターごとに音声接続が 1 つ増えます。メモリ、コンパニオン呼び出しツール（出番が終わったら自分で通話を抜けられるように）、最初に話す、時刻を意識した再開がオンで、ほかのツールはオフの自動生成コンパニオンとして保存され、残すことも編集・削除することもできます。",
+  "Follows create_image's engine (Settings → Local generation): Grok Imagine with your xAI API key, or your ComfyUI's image-edit workflow.":
+    "create_image のエンジン（設定 → ローカル生成）に従います：xAI API キーで Grok Imagine、またはあなたの ComfyUI の画像編集ワークフロー。",
+  "Follows create_image's engine (Settings → Local generation): Grok Imagine with your xAI API key, or your ComfyUI's text-to-image and image-edit workflows.":
+    "create_image のエンジン（設定 → ローカル生成）に従います：xAI API キーで Grok Imagine、またはあなたの ComfyUI のテキストから画像・画像編集ワークフロー。",
+
+  // Characters dialog (create_character settings)
+  "Characters": "キャラクター",
+  "The characters this companion creates in a roleplay join the call as companions of their own. Choose what they run on and which voices the companion can give them.":
+    "このコンパニオンがロールプレイで作るキャラクターは、独立したコンパニオンとして通話に加わります。何で動かすか、コンパニオンがどの声を割り当てられるかを選びます。",
+  "Same as this companion (%s)": "このコンパニオンと同じ（%s）",
+  "Same as this companion": "このコンパニオンと同じ",
+  "Voices (Grok voice names or custom xAI voice ids)": "声（Grok の声の名前、または xAI のカスタムボイス ID）",
+  "Voices (%s)": "声（%s）",
+  "Using Grok's %s voices with xAI's descriptions.": "Grok の %s 種類の声を xAI の説明付きで使用中です。",
+  "No list: characters get the voice setup's default voice.": "リストなし：キャラクターには音声セットアップの既定の声が使われます。",
+  "Customise the list": "リストをカスタマイズ",
+  "Add voices": "声を追加",
+  "Add voice": "声を追加",
+  "What it sounds like, e.g. deep older male, British accent": "どんな声か（例：低い声の年配男性、イギリス英語のアクセント）",
+  "Back to Grok's voices as shipped": "同梱の Grok の声に戻す",
+  "Back to the setup's default voice": "セットアップの既定の声に戻す",
+  "Use Grok's list": "Grok のリストを使う",
+  "Clear the list": "リストを消去",
 };

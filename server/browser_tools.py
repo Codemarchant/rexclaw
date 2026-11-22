@@ -532,7 +532,7 @@ def build_play_gesture_tool(custom_gestures, allow=None, loop_stop=False):
     }
 
 
-def build_change_outfit_tool(outfits, appearance):
+def build_change_outfit_tool(outfits, appearance, *, creates=False):
     """Build a per-agent change_outfit tool whose description lists this
     agent's avatar wardrobe inline so the LLM can pick contextually.
 
@@ -541,9 +541,14 @@ def build_change_outfit_tool(outfits, appearance):
     :param appearance: store.agent_appearance() dict — names the main
         outfit in the list (its description already sits in the prompt's
         Appearance section, so only the name is repeated here).
-    Returns None when the wardrobe is empty so the caller omits the tool.
+    :param creates: the companion has create_outfit this call: the tool is
+        built even with no extra outfits yet (create_outfit's way back), and
+        outfit_id takes any id — one made mid-call isn't in the list fixed
+        at the start.
+    Returns None when the wardrobe is empty (and nothing can be created)
+    so the caller omits the tool.
     """
-    if not outfits:
+    if not outfits and not creates:
         return None
 
     lines = [
@@ -561,23 +566,29 @@ def build_change_outfit_tool(outfits, appearance):
     for o in outfits:
         desc = (o.get("outfit_description") or "").strip() or "(no description)"
         lines.append(f"  - {o['id']} — {o['name']}: {desc}")
+    outfit_id = {
+        "type": "integer",
+        "enum": [0] + [o["id"] for o in outfits],
+        "description": (
+            "ID of the outfit to switch to. 0 reverts to the "
+            "avatar's main outfit; other values come from the "
+            "list embedded in this tool's description."
+        ),
+    }
+    if creates:
+        lines.append("An outfit you made during this call with create_outfit "
+                     "is not listed: use the outfit_id its result gave.")
+        del outfit_id["enum"]
+        outfit_id["minimum"] = 0
+        outfit_id["description"] += (" For an outfit made during this call, the "
+                                     "outfit_id create_outfit returned.")
 
     return {
         "name": "change_outfit",
         "description": "\n".join(lines),
         "parameters": {
             "type": "object",
-            "properties": {
-                "outfit_id": {
-                    "type": "integer",
-                    "enum": [0] + [o["id"] for o in outfits],
-                    "description": (
-                        "ID of the outfit to switch to. 0 reverts to the "
-                        "avatar's main outfit; other values come from the "
-                        "list embedded in this tool's description."
-                    ),
-                },
-            },
+            "properties": {"outfit_id": outfit_id},
             "required": ["outfit_id"],
         },
     }
@@ -592,7 +603,8 @@ def build_add_agent_tool(agent, other_agents):
     knows about pricing") without a lookup tool.
 
     Returns None when there is nobody to call — no point exposing a tool
-    with an empty roster. Rebuilt on every session start, so edits to
+    with an empty roster — unless the companion makes characters
+    (create_character), which join by id. Rebuilt on every session start, so edits to
     names/descriptions flow in immediately (same rationale as
     build_change_outfit_tool).
 
@@ -600,7 +612,9 @@ def build_add_agent_tool(agent, other_agents):
     :param other_agents: list of agents rows (voice-enabled, excluding agent)
     """
     others = [a for a in (other_agents or []) if a["id"] != agent["id"]]
-    if not others:
+    # Kept with nobody else to call when the companion makes characters:
+    # one it created mid-call can still be brought back by id.
+    if not others and not agent["enable_create_character"]:
         return None
     lines = [
         "Add another AI companion to this live voice call. They join with "
@@ -617,24 +631,40 @@ def build_add_agent_tool(agent, other_agents):
     for a in others:
         desc = (a["when_to_call_description"] or "").strip() or "(no description provided)"
         lines.append(f"  - agent_id {a['id']} — {a['name']}: {desc}")
+    agent_id = {
+        "type": "integer",
+        "enum": [a["id"] for a in others],
+        "description": (
+            "ID of the companion to add, from the roster embedded "
+            "in this tool's description."
+        ),
+    }
+    _allow_created_characters(agent, lines, agent_id, minimum=1)
     return {
         "name": "add_agent_to_call",
         "description": "\n".join(lines),
         "parameters": {
             "type": "object",
-            "properties": {
-                "agent_id": {
-                    "type": "integer",
-                    "enum": [a["id"] for a in others],
-                    "description": (
-                        "ID of the companion to add, from the roster embedded "
-                        "in this tool's description."
-                    ),
-                },
-            },
+            "properties": {"agent_id": agent_id},
             "required": ["agent_id"],
         },
     }
+
+
+def _allow_created_characters(agent, lines, agent_id, *, minimum):
+    """For a companion with create_character: a character it makes mid-call
+    has an id the roster, fixed when the call started, can't hold — with the
+    enum the model picked the nearest listed id and named the wrong
+    companion. So the enum goes (the browser checks who is in the call) and
+    the tool says where that id comes from. Other companions keep the enum."""
+    if not agent["enable_create_character"]:
+        return
+    lines.append("A character created during this call with create_character "
+                 "is not listed: use the agent_id its result gave.")
+    del agent_id["enum"]
+    agent_id["minimum"] = minimum
+    agent_id["description"] += (" For a character created during this call, the "
+                                "agent_id create_character returned.")
 
 
 def build_remove_agent_tool(agent, other_agents):
@@ -648,10 +678,11 @@ def build_remove_agent_tool(agent, other_agents):
     actually IN the call varies at runtime, so validation happens
     client-side — the roster here just gives the model the id↔name mapping.
 
-    Returns None when there are no other agents (no group call can exist).
+    Returns None when there are no other agents (no group call can exist)
+    and the companion makes no characters (create_character) either.
     """
     others = [a for a in (other_agents or []) if a["id"] != agent["id"]]
-    if not others:
+    if not others and not agent["enable_create_character"]:
         return None
     lines = [
         "Disconnect a companion from this live group voice call. Use it "
@@ -670,21 +701,21 @@ def build_remove_agent_tool(agent, other_agents):
     ]
     for a in others:
         lines.append(f"  - agent_id {a['id']} — {a['name']}")
+    agent_id = {
+        "type": "integer",
+        "enum": [0] + [a["id"] for a in others],
+        "description": (
+            "ID of the companion to disconnect, or 0 to "
+            "disconnect yourself."
+        ),
+    }
+    _allow_created_characters(agent, lines, agent_id, minimum=0)
     return {
         "name": "remove_agent_from_call",
         "description": "\n".join(lines),
         "parameters": {
             "type": "object",
-            "properties": {
-                "agent_id": {
-                    "type": "integer",
-                    "enum": [0] + [a["id"] for a in others],
-                    "description": (
-                        "ID of the companion to disconnect, or 0 to "
-                        "disconnect yourself."
-                    ),
-                },
-            },
+            "properties": {"agent_id": agent_id},
             "required": ["agent_id"],
         },
     }

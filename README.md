@@ -47,7 +47,7 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 
 | | |
 |---|---|
-| 🧍 **Living 3D avatars** | VRM characters with lip-sync from the live audio, idle breathing, blinking and eye contact, plus emotions, gestures and outfit changes the model triggers itself. Orbit, move and zoom freely; hair and clothes react to your cursor. |
+| 🧍 **Living 3D avatars** | VRM characters with lip-sync from the live audio, idle breathing, blinking and eye contact, plus emotions, gestures and outfit changes the model triggers itself. Orbit, move and zoom freely; hair and clothes react to your cursor. Prefer 2D? Any look can be a PNG that talks and blinks, uploaded or generated in the avatar editor. |
 | 🎨 **Look** | Lighting presets from golden hour to stage spotlight, effects, and ambience (rain, snow, cherry petals, fireflies) that can follow their mood. **Art styles** repaint the live scene as oil, watercolour, manga ink, risograph or pixel art. |
 | 🚶 **Walkable 3D scenes** | GLB environments with WASD walk mode and a trailing camera. **Camera - auto follow** directs itself between face, waist-up and full-body shots, and with the opt-in **Locomotion tools** (`move_around`) your companion walks up to you, steps back, wanders or follows your view. |
 | 🖥️ **Desktop mascot** | In the desktop app, pop the avatar out as a frameless, always-on-top overlay that floats on your desktop, live call and all. Drag it, resize it, snap it to a corner or another monitor. **Ghost mode** lets clicks pass through and fades the avatar out of your cursor's way. |
@@ -64,6 +64,7 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 | | |
 |---|---|
 | 🎬 **Images & video** | `create_image`, `create_video` and `change_background` generate into the transcript or swap the live scene, from a prompt or by remixing library images: selfies off the canvas (`take_selfie`), your uploads, past generations. Video can animate an image, extend a clip or edit one in place. Renders on Grok Imagine or your own ComfyUI server. Only use photos of yourself or of people happy to appear. |
+| 🎭 **Characters & outfits on the fly** | Opt-in per companion: mid-roleplay they can bring a new character into the call with its own picture, voice and mind (`create_character`), or design a new outfit and change into it (`create_outfit`). Both are drawn as 2D PNGs on Grok Imagine or your ComfyUI. |
 | 📸 **Screen & camera sharing** | Share your screen or camera and your companion can look when asked (`take_screenshot`, `analyze_screen`) or record a clip of up to 90 s. Camera sharing also works on phones, tablets and headsets. Nothing is captured unless you armed the share and the companion asks. |
 | 👀 **Camera awareness** | Optional, with the camera shared: small on-device face and hand models let them react to a wave, a thumbs up, a yawn or you stepping away. Only short text hints reach the companion; no images leave your device. |
 | 🎧 **Voice messages & recording studio** | Ask in chat for a voice note, a bedtime story or a guided meditation and they record it in their own voice (`create_voicemail`), with timed silences, guided breathing, ambient beds, binaural beats and voice effects. Write and render your own scripts in History → Recordings. |
@@ -95,8 +96,6 @@ and run it. Self-contained: no Python, Node or Docker needed
 the pop-out desktop mascot (ghost mode, tray controls, transcript window),
 system-wide hotkeys and one-click VR / HTTPS device access.
 
-- The app isn't code-signed yet, so the installer shows a SmartScreen
-  warning: **More info → Run anyway**.
 - **Updates:** the installed app checks for a new version when it starts,
   and asks before it downloads and before it installs. The switch for that
   check is at the top of Settings, next to **Check for updates**.
@@ -236,8 +235,8 @@ memories, so the thread never outgrows the model's context.
 
 ## 🎭 Custom avatars — avatar packs
 
-Every companion has an avatar — a VRM character with optional outfits, gesture
-clips and scene backgrounds. Two ways to make one: the **in-app editor**
+Every companion has an avatar — a VRM character (or a 2D PNG) with optional
+outfits, gesture clips and scene backgrounds. Two ways to make one: the **in-app editor**
 (easiest), or by dropping a **pack folder** on disk (shareable / advanced).
 
 ### In the app — the Avatars tab

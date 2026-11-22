@@ -29,7 +29,7 @@ _logger = logging.getLogger(__name__)
 
 CACHE_DIR = DATA_DIR / "cache" / "portraits"
 PORTRAIT_SIZE = 384   # px, square-ish source → fits list rows and editor headers
-CACHE_VERSION = 5     # bump when the processing changes so cached files regenerate
+CACHE_VERSION = 6     # bump when the processing changes so cached files regenerate
 
 _GLB_MAGIC = b"glTF"
 _warned_no_pillow = False
@@ -49,6 +49,7 @@ def vrm_disk_path(web_path):
     }
     if not isinstance(web_path, str):
         return None
+    web_path = web_path.split("#")[0]   # a PNG look's frames (store.look_url)
     for prefix, root in roots.items():
         if web_path.startswith(prefix):
             candidate = (root / web_path[len(prefix):]).resolve()
@@ -73,11 +74,24 @@ def fullbody_sidecar_path(vrm_disk):
     return vrm_disk.with_name(f"{vrm_disk.stem}.fullbody.png")
 
 
+def _is_image(disk):
+    """A PNG look's model file: the image is its own portrait."""
+    return disk.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")
+
+
+def _image_mime(disk):
+    return {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".webp": "image/webp"}.get(disk.suffix.lower(), "image/png")
+
+
 def fullbody_file(web_path):
-    """The full-body sidecar PNG for a served VRM path, or None."""
+    """The full-body sidecar PNG for a served VRM path (a PNG look's own
+    image), or None."""
     disk = vrm_disk_path(web_path)
     if not disk:
         return None
+    if _is_image(disk):
+        return disk
     side = fullbody_sidecar_path(disk)
     return side if side.is_file() else None
 
@@ -86,7 +100,7 @@ def fullbody_source(web_path):
     """Full-resolution (mime, bytes) of the full-body portrait, or None.
     Preferred likeness for text-mode include_self — it shows the outfit."""
     side = fullbody_file(web_path)
-    return ("image/png", side.read_bytes()) if side else None
+    return (_image_mime(side), side.read_bytes()) if side else None
 
 
 def fullbody_url(web_path):
@@ -144,6 +158,8 @@ def _source_file(web_path):
     disk = vrm_disk_path(web_path)
     if not disk:
         return None
+    if _is_image(disk):
+        return disk
     side = sidecar_path(disk)
     return side if side.is_file() else disk
 
@@ -156,13 +172,43 @@ def portrait_source(web_path):
     src = _source_file(web_path)
     if not src:
         return None
-    if src.suffix == ".png" and src.name.endswith(".portrait.png"):
-        return "image/png", src.read_bytes()
+    if _is_image(src):   # a generated sidecar, or a PNG look's own image
+        return _image_mime(src), src.read_bytes()
     try:
         return extract_vrm_thumbnail(src)
     except Exception as e:
         _logger.warning("portrait: could not read %s: %s", web_path, e)
         return None
+
+
+# A PNG look's face portrait: the image is the whole figure, so the list
+# rows' square shows its middle (the torso) unless cropped to the head.
+# For a figure much taller than wide (standing, full body) the square is
+# FACE_SHARE of its height from the top — about a head and a half of a
+# figure six to seven heads tall, the usual anime proportion; a figure
+# about as wide as tall (a bust) gets a square as wide as the figure.
+FACE_SHARE = 0.24
+FULL_BODY_ASPECT = 1.6   # figure height / width above which it counts as full body
+
+
+def _face_crop(img):
+    """The head-and-shoulders square of a PNG look's image, centred on the
+    figure's top (its opaque pixels; the whole image without alpha)."""
+    import numpy as np
+    img = img.convert("RGBA")
+    alpha = np.asarray(img)[..., 3] > 16
+    rows, cols = np.nonzero(alpha)
+    if not len(rows):
+        return img
+    top, bottom, left, right = rows.min(), rows.max() + 1, cols.min(), cols.max() + 1
+    h, w = bottom - top, right - left
+    side = int(round(h * FACE_SHARE)) if h / max(w, 1) > FULL_BODY_ASPECT else int(w)
+    side = max(16, min(side, img.width, img.height))
+    head_cols = np.nonzero(alpha[top:top + side].any(axis=0))[0]
+    cx = (head_cols.min() + head_cols.max()) / 2 if len(head_cols) else (left + right) / 2
+    x0 = int(max(0, min(img.width - side, round(cx - side / 2))))
+    y0 = int(max(0, min(img.height - side, top - side * 0.04)))   # a little headroom
+    return img.crop((x0, y0, x0 + side, y0 + side))
 
 
 def _cache_key(disk_path):
@@ -202,6 +248,9 @@ def portrait_file(web_path):
             none_marker.touch()
             return None
         img = Image.open(io.BytesIO(found[1]))
+        src_disk = _source_file(web_path)
+        if _is_image(src_disk) and not src_disk.name.endswith(".portrait.png"):
+            img = _face_crop(img)
         if img.mode in ("RGBA", "LA", "P"):
             # Flatten any transparency onto white — VRoid thumbnails are
             # opaque, but a hand-made one (or a rendered sidecar) may not be.

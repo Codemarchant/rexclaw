@@ -66,7 +66,8 @@ def fullbody(vrm: str, v: str = ""):
     path = portraits.fullbody_file(vrm)
     if not path:
         raise UserError("No full-body portrait for that avatar.")
-    return FileResponse(str(path), media_type="image/png",
+    # A PNG look's own image may be a JPEG or WebP.
+    return FileResponse(str(path), media_type=portraits._image_mime(path),
                         headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
@@ -105,6 +106,34 @@ def set_portrait(payload: dict = Body(default={}), con=Depends(db_con)):
     return {"ok": True,
             "portrait_url": portraits.portrait_url(web_path),
             "fullbody_url": portraits.fullbody_url(web_path)}
+
+
+@router.post("/generate_png_look")
+def generate_png_look(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Generate a PNG look (image + PNGtuber frames, png_looks.py) with
+    Grok Imagine into an editable pack. `reference`: a data:image URI, or a
+    look in this pack / a served path (a VRM gives its portrait); without
+    one, `character` describes who to draw. `outfit`: what they wear.
+    Returns the look's manifest fields {vrm, frames}."""
+    from .. import png_looks
+    from ..db import get_config
+    pack_key = payload.get("pack_key")
+    avatar_packs._require_editable(pack_key)
+    ref = (payload.get("reference") or "").strip()
+    uris = []
+    if ref.startswith("data:image/"):
+        uris.append(ref)
+    elif ref:
+        web_path = ref if ref.startswith("/") else f"/avatars/{pack_key}/{ref}"
+        found = portraits.fullbody_source(web_path) or portraits.portrait_source(web_path)
+        if not found:
+            raise UserError("That look has no picture to work from — generate its portrait first.")
+        uris.append(f"data:{found[0]};base64,{base64.b64encode(found[1]).decode()}")
+    images = png_looks.generate(get_config(con), reference_uris=uris,
+                                character=payload.get("character") or "",
+                                outfit=payload.get("outfit") or "")
+    stem = (payload.get("name") or "look").strip() or "look"
+    return png_looks.save_to_pack(pack_key, stem, images)
 
 
 @router.post("/create")
@@ -165,7 +194,8 @@ def get(payload: dict = Body(default={}), con=Depends(db_con)):
                                  "fullbody": portraits.fullbody_url(web_path)}
     return {"pack_key": pack_key, "manifest": manifest,
             "files": avatar_packs.list_pack_files(pack_key),
-            "outfit_portraits": outfit_portraits}
+            "outfit_portraits": outfit_portraits,
+            "version": avatar_packs.manifest_version(pack_key)}
 
 
 @router.post("/save")
@@ -175,6 +205,15 @@ def save(payload: dict = Body(default={}), con=Depends(db_con)):
     manifest = payload.get("manifest")
     if not isinstance(manifest, dict):
         raise UserError("Missing manifest.")
+    # Changed since the editor opened it (create_outfit adds outfits from a
+    # call): saving the stale draft would drop those, and the prune below
+    # would delete their images. The pack key is checked first.
+    if not payload.get("is_new") and "version" in payload:
+        avatar_packs._require_editable(pack_key)
+        if payload["version"] != avatar_packs.manifest_version(pack_key):
+            raise UserError("This avatar changed while you had it open (a companion may have "
+                            "made a new outfit). Discard and reopen it to see the change, then "
+                            "redo your edits.")
     # On a brand-new avatar, finalize the folder name to match the display
     # name before writing — so the pack folder is human-readable / shareable.
     # Validate first: rename_pack drops the old key, so failing validation

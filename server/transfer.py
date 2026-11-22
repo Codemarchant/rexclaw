@@ -215,14 +215,24 @@ def import_memory_entries(con, entries, resolve_agent_id):
 # Avatar pack ⇄ zip
 # ---------------------------------------------------------------------------
 
+def _iter_frame_refs(look):
+    """A PNG look's extra frames (avatar_packs.PNG_FRAME_KEYS)."""
+    frames = look.get("frames")
+    if isinstance(frames, dict):
+        for key in avatar_packs.PNG_FRAME_KEYS:
+            yield frames, key
+
+
 def _iter_manifest_refs(manifest):
     """Yield every (container, key) in the manifest whose value is a file
     reference — the fields the scanner resolves."""
     yield manifest, "vrm"
+    yield from _iter_frame_refs(manifest)
     yield manifest, "vrma_idle"
     for o in manifest.get("outfits") or []:
         if isinstance(o, dict):
             yield o, "vrm"
+            yield from _iter_frame_refs(o)
     for g in manifest.get("gestures") or []:
         if isinstance(g, dict):
             yield g, "vrma"
@@ -898,8 +908,17 @@ def export_companion_zip(con, agent_id, out_path, *,
         # stream-chat prompts are usually the user's own routines (and the
         # importer lands them switched off regardless).
         skip = () if include_idle_events else _idle_event_fields()
+        agent_out = {k: agent[k] for k in _agent_portable_fields() if k not in skip}
+        if agent_out.get("character_settings"):
+            # The characters' voice setup is an id on this install (like the
+            # companion's own voice_setup): left out, so they follow the
+            # companion's setup there. Their brain pick and voices travel.
+            from .look_tools import character_settings, settings_json
+            portable = character_settings(agent_out)
+            portable.pop("voice_setup", None)
+            agent_out["character_settings"] = settings_json(portable)
         _writestr_json(zf, "companion.json", {
-            "agent": {k: agent[k] for k in _agent_portable_fields() if k not in skip},
+            "agent": agent_out,
             "avatar": {"pack_key": avatar["pack_key"], "name": avatar["name"]} if avatar else None,
             "voice_setup": voice_setup_ref(con, agent),
         })

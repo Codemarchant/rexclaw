@@ -11,7 +11,7 @@ import requests
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 from PIL import Image
 
-from .. import affection_tools, companion_texting, delegate_tools, games, imagine_tools, local_mcp, local_tools, lore_tools, memory_tools, minecraft_tools, plugins, screen_pointer, session_service, store, text_to_vrma, tool_cooldowns, xai_client
+from .. import affection_tools, companion_texting, delegate_tools, games, imagine_tools, local_mcp, local_tools, look_tools, lore_tools, memory_tools, minecraft_tools, plugins, screen_pointer, session_service, store, text_to_vrma, tool_cooldowns, xai_client
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -207,6 +207,9 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         result = companion_texting.execute_text_companion_tool(con, session, arguments)
         con.commit()
         return result
+    if tool_name in look_tools.LOOK_TOOL_NAMES:
+        # Flag + mode checks live in the executor (same {'error': ...} contract).
+        return look_tools.execute(con, session, tool_name, arguments)
     if tool_name == text_to_vrma.GENERATE_GESTURE_TOOL_NAME:
         # Flag + mode checks live in the executor (same {'error': ...} contract).
         return text_to_vrma.execute_generate_gesture(con, session, agent, arguments)

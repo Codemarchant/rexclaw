@@ -778,7 +778,13 @@ CREATE TABLE IF NOT EXISTS agents (
     coach_gap INTEGER NOT NULL DEFAULT 0,
     -- Tool cooldowns (tool_cooldowns.py): a JSON object {tool name: seconds
     -- before the companion can call it again}. Empty = none.
-    tool_cooldowns TEXT NOT NULL DEFAULT '{}'
+    tool_cooldowns TEXT NOT NULL DEFAULT '{}',
+    -- look_tools.py — see the MIGRATIONS notes. Declared here too so
+    -- shipped_column_defaults (Reset to stock) knows them.
+    auto_generated INTEGER NOT NULL DEFAULT 0,
+    enable_create_character INTEGER NOT NULL DEFAULT 0,
+    character_settings TEXT NOT NULL DEFAULT '',
+    enable_create_outfit INTEGER NOT NULL DEFAULT 0
 );
 
 -- When each tool with a cooldown was last used (tool_cooldowns.py), in
@@ -1712,6 +1718,23 @@ MIGRATIONS = (
     # Tool cooldowns — see the agents schema comment.
     "ALTER TABLE agents ADD COLUMN tool_cooldowns TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE tool_cooldown_uses ADD COLUMN call_id TEXT",
+    # PNG looks: a look whose `vrm` is an image carries its extra PNGtuber
+    # frames here, JSON {mouth_open, eyes_closed, mouth_open_eyes_closed}
+    # → web path (avatar_packs.py) — the main look's on avatars, each
+    # outfit's on avatar_outfits.
+    "ALTER TABLE avatars ADD COLUMN frames TEXT",
+    "ALTER TABLE avatar_outfits ADD COLUMN frames TEXT",
+    # Characters companions create mid-roleplay (look_tools.py): the
+    # companion row is marked auto_generated (the Companions list filters
+    # on it); enable_create_character offers the tool; character_settings
+    # is the creating companion's Characters dialog, JSON {voice_setup,
+    # text_brain, voices: [{voice, description}]}, '' = all defaults
+    # (look_tools.character_settings).
+    "ALTER TABLE agents ADD COLUMN auto_generated INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agents ADD COLUMN enable_create_character INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agents ADD COLUMN character_settings TEXT NOT NULL DEFAULT ''",
+    # Offers create_outfit (look_tools.py) — a new 2D outfit drawn on Imagine.
+    "ALTER TABLE agents ADD COLUMN enable_create_outfit INTEGER NOT NULL DEFAULT 0",
 )
 
 

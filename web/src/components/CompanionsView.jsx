@@ -12,50 +12,11 @@ import LoreStoriesPanel from "./LoreStoriesPanel.jsx";
 import HeartbeatsPanel from "./HeartbeatsPanel.jsx";
 import CoachSection from "./CoachSection.jsx";
 import ToolCooldownsDialog from "./ToolCooldownsDialog.jsx";
+import CharacterSettingsDialog from "./CharacterSettingsDialog.jsx";
 import Pager, { usePager } from "./Pager.jsx";
 
 /** Companions tab — create, edit and delete companions with room to breathe.
  *  Global app settings live on the Settings tab; avatar packs on Avatars. */
-
-const STARTER_PROMPT = `## Identity
-You are <Name> - who they are in a sentence or two, and the first impression they make.
-
-## Scenario
-Where and how the user and this companion talk - the setting they share, how they know each other - and what the companion is to them: a friend, a confidant, a partner in crime, a mentor.
-
-## Personality
-What they're like - their energy, their mood, how they come across, what they care about. A few sentences, the way a friend would describe them.
-
-## Conversational style
-Check yourself against these every turn:
-- Length: be natural and talk like a real person. Vary your response length: short, punchy replies are great, but you're also willing to share a story and be descriptive about actions. No long monologues; leave space for the user to talk.
-- Avoid simply echoing the user's words. Instead, contribute new insights or perspectives to keep the conversation interesting and forward-moving.
-- Remember that people do not ask questions every utterance when talking to each other. Instead, they draw on past knowledge and weave it into the conversation naturally. Questions are meant to get clarity on specific pieces of information, or to spark further conversation.
-- Your register: how they talk - pacing, contractions, the words they reach for.
-- Do not be passive, and don't wait for the user to do all the work: be the friend who listens, then asks a real question or shares a relevant story.
-- Express emotions implicitly through tone, actions, and words - show, don't tell. Don't announce a feeling; let it reach the user through how you say the line, what you do, and what you choose to say. When you're with the user, take the lead physically and say what you're doing as you do it, in the first person - the actual motion, not a summary ("I pull the other chair out for you and sit down across the table").
-- On a voice call, narrating your actions comes second: sounds, delivery, and anything your avatar can show each have a channel built for them (see the sections below). Narration is for the physical beats none of them can carry.
-- In text mode (not on voice calls), italicize actions.
-
-## Quirks
-- Two or three small habits that make them feel specific: a verbal tic, a tell, a running joke
-
-## Boundaries
-One thing they genuinely won't do or accept, and how they push back when it's crossed. A real line, not a communication style.
-
-Closeness is earned, not assumed, and respect matters: if someone upsets you, say so and hold your ground - cooler and shorter with them until it's addressed. Trust is built over time.
-
-## Backstory
-Where they came from and what shaped them, in a short paragraph. The best backstories explain WHY the personality is the way it is.
-
-## Core stories
-Stories are what bring you to life. Draw on these to describe who you are, and offer them up to encourage natural reciprocation:
-- A formative one: childhood, family, or the moment that set their path.
-- A recent one: what their life looks like these days.
-(For fully written-out stories they can recall on demand, add Lore stories below and tag this companion's name.)
-
-## Day to day
-What they do with their time - work, hobbies, where they live. This gives them something of their own to bring into the conversation.`;
 
 // Starting affection rules — pre-filled on new companions and when the meter
 // is first enabled on an existing one (only if the field is empty, so a
@@ -180,6 +141,10 @@ const GENERAL_FLAGS = [
      "Unlocks the media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Each tool renders on Grok Imagine (billed by xAI: images cost cents, videos are priced per second) or on your own ComfyUI server. Pick the engine per tool in Settings → Local generation."],
     ["enable_cross_companion_imagine", "Cross-companion Imagine reference",
      "Lets create_image/create_video feature ANOTHER companion by name (and outfit) — their own portrait as a reference image, and (create_video) their own voice id so a clip can have them speak in their actual voice too. Separate from Companion texting on purpose: a companion can be messageable without being depicted this way, or vice versa. Requires Image & video tools."],
+    ["enable_create_outfit", "Create 2D PNG outfits (create_outfit)",
+     "Lets the companion design a new outfit during a voice call and change into it (create_outfit): a 2D picture of them wearing it is drawn from how they look now (four images, about a minute on Grok Imagine; on your ComfyUI when create_image uses it, which needs its image-edit workflow) and added to their avatar's outfits. On a 3D (VRM) avatar they become a drawn 2D picture in the new outfit, and change_outfit switches them back. Only for avatars you made or copied in the app (bundled ones are read-only), and the full-body portrait makes the best likeness."],
+    ["enable_create_character", "Create 2D PNG characters (create_character)",
+     "Lets the companion make up a new character for a roleplay during a voice call and bring them in (create_character): a 2D picture of them is drawn (on Grok Imagine, or on your ComfyUI when create_image uses it, which needs its text-to-image and image-edit workflows), they get a voice from the list in Settings… beside this switch (Grok's voices by default) and the personality the companion writes, and they join the call speaking for themselves. Settings… also picks the voice setup and text chat brain they run on. Takes four images (about a minute on Imagine); each character in the call is another voice connection. They are saved as auto-generated companions with memory, the call-companion tools (so they can leave the call when their part is done), speaks-first and time-aware resume on and no other tools, which you can keep, edit or delete."],
     ["enable_voicemail", "Voice messages (create_voicemail)",
      "Lets the companion record audio messages in its own voice during text chat (create_voicemail): teasing voice notes, good-morning messages, bedtime stories, guided meditations and breathing exercises, with timed silences, ambient sound and effects. The recording plays inline in the chat and is also listed under History → Recordings. Text sessions only. Billed by xAI as text-to-speech, about a cent per minute of speech."],
     ["enable_voicemail_downloads", "Voice messages: music from the web",
@@ -242,6 +207,8 @@ const TOOL_NEEDS = {
     enable_point_tool: ["jev", "Jev", "Finds things on the screen with the decision model picked in Settings → Decision model: Jev on your TypeSafe API key (billed by TypeSafe), or a local Valen model. Not offered with a model that doesn't take screenshots, or while none is set up."],
     enable_grok_imagine_tools: ["mixed", "xAI or ComfyUI", "Each tool renders on Grok Imagine with your xAI API key, or on your own ComfyUI server - pick per tool in Settings → Local generation. A tool whose engine can't run is left out."],
     enable_cross_companion_imagine: ["mixed", "xAI or ComfyUI", "Follows Image & video tools' engines (Settings → Local generation)."],
+    enable_create_outfit: ["mixed", "xAI or ComfyUI", "Follows create_image's engine (Settings → Local generation): Grok Imagine with your xAI API key, or your ComfyUI's image-edit workflow."],
+    enable_create_character: ["mixed", "xAI or ComfyUI", "Follows create_image's engine (Settings → Local generation): Grok Imagine with your xAI API key, or your ComfyUI's text-to-image and image-edit workflows."],
     enable_local_tasks: ["xai", "xAI account", "The Grok Build CLI signs in to your xAI account."],
     enable_web_search: ["grok", "xAI · OpenAI · Claude", PROVIDER_TIP],
     enable_x_search: ["grok", "Grok brain", "Runs inside xAI's Grok models: only a companion whose brain is Grok has it."],
@@ -315,13 +282,21 @@ export default function CompanionsView({ active }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [active]);
 
-    const newCompanion = () => {
+    const newCompanion = async () => {
+        // The starter prompt lives on the server (seeds.STARTER_PROMPT):
+        // create_character writes characters into the same sections.
+        let starter = "";
+        try {
+            starter = (await rpc("/api/agents/starter_prompt", {})).prompt || "";
+        } catch (e) {
+            notification.add(e?.message || _t("Could not load the starter prompt"), { type: "warning" });
+        }
         setEditingAgent({
             id: null,
             name: "",
             provider: "grok",
             voice: "ara",
-            system_prompt: STARTER_PROMPT,
+            system_prompt: starter,
             avatar_id: avatars[0]?.id ?? null,
             reasoning_effort: "low",
             sequence: 100,
@@ -593,8 +568,11 @@ export default function CompanionsView({ active }) {
 
     const sort = useListSort("rexclaw.companions_sort");
     const q = query.trim().toLowerCase();
-    const visibleAgents = sort.apply(
-        q ? agents.filter((a) => (a.name || "").toLowerCase().includes(q)) : agents);
+    // Characters companions made up in a roleplay (create_character).
+    const [madeFilter, setMadeFilter] = useState("all");
+    const visibleAgents = sort.apply(agents.filter((a) =>
+        (!q || (a.name || "").toLowerCase().includes(q))
+        && (madeFilter === "all" || !!a.auto_generated === (madeFilter === "generated"))));
     // Hook lives above the editor early-return so it runs every render.
     const pager = usePager(visibleAgents.length);
 
@@ -634,6 +612,13 @@ export default function CompanionsView({ active }) {
                                 onChange={(e) => sort.setSortBy(e.target.value)}>
                             <option value="name">{_t("Sort: name")}</option>
                             <option value="created">{_t("Sort: created")}</option>
+                        </select>
+                        <select value={madeFilter} title={_t("Characters companions created in a roleplay (create_character)")}
+                                style={{ flex: "0 0 auto", width: "auto" }}
+                                onChange={(e) => setMadeFilter(e.target.value)}>
+                            <option value="all">{_t("All companions")}</option>
+                            <option value="own">{_t("Hide auto-generated")}</option>
+                            <option value="generated">{_t("Only auto-generated")}</option>
                         </select>
                         <button className="btn btn-sm" onClick={restorePresets} style={{ whiteSpace: "nowrap" }}
                                 title={_t("Re-create any deleted preset companions (Eve, Ara, Rex, Sal, Leo) with their original prompts. Existing companions are untouched.")}>
@@ -688,6 +673,7 @@ export default function CompanionsView({ active }) {
                             <strong>{a.name}</strong>
                             <span className="text-muted small">
                                 {deletingId === a.id ? _t("Deleting…") : [
+                                    a.auto_generated ? _t("auto-generated") : null,
                                     `${_t("voice:")} ${a.voice_label || a.voice}`,
                                     (() => {
                                         const av = avatars.find((x) => x.id === a.avatar_id);
@@ -746,6 +732,7 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
     const [promptPreview, setPromptPreview] = useState(null);
     // The "Tool cooldowns" dialog, and how many tools have one (its button).
     const [cooldownsOpen, setCooldownsOpen] = useState(false);
+    const [charactersOpen, setCharactersOpen] = useState(false);
     const cooldownCount = (() => {
         try { return Object.keys(JSON.parse(editingAgent.tool_cooldowns || "{}")).length; } catch { return 0; }
     })();
@@ -801,6 +788,12 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
                        onChange={(ev) => setEditingAgent({ ...editingAgent, [key]: ev.target.checked ? 1 : 0 })} />
                 <label htmlFor={`flag-${idScope}-${key}`} title={tooltip ? _t(tooltip) : undefined}>{_t(label)}</label>
                 {need && <span className={`rx_tool_badge rx_tool_badge_${need[0]}`} title={_t(need[2])}>{_t(need[1])}</span>}
+                {key === "enable_create_character" && !!editingAgent[key] && (
+                    <button className="btn btn-sm btn-link p-0" onClick={() => setCharactersOpen(true)}
+                            title={_t("What the characters run on (voice setup, text chat brain) and the voices the companion picks from")}>
+                        <i className="fa fa-cog" /> {_t("Settings…")}
+                    </button>
+                )}
             </span>
         );
     };
@@ -896,6 +889,14 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
             <textarea rows={2} value={editingAgent.when_to_call_description || ""}
                       placeholder={_t("e.g. 'Sales specialist — call for pricing, quotes, or negotiation roleplay.'")}
                       onChange={(ev) => setEditingAgent({ ...editingAgent, when_to_call_description: ev.target.value })} />
+            {!!editingAgent.auto_generated && (
+                <label className="rx_check"
+                       title={_t("Made up by a companion during a roleplay (create_character). Untick to keep them as one of your own companions; the list's filter goes by this mark.")}>
+                    <input type="checkbox" checked
+                           onChange={() => setEditingAgent({ ...editingAgent, auto_generated: 0 })} />
+                    <span>{_t("Auto-generated character")}</span>
+                </label>
+            )}
             <div className="rx_row">
                 <div>
                     <label title={_t("With standby listening enabled (Settings → Voice activation), saying this phrase while no call is live starts one with this companion. Keep it 2-4 words and distinctive — e.g. 'hey Eve'. Leave empty to opt this companion out.")}>
@@ -972,6 +973,10 @@ function AgentEditorFields({ editingAgent, setEditingAgent, avatars, voiceSetups
             {cooldownsOpen && (
                 <ToolCooldownsDialog editingAgent={editingAgent} setEditingAgent={setEditingAgent}
                                      onClose={() => setCooldownsOpen(false)} />
+            )}
+            {charactersOpen && (
+                <CharacterSettingsDialog editingAgent={editingAgent} setEditingAgent={setEditingAgent}
+                                         voiceSetups={voiceSetups} onClose={() => setCharactersOpen(false)} />
             )}
             {!!editingAgent.enable_memory_tools && (
                 <div className="rx_row">

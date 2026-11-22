@@ -52,6 +52,7 @@ import { ToolProps } from "./tool_props";
 import { PortalStage, backgroundKey } from "./background_portal";
 import { FaceViewer } from "./face_viewer";
 import { applyEyelids, restoreSpringRest, startVrmExtras, takeSpringRest } from "./vrm_extras";
+import { isPngLook, loadPngLook } from "./png_puppet";
 
 // Kept async + memoized so the renderer code below stays identical to the
 // CDN-loading version it was ported from.
@@ -1159,6 +1160,8 @@ class AvatarRenderer {
      *  renderer.render while such an avatar is loaded (leaseLilToonRendering);
      *  a scene without one never pays for them. */
     async _loadVrmGltf(url) {
+        // A PNG look: an image on a card, rigged as a minimal VRM (png_puppet.js).
+        if (isPngLook(url)) return loadPngLook(url, this.camera);
         const { THREE, VRMLoaderPlugin, VRMAnimationLoaderPlugin } = this.libs;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`VRM fetch failed (${res.status}): ${url}`);
@@ -3167,17 +3170,18 @@ class AvatarRenderer {
         if (this.libs) this._ensureToolProps().preload(url);
     }
 
-    /** A prop in the actor's hand (hidden until show()), or null. */
+    /** A prop in the actor's hand (hidden until show()), or null. A PNG
+     *  look has no visible hands to hold one. */
     async attachToolProp(url, spec, peerId = null) {
         const actor = this._toolActor(peerId);
-        if (!actor?.vrm || !this.libs) return null;
+        if (!actor?.vrm || !this.libs || actor.vrm.isPngLook) return null;
         return this._ensureToolProps().attach(actor.vrm, url, spec);
     }
 
     /** The orb of light between the actor's hands, or null. */
     startToolOrb(peerId = null) {
         const actor = this._toolActor(peerId);
-        if (!actor?.vrm || !this.libs) return null;
+        if (!actor?.vrm || !this.libs || actor.vrm.isPngLook) return null;
         return this._ensureToolProps().orb(actor.vrm);
     }
 
