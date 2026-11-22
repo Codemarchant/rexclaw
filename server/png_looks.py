@@ -275,29 +275,39 @@ def _background_alpha(img):
     two. It holds across the backdrop's shading, which the model draws
     darker in places, where a plain distance from one key colour left olive
     patches opaque. A pixel at or past the backdrop's own weakest excess
-    (its border's 1st percentile) is fully clear; one within KEY_THRESHOLD
+    (the 1st percentile of its screen-coloured border pixels) is fully clear; one within KEY_THRESHOLD
     of no excess is fully kept; in between, the excess is the share of
     backdrop mixed into the pixel. Any other backdrop colour keeps AITuber
     OnAir's distance key."""
     import numpy as np
     rgb = np.asarray(img, dtype=np.int32)
     h, w, _ = rgb.shape
-    s = max(1, min(KEY_SAMPLE, w, h))
-    corners = np.concatenate([rgb[:s, :s], rgb[:s, -s:], rgb[-s:, :s], rgb[-s:, -s:]]).reshape(-1, 3)
     border = np.concatenate([rgb[0], rgb[-1], rgb[:, 0], rgb[:, -1]])
-    if border.std(axis=0).max() > FLAT_BORDER_MAX_STD:
-        return None
-    key = corners.mean(axis=0)
-    excess = _screen_excess(key)
-    if excess is not None:
+    # The screen is told apart from the character on the border pixel by
+    # pixel, not by the border's spread: a big character (wings, a tail)
+    # crossing the canvas edge made the whole border uneven and the look
+    # was left uncut. A screen colour on most of the border is the backdrop;
+    # the key colour and clear level come from its pixels alone.
+    for c in (1, 2):   # green screen, blue screen
+        a, b = [i for i in range(3) if i != c]
+        excess = lambda px: px[..., c] - np.maximum(px[..., a], px[..., b])
+        on_screen = excess(border) > 2 * KEY_THRESHOLD + KEY_FEATHER
+        if on_screen.mean() < 0.5:
+            continue
+        key = np.median(border[on_screen], axis=0)
         # Chroma key: every pixel by its own screen-colour excess, no flood
         # fill — the screen colour is kept off the character (_backdrop),
         # so any excess is backdrop, including the backdrop showing between
         # strands of hair, mixed with them, which no fill from the border
         # reaches.
         diff = excess(rgb).astype(np.float64)
-        clear = max(np.percentile(excess(border), 1), KEY_THRESHOLD + 1)
+        clear = max(np.percentile(excess(border[on_screen]), 1), KEY_THRESHOLD + 1)
         return np.clip((clear - diff) / (clear - KEY_THRESHOLD), 0, 1), key
+    if border.std(axis=0).max() > FLAT_BORDER_MAX_STD:
+        return None
+    s = max(1, min(KEY_SAMPLE, w, h))
+    corners = np.concatenate([rgb[:s, :s], rgb[:s, -s:], rgb[-s:, :s], rgb[-s:, -s:]]).reshape(-1, 3)
+    key = corners.mean(axis=0)
     # Any other flat backdrop (white, grey): AITuber OnAir's distance key,
     # grown from the border so a character in the backdrop's colour keeps
     # whatever the backdrop doesn't touch.
