@@ -1080,7 +1080,6 @@ export default function MascotView() {
                 // config; the avatar it drives is here, so it applies here.
                 case "neuralMotion": {
                     neuralMotion.configure(msg.call || null);
-                    services.motion_director?.setNeuralMotion?.(!!msg.call);
                     return;
                 }
                 case "ghostFade": {

@@ -555,7 +555,7 @@ export default function MascotSettingsView() {
                             )}
                             <fieldset disabled={!alive}>
                                 {check("rx_ms_speechgest",
-                                    _t("Automated background gestures while speaking (experimental)"),
+                                    _t("Automated background gestures while speaking (legacy)"),
                                     _t("Gestures along with what they're saying. Matched per sentence by the director model, so it adds a little usage."),
                                     mascot.motion.speech_gestures,
                                     (v) => sendMotion({ speech_gestures: v }))}

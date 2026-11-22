@@ -517,13 +517,16 @@ export default function SettingsView({ active }) {
                                checked={!!config.speech_gestures}
                                onChange={(ev) => setField("speech_gestures", ev.target.checked ? 1 : 0)} />
                         <label htmlFor="rx_speech_gestures">
-                            {_t("Automated background gestures while speaking (experimental)")}
+                            {_t("Automated background gestures while speaking (legacy)")}
                         </label>
                     </div>
                     <p className="text-muted">
                         {_t("Your companion gestures along with what they're saying: a bow "
                             + "for thanks, a shrug for \"oh well\". Needs a motion clip "
                             + "library to pick from.")}
+                        {" "}
+                        {_t("Neural body motion is now the recommended way to get body "
+                            + "language while they speak; the two can run together.")}
                     </p>
                     {!!config.speech_gestures && (
                     <p className="text-muted small">

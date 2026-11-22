@@ -1469,7 +1469,6 @@ class VoiceCallService {
             }
             conn._motion?.setFaceDirector(!!payload.face_director);
             // Their own neural motion: the call's settings with their avatar's model and style.
-            conn._motion?.setNeuralMotion?.(!!payload.neural_motion);
             peerNeuralMotion(conn.connId, payload.neural_motion || null)?.setFaceDirector(!!payload.face_director);
             return;
         }
@@ -1481,7 +1480,6 @@ class VoiceCallService {
         // word gestures). Reloads the library every call so a folder added
         // under data/assets/motion is live on the next call.
         this.env.services.motion_director?.start?.().catch?.(() => {});
-        this.env.services.motion_director?.setNeuralMotion?.(!!payload.neural_motion);
         this.env.services.motion_director?.setSpeechGestures?.(!!payload.speech_gestures);
         this.env.services.motion_director?.setFaceDirector?.(!!payload.face_director);
         neuralMotion.configure(payload.neural_motion || null);

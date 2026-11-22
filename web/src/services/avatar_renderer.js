@@ -2029,10 +2029,15 @@ class AvatarRenderer {
         // otherwise drop the whole pose in one frame.
         // A tool motion owns the body for its whole run, the seams between its clips included,
         // and a toy routine for its own.
-        const busy = actor._gestureAction?.isRunning() || actor._moving || actor._perf || actor._roam
+        const busy = actor._gestureAction?.isRunning() || actor._layerAction?.isRunning()
+            || actor._moving || actor._perf || actor._roam
             || actor.toyBusy || actor._toolMotion;
+        // Coming back it rides the clip's own return curve (RETURN_HALFLIFE):
+        // at the yield rate it was at full weight while the held pose was
+        // still easing out underneath, which read as a snap.
+        const gateRate = busy ? NEURAL_YIELD_RATE : Math.LN2 / RETURN_HALFLIFE;
         actor._neuralGate = (actor._neuralGate ?? 1) + ((busy ? 0 : 1) - (actor._neuralGate ?? 1))
-            * (1 - Math.exp(-NEURAL_YIELD_RATE * delta));
+            * (1 - Math.exp(-gateRate * delta));
         // The root and the idle's hip hold yield with the pose: ahead of the
         // gate they kept moving the hips under a walk or a toy's clip
         // whenever the companion spoke.

@@ -2586,8 +2586,10 @@ export const JA = {
   "Background Avatar Motion": "アバターの自動モーション",
   "Extra body language on top of the avatar's own gesture set, picked up in the background.":
     "アバター本来のジェスチャーに加えて、自動で拾われる body language です。",
-  "Automated background gestures while speaking (experimental)":
-    "発話中の自動ジェスチャー（実験的）",
+  "Automated background gestures while speaking (legacy)":
+    "発話中の自動ジェスチャー（レガシー）",
+  "Neural body motion is now the recommended way to get body language while they speak; the two can run together.":
+    "発話中のボディランゲージには、現在はニューラルボディモーションをおすすめします。両方を同時に使うこともできます。",
   "Your companion gestures along with what they're saying: a bow for thanks, a shrug for \"oh well\". Needs a motion clip library to pick from.":
     "コンパニオンが話している内容に合わせてジェスチャーします。お礼にはお辞儀、「まあいいか」には肩をすくめる、といった具合です。選択元となるモーションライブラリが必要です。",
   "Gestures along with what they're saying. Matched per sentence by the director model, so it adds a little usage.":

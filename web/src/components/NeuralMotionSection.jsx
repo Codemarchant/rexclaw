@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
 import { notification } from "../lib/notification";
-import { services } from "../services";
 import { neuralMotion } from "../services/neural_motion/neural_motion_service";
 
 const PARTS = [
@@ -18,7 +17,6 @@ const PARTS = [
 /** Applies the call config to the avatar on this page. */
 function applyHere(call) {
     neuralMotion.configure(call);
-    services.motion_director?.setNeuralMotion?.(!!call);
 }
 
 /** Neural body motion settings: in the voice view's Settings, beside the
