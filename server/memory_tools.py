@@ -22,7 +22,7 @@ from functools import lru_cache
 
 from .db import utcnow, parse_dt
 from .memory_index import CJK_CHARS, cjk_pieces, word_runs
-from . import memory_vectors, store
+from . import languages, memory_vectors, store
 
 _logger = logging.getLogger(__name__)
 
@@ -342,18 +342,19 @@ def search_recall(con, agent_id, query, limit=10, tags=None, memory_type=None,
 
 
 def _find_duplicate(con, agent_id, content):
-    """Exact-content match, case-insensitive, any scope. Shared by
-    remember_or_get and _impl_remember's cap pre-flight — re-saving a fact
-    that's already stored is always a no-op, so callers must check for a
-    duplicate before treating a remember() as something that needs the core
-    cap enforced (a duplicate never grows the count)."""
+    """Exact-content match, case-insensitive in any script, any scope.
+    Shared by remember_or_get and _impl_remember's cap pre-flight — re-saving
+    a fact that's already stored is always a no-op, so callers must check for
+    a duplicate before treating a remember() as something that needs the
+    core cap enforced (a duplicate never grows the count)."""
+    languages.install(con)
     if agent_id:
         return con.execute(
-            "SELECT * FROM memories WHERE agent_id = ? AND LOWER(content) = LOWER(?) LIMIT 1",
+            "SELECT * FROM memories WHERE agent_id = ? AND unicode_fold(content) = unicode_fold(?) LIMIT 1",
             (agent_id, content),
         ).fetchone()
     return con.execute(
-        "SELECT * FROM memories WHERE agent_id IS NULL AND LOWER(content) = LOWER(?) LIMIT 1",
+        "SELECT * FROM memories WHERE agent_id IS NULL AND unicode_fold(content) = unicode_fold(?) LIMIT 1",
         (content,),
     ).fetchone()
 
@@ -741,12 +742,21 @@ def _impl_recall(con, session, arguments):
                 'she', 'her', 'him', 'his', 'they', 'them', 'their', 'for',
                 'not', 'are', 'but', 'our', 'out', 'all', 'can', 'get', 'got',
                 'said', 'told', 'thing', 'things', 'time', 'user', 'remember'}
+        # The stop set is English; another language's function words ("что")
+        # are in every transcript written in it and fill the newest 24.
+        drop = languages.function_words(word_runs(query.lower()))
         tokens = [t for t in _tokenize(query)
-                  if (len(t) >= 3 or cjk_pieces(t)) and t not in stop]
+                  if (len(t) >= 3 or cjk_pieces(t)) and t not in stop and t not in drop]
         if tokens:
             seen_ids = {r['id'] for r in records}
-            like_sql = ' OR '.join(['transcript LIKE ?'] * len(tokens))
-            params = [f'%{t}%' for t in tokens]
+            # LIKE folds A-Z only, so a word with case in another script
+            # ("алёна" for "Алёна") is matched through unicode_fold. ASCII,
+            # kana and kanji keep LIKE.
+            folded = [not t.isascii() and any(c.islower() for c in t) for t in tokens]
+            languages.install(con)
+            like_sql = ' OR '.join('instr(unicode_fold(transcript), ?) > 0' if f else 'transcript LIKE ?'
+                                   for f in folded)
+            params = [languages.fold(t) if f else f'%{t}%' for t, f in zip(tokens, folded)]
             if agent_id:
                 scope_sql = '(agent_id = ? OR agent_id IS NULL)'
                 params = [agent_id] + params
@@ -774,7 +784,12 @@ def _impl_recall(con, session, arguments):
                     continue
                 text = r['transcript'] or ''
                 low = text.lower()
-                pos = min((p for p in (low.find(t) for t in tokens) if p != -1),
+                # Folding keeps nearly every length (ß → ss is one of few
+                # exceptions), so the position stays close enough to centre
+                # an excerpt of `text`.
+                low_folded = languages.fold(text) if any(folded) else ''
+                pos = min((p for p in ((low_folded.find(languages.fold(t)) if f else low.find(t))
+                                       for t, f in zip(tokens, folded)) if p != -1),
                           default=-1)
                 excerpt = ''
                 if pos != -1:

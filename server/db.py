@@ -12,6 +12,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import languages
+
 # Data dir: ./data next to the project root by default, override with
 # REXCLAW_DATA_DIR. Holds the sqlite db + generated/uploaded files.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -1294,6 +1296,7 @@ def connect():
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")
+    languages.install(con)
     return con
 
 

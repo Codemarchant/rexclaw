@@ -9,6 +9,7 @@ import json
 import logging
 import sqlite3
 
+from . import languages
 from .db import utcnow
 from .errors import UserError, ValidationError
 
@@ -92,10 +93,11 @@ def resolve_gesture_partner(con, gesture_row):
     g['partner_vrm_url'] = g.get('partner_vrm_path') or None
     ref = (g.get('partner_avatar') or '').strip()
     if ref:
+        languages.install(con)
         row = con.execute(
             "SELECT a.id, a.vrm_path, a.frames FROM avatars a"
             " JOIN agents ag ON ag.avatar_id = a.id"
-            " WHERE ag.active = 1 AND ag.name = ? COLLATE NOCASE LIMIT 1",
+            " WHERE ag.active = 1 AND unicode_fold(ag.name) = unicode_fold(?) LIMIT 1",
             (ref,),
         ).fetchone()
         if not row:

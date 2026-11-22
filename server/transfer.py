@@ -46,7 +46,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import avatar_packs, lore_tools, memory_tools, portraits
+from . import avatar_packs, languages, lore_tools, memory_tools, portraits
 from .db import ASSETS_DIR, FILES_DIR, utcnow
 from .errors import UserError
 from .pipeline import engines as pipeline_engines, setups as voice_setups
@@ -979,6 +979,7 @@ def import_lore_entries(con, stories, renamed_to=None):
     the companion it collided with, and anyone sharing its stories, is left
     exactly as it was. Returns (imported, duplicates)."""
     imported = duplicates = 0
+    languages.install(con)
     for entry in stories or []:
         if not isinstance(entry, dict):
             continue
@@ -990,7 +991,7 @@ def import_lore_entries(con, stories, renamed_to=None):
         if renamed_to:
             characters = [renamed_to]
         elif con.execute(
-                "SELECT 1 FROM lore_entries WHERE title = ? COLLATE NOCASE",
+                "SELECT 1 FROM lore_entries WHERE unicode_fold(title) = unicode_fold(?)",
                 (title,)).fetchone():
             duplicates += 1
             continue

@@ -11,6 +11,8 @@ import sqlite3
 import time
 import unicodedata
 
+from . import languages
+
 _logger = logging.getLogger(__name__)
 STOP = set('i me my we our you your the a an and or to of in on is are was were '
            'it its this that for with has have had be been again another can '
@@ -97,13 +99,15 @@ def initialize(con):
                 "USING fts5vocab(memory_recall_chars,'row')")
 
 
-def character_terms(text):
+def character_terms(text, skip=()):
     """Bounded overlapping Unicode trigrams, including combining marks.
 
     Only non-ASCII runs use this path, leaving ordinary English retrieval
     unchanged. This is lexical overlap, not translation or fuzzy matching.
+    Words in `skip` (the utterance's function words) give none.
     """
-    grams = list(dict.fromkeys(run[i:i + 3] for run in word_runs(text.lower()) if not run.isascii()
+    grams = list(dict.fromkeys(run[i:i + 3] for run in word_runs(text.lower())
+                               if not run.isascii() and run not in skip
                                for i in range(len(run) - 2)))
     return _bounded(grams)
 
@@ -189,9 +193,12 @@ def search(con, agent_id, text, *, session_id=None, exclude=(), limit=3, budget_
     first — merged by reciprocal rank, each path's leader kept."""
     cap = max(1, min(limit, CANDIDATE_MAX))
     text = text[-1200:]
+    # STOP is English; another language's function words ("что", "est")
+    # would cue every memory written in it.
+    drop = languages.function_words(word_runs(text.lower()))
     tokens = list(dict.fromkeys(t for t in re.findall(r'\w+', text.lower())
-                                if len(t) >= 2 and t not in STOP))[-WORDS_MAX:]
-    grams = character_terms(text)
+                                if len(t) >= 2 and t not in STOP and t not in drop))[-WORDS_MAX:]
+    grams = character_terms(text, drop)
     if not tokens and not grams and not meaning:
         return []
     excluded = [int(i) for i in list(exclude)[:100] if isinstance(i, int) and i > 0]

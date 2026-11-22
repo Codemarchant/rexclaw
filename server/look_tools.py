@@ -25,7 +25,7 @@ import json
 import logging
 import threading
 
-from . import avatar_packs, png_looks, store
+from . import avatar_packs, languages, png_looks, store
 from .db import get_config
 from .errors import UserError
 
@@ -409,7 +409,8 @@ def _create_character(con, session, agent, config, arguments):
         voice_cols["pipeline_voice"] = json.dumps({str(setup.call_connection): voice})
 
     unique, n = name, 2
-    while con.execute("SELECT 1 FROM agents WHERE name = ? COLLATE NOCASE", (unique,)).fetchone():
+    languages.install(con)
+    while con.execute("SELECT 1 FROM agents WHERE unicode_fold(name) = unicode_fold(?)", (unique,)).fetchone():
         unique, n = f"{name} {n}", n + 1
 
     pack_key = avatar_packs.create_pack(unique)
