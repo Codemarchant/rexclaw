@@ -16,15 +16,26 @@ def fold(text):
     return unicodedata.normalize('NFC', text.casefold()).replace('ё', 'е')
 
 
+def fold_has(text, *needles):
+    """Whether `text`, folded, holds any of `needles` (folded already). A
+    long text is folded once however many words are looked for."""
+    if not isinstance(text, str):
+        return 0
+    text = fold(text)
+    return int(any(n in text for n in needles))
+
+
 def install(con):
-    """Make fold() callable from SQL on `con` as unicode_fold(). db.connect
-    does this as it opens a connection; callers do it too, so any connection
-    works. Only once: SQLite refuses to redefine a function while another
-    statement on the connection is still open."""
+    """Make fold() callable from SQL on `con` as unicode_fold(), and
+    fold_has() as unicode_fold_has(). db.connect does this as it opens a
+    connection; callers do it too, so any connection works. Only once:
+    SQLite refuses to redefine a function while another statement on the
+    connection is still open."""
     try:
         con.execute("SELECT unicode_fold('')").fetchone()
     except sqlite3.OperationalError:
         con.create_function('unicode_fold', 1, fold, deterministic=True)
+        con.create_function('unicode_fold_has', -1, fold_has, deterministic=True)
 
 
 def _stop_key(word):

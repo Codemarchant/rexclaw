@@ -754,9 +754,11 @@ def _impl_recall(con, session, arguments):
             # kana and kanji keep LIKE.
             folded = [not t.isascii() and any(c.islower() for c in t) for t in tokens]
             languages.install(con)
-            like_sql = ' OR '.join('instr(unicode_fold(transcript), ?) > 0' if f else 'transcript LIKE ?'
-                                   for f in folded)
-            params = [languages.fold(t) if f else f'%{t}%' for t, f in zip(tokens, folded)]
+            # One call for all of them: a transcript is folded once per row.
+            fold_params = [languages.fold(t) for t, f in zip(tokens, folded) if f]
+            params = [f'%{t}%' for t, f in zip(tokens, folded) if not f] + fold_params
+            like_sql = ' OR '.join(['transcript LIKE ?'] * (len(params) - len(fold_params)) + (
+                [f"unicode_fold_has(transcript, {','.join('?' * len(fold_params))})"] if fold_params else []))
             if agent_id:
                 scope_sql = '(agent_id = ? OR agent_id IS NULL)'
                 params = [agent_id] + params

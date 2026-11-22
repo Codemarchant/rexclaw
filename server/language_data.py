@@ -28,6 +28,14 @@ it is mostly acronyms written without stops (НАТО, СССР), which end
 Russian sentences too. ABBREVIATIONS_BY_LANGUAGE: the plain A-Z entries
 of its Danish, German, Dutch, French, Italian, Spanish and Polish lists,
 for text that reads as that language ("np." in Polish, "bzw." in German).
+ABBREVIATION_WORDS and ABBREVIATION_WORDS_BY_LANGUAGE: the entries of the
+two that are everyday words as well ("муж", "Art", "mar"): those among
+their language's 50,000 most frequent words in OpenSubtitles 2018
+(github.com/hermitdave/FrequencyWords @ 525f9b5, the xx_50k lists; the
+non-ASCII entries against the list of every language that names them).
+PREPOSITIVE_BY_LANGUAGE: those of them its PREPOSITIVE_ABBREVIATIONS
+name as standing before a name ("dott. Conti", "hr. Jensen"). Spanish's is
+left out: it lists word prefixes (anti, hiper, sobre), not titles.
 
 SENTENCE_TERMINALS: a regex character class of Unicode's
 Sentence_Terminal property (PropList-18.0.0.txt), minus ASCII and the
@@ -1164,6 +1172,102 @@ ABBREVIATIONS_BY_LANGUAGE = {
         'scs serb sierp sp.zo.o stind stpol stpr str strus stwniem stycz '
         'sztokaw szwedz t tj toch tur tzn ukr ul umbr wed wlkpol wrzes wyd '
         'zakarp '
+    ).split()),
+}
+
+ABBREVIATION_WORDS = frozenset((
+    'sø tłum vær włos ä årh øv а ал бр бул в вр г ген гр д дж долл др ем ж '
+    'жен з зам и ин к кг км кор куб л лв м мин млн млрд мм муж н нед о п пер '
+    'полк пр р рис с св сек см сп ст т т.н тел тов тыс у ф ха хил ч чл إلخ ا '
+    'د سم كلم م ه '
+).split())
+
+ABBREVIATION_WORDS_BY_LANGUAGE = {
+    'da': frozenset((
+        'adm adr afd al ang ann ass att bet bio bot br ca cal co da dav def '
+        'del din do dr dvs eks el eng etc f f.eks fa fig fm foren fork form '
+        'fors fr frk fru fung g gd gr gross hort hr hum i ib if ing jan jr '
+        'jul jun kal kap kat kl kr l lab lb lign lin litt lok m ma mag maks '
+        'mar mat md mdr med mht mi mia mio ml mr mrs ms n nat ned no nord nr '
+        'o off omg on opr osv overs oz p par pass pd pga ph phil pk port pos '
+        'pp pr prof pt rad red reg regn rest russ s sa sek sem sen sj skt sms '
+        'soc sort sp st stk str stud sv t tab th ti tidl till tlf to tr tv ty '
+        'u var vs '
+    ).split()),
+    'de': frozenset((
+        'art ass bart bros ca co col con corp di dr ev gen ii iii iv jun kath '
+        'lt ltd mag med mio mlle mm mme mr mrs ms no nos nr op prof res rt sa '
+        'sen sog st v vi vs x '
+    ).split()),
+    'es': frozenset((
+        'a ago an ante anti ap art auto av bi bien bis c cap cm co com con '
+        'contra crio cv da de des di dis doc dom dpto dr dra ee en endo entre '
+        'epi etc ex extra geo gob gral hetero hipo homo hs i im in inter jun '
+        'kg km let ltd lun mar may mega mg micro min mini mm mono mt neo no '
+        'nos p para pen ph poli pos post pre pro re reg retro s seg semi sig '
+        'sobre sr sra sres srta sta sto sub super tel trans tras ud uds ultra '
+        'un uni uu vd vice vid vie vs '
+    ).split()),
+    'fr': frozenset((
+        'al ann apr art av ca co etc ex fr hab id ltd mm ms pl r.a.s sec sing '
+        'ss sup vol vs '
+    ).split()),
+    'it': frozenset((
+        'aa ab abc abi abs ac ace acro ad ada adi ag age ago ai aia aida aids '
+        'aka al ali all alt am ama amami an ana ani animi anton ao api app ar '
+        'arc arch are arpa art as asa asp assi aster at ata att au av avi avo '
+        'ba ball ban bar bart bas bat bbc bei bi bmw bo bot br bros bu ca cab '
+        'cal cam cap car card cat cbs cc cd cda ce cee ch ci cid cime cin cio '
+        'cl class cm cnn co cod coi col com con coni corp cric csc cup d dam '
+        'dc dea dg di dia dic din dir dl doc dom dos dott dr ds dvd ecc ecg '
+        'ed edge ei emi en es eu fa fad fai fans farm fasi fbi fc fe fema fi '
+        'fiat fifa fig file fin flo fm fmi fra gal gd ge gel gen gg gi gia '
+        'gift gio giu gm go gpl gps gr gra grano gu gus ha hiv hm hr ibm ice '
+        'ici id im in inca indire inter ip ira iron is isi it iva j jal jr k '
+        'kee kg km l la lag lan laser laz le led li lila linfa ling lo lolo '
+        'long lp lt ltd lu lun ma mac mag mai mar marc mat mater max mc md me '
+        'med mer merc mesa mg mgm mi mica mile min mit ml mlle mm mo mol mr '
+        'mrs ms mt na nafta nasa nat nato nba nbc ndr ndt ne ned no nodo nos '
+        'nu od ogm olaf ole oms on ong onu op or ore os osa oz p pa pac pai '
+        'pal pan par part pass pat pb pc pd pe peg pet ph pi pie pil pin pine '
+        'pip pit pitt pm po pol pop port pos post pr prep prof ps psi pu put '
+        'qi ra radar raf rag raid ram re rea reg rem rev ri ric rina rip ro '
+        'roc rom rs sa sai sam san sar sas sc se sec see sem sen seo serg set '
+        'si sia sic sid sie sig sig.na sig.ra sin sing sit sla sm sms so soho '
+        'sol sonar sp spa spot ss st stat su suv swift ta tac tai tan tar '
+        'targa te ted tel tesa tese tess tetra tim tir to ton top tr trad tv '
+        'twain ue ufo uk uma uni urban urss usa usb v va val ve ven vi via '
+        'vip vo vol vs wai wan wasp wc wi-fi worm '
+    ).split()),
+    'nl': frozenset((
+        'a.u.b abs al app art b bel belg best bet bijl bull bv c ca cal cap '
+        'cas cass ch chr cie co com comm d d.c dat def dez dhr doc dr e ed '
+        'enz etc ev ex f fa fig fin ft g ged gem gen get hand herald hert hr '
+        'int it j jw k kg l lat litt lk ll ltd m mand max me med mil min mod '
+        'mon mr ms mv n nl no not nr nt o oe or os oz p pan pas pat pens pers '
+        'pk po pol pr pres prof r rb red reg rep rev rom s sir soc sr ss st '
+        'stas su subs t tom top ts u v vc ver verd vern vn vol volg volt vr '
+        'vs vw w ww zn '
+    ).split()),
+    'pl': frozenset((
+        'bret dniem gal hol ie itd itp lip lit mar np ok pie pol port rom rum '
+        't tj tzn ul '
+    ).split()),
+}
+
+PREPOSITIVE_BY_LANGUAGE = {
+    'da': frozenset((
+        'adm dr fru hr skt st '
+    ).split()),
+    'it': frozenset((
+        'a.c acc adj adm adv all amn arch asst avv banc bart bcc bldg brig '
+        'bros c.a c.a.p c.c.p c.m c.p c.s c.v capt cc cmdr co col comdr con '
+        'corp corr cpl dir dott dr drs e.p.c ecc egr ens es fatt gen geom gg '
+        'gov hon hosp hr id ing insp int lett lt maj messrs mlle mm mme mo '
+        'mons mr mrs ms msgr n.b ogg on op ord p.c p.c.c p.es p.f p.r p.s p.t '
+        'p.v pfc ph post pp prof psicol pvt racc rag rep reps res rev ric rif '
+        'rp rsvp rt s.a s.b.f s.n.c s.p.a s.p.m s.r.l seg sen sens sfc sgg '
+        'sgt sig sigg soc spett sr ss st supt surg tel u.s v.p v.r v.s '
     ).split()),
 }
 

@@ -7,9 +7,11 @@ prompt's "Speech expression tags" section teaches). A voice that renders
 them gets them; every other voice, and every transcript, gets them removed.
 """
 import re
+import unicodedata
 
 from .. import languages
-from ..language_data import ABBREVIATIONS, ABBREVIATIONS_BY_LANGUAGE, SENTENCE_TERMINALS
+from ..language_data import (ABBREVIATION_WORDS, ABBREVIATION_WORDS_BY_LANGUAGE, ABBREVIATIONS,
+                             ABBREVIATIONS_BY_LANGUAGE, PREPOSITIVE_BY_LANGUAGE, SENTENCE_TERMINALS)
 
 INLINE_TAGS = ('pause', 'long-pause', 'hum-tune', 'laugh', 'chuckle', 'giggle', 'cry',
                'tsk', 'tongue-click', 'lip-smack', 'breath', 'inhale', 'exhale', 'sigh')
@@ -52,23 +54,43 @@ _ABBREV = re.compile(r'(?:\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|appro
 _DOTTED_WORD = re.compile(r'(?:[^\W\d_]+\.\s?)*[^\W\d_]+$')
 
 
-def _foreign_abbreviation(text, said=''):
+def _capital_next(after):
+    """Does the text after a stop begin with a capital letter? Tags and
+    cues before the word don't count."""
+    m = re.search(r'\w', _WRAP_RE.sub('', _BRACKET_CUE.sub('', after)))
+    return bool(m) and m.group().isupper()
+
+
+def _foreign_abbreviation(text, said='', after=''):
     """Is the word ending `text`, a full stop after it, an abbreviation or
     an initial outside English? English's own are _ABBREV. `said`: the
-    reply's text before `text`, which tells its language."""
-    m = _DOTTED_WORD.search(text[-40:])
+    reply's text before `text`, which tells its language. `after`: the text
+    behind the stop.
+
+    Some listed abbreviations are everyday words too ("mar", "Art", "муж").
+    Such a one counts only while no capital follows it, the rule
+    pragmatic_segmenter has for its lists: "5 мин. назад", but "…en el
+    mar. Y luego" ends a sentence. A title counts before a capital as
+    well ("il dott. Conti"); so does one that is no word ("ул. Ленина")."""
+    tail = text[-40:]
+    m = _DOTTED_WORD.search(tail)
     if not m:
         return False
     chain = m.group().lower()
     word = re.split(r'[.\s]+', chain)[-1]
     joined = re.sub(r'\s', '', chain)
+    capital = _capital_next(after)
     if word.isascii():
         # Plain A-Z could be English ("np" is "no problem"), so another
         # language's own count only in text that reads as that language;
         # English text reads as none.
-        known = [ABBREVIATIONS_BY_LANGUAGE.get(lang, ()) for lang in
-                 languages.detect(re.findall(r'\w+', (said + ' ' + text)[-300:].lower()))]
-        return any(word in k or joined in k for k in known)
+        for lang in languages.detect(re.findall(r'\w+', (said + ' ' + text)[-300:].lower())):
+            known = ABBREVIATIONS_BY_LANGUAGE.get(lang, ())
+            words = ABBREVIATION_WORDS_BY_LANGUAGE.get(lang, ())
+            titles = PREPOSITIVE_BY_LANGUAGE.get(lang, ())
+            if any(a in known and (not capital or a not in words or a in titles) for a in (word, joined)):
+                return True
+        return False
     letter = m.group()[-1]
     # Armenian ends a sentence with ։ (or a colon); its full stop marks an
     # abbreviation ("օր.").
@@ -78,10 +100,13 @@ def _foreign_abbreviation(text, said=''):
     # (Hebrew, Arabic, Persian, Hindi and the other Indic scripts) or, like
     # Georgian, writing initials without. Not a Hangul syllable or a kanji:
     # one of those is a word ("등." is "etc.").
-    if len(word) == 1 and (letter.isupper() or '\u0590' <= letter <= '\u077f'
-                           or '\u0900' <= letter <= '\u0dff' or '\u10a0' <= letter <= '\u10ff'):
+    # Nor a Hindi word's last letter behind a vowel sign: \w stops at the
+    # sign, so only that letter arrives here.
+    whole = len(tail) == len(word) or unicodedata.category(tail[-len(word) - 1])[0] != 'M'
+    if len(word) == 1 and whole and (letter.isupper() or '\u0590' <= letter <= '\u077f'
+                                     or '\u0900' <= letter <= '\u0dff' or '\u10a0' <= letter <= '\u10ff'):
         return True
-    return word in ABBREVIATIONS or joined in ABBREVIATIONS
+    return any(a in ABBREVIATIONS and (not capital or a not in ABBREVIATION_WORDS) for a in (word, joined))
 # LiveKit Agents' sentence tokenizer default (min_sentence_len=20): shorter
 # pieces join the next sentence, so "Oh!" doesn't become its own TTS call
 # with its own prosody reset. 20 characters is about four English words —
@@ -312,7 +337,8 @@ class SentenceChunker:
             if _chunk_len(piece) < self.min_chars:
                 continue
             if m.group().startswith('.') and (_ABBREV.search(self._buf[:m.start() + 1])
-                                              or _foreign_abbreviation(self._buf[:m.start()], self._said)):
+                                              or _foreign_abbreviation(self._buf[:m.start()], self._said,
+                                                                       self._buf[end:])):
                 continue
             # Never cut inside a tag still being written ("<whis" … "per>").
             if partial_tag_at(piece) >= 0:
