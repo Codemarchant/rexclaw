@@ -175,12 +175,13 @@ def _render(config, prompt, reference_uris=(), aspect_ratio=None):
             xai_api_key=key, edits_url=config['xai_images_edits_url'],
             model=config['imagine_model'], prompt=prompt,
             image_data_uris=list(reference_uris), aspect_ratio=aspect_ratio,
-            quality=config['imagine_quality'])
+            quality=config['imagine_quality'], resolution=config['imagine_resolution'])
     else:
         body = xai_client.generate_image(
             xai_api_key=key, images_url=config['xai_images_url'],
             model=config['imagine_model'], prompt=prompt,
-            aspect_ratio=aspect_ratio, quality=config['imagine_quality'])
+            aspect_ratio=aspect_ratio, quality=config['imagine_quality'],
+            resolution=config['imagine_resolution'])
     return _image_from_body(body)
 
 

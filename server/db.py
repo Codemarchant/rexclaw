@@ -84,6 +84,11 @@ CREATE TABLE IF NOT EXISTS config (
     -- new images and medium for edits (xAI's docs) — what xAI does when
     -- it's left out, so the default changes nothing until a user picks.
     imagine_quality TEXT NOT NULL DEFAULT 'auto',
+    -- Default image `resolution` ('1k', '1.5k' or '2k'); create_image can pick
+    -- per picture. xAI's API default is 1k; ours is 1.5k, what grok.com
+    -- makes — no slower, and JPEGs an eighth the size of 2k's PNGs
+    -- (measured 2026-11-22).
+    imagine_resolution TEXT NOT NULL DEFAULT '1.5k',
     -- xAI multi-agent model used when delegate_task is called with
     -- multi_agent=true. Several agents collaborate and a leader synthesizes
     -- — every sub-agent bills tokens, so it is markedly more expensive than
@@ -1694,6 +1699,7 @@ MIGRATIONS = (
     "ALTER TABLE avatars ADD COLUMN face_map TEXT",
     "ALTER TABLE avatar_outfits ADD COLUMN face_map TEXT",
     "ALTER TABLE config ADD COLUMN imagine_quality TEXT NOT NULL DEFAULT 'auto'",
+    "ALTER TABLE config ADD COLUMN imagine_resolution TEXT NOT NULL DEFAULT '1.5k'",
     "ALTER TABLE config ADD COLUMN tool_animations INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE agents ADD COLUMN enable_point_tool INTEGER NOT NULL DEFAULT 1",
     # Per-look body tuning (JSON {"arm_spread": degrees}) from the pack

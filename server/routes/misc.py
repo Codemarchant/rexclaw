@@ -52,6 +52,7 @@ _CONFIG_FIELDS = (
     "xai_tts_url",
     "xai_model", "default_voice_setup", "text_model", "summary_model", "director_model", "imagine_model",
     "imagine_video_model", "imagine_video_edit_model", "imagine_quality",
+    "imagine_resolution",
     "multi_agent_model", "multi_agent_effort",
     "delegate_fast_model",
     "imagine_image_backend", "imagine_video_backend", "imagine_background_backend",
@@ -211,6 +212,8 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
         raise UserError('Invalid off-call mode for games.')
     if 'imagine_quality' in updates and updates['imagine_quality'] not in xai_client.IMAGE_QUALITIES:
         raise UserError('Invalid image quality.')
+    if 'imagine_resolution' in updates and updates['imagine_resolution'] not in xai_client.IMAGE_RESOLUTIONS:
+        raise UserError('Invalid image resolution.')
     # API key arrives separately; empty string is ignored (no accidental
     # clearing from a masked field), the literal null clears it.
     if "xai_api_key" in payload:

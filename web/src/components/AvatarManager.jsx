@@ -544,6 +544,7 @@ function GenerateLook({ packKey, name, defaults, references, onDone }) {
                 {busy && <span className="text-muted small">{_t("Four images — this takes a minute or so.")}</span>}
                 <button className="btn btn-sm" disabled={busy} onClick={() => setOpen(false)}>{_t("Cancel")}</button>
                 <button className="btn btn-sm btn-primary" disabled={busy || (!reference && !character.trim())}
+                        title={_t("On Grok Imagine this uses the image quality and resolution from Settings.")}
                         onClick={run}>
                     <i className={busy ? "fa fa-spinner fa-spin" : "fa fa-magic"} /> {_t("Generate")}
                 </button>

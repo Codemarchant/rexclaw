@@ -175,6 +175,15 @@ _CREATE_IMAGE_TOOL = {
                     'of you.'
                 ),
             },
+            'resolution': {
+                'type': 'string',
+                'enum': list(xai_client.IMAGE_RESOLUTIONS),
+                'description': (
+                    "Size of the picture. Leave it out to use the user's "
+                    'default. 2k is twice as wide and tall as 1k, with '
+                    '1.5k in between.'
+                ),
+            },
         },
         'required': ['prompt'],
     },
@@ -450,9 +459,13 @@ def build_create_image_tool(config):
     """create_image for a session: on the local engine without an
     image-edit workflow every reference input goes (include_self,
     source_images — and with them the outfit/companion/user params that
-    key off include_self), leaving prompt-only generation."""
+    key off include_self), leaving prompt-only generation. `resolution` is
+    Grok Imagine's, so the local engine never gets it."""
     tool = copy.deepcopy(_CREATE_IMAGE_TOOL)
-    if backend_for(config, 'create_image') == 'local' and not _local_slot_ready(config, 'image_edit'):
+    local = backend_for(config, 'create_image') == 'local'
+    if local:
+        del tool['parameters']['properties']['resolution']
+    if local and not _local_slot_ready(config, 'image_edit'):
         del tool['parameters']['properties']['source_images']
         del tool['parameters']['properties']['include_self']
         tool['description'] = (
@@ -807,6 +820,10 @@ def execute_imagine_tool(con, session, tool_name, arguments):
     # data URIs (restyle/remix/combine). Works in both modes and reaches
     # everything in the Imagine library (generated images, selfies, uploads).
     source_uris, note = [], None
+    # create_image's own `resolution` wins over the Settings default.
+    resolution = config['imagine_resolution']
+    if tool_name == 'create_image' and arguments.get('resolution') in xai_client.IMAGE_RESOLUTIONS:
+        resolution = arguments['resolution']
     if tool_name == 'create_image':
         source_uris, labels, note, err = _collect_references(
             con, agent, config, arguments,
@@ -823,6 +840,7 @@ def execute_imagine_tool(con, session, tool_name, arguments):
                 image_data_uris=source_uris,
                 response_format='b64_json',
                 quality=config['imagine_quality'],
+                resolution=resolution,
             )
         except UserError as e:
             return {'error': str(e)}
@@ -847,6 +865,7 @@ def execute_imagine_tool(con, session, tool_name, arguments):
             aspect_ratio=aspect_ratio,
             response_format='b64_json',
             quality=config['imagine_quality'],
+            resolution=resolution,
         )
     except UserError as e:
         return {'error': str(e)}

@@ -757,11 +757,21 @@ export default function SettingsView({ active }) {
                                 {_t("Imagine quality")}
                             </label>
                             <select value={config.imagine_quality || "auto"}
-                                    disabled={(config.imagine_model || "").trim() !== "grok-imagine-image-2.0"}
                                     onChange={(ev) => setField("imagine_quality", ev.target.value)}>
                                 <option value="auto">{_t("Auto")}</option>
                                 <option value="low">{_t("Low")}</option>
                                 <option value="medium">{_t("Medium")}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label title={_t("Size of the images Imagine makes; a companion can pick another for a single create_image picture. 1k is xAI's default and 1.5k is what grok.com makes; 2k is twice as wide and tall as 1k. Larger is sharper and costs more.")}>
+                                {_t("Default image resolution")}
+                            </label>
+                            <select value={config.imagine_resolution || "1.5k"}
+                                    onChange={(ev) => setField("imagine_resolution", ev.target.value)}>
+                                <option value="1k">1k</option>
+                                <option value="1.5k">1.5k</option>
+                                <option value="2k">2k</option>
                             </select>
                         </div>
                     </div>

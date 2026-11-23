@@ -946,6 +946,11 @@ export const JA = {
   "Imagine quality": "Imagine 品質",
   "Image quality for grok-imagine-image-2.0, the only model that takes it. Medium is sharper but slower and costs more; Auto lets xAI choose (currently low for new images, medium for edits).":
     "grok-imagine-image-2.0 の画質（この設定に対応するのはこのモデルのみ）。中はより精細ですが、時間がかかり料金も高くなります。自動は xAI が選びます（現在は新規画像が低、編集が中）。",
+  "Default image resolution": "画像の既定の解像度",
+  "On Grok Imagine this uses the image quality and resolution from Settings.":
+    "Grok Imagine では、設定の画質と画像の解像度が使われます。",
+  "Size of the images Imagine makes; a companion can pick another for a single create_image picture. 1k is xAI's default and 1.5k is what grok.com makes; 2k is twice as wide and tall as 1k. Larger is sharper and costs more.":
+    "Imagine が作る画像のサイズ。コンパニオンは create_image の 1 枚ごとに別のサイズを選べます。1k は xAI の既定値、1.5k は grok.com と同じサイズ、2k は 1k の縦横 2 倍です。大きいほど精細で、料金も高くなります。",
   "Imagine video model": "Imagine 動画モデル",
   "Grok Imagine video model used for animated backgrounds and the create_video tool.":
     "アニメーション背景と create_video ツールで使用される Grok Imagine 動画モデル。",

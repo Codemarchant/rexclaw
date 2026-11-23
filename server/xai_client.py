@@ -14,6 +14,7 @@ Tools come from independent sources mixed into `session.update`:
   * remote MCP entries (`type:'mcp'`) — opaque to us; xAI connects directly
     to each declared `server_url` with the configured Bearer token.
 """
+import base64
 import json
 import logging
 import re
@@ -220,18 +221,130 @@ def _delete_with_retry(url, headers, timeout=DEFAULT_TIMEOUT):
 
 
 # Imagine's `quality` (config.imagine_quality). xAI takes it on
-# grok-imagine-image-2.0 only, so other models never get it.
+# grok-imagine-image-2.0 only; grok-imagine-image accepts and ignores
+# 'low' and 'medium' but answers 400 to 'auto' (checked 2026-11-22). So
+# every grok-imagine model is sent a picked quality — a newer one that
+# takes it needs no change here — and 'auto', which is what xAI does when
+# the field is left out, is never sent.
 IMAGE_QUALITIES = ('low', 'medium', 'auto')
-_QUALITY_MODELS = ('grok-imagine-image-2.0',)
+_IMAGINE_MODEL_PREFIX = 'grok-imagine'
 
 
 def _image_quality(payload, model, quality):
-    if quality in IMAGE_QUALITIES and model in _QUALITY_MODELS:
+    if quality in ('low', 'medium') and str(model or '').startswith(_IMAGINE_MODEL_PREFIX):
         payload['quality'] = quality
 
 
+# Imagine's image `resolution` (config.imagine_resolution). '1k' is what
+# xAI uses when it's left out, so only the larger ones are sent. '1.5k' is
+# in xAI's API spec but not its guide; it works on generations and edits
+# and is the size grok.com hands out (1008x1792 at 9:16, checked 2026-11-22).
+# xAI takes `resolution` on grok-imagine models only (its API spec). The
+# one model known to refuse '1.5k' is grok-imagine-image: 400 "1.5K
+# resolution is not supported for this model" (it takes 2k), so it gets
+# none, xAI's 1k. Newer models are sent whatever is picked.
+IMAGE_RESOLUTIONS = ('1k', '1.5k', '2k')
+_NO_15K_MODELS = ('grok-imagine-image',)
+
+
+def _image_resolution(payload, model, resolution):
+    if resolution not in IMAGE_RESOLUTIONS or resolution == '1k':
+        return
+    if not str(model or '').startswith(_IMAGINE_MODEL_PREFIX):
+        return
+    if resolution == '1.5k' and model in _NO_15K_MODELS:
+        return
+    payload['resolution'] = resolution
+
+
+def _image_request(url, headers, payload, what, poll_interval=2.0, poll_timeout=240):
+    """Run an image generation or edit as a deferred request: start it,
+    poll for the result, download the picture. xAI closes a request held
+    open for 60 s (measured 2026-11-22: a new medium-quality image takes 66-72 s), and
+    deferred is what its docs give for not holding a connection open.
+
+    Returns the finished body in the synchronous shape. Deferred requests
+    only hand back URLs, so for `response_format: 'b64_json'` each
+    `data[i].b64_json` is filled from its URL."""
+    want_b64 = payload.get('response_format') == 'b64_json'
+    resp = _post_with_retry(url, headers, dict(payload, response_format='url', deferred=True),
+                            timeout=120)
+    if resp.status_code >= 400:
+        _logger.error('xAI %s failed: %s %s', what, resp.status_code, resp.text)
+        raise UserError(f"{what.capitalize()} failed ({resp.status_code}): {resp.text[:500]}")
+    try:
+        body = resp.json()
+    except ValueError:
+        _logger.error('xAI %s: reply was not JSON: %s', what, resp.text[:500])
+        raise UserError(f"{what.capitalize()} returned an unexpected response: {resp.text[:300]}")
+    request_id = body.get('request_id') if isinstance(body, dict) else None
+    if request_id:
+        status_url = f"{url.rstrip('/').rsplit('/', 1)[0]}/{request_id}"
+        deadline = time.monotonic() + poll_timeout
+        body = None
+        last = None    # the last poll's HTTP status, for the timeout message
+        while body is None:
+            if time.monotonic() >= deadline:
+                raise UserError(f"{what.capitalize()} timed out after {poll_timeout}s "
+                                f"(last status check: {last}).")
+            time.sleep(poll_interval)
+            try:
+                poll = requests.get(status_url, headers=headers, timeout=30)
+            except requests.RequestException as e:
+                _logger.warning('xAI %s status poll failed: %s', what, e)
+                continue
+            if poll.status_code != last and poll.status_code not in (200, 202):
+                _logger.warning('xAI %s status check answered %s at %s: %s', what,
+                                poll.status_code, status_url.rsplit('/', 1)[0], poll.text[:200])
+            last = poll.status_code
+            # 202 = still generating. A pending request also answers 404
+            # on some polls (seen on every run, 2026-11-22), so that waits too.
+            if poll.status_code in (202, 404) or poll.status_code >= 500:
+                continue
+            if poll.status_code >= 400:
+                _logger.error('xAI %s status failed: %s %s', what, poll.status_code, poll.text)
+                raise UserError(f"{what.capitalize()} status check failed "
+                                f"({poll.status_code}): {poll.text[:300]}")
+            try:
+                status_body = poll.json()
+            except ValueError:
+                status_body = None
+            if not isinstance(status_body, dict):
+                _logger.warning('xAI %s status check was not JSON: %s', what, poll.text[:200])
+                continue
+            status = status_body.get('status')
+            if status == 'failed':
+                _logger.error('xAI %s failed: %s', what, status_body)
+                reason = status_body.get('error') or ''
+                if isinstance(reason, dict):
+                    reason = reason.get('message') or str(reason)
+                raise UserError(f"{what.capitalize()} failed."
+                                + (f" Reason: {str(reason)[:300]}" if reason else ''))
+            if status != 'pending':
+                body = status_body
+    if not isinstance(body, dict) or not isinstance(body.get('data'), list) or not body['data']:
+        _logger.error('xAI %s: unexpected response shape: %s', what, body)
+        raise UserError(f"{what.capitalize()} returned an unexpected response: {str(body)[:300]}")
+    if want_b64:
+        for item in body['data']:
+            if item.get('b64_json') or not item.get('url'):
+                continue
+            try:
+                picture = requests.get(item['url'], timeout=120)
+            except requests.RequestException as e:
+                raise UserError(f"{what.capitalize()} download failed: {e}")
+            if picture.status_code >= 400 or not picture.content:
+                raise UserError(f"{what.capitalize()} download failed ({picture.status_code}).")
+            item['b64_json'] = base64.b64encode(picture.content).decode()
+            served = (picture.headers.get('Content-Type') or '').split(';')[0].strip()
+            if served.startswith('image/'):
+                item.setdefault('mime_type', served)
+    return body
+
+
 def generate_image(*, xai_api_key, images_url, model, prompt,
-                   aspect_ratio=None, response_format='b64_json', user=None, quality=None):
+                   aspect_ratio=None, response_format='b64_json', user=None, quality=None,
+                   resolution=None):
     """POST /v1/images/generations to generate an image with Grok Imagine.
 
     Returns the raw decoded response body. The caller is responsible for
@@ -249,28 +362,20 @@ def generate_image(*, xai_api_key, images_url, model, prompt,
     if aspect_ratio:
         payload['aspect_ratio'] = aspect_ratio
     _image_quality(payload, model, quality)
+    _image_resolution(payload, model, resolution)
     if user:
         payload['user'] = str(user)
     headers = {
         'Authorization': f'Bearer {xai_api_key}',
         'Content-Type': 'application/json',
     }
-    # Image generation is slower than chat — bump the timeout. 120s matches
-    # typical Imagine latencies plus a safety margin for the 2k resolution path.
-    resp = _post_with_retry(images_url, headers, payload, timeout=120)
-    if resp.status_code >= 400:
-        _logger.error('xAI image generation failed: %s %s', resp.status_code, resp.text)
-        raise UserError(f"Image generation failed ({resp.status_code}): {resp.text[:500]}")
-    body = resp.json()
-    if not isinstance(body, dict) or not isinstance(body.get('data'), list) or not body['data']:
-        _logger.error('xAI image generation: unexpected response shape: %s', body)
-        raise UserError(f"Image generation returned an unexpected response: {str(body)[:300]}")
-    return body
+    return _image_request(images_url, headers, payload, 'image generation')
 
 
 def edit_image(*, xai_api_key, edits_url, model, prompt,
                image_data_uris=None, aspect_ratio=None,
-               response_format='b64_json', user=None, quality=None):
+               response_format='b64_json', user=None, quality=None,
+               resolution=None):
     """POST /v1/images/edits with one or more source images.
 
     Sources come as `image_data_uris` (base64 data URIs — the
@@ -298,21 +403,14 @@ def edit_image(*, xai_api_key, edits_url, model, prompt,
     if aspect_ratio:
         payload['aspect_ratio'] = aspect_ratio
     _image_quality(payload, model, quality)
+    _image_resolution(payload, model, resolution)
     if user:
         payload['user'] = str(user)
     headers = {
         'Authorization': f'Bearer {xai_api_key}',
         'Content-Type': 'application/json',
     }
-    resp = _post_with_retry(edits_url, headers, payload, timeout=120)
-    if resp.status_code >= 400:
-        _logger.error('xAI image edit failed: %s %s', resp.status_code, resp.text)
-        raise UserError(f"Image edit failed ({resp.status_code}): {resp.text[:500]}")
-    body = resp.json()
-    if not isinstance(body, dict) or not isinstance(body.get('data'), list) or not body['data']:
-        _logger.error('xAI image edit: unexpected response shape: %s', body)
-        raise UserError(f"Image edit returned an unexpected response: {str(body)[:300]}")
-    return body
+    return _image_request(edits_url, headers, payload, 'image edit')
 
 
 def generate_video(*, xai_api_key, videos_url, model, prompt,
