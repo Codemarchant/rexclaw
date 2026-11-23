@@ -12,7 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import call_music, decision_local, heartbeat, memory_vectors, parent_watch, plugins
+from . import call_music, decision_local, heartbeat, memory_vectors, parent_watch, plugins, venice_gen
 from .avatar_packs import USER_ASSETS_DIR, USER_PACKS_DIR, scan_packs
 from .db import ASSETS_DIR, FILES_DIR, connect, get_config, init_db
 from .errors import UserError
@@ -98,6 +98,15 @@ def startup():
     memory_vectors.start()
     # Music downloaded for past calls only (call_music.fetch without keep).
     call_music.clear_call_downloads()
+    # With a Venice key set, read its video model list in the background so
+    # the first session's create_video already offers the picked models'
+    # own lengths and shapes (session building never waits for it).
+    with_key = connect()
+    try:
+        if get_config(with_key)['venice_api_key']:
+            venice_gen.models('video', wait=False)
+    finally:
+        with_key.close()
     plugins.emit('startup')
     _logger.info("Rexclaw Companions server ready.")
 

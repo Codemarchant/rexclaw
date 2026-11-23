@@ -26,6 +26,14 @@ MODELS = {
     "gesture_recognizer.task": (
         "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/"
         "gesture_recognizer/float16/1/gesture_recognizer.task"),
+    # Manga Diary: who is where in a drawn panel (web/src/lib/manga_vision.js
+    # — keep in sync with MODELS there). Both Apache-2.0.
+    "selfie_multiclass_256x256.tflite": (
+        "https://storage.googleapis.com/mediapipe-models/image_segmenter/"
+        "selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite"),
+    "blaze_face_short_range.tflite": (
+        "https://storage.googleapis.com/mediapipe-models/face_detector/"
+        "blaze_face_short_range/float16/1/blaze_face_short_range.tflite"),
 }
 OUT_DIR = Path(__file__).resolve().parents[1] / "assets" / "vision_models"
 

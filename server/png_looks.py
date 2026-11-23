@@ -139,33 +139,51 @@ def _data_uri(img):
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def _on_comfyui(config):
-    """Looks follow create_image's engine (Settings → Local generation):
-    the user's ComfyUI, or Grok Imagine."""
+def _engine(config):
+    """Looks follow create_image's engine (Settings): Grok Imagine
+    ('xai'), the user's ComfyUI ('local') or Venice AI ('venice')."""
     from .imagine_tools import backend_for
-    return backend_for(config, 'create_image') == 'local'
+    return backend_for(config, 'create_image')
 
 
 def available(config, *, from_text=False):
     """Whether looks can be drawn right now: on ComfyUI its "Image edit
     (references)" workflow (every frame is an edit) plus, to draw from a
-    description alone, its "Text to image" one; on Imagine an xAI key."""
-    if _on_comfyui(config):
-        def ready(slot):
-            return bool((config[f'local_gen_{slot}_workflow'] or '').strip())
-        return ready('image_edit') and (ready('image') or not from_text)
-    return bool(config['xai_api_key'])
+    description alone, its "Text to image" one; on Venice the same two as
+    models; on Imagine an xAI key."""
+    engine = _engine(config)
+    if engine == 'xai':
+        return bool(config['xai_api_key'])
+    if engine == 'venice':
+        from . import venice_gen
+        ready = lambda slot: venice_gen.ready(config, slot)
+    else:
+        ready = lambda slot: bool((config[f'local_gen_{slot}_workflow'] or '').strip())
+    return ready('image_edit') and (ready('image') or not from_text)
 
 
 def _render(config, prompt, reference_uris=(), aspect_ratio=None):
     """One image from the chosen engine: an edit of `reference_uris`, or
     drawn from the prompt alone without any."""
     from PIL import Image
-    if _on_comfyui(config):
+    engine = _engine(config)
+    if engine == 'local':
         from . import local_gen
         data, _mime, _ext = local_gen.generate(
             config, 'image_edit' if reference_uris else 'image', prompt=prompt,
             image_data_uris=list(reference_uris), aspect_ratio=aspect_ratio)
+        return Image.open(io.BytesIO(data)).convert("RGB")
+    if engine == 'venice':
+        from . import venice_gen
+        # PNG: the backdrop is keyed out afterwards, and JPEG blocks would
+        # sit in the cut edge.
+        size = dict(aspect_ratio=aspect_ratio, quality=config['imagine_quality'],
+                    resolution=config['imagine_resolution'], image_format='png')
+        if reference_uris:
+            data, _mime = venice_gen.edit_image(
+                config, prompt=prompt, image_data_uris=list(reference_uris), **size)
+        else:
+            data, _mime = venice_gen.generate_image(config, prompt=prompt, **size)
         return Image.open(io.BytesIO(data)).convert("RGB")
     key = config['xai_api_key']
     if not key:

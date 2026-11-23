@@ -24,19 +24,39 @@ const WAKE_LANGUAGES = [
     ["es", "Español"], ["zh", "中文"], ["ru", "Русский"], ["pt", "Português"],
 ];
 
-// Local generation (ComfyUI). One engine switch per Imagine tool, and one
-// exported workflow per capability — keep the slot ids in sync with SLOTS
-// in server/local_gen.py.
-const LOCAL_GEN_TOOLS = [
-    ["imagine_image_backend", "create_image", "Images"],
-    ["imagine_video_backend", "create_video", "Videos"],
-    ["imagine_background_backend", "change_background", "Backgrounds (voice calls)"],
+// Image and video generation: one provider switch per kind of thing made
+// (each covers more than one tool, so they are described by what they
+// make), and a tab per provider for its own settings.
+const GEN_USES = [
+    ["imagine_image_backend", "Images", "Pictures companions make or edit in chat and on calls, and the drawn 2D outfits and characters."],
+    ["imagine_video_backend", "Videos", "Clips companions make, edit or extend in chat and on calls."],
+    ["imagine_background_backend", "Backgrounds (voice calls)", "New scene backgrounds on voice calls, still or animated."],
+];
+const GEN_PROVIDERS = [
+    ["xai", "Grok Imagine (xAI)"],
+    ["venice", "Venice AI"],
+    ["local", "Local (ComfyUI)"],
+];
+// ComfyUI: one exported workflow per capability — keep the slot ids in
+// sync with SLOTS in server/local_gen.py.
+// Venice AI: one model per capability, the config column
+// venice_<slot>_model — keep the slot ids in sync with SLOTS in
+// server/venice_gen.py. A video model on Venice is one mode of a family,
+// which is why every video mode has its own field.
+const VENICE_SLOTS = [
+    ["image", "Image model", "Pictures from a description alone, and still backgrounds."],
+    ["image_edit", "Image edit model", "Pictures featuring the companion, other companions, your photo or library images, and the drawn 2D outfits and characters."],
+    ["video", "Text to video", "Clips from a description alone, and animated backgrounds."],
+    ["video_i2v", "Image to video", "Clips that open on a given picture."],
+    ["video_ref", "Reference to video", "Clips featuring the companion, other companions, your photo or library images."],
+    ["video_edit", "Video edit", "Changing an existing clip."],
+    ["video_extend", "Video extension", "Continuing an existing clip."],
 ];
 const LOCAL_GEN_SLOTS = [
-    ["image", "Text to image", "create_image from a prompt alone, and still backgrounds."],
-    ["image_edit", "Image edit (references)", "create_image featuring you, other companions, your photo or library images. Needs LoadImage node(s)."],
-    ["video", "Text to video", "create_video from a prompt alone, and animated backgrounds."],
-    ["video_i2v", "Image to video", "create_video from a source image or featuring you: the frame the clip starts from."],
+    ["image", "Text to image", "Pictures from a description alone, and still backgrounds."],
+    ["image_edit", "Image edit (references)", "Pictures featuring the companion, other companions, your photo or library images, and the drawn 2D outfits and characters. Needs LoadImage node(s)."],
+    ["video", "Text to video", "Clips from a description alone, and animated backgrounds."],
+    ["video_i2v", "Image to video", "Clips that open on a given picture, or on the companion."],
 ];
 
 /** One-line detection summary of an inspected workflow. */
@@ -99,6 +119,16 @@ export default function SettingsView({ active }) {
     const [savedCount, setSavedCount] = useState(0);
     const [jevTest, setJevTest] = useState(null);
     const [vrmaTest, setVrmaTest] = useState(null);     // null | "busy" | {ok, ...} | {error}
+    // Venice AI (image and video engine): its key is write-only too.
+    const [veniceKeyDraft, setVeniceKeyDraft] = useState("");
+    const [veniceTest, setVeniceTest] = useState(null); // null | "busy" | {ok, ...} | {error}
+    // {slot: [{id, name}]} from Venice's public model list, for the model
+    // pickers; they stay plain text fields when it can't be read.
+    const [veniceModels, setVeniceModels] = useState({});
+    const [genTab, setGenTab] = useState(null);         // provider tab clicked, null = follow the config
+    useEffect(() => {
+        rpc("/api/venice/models", {}).then((res) => setVeniceModels(res.slots || {})).catch(() => {});
+    }, []);
     const onUserPhotoSelected = async (ev) => {
         const file = ev.target.files?.[0];
         ev.target.value = "";
@@ -275,6 +305,52 @@ export default function SettingsView({ active }) {
             setComfyTest({ error: e?.message || _t("Connection failed") });
         }
     };
+    // The provider tab shown under "Image and video generation": the one
+    // clicked, else the provider that makes the pictures.
+    const shownGenTab = genTab || config?.imagine_image_backend || "xai";
+    /** Image quality + default size, shared by Grok Imagine and Venice AI
+     *  (one setting, shown in both tabs). */
+    const imageDefaults = (qualityHint, qualityLabel = "Imagine quality", levels = ["low", "medium"]) => (<>
+        {levels.length > 0 && (
+            <div>
+                <label title={qualityHint}>{_t(qualityLabel)}</label>
+                <select value={config.imagine_quality || "auto"}
+                        onChange={(ev) => setField("imagine_quality", ev.target.value)}>
+                    <option value="auto">{_t("Auto")}</option>
+                    {levels.includes("low") && <option value="low">{_t("Low")}</option>}
+                    {levels.includes("medium") && <option value="medium">{_t("Medium")}</option>}
+                </select>
+            </div>
+        )}
+        <div>
+            <label title={_t("Size of the pictures made; a companion can pick another for a single picture. 1k is the usual default and 1.5k is what grok.com makes; 2k is twice as wide and tall as 1k. Larger is sharper and costs more.")}>
+                {_t("Default image resolution")}
+            </label>
+            <select value={config.imagine_resolution || "1.5k"}
+                    onChange={(ev) => setField("imagine_resolution", ev.target.value)}>
+                <option value="1k">1k</option>
+                <option value="1.5k">1.5k</option>
+                <option value="2k">2k</option>
+            </select>
+        </div>
+    </>);
+    /** Re-read only whether a decision model is ready (it changes when a
+     *  local model finishes installing, which is not a Save), leaving the
+     *  rest of the form, unsaved edits included, as it is. */
+    const refreshDecisionReady = async () => {
+        try {
+            const cfg = await rpc("/api/config/get", {});
+            setConfig((c) => (c ? { ...c, decision_ready: cfg.decision_ready, decision_can_box: cfg.decision_can_box } : c));
+        } catch (e) { /* the notices just stay as they were */ }
+    };
+    const testVenice = async () => {
+        setVeniceTest("busy");
+        try {
+            setVeniceTest(await rpc("/api/venice/test", { api_key: veniceKeyDraft || "" }));
+        } catch (e) {
+            setVeniceTest({ error: e?.message || _t("Connection failed") });
+        }
+    };
     const testJev = async () => {
         setJevTest("busy");
         try {
@@ -317,6 +393,9 @@ export default function SettingsView({ active }) {
             delete payload.has_local_gen_auth;
             if (authDraft.trim()) payload.local_gen_auth_header = authDraft.trim();
             else if (authDraft === null) payload.local_gen_auth_header = null;
+            delete payload.has_venice_api_key;
+            if (veniceKeyDraft?.trim()) payload.venice_api_key = veniceKeyDraft.trim();
+            else if (veniceKeyDraft === null) payload.venice_api_key = null;
             delete payload.has_youtube_api_key;
             if (ytKeyDraft?.trim()) payload.live_chat_youtube_api_key = ytKeyDraft.trim();
             else if (ytKeyDraft === null) payload.live_chat_youtube_api_key = null;
@@ -334,6 +413,7 @@ export default function SettingsView({ active }) {
             await rpc("/api/config/set", payload);
             setApiKeyDraft("");
             setAuthDraft("");
+            setVeniceKeyDraft("");
             setYtKeyDraft("");
             setVrmaTokenDraft("");
             setTypesafeKeyDraft("");
@@ -373,6 +453,7 @@ export default function SettingsView({ active }) {
     const discard = () => {
         setApiKeyDraft("");
         setAuthDraft("");
+        setVeniceKeyDraft("");
         setYtKeyDraft("");
         setVrmaTokenDraft("");
         setTypesafeKeyDraft("");
@@ -420,7 +501,7 @@ export default function SettingsView({ active }) {
                     </section>
                 )}
                 <section>
-                    <h3><i className="fa fa-user" /> {_t("You")}</h3>
+                    <h3><i className="fa fa-user" /> {_t("General")}</h3>
                     <div className="rx_row">
                         <div>
                             <label>{_t("Display name (optional)")}</label>
@@ -473,7 +554,7 @@ export default function SettingsView({ active }) {
                     <div style={{ marginTop: "0.75rem" }}>
                         <label>{_t("Your avatar (optional)")}</label>
                         <p className="text-muted small" style={{ margin: "0 0 0.4rem" }}>
-                            {_t("An avatar that plays you in Manga Diary pages: it stands beside your companion in the photoshoot, and its portrait is your likeness in Imagine-drawn panels.")}
+                            {_t("An avatar that plays you in Manga Diary pages: it stands beside your companion in the photoshoot, and its portrait is your likeness in panels drawn by the image generator.")}
                             {" "}{_t("It is also the body you walk scenes in with the call's movement mode \"Walk as me\".")}
                         </p>
                         {(() => {
@@ -503,6 +584,20 @@ export default function SettingsView({ active }) {
                                 </div>
                             );
                         })()}
+                    </div>
+                    <div className="rx_row">
+                        <div>
+                            <label title={_t("In a group call, how many times the companions may answer each other in a row before one hands the conversation back to you. Higher allows longer banter between them; every turn is a reply, so it costs more.")}>
+                                {_t("Group call max companion turns in a row")}
+                            </label>
+                            <input type="number" min="1" step="1"
+                                   value={config.group_chain_turns}
+                                   onChange={(ev) => setField(
+                                       "group_chain_turns",
+                                       Math.max(1, parseInt(ev.target.value, 10) || 1))} />
+                        </div>
+                        <div />
+                        <div />
                     </div>
                 </section>
 
@@ -546,9 +641,14 @@ export default function SettingsView({ active }) {
                                checked={!!config.face_director}
                                onChange={(ev) => setField("face_director", ev.target.checked ? 1 : 0)} />
                         <label htmlFor="rx_face_director">
-                            {_t("Expressive face and head while speaking (experimental - requires a decision model)")}
+                            {_t("Expressive face and head while speaking (requires a decision model)")}
                         </label>
                     </div>
+                    {!!config.face_director && !config.decision_ready && (
+                        <p className="small text-danger" style={{ margin: "0 0 0.25rem" }}>
+                            {_t("Not running yet: no decision model is set up. Enter a Jev key or install the local model under \"Decision model\" below.")}
+                        </p>
+                    )}
                     <p className="text-muted">
                         {_t("Your companion's face and head follow what each sentence means, and "
                             + "what you say to them as you say it: a smile, a frown, a nod on a yes, a shake on "
@@ -748,51 +848,6 @@ export default function SettingsView({ active }) {
                                    onChange={(ev) => setField("summary_model", ev.target.value)} />
                         </div>
                         <div>
-                            <label>{_t("Imagine model")}</label>
-                            <input type="text" value={config.imagine_model || ""}
-                                   onChange={(ev) => setField("imagine_model", ev.target.value)} />
-                        </div>
-                        <div>
-                            <label title={_t("Image quality for grok-imagine-image-2.0, the only model that takes it. Medium is sharper but slower and costs more; Auto lets xAI choose (currently low for new images, medium for edits).")}>
-                                {_t("Imagine quality")}
-                            </label>
-                            <select value={config.imagine_quality || "auto"}
-                                    onChange={(ev) => setField("imagine_quality", ev.target.value)}>
-                                <option value="auto">{_t("Auto")}</option>
-                                <option value="low">{_t("Low")}</option>
-                                <option value="medium">{_t("Medium")}</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label title={_t("Size of the images Imagine makes; a companion can pick another for a single create_image picture. 1k is xAI's default and 1.5k is what grok.com makes; 2k is twice as wide and tall as 1k. Larger is sharper and costs more.")}>
-                                {_t("Default image resolution")}
-                            </label>
-                            <select value={config.imagine_resolution || "1.5k"}
-                                    onChange={(ev) => setField("imagine_resolution", ev.target.value)}>
-                                <option value="1k">1k</option>
-                                <option value="1.5k">1.5k</option>
-                                <option value="2k">2k</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div className="rx_row">
-                        <div>
-                            <label title={_t("Grok Imagine video model used for animated backgrounds and the create_video tool.")}>
-                                {_t("Imagine video model")}
-                            </label>
-                            <input type="text" value={config.imagine_video_model || ""}
-                                   placeholder="grok-imagine-video-1.5"
-                                   onChange={(ev) => setField("imagine_video_model", ev.target.value)} />
-                        </div>
-                        <div>
-                            <label title={_t("Grok Imagine model used when create_video edits or extends a clip. xAI offers these only on grok-imagine-video. Empty = use the Imagine video model.")}>
-                                {_t("Imagine video edit model")}
-                            </label>
-                            <input type="text" value={config.imagine_video_edit_model || ""}
-                                   placeholder="grok-imagine-video"
-                                   onChange={(ev) => setField("imagine_video_edit_model", ev.target.value)} />
-                        </div>
-                        <div>
                             <label title={_t("Model for the group-call turn director (a one-token \"who speaks next\" classification on every group-call turn). Latency matters more than intelligence here — use the fastest non-reasoning model available. Empty = fall back to the Text Model.")}>
                                 {_t("Turn director model")}
                             </label>
@@ -800,20 +855,6 @@ export default function SettingsView({ active }) {
                                    placeholder="grok-4.20-non-reasoning"
                                    onChange={(ev) => setField("director_model", ev.target.value)} />
                         </div>
-                    </div>
-                    <div className="rx_row">
-                        <div>
-                            <label title={_t("In a group call, how many times the companions may answer each other in a row before one hands the conversation back to you. Higher allows longer banter between them; every turn is a reply, so it costs more.")}>
-                                {_t("Group call max companion turns in a row")}
-                            </label>
-                            <input type="number" min="1" step="1"
-                                   value={config.group_chain_turns}
-                                   onChange={(ev) => setField(
-                                       "group_chain_turns",
-                                       Math.max(1, parseInt(ev.target.value, 10) || 1))} />
-                        </div>
-                        <div />
-                        <div />
                     </div>
                     <div className="rx_row">
                         <div>
@@ -945,6 +986,7 @@ export default function SettingsView({ active }) {
                     {config.decision_provider === "local" && (<>
                     <div style={{ marginTop: "0.5rem" }}>
                         <DecisionLocalSettings saved={savedCount}
+                                               onInstalledChange={refreshDecisionReady}
                                                model={config.decision_local_model}
                                                onModel={(v) => { setJevTest(null); setField("decision_local_model", v); }}
                                                device={config.decision_local_device}
@@ -1016,6 +1058,11 @@ export default function SettingsView({ active }) {
                                onChange={(ev) => setField("live_memory_mode", ev.target.checked ? "on" : "off")} />
                         <label htmlFor="rx_live_memory">{_t("Live memory recall (experimental)")}</label>
                     </div>
+                    {config.live_memory_mode === "on" && !config.decision_ready && (
+                        <p className="small text-danger" style={{ margin: "0 0 0.25rem" }}>
+                            {_t("Not running yet: no decision model is set up. Enter a Jev key or install the local model above.")}
+                        </p>
+                    )}
                     <p className="text-muted small">
                         {_t("Recall a shared joke, distinctive event or familiar habit while you speak. Uses the decision model above and requires memory tools on the companion. Available in voice calls with one companion; start a new call after changing this setting.")}
                     </p>
@@ -1045,6 +1092,209 @@ export default function SettingsView({ active }) {
                             setConfig((c) => ({ ...c, voice_connections: connections, voice_setups: setups,
                                                 default_voice_setup: defaultSetup }));
                         }} />
+                </section>
+
+                <section>
+                    <h3><i className="fa fa-picture-o" /> {_t("Image and video generation")}</h3>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("What makes the pictures and clips your companions create. Pick a provider for each kind, then set that provider up in its tab below. A companion's \"Image & video tools\" toggle still decides whether it can make them at all.")}
+                    </p>
+                    <div className="rx_row">
+                        {GEN_USES.map(([key, label, hint]) => (
+                            <div key={key}>
+                                <label>{_t(label)}</label>
+                                <select value={config[key] || "xai"} onChange={(ev) => setField(key, ev.target.value)}>
+                                    {GEN_PROVIDERS.map(([id, name]) => <option key={id} value={id}>{_t(name)}</option>)}
+                                </select>
+                                <div className="text-muted small">{_t(hint)}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <div style={{ display: "flex", gap: "0.35rem", margin: "0.75rem 0 0.5rem" }}>
+                        {GEN_PROVIDERS.map(([id, name]) => (
+                            <button key={id} type="button"
+                                    className={"btn btn-sm " + (shownGenTab === id ? "btn-primary" : "btn-light")}
+                                    onClick={() => setGenTab(id)}>{_t(name)}</button>
+                        ))}
+                    </div>
+                    {shownGenTab === "xai" && (<>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("Grok Imagine runs on the xAI key or Grok sign-in from \"xAI connection\" above, and is billed by xAI per image and per second of video.")}
+                    </p>
+                    <div className="rx_row">
+                        <div>
+                            <label>{_t("Imagine model")}</label>
+                            <input type="text" value={config.imagine_model || ""}
+                                   onChange={(ev) => setField("imagine_model", ev.target.value)} />
+                        </div>
+                        {imageDefaults(_t("Image quality for grok-imagine-image-2.0, the only model that takes it. Medium is sharper but slower and costs more; Auto lets xAI choose (currently low for new images, medium for edits)."))}
+                    </div>
+                    <div className="rx_row">
+                        <div>
+                            <label title={_t("Grok Imagine video model used for clips and animated backgrounds.")}>
+                                {_t("Imagine video model")}
+                            </label>
+                            <input type="text" value={config.imagine_video_model || ""}
+                                   placeholder="grok-imagine-video-1.5"
+                                   onChange={(ev) => setField("imagine_video_model", ev.target.value)} />
+                        </div>
+                        <div>
+                            <label title={_t("Grok Imagine model used to edit or extend a clip. xAI offers these only on grok-imagine-video. Empty = use the Imagine video model.")}>
+                                {_t("Imagine video edit model")}
+                            </label>
+                            <input type="text" value={config.imagine_video_edit_model || ""}
+                                   placeholder="grok-imagine-video"
+                                   onChange={(ev) => setField("imagine_video_edit_model", ev.target.value)} />
+                        </div>
+                    </div>
+                    </>)}
+                    {shownGenTab === "venice" && (<>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("Venice AI serves many image and video models, uncensored ones included, on a Venice API key; pick one per kind of request below. Lengths, sizes and shapes a model doesn't offer are fitted to the nearest it does. Venice's blur filter for adult content is switched off: what gets drawn depends on the model you pick. Billed by Venice per image and per second of video.")}{" "}
+                        <a href="https://venice.ai/settings/api" target="_blank" rel="noreferrer">{_t("Venice API keys")}</a>.{" "}
+                        <a href="https://docs.venice.ai/pricing" target="_blank" rel="noreferrer">{_t("Venice pricing")}</a>.
+                    </p>
+                    <div className="rx_row">
+                        <div style={{ flex: 2 }}>
+                            <label>
+                                {_t("API key")}
+                                {config.has_venice_api_key && veniceKeyDraft !== null && (
+                                    <span className="text-muted"> ({_t("saved")}{" "}
+                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setVeniceKeyDraft(null); }}>{_t("remove")}</a>)
+                                    </span>
+                                )}
+                            </label>
+                            <input type="password" value={veniceKeyDraft || ""}
+                                   placeholder={config.has_venice_api_key && veniceKeyDraft !== null
+                                       ? _t("•••••••• (leave blank to keep current key)") : ""}
+                                   onChange={(ev) => { markDirty(true); setVeniceKeyDraft(ev.target.value); }} />
+                        </div>
+                        <div style={{ alignSelf: "flex-end" }}>
+                            <button className="btn btn-light" onClick={testVenice} disabled={veniceTest === "busy"}>
+                                <i className={veniceTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test connection")}
+                            </button>
+                        </div>
+                    </div>
+                    {veniceTest && veniceTest !== "busy" && (
+                        <p className={"small " + (veniceTest.ok && veniceTest.can_consume ? "text-muted" : "text-danger")} style={{ margin: "0.25rem 0 0.5rem" }}>
+                            {veniceTest.ok
+                                ? [_t("Venice accepted the key"),
+                                   veniceTest.usd != null ? `$${Number(veniceTest.usd).toFixed(2)}` : null,
+                                   veniceTest.diem != null ? `${Number(veniceTest.diem).toFixed(2)} DIEM` : null,
+                                   veniceTest.can_consume ? null : _t("no balance to spend"),
+                                  ].filter(Boolean).join(" · ")
+                                : veniceTest.error}
+                        </p>
+                    )}
+                    <div className="rx_row">
+                        {imageDefaults(
+                            _t("The picked image or image edit model offers quality levels. Higher is sharper but slower and costs more; Auto leaves it to the model."),
+                            "Image quality",
+                            // Only the levels a picked model offers (most offer
+                            // none, and the choice is then left out).
+                            ["low", "medium"].filter((level) => ["image", "image_edit"].some((slot) =>
+                                (veniceModels[slot] || []).find((m) => m.id === config[`venice_${slot}_model`])
+                                    ?.qualities?.includes(level))))}
+                    </div>
+                    <label style={{ marginTop: "0.5rem" }}>{_t("Models")}</label>
+                    <p className="text-muted small" style={{ margin: "0 0 0.4rem" }}>
+                        {_t("Type a Venice model id or pick one from the list. Leave a field empty to switch that kind of request off: the companions are then not offered it.")}
+                    </p>
+                    {VENICE_SLOTS.map(([slot, label, hint]) => (
+                        <div key={slot} style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.4rem" }}>
+                            <div style={{ flex: 1 }}>
+                                <strong>{_t(label)}</strong>{" "}
+                                <span className="text-muted small">{_t(hint)}</span>
+                            </div>
+                            <input type="text" style={{ flex: 1 }} list={`rx_venice_models_${slot}`}
+                                   value={config[`venice_${slot}_model`] || ""}
+                                   onChange={(ev) => setField(`venice_${slot}_model`, ev.target.value)} />
+                            <datalist id={`rx_venice_models_${slot}`}>
+                                {(veniceModels[slot] || []).map((m) => (
+                                    <option key={m.id} value={m.id}>{m.name}</option>
+                                ))}
+                            </datalist>
+                        </div>
+                    ))}
+                    </>)}
+                    {shownGenTab === "local" && (<>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("Your own ComfyUI server: any model ComfyUI runs, no per-generation billing.")}
+                    </p>
+                    <div className="rx_row">
+                        <div style={{ flex: 2 }}>
+                            <label>{_t("ComfyUI URL")}</label>
+                            <input type="text" value={config.local_gen_url || ""} placeholder="http://127.0.0.1:8188"
+                                   onChange={(ev) => setField("local_gen_url", ev.target.value)} />
+                        </div>
+                        <div style={{ flex: 2 }}>
+                            <label title={_t("Sent on every request. For a rented pod behind a proxy password or a hosted service's API key. Leave empty for a plain local ComfyUI.")}>
+                                {_t("Auth header (optional)")}
+                                {config.has_local_gen_auth && authDraft !== null && (
+                                    <span className="text-muted"> ({_t("saved")}{" "}
+                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setAuthDraft(null); }}>{_t("remove")}</a>)
+                                    </span>
+                                )}
+                            </label>
+                            <input type="password" value={authDraft || ""}
+                                   placeholder={config.has_local_gen_auth && authDraft !== null
+                                       ? _t("•••••••• (leave blank to keep current header)")
+                                       : "Authorization: Bearer …"}
+                                   onChange={(ev) => { markDirty(true); setAuthDraft(ev.target.value); }} />
+                        </div>
+                        <div style={{ alignSelf: "flex-end" }}>
+                            <button className="btn btn-light" onClick={testComfy} disabled={comfyTest === "busy"}>
+                                <i className={comfyTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test connection")}
+                            </button>
+                        </div>
+                    </div>
+                    {comfyTest && comfyTest !== "busy" && (
+                        <p className={"small " + (comfyTest.ok ? "text-muted" : "text-danger")} style={{ margin: "0.25rem 0 0.5rem" }}>
+                            {comfyTest.ok
+                                ? `ComfyUI ${comfyTest.version || ""} · ${(comfyTest.devices || [])
+                                    .map((d) => `${d.name} (${d.vram_free_gb} / ${d.vram_total_gb} GB VRAM ${_t("free")})`)
+                                    .join(", ") || _t("no GPU reported")}`
+                                : comfyTest.error}
+                        </p>
+                    )}
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("Rexclaw in Docker or WSL while ComfyUI runs on Windows? Start ComfyUI with --listen and use that machine's address (from Docker: http://host.docker.internal:8188).")}
+                    </p>
+                    <label style={{ marginTop: "0.5rem" }}>{_t("Workflows")}</label>
+                    <p className="text-muted small" style={{ margin: "0 0 0.4rem" }}>
+                        {_t("In ComfyUI, load a template for the model you want (Qwen Image Edit for image edits, Wan 2.2 image-to-video for clips, …), run it once so its models download, then Workflow → Export (API) and load that file here. Nothing needs renaming: the prompt, LoadImage, seed, size and length inputs are detected. Put {prompt} inside the positive prompt text to keep the rest as a fixed style prefix.")}
+                    </p>
+                    {LOCAL_GEN_SLOTS.map(([slot, label, hint]) => {
+                        const text = config[`local_gen_${slot}_workflow`];
+                        const s = wfSummaries[slot];
+                        return (
+                            <div key={slot} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.4rem" }}>
+                                <div style={{ flex: 1 }}>
+                                    <strong>{_t(label)}</strong>{" "}
+                                    <span className="text-muted small">{_t(hint)}</span>
+                                    <div className="small">
+                                        {!text && <span className="text-muted">{_t("not set")}</span>}
+                                        {text && !s && _t("loaded")}
+                                        {text && s && (s.ok === false
+                                            ? <span className="text-danger">{s.error}</span>
+                                            : workflowSummary(s))}
+                                        {s?.warnings?.map((w, i) => <div key={i} className="text-danger">{w}</div>)}
+                                    </div>
+                                </div>
+                                <button type="button" className="btn btn-sm" onClick={() => pickWorkflow(slot)}>
+                                    <i className="fa fa-upload" /> {text ? _t("Replace") : _t("Load JSON")}
+                                </button>
+                                {text && (
+                                    <button type="button" className="btn btn-sm btn-link" onClick={() => clearWorkflow(slot)}>
+                                        {_t("Remove")}
+                                    </button>
+                                )}
+                            </div>
+                        );
+                    })}
+                    </>)}
+                    <input ref={wfInputRef} type="file" accept="application/json,.json"
+                           style={{ display: "none" }} onChange={onWorkflowSelected} />
                 </section>
 
                 <section>
@@ -1088,26 +1338,31 @@ export default function SettingsView({ active }) {
                                    onChange={(ev) => setField("summary_threshold_tokens_text", parseInt(ev.target.value, 10) || 0)} />
                         </div>
                         <div>
-                            <label title={_t("How many of the newest messages are left out of the recap "
-                                             + "and carried forward word for word.")}>
-                                {_t("Recent turns kept verbatim")}
-                            </label>
-                            <input type="number" min="0" value={config.summary_keep_recent_messages ?? 2}
-                                   onChange={(ev) => setField("summary_keep_recent_messages", parseInt(ev.target.value, 10) || 0)} />
-                        </div>
-                        <div>
                             <label title={_t("When a summary passes the high limit, it is rewritten down to about this many words, relationship milestones first. 0 = off (summaries keep growing).")}>
-                                {_t("Summary word limit (low)")}
+                                {_t("Grok summary word limit (low)")}
                             </label>
                             <input type="number" min="0" max="100000" value={config.summary_max_words ?? 3000}
                                    onChange={(ev) => setField("summary_max_words", ev.target.value === "" ? "" : Number(ev.target.value))} />
                         </div>
                         <div>
                             <label title={_t("Below this, new conversation is added to the summary and older text is left as it is. Above it, the summary is rewritten down to the low limit.")}>
-                                {_t("Summary word limit (high)")}
+                                {_t("Grok summary word limit (high)")}
                             </label>
                             <input type="number" min="0" max="100000" value={config.summary_consolidate_words ?? 9000}
                                    onChange={(ev) => setField("summary_consolidate_words", ev.target.value === "" ? "" : Number(ev.target.value))} />
+                        </div>
+                    </div>
+                    <p className="text-muted" style={{ margin: "0.5rem 0 0.25rem" }}>
+                        {_t("These two apply to every conversation, whatever it runs on.")}
+                    </p>
+                    <div className="rx_row">
+                        <div>
+                            <label title={_t("How many of the newest messages are left out of the recap "
+                                             + "and carried forward word for word.")}>
+                                {_t("Recent turns kept verbatim")}
+                            </label>
+                            <input type="number" min="0" value={config.summary_keep_recent_messages ?? 2}
+                                   onChange={(ev) => setField("summary_keep_recent_messages", parseInt(ev.target.value, 10) || 0)} />
                         </div>
                         <div>
                             <label title={_t("Most-recent messages loaded into the transcript when a "
@@ -1362,97 +1617,6 @@ export default function SettingsView({ active }) {
                         </p>
                     </section>
                 )}
-
-                <section>
-                    <h3><i className="fa fa-desktop" /> {_t("Local generation (ComfyUI)")}</h3>
-                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
-                        {_t("Render the companions' image and video tools on your own ComfyUI server instead of Grok Imagine: any model ComfyUI runs, no per-generation billing. A companion's \"Image & video tools\" toggle still decides whether the tools are offered at all; this only picks the engine behind each tool.")}
-                    </p>
-                    <div className="rx_row">
-                        <div style={{ flex: 2 }}>
-                            <label>{_t("ComfyUI URL")}</label>
-                            <input type="text" value={config.local_gen_url || ""} placeholder="http://127.0.0.1:8188"
-                                   onChange={(ev) => setField("local_gen_url", ev.target.value)} />
-                        </div>
-                        <div style={{ flex: 2 }}>
-                            <label title={_t("Sent on every request. For a rented pod behind a proxy password or a hosted service's API key. Leave empty for a plain local ComfyUI.")}>
-                                {_t("Auth header (optional)")}
-                                {config.has_local_gen_auth && authDraft !== null && (
-                                    <span className="text-muted"> ({_t("saved")}{" "}
-                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setAuthDraft(null); }}>{_t("remove")}</a>)
-                                    </span>
-                                )}
-                            </label>
-                            <input type="password" value={authDraft || ""}
-                                   placeholder={config.has_local_gen_auth && authDraft !== null
-                                       ? _t("•••••••• (leave blank to keep current header)")
-                                       : "Authorization: Bearer …"}
-                                   onChange={(ev) => { markDirty(true); setAuthDraft(ev.target.value); }} />
-                        </div>
-                        <div style={{ alignSelf: "flex-end" }}>
-                            <button className="btn btn-light" onClick={testComfy} disabled={comfyTest === "busy"}>
-                                <i className={comfyTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test connection")}
-                            </button>
-                        </div>
-                    </div>
-                    {comfyTest && comfyTest !== "busy" && (
-                        <p className={"small " + (comfyTest.ok ? "text-muted" : "text-danger")} style={{ margin: "0.25rem 0 0.5rem" }}>
-                            {comfyTest.ok
-                                ? `ComfyUI ${comfyTest.version || ""} · ${(comfyTest.devices || [])
-                                    .map((d) => `${d.name} (${d.vram_free_gb} / ${d.vram_total_gb} GB VRAM ${_t("free")})`)
-                                    .join(", ") || _t("no GPU reported")}`
-                                : comfyTest.error}
-                        </p>
-                    )}
-                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
-                        {_t("Rexclaw in Docker or WSL while ComfyUI runs on Windows? Start ComfyUI with --listen and use that machine's address (from Docker: http://host.docker.internal:8188).")}
-                    </p>
-                    <div className="rx_row">
-                        {LOCAL_GEN_TOOLS.map(([key, tool, label]) => (
-                            <div key={key}>
-                                <label>{_t(label)} <span className="text-muted">({tool})</span></label>
-                                <select value={config[key] || "xai"} onChange={(ev) => setField(key, ev.target.value)}>
-                                    <option value="xai">{_t("Grok Imagine (xAI)")}</option>
-                                    <option value="local">{_t("Local (ComfyUI)")}</option>
-                                </select>
-                            </div>
-                        ))}
-                    </div>
-                    <label style={{ marginTop: "0.5rem" }}>{_t("Workflows")}</label>
-                    <p className="text-muted small" style={{ margin: "0 0 0.4rem" }}>
-                        {_t("In ComfyUI, load a template for the model you want (Qwen Image Edit for image edits, Wan 2.2 image-to-video for clips, …), run it once so its models download, then Workflow → Export (API) and load that file here. Nothing needs renaming: the prompt, LoadImage, seed, size and length inputs are detected. Put {prompt} inside the positive prompt text to keep the rest as a fixed style prefix.")}
-                    </p>
-                    {LOCAL_GEN_SLOTS.map(([slot, label, hint]) => {
-                        const text = config[`local_gen_${slot}_workflow`];
-                        const s = wfSummaries[slot];
-                        return (
-                            <div key={slot} style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem", marginBottom: "0.4rem" }}>
-                                <div style={{ flex: 1 }}>
-                                    <strong>{_t(label)}</strong>{" "}
-                                    <span className="text-muted small">{_t(hint)}</span>
-                                    <div className="small">
-                                        {!text && <span className="text-muted">{_t("not set")}</span>}
-                                        {text && !s && _t("loaded")}
-                                        {text && s && (s.ok === false
-                                            ? <span className="text-danger">{s.error}</span>
-                                            : workflowSummary(s))}
-                                        {s?.warnings?.map((w, i) => <div key={i} className="text-danger">{w}</div>)}
-                                    </div>
-                                </div>
-                                <button type="button" className="btn btn-sm" onClick={() => pickWorkflow(slot)}>
-                                    <i className="fa fa-upload" /> {text ? _t("Replace") : _t("Load JSON")}
-                                </button>
-                                {text && (
-                                    <button type="button" className="btn btn-sm btn-link" onClick={() => clearWorkflow(slot)}>
-                                        {_t("Remove")}
-                                    </button>
-                                )}
-                            </div>
-                        );
-                    })}
-                    <input ref={wfInputRef} type="file" accept="application/json,.json"
-                           style={{ display: "none" }} onChange={onWorkflowSelected} />
-                </section>
 
                 <VoiceLabSettings />
 

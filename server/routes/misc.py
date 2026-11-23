@@ -19,7 +19,7 @@ from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, look_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, tool_cooldowns, transfer, xai_client, xai_oauth
+from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, look_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, tool_cooldowns, transfer, venice_gen, xai_client, xai_oauth
 from ..db import ASSETS_DIR, FILES_DIR, get_config, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
@@ -59,6 +59,9 @@ _CONFIG_FIELDS = (
     "local_gen_url",
     "local_gen_image_workflow", "local_gen_image_edit_workflow",
     "local_gen_video_workflow", "local_gen_video_i2v_workflow",
+    "venice_image_model", "venice_image_edit_model", "venice_video_model",
+    "venice_video_i2v_model", "venice_video_ref_model", "venice_video_edit_model",
+    "venice_video_extend_model",
     "gesture_gen_enabled", "gesture_gen_url", "gesture_gen_engine", "gesture_gen_planner",
     "gesture_gen_speed", "gesture_gen_model",
     "default_agent_id", "user_display_name", "include_user_name_in_prompt",
@@ -128,6 +131,8 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     # The ComfyUI auth header is a pod password / API key: write-only from
     # the UI, same as the xAI key.
     out["has_local_gen_auth"] = bool(row["local_gen_auth_header"])
+    # So is the Venice AI key.
+    out["has_venice_api_key"] = bool(row["venice_api_key"])
     # The Text-To-VRMA access token: write-only too.
     out["has_gesture_gen_token"] = bool(row["gesture_gen_token"])
     # The TypeSafe (Jev) API key: write-only too.
@@ -228,6 +233,15 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
             updates["local_gen_auth_header"] = ""
         elif isinstance(header, str) and header.strip():
             updates["local_gen_auth_header"] = header.strip()
+    for key in ('imagine_image_backend', 'imagine_video_backend', 'imagine_background_backend'):
+        if key in updates and updates[key] not in ('xai', 'local', 'venice'):
+            raise UserError('Invalid image/video engine.')
+    if "venice_api_key" in payload:
+        venice_key = payload["venice_api_key"]
+        if venice_key is None:
+            updates["venice_api_key"] = None
+        elif isinstance(venice_key, str) and venice_key.strip():
+            updates["venice_api_key"] = venice_key.strip()
     if "gesture_gen_token" in payload:
         token = payload["gesture_gen_token"]
         if token is None:
@@ -433,6 +447,23 @@ def local_gen_test(payload: dict = Body(default={}), con=Depends(db_con)):
     if not (isinstance(header, str) and header.strip()):
         header = con.execute("SELECT local_gen_auth_header FROM config WHERE id = 1").fetchone()[0]
     return local_gen.test_connection(payload.get("url"), header)
+
+
+@router.post("/venice/test")
+def venice_test(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Settings "Test": does Venice accept the key, and its balance. The
+    typed key when there is one, else the stored one."""
+    key = payload.get("api_key")
+    if not (isinstance(key, str) and key.strip()):
+        key = con.execute("SELECT venice_api_key FROM config WHERE id = 1").fetchone()[0]
+    return venice_gen.test_connection((key or "").strip())
+
+
+@router.post("/venice/models")
+def venice_models():
+    """Venice's image and video models per capability slot, for the
+    Settings pickers (its public model list, no key needed)."""
+    return {"slots": venice_gen.slot_models()}
 
 
 @router.post("/gesture_gen/test")

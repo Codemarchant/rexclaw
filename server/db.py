@@ -108,8 +108,9 @@ CREATE TABLE IF NOT EXISTS config (
     -- create_video edit_video / extend_video: xAI offers those two only on
     -- the plain model, not the -1.5 line. Empty = same as imagine_video_model.
     imagine_video_edit_model TEXT NOT NULL DEFAULT 'grok-imagine-video',
-    -- Engine behind each Imagine tool: 'xai' (Grok Imagine) or 'local'
-    -- (the user's ComfyUI server, see local_gen.py). The companion-level
+    -- Engine behind each Imagine tool: 'xai' (Grok Imagine), 'local' (the
+    -- user's ComfyUI server, see local_gen.py) or 'venice' (Venice AI, see
+    -- venice_gen.py). The companion-level
     -- "Image & video tools" toggle still decides whether the tools are
     -- offered at all; this only picks what renders them.
     imagine_image_backend TEXT NOT NULL DEFAULT 'xai',
@@ -126,6 +127,23 @@ CREATE TABLE IF NOT EXISTS config (
     local_gen_image_edit_workflow TEXT NOT NULL DEFAULT '',
     local_gen_video_workflow TEXT NOT NULL DEFAULT '',
     local_gen_video_i2v_workflow TEXT NOT NULL DEFAULT '',
+    -- Venice AI engine: its key, and one model per capability (a Venice
+    -- video model is one mode of a family, so each mode has its own id).
+    -- Empty = that capability is unavailable on Venice (its tool
+    -- parameters are pruned). The defaults are the newest models Venice
+    -- lists as uncensored (its model list, 2026-11-23), not Grok Imagine,
+    -- which the xAI engine already is. Images: Seedream 5.5, with the same
+    -- 1K / 1.5K / 2K sizes as Grok Imagine and up to 10 reference images.
+    -- Videos: Wan 3.0, whose reference-to-video model also edits and
+    -- extends a clip, so it fills those two slots as well.
+    venice_api_key TEXT,
+    venice_image_model TEXT NOT NULL DEFAULT 'seedream-v5-5',
+    venice_image_edit_model TEXT NOT NULL DEFAULT 'seedream-v5-5-edit',
+    venice_video_model TEXT NOT NULL DEFAULT 'wan-3-0-text-to-video',
+    venice_video_i2v_model TEXT NOT NULL DEFAULT 'wan-3-0-image-to-video',
+    venice_video_ref_model TEXT NOT NULL DEFAULT 'wan-3-0-reference-to-video',
+    venice_video_edit_model TEXT NOT NULL DEFAULT 'wan-3-0-reference-to-video',
+    venice_video_extend_model TEXT NOT NULL DEFAULT 'wan-3-0-reference-to-video',
     -- generate_gesture: the user's Text-To-VRMA app, over its local HTTP
     -- API (see text_to_vrma.py). The token is the access token the app
     -- shows once its API is enabled. Engine / planner / speed / model
@@ -258,8 +276,10 @@ CREATE TABLE IF NOT EXISTS config (
     tool_animations INTEGER NOT NULL DEFAULT 1,
     -- Face director (face_director.py): a director-model reading per spoken
     -- sentence drives brows, eyes, mouth and gaze under the companion's own
-    -- set_emotion. Off by default — it costs a call per sentence.
-    face_director INTEGER NOT NULL DEFAULT 0,
+    -- set_emotion. On by default; it only runs once a decision model is set
+    -- up (session_service.face_running), which is where its cost of a call
+    -- per sentence starts.
+    face_director INTEGER NOT NULL DEFAULT 1,
     -- TypeSafe key (write-only from the UI), for everything Jev answers:
     -- the face director, and the speech gesture selector when it is set
     -- to Jev.
@@ -280,7 +300,9 @@ CREATE TABLE IF NOT EXISTS config (
     -- the weights, else the processor), 'cuda' or 'cpu'.
     decision_local_device TEXT NOT NULL DEFAULT '',
     decision_local_model TEXT NOT NULL DEFAULT 'valen-2b',
-    live_memory_mode TEXT NOT NULL DEFAULT 'off', -- off | on
+    -- On by default; like the face director it needs a decision model set
+    -- up before it does anything (and memory tools on the companion).
+    live_memory_mode TEXT NOT NULL DEFAULT 'on', -- off | on
     live_memory_cooldown_seconds INTEGER NOT NULL DEFAULT 60,
     -- Web/X search calls per request (text replies / multi-agent tasks).
     -- xAI runs these searches in its own loop inside ONE request, each call
@@ -1744,6 +1766,16 @@ MIGRATIONS = (
     "ALTER TABLE agents ADD COLUMN character_settings TEXT NOT NULL DEFAULT ''",
     # Offers create_outfit (look_tools.py) — a new 2D outfit drawn on Imagine.
     "ALTER TABLE agents ADD COLUMN enable_create_outfit INTEGER NOT NULL DEFAULT 0",
+    # Venice AI as an image/video engine (venice_gen.py) — see the config
+    # schema comment.
+    "ALTER TABLE config ADD COLUMN venice_api_key TEXT",
+    "ALTER TABLE config ADD COLUMN venice_image_model TEXT NOT NULL DEFAULT 'seedream-v5-5'",
+    "ALTER TABLE config ADD COLUMN venice_image_edit_model TEXT NOT NULL DEFAULT 'seedream-v5-5-edit'",
+    "ALTER TABLE config ADD COLUMN venice_video_model TEXT NOT NULL DEFAULT 'wan-3-0-text-to-video'",
+    "ALTER TABLE config ADD COLUMN venice_video_i2v_model TEXT NOT NULL DEFAULT 'wan-3-0-image-to-video'",
+    "ALTER TABLE config ADD COLUMN venice_video_ref_model TEXT NOT NULL DEFAULT 'wan-3-0-reference-to-video'",
+    "ALTER TABLE config ADD COLUMN venice_video_edit_model TEXT NOT NULL DEFAULT 'wan-3-0-reference-to-video'",
+    "ALTER TABLE config ADD COLUMN venice_video_extend_model TEXT NOT NULL DEFAULT 'wan-3-0-reference-to-video'",
 )
 
 

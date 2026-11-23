@@ -18,13 +18,13 @@ const STYLES = [
 ];
 const ARTS = [
     { id: "photo", label: "Live photoshoot" },
-    { id: "scenes", label: "Photoshoot in Imagine-painted scenes" },
-    { id: "illustrated", label: "Imagine-illustrated panels" },
+    { id: "scenes", label: "Photoshoot in painted scenes" },
+    { id: "illustrated", label: "Illustrated panels" },
 ];
 const ART_HINTS = {
     photo: "Your companion poses in their current scene. No extra cost.",
-    scenes: "Grok Imagine paints each panel's setting and your companion poses in it: one image per panel, billed to your xAI account.",
-    illustrated: "Grok Imagine draws every panel from the outfit's portrait: one image per panel, billed to your xAI account. A panel it can't draw is photographed instead.",
+    scenes: "Each panel's setting is painted and your companion poses in it: one image per panel, made and billed by the image provider picked in Settings → Image and video generation.",
+    illustrated: "Every panel is drawn from the outfit's portrait: one image per panel, made and billed by the image provider picked in Settings → Image and video generation. A panel it can't draw is photographed instead.",
 };
 
 const MAX_LINES = 3;               // balloons per panel (server/manga.py MAX_LINES)
@@ -64,7 +64,7 @@ export default function MangaView({ active }) {
     const [sources, setSources] = useState({ episodes: [], recent: [] });
     const [agents, setAgents] = useState([]);
     const [form, setForm] = useState({
-        agentId: "", source: "", layout: "page", style: "mono", art: "photo", focus: "", pages: 1,
+        agentId: "", source: "", layout: "page", style: "color", art: "illustrated", focus: "", pages: 1,
         continueFrom: null,   // { chapterId, title, lastPage } — "Next page" on a chapter
         cast: [],             // [{ id, outfit }] other companions who may appear ('' = what they wear)
         mode: "pick",         // pick (one episode) | combine (several episodes) | script (the user's own)
@@ -100,7 +100,12 @@ export default function MangaView({ active }) {
     // Chapters: pages stacked by chapter, in page order. Newest first, by
     // when the story happened ("story": the episode's date) or by when the
     // chapter was last drawn to ("drawn").
-    const [galleryOrder, setGalleryOrder] = useState("story");
+    // Each view keeps its own order: pages by when the story happened,
+    // panel art by when it was drawn (the latest pictures first).
+    const [galleryView, setGalleryView] = useState("pages");   // "pages" | "art"
+    const [orders, setOrders] = useState({ pages: "story", art: "drawn" });
+    const galleryOrder = orders[galleryView];
+    const setGalleryOrder = (order) => setOrders((o) => ({ ...o, [galleryView]: order }));
     const [galleryAgent, setGalleryAgent] = useState("");   // "" = every companion
     const galleryAgents = useMemo(() => {
         const seen = new Map();
@@ -126,6 +131,21 @@ export default function MangaView({ active }) {
     const shownChapters = galleryAgent
         ? chapters.filter((c) => String(c.pages[0].agent_id) === galleryAgent) : chapters;
     const galleryPager = usePager(shownChapters.length);
+    // The gallery's other view: the pictures the image generator made for
+    // the panels of saved pages (each page's script keeps its panels'
+    // art_url), in the gallery's order and under its companion filter.
+    const [artViewing, setArtViewing] = useState(null);        // an entry of panelArt
+    const allPanelArt = useMemo(() => shownChapters.flatMap((c) => c.pages.flatMap((page) =>
+        (page.script?.panels || []).map((p, i) => ({ page, panel: i + 1, url: p.art_url, scene: p.scene }))
+            .filter((a) => a.url))), [shownChapters]);
+    // Narrowed to one manga, or to the ones whose title has the typed words.
+    const [artQuery, setArtQuery] = useState("");
+    const artTitles = useMemo(() => [...new Set(allPanelArt.map((a) => a.page.title).filter(Boolean))], [allPanelArt]);
+    const panelArt = useMemo(() => {
+        const q = artQuery.trim().toLowerCase();
+        return q ? allPanelArt.filter((a) => (a.page.title || "").toLowerCase().includes(q)) : allPanelArt;
+    }, [allPanelArt, artQuery]);
+    const artPager = usePager(panelArt.length);
     const openPage = (page) => {
         const ch = chapters.find((c) => c.id === page.chapter_id);
         setViewing({ chapterId: page.chapter_id, index: Math.max(0, ch ? ch.pages.findIndex((p) => p.id === page.id) : 0) });
@@ -743,7 +763,27 @@ export default function MangaView({ active }) {
                 <section>
                     <div className="rx_manga_gallery_head">
                         <h3><i className="fa fa-th" /> {_t("Pages")}</h3>
+                        {(allPanelArt.length > 0 || galleryView === "art") && (
+                            <div style={{ display: "flex", gap: "0.35rem" }}>
+                                {[["pages", "Pages"], ["art", "Panel art"]].map(([id, label]) => (
+                                    <button key={id} type="button"
+                                            title={id === "art" ? _t("The pictures the image generator made for the panels of your saved pages") : undefined}
+                                            className={"btn btn-sm " + (galleryView === id ? "btn-primary" : "btn-light")}
+                                            onClick={() => setGalleryView(id)}>{_t(label)}</button>
+                                ))}
+                            </div>
+                        )}
                         <span style={{ flex: 1 }} />
+                        {galleryView === "art" && (<>
+                            <input type="search" list="rx_manga_art_titles" value={artQuery}
+                                   placeholder={_t("Search by manga title…")}
+                                   title={_t("Show the panel art of one manga: type part of its title, or pick it from the list")}
+                                   style={{ width: "16rem", maxWidth: "100%" }}
+                                   onChange={(e) => { setArtQuery(e.target.value); artPager.setPage(0); }} />
+                            <datalist id="rx_manga_art_titles">
+                                {artTitles.map((t) => <option key={t} value={t} />)}
+                            </datalist>
+                        </>)}
                         {galleryAgents.length > 1 && (
                             <select value={galleryAgent} title={_t("Companion")}
                                     onChange={(e) => { setGalleryAgent(e.target.value); galleryPager.setPage(0); }}>
@@ -763,7 +803,25 @@ export default function MangaView({ active }) {
                         <p className="text-muted small">{_t("Loading…")}</p>
                     ) : !pages.length ? (
                         <p className="text-muted small">{_t("No pages yet. Your first one is a storyboard away.")}</p>
-                    ) : (<>
+                    ) : galleryView === "art" ? (<>
+                        {!panelArt.length && (
+                            <p className="text-muted small">{_t("No panel art matches.")}</p>
+                        )}
+                        <Pager pager={artPager} />
+                        <div className="rx_manga_gallery">
+                            {artPager.slice(panelArt).map((a) => (
+                                <button key={a.url} className="rx_manga_card" title={a.scene || undefined}
+                                        onClick={() => setArtViewing(a)}>
+                                    <img src={a.url} alt="" loading="lazy" style={{ aspectRatio: "1 / 1", objectPosition: "center" }} />
+                                    <span className="rx_manga_card_title">{a.page.title}</span>
+                                    <span className="rx_manga_card_meta">
+                                        {a.page.agent_name} · {_t("page %s, panel %s", a.page.page_no, a.panel)}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                        <Pager pager={artPager} />
+                    </>) : (<>
                         <Pager pager={galleryPager} />
                         <div className="rx_manga_gallery">
                             {galleryPager.slice(shownChapters).map((c) => {
@@ -785,6 +843,25 @@ export default function MangaView({ active }) {
                     </>)}
                 </section>
             </div>
+
+            {/* One panel's picture, full size, on the same stage. */}
+            {artViewing && (
+                <div className="rx_manga_studio" onClick={() => setArtViewing(null)}>
+                    <img src={artViewing.url} alt="" style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 4 }} />
+                    <div style={{ display: "flex", gap: "0.5rem" }} onClick={(e) => e.stopPropagation()}>
+                        <a className="btn btn-sm" href={artViewing.url}
+                           download={`${artViewing.page.title} ${artViewing.page.page_no}-${artViewing.panel}`}>
+                            <i className="fa fa-download" /> {_t("Download")}
+                        </a>
+                        <button className="btn btn-sm" onClick={() => { setArtViewing(null); openPage(artViewing.page); }}>
+                            <i className="fa fa-book" /> {_t("Open its page")}
+                        </button>
+                        <button className="btn btn-sm" onClick={() => setArtViewing(null)}>
+                            <i className="fa fa-times" /> {_t("Close")}
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* The same full-screen stage the photoshoot reveals its pages on. */}
             {viewed && (() => {

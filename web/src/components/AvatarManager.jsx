@@ -502,7 +502,7 @@ function GenerateLook({ packKey, name, defaults, references, onDone }) {
         return (
             <div>
                 <button className="btn btn-sm" disabled={!packKey} onClick={() => setOpen(true)}
-                        title={_t("Make the image and its talking and blinking frames on create_image's engine: Grok Imagine, or your ComfyUI (Settings → Local generation)")}>
+                        title={_t("Make the image and its talking and blinking frames on the provider picked for images: Grok Imagine, Venice AI or your ComfyUI (Settings → Image and video generation)")}>
                     <i className="fa fa-magic" /> {_t("Generate…")}
                 </button>
             </div>

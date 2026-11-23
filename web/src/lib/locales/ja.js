@@ -949,21 +949,51 @@ export const JA = {
   "Default image resolution": "画像の既定の解像度",
   "On Grok Imagine this uses the image quality and resolution from Settings.":
     "Grok Imagine では、設定の画質と画像の解像度が使われます。",
-  "Size of the images Imagine makes; a companion can pick another for a single create_image picture. 1k is xAI's default and 1.5k is what grok.com makes; 2k is twice as wide and tall as 1k. Larger is sharper and costs more.":
-    "Imagine が作る画像のサイズ。コンパニオンは create_image の 1 枚ごとに別のサイズを選べます。1k は xAI の既定値、1.5k は grok.com と同じサイズ、2k は 1k の縦横 2 倍です。大きいほど精細で、料金も高くなります。",
+  "Size of the pictures made; a companion can pick another for a single picture. 1k is the usual default and 1.5k is what grok.com makes; 2k is twice as wide and tall as 1k. Larger is sharper and costs more.":
+    "作られる画像のサイズ。コンパニオンは 1 枚ごとに別のサイズを選べます。1k は一般的な既定値、1.5k は grok.com と同じサイズ、2k は 1k の縦横 2 倍です。大きいほど精細で、料金も高くなります。",
   "Imagine video model": "Imagine 動画モデル",
-  "Grok Imagine video model used for animated backgrounds and the create_video tool.":
-    "アニメーション背景と create_video ツールで使用される Grok Imagine 動画モデル。",
+  "Grok Imagine video model used for clips and animated backgrounds.":
+    "動画クリップとアニメーション背景に使用される Grok Imagine 動画モデル。",
   "Imagine video edit model": "Imagine 動画編集モデル",
-  "Grok Imagine model used when create_video edits or extends a clip. xAI offers these only on grok-imagine-video. Empty = use the Imagine video model.":
-    "create_video で動画を編集・延長するときに使用される Grok Imagine モデル。xAI はこれらの機能を grok-imagine-video でのみ提供しています。空欄の場合は Imagine 動画モデルを使用します。",
+  "Grok Imagine model used to edit or extend a clip. xAI offers these only on grok-imagine-video. Empty = use the Imagine video model.":
+    "動画を編集・延長するときに使用される Grok Imagine モデル。xAI はこれらの機能を grok-imagine-video でのみ提供しています。空欄の場合は Imagine 動画モデルを使用します。",
   "Animated background": "アニメーション背景",
   "Attach images": "画像を添付",
   "Image upload failed: %s": "画像のアップロードに失敗しました: %s",
-  // Settings: local generation (ComfyUI)
-  "Local generation (ComfyUI)": "ローカル生成（ComfyUI）",
-  "Render the companions' image and video tools on your own ComfyUI server instead of Grok Imagine: any model ComfyUI runs, no per-generation billing. A companion's \"Image & video tools\" toggle still decides whether the tools are offered at all; this only picks the engine behind each tool.":
-    "コンパニオンの画像・動画ツールを Grok Imagine の代わりに自分の ComfyUI サーバーで実行します。ComfyUI で動くモデルなら何でも使え、生成ごとの課金もありません。ツール自体を提供するかどうかはコンパニオンの「画像・動画ツール」トグルが決め、ここでは各ツールのエンジンだけを選びます。",
+  // Settings: image and video generation (Grok Imagine / Venice AI / ComfyUI tabs)
+  "Image and video generation": "画像・動画の生成",
+  "What makes the pictures and clips your companions create. Pick a provider for each kind, then set that provider up in its tab below. A companion's \"Image & video tools\" toggle still decides whether it can make them at all.":
+    "コンパニオンが作る画像や動画クリップを何で生成するかを決めます。種類ごとにプロバイダーを選び、下のタブでそのプロバイダーを設定します。そもそも作れるかどうかは、コンパニオンの「画像・動画ツール」トグルが決めます。",
+  "Pictures companions make or edit in chat and on calls, and the drawn 2D outfits and characters.":
+    "チャットや通話でコンパニオンが作成・編集する画像と、描かれる 2D の衣装やキャラクター。",
+  "Clips companions make, edit or extend in chat and on calls.": "チャットや通話でコンパニオンが作成・編集・延長する動画クリップ。",
+  "New scene backgrounds on voice calls, still or animated.": "音声通話での新しいシーン背景（静止画またはアニメーション）。",
+  "Grok Imagine runs on the xAI key or Grok sign-in from \"xAI connection\" above, and is billed by xAI per image and per second of video.":
+    "Grok Imagine は上の「xAI 接続」の xAI キーまたは Grok サインインで動き、xAI が画像 1 枚ごと、動画 1 秒ごとに請求します。",
+  "Venice AI serves many image and video models, uncensored ones included, on a Venice API key; pick one per kind of request below. Lengths, sizes and shapes a model doesn't offer are fitted to the nearest it does. Venice's blur filter for adult content is switched off: what gets drawn depends on the model you pick. Billed by Venice per image and per second of video.":
+    "Venice AI は Venice API キーで、無検閲のものを含む多くの画像・動画モデルを提供します。下でリクエストの種類ごとに 1 つ選びます。モデルが対応していない長さ・サイズ・縦横比は、対応しているもののうち最も近いものに合わせます。成人向けコンテンツに対する Venice のぼかしフィルターはオフにしてあり、何が描かれるかは選んだモデル次第です。料金は Venice が画像 1 枚ごと、動画 1 秒ごとに請求します。",
+  "The picked image or image edit model offers quality levels. Higher is sharper but slower and costs more; Auto leaves it to the model.": "選んだ画像モデルまたは画像編集モデルには品質レベルがあります。高いほど精細ですが、遅くなり料金も上がります。自動ではモデルに任せます。",
+  "Image quality": "画像の品質",
+  "Your own ComfyUI server: any model ComfyUI runs, no per-generation billing.": "自分の ComfyUI サーバー：ComfyUI で動くモデルなら何でも使え、生成ごとの課金もありません。",
+  "Pictures featuring the companion, other companions, your photo or library images, and the drawn 2D outfits and characters.":
+    "コンパニオン自身、他のコンパニオン、あなたの写真やライブラリ画像が入る画像と、描かれる 2D の衣装やキャラクター。",
+  "Clips that open on a given picture.": "指定した画像から始まる動画クリップ。",
+  "Clips featuring the companion, other companions, your photo or library images.": "コンパニオン自身、他のコンパニオン、あなたの写真やライブラリ画像が登場する動画クリップ。",
+  "Changing an existing clip.": "既存のクリップを変更します。",
+  "Continuing an existing clip.": "既存のクリップの続きを作ります。",
+  "Venice API keys": "Venice の API キー",
+  "Venice pricing": "Venice の料金",
+  "Venice AI": "Venice AI",
+  "Venice accepted the key": "Venice がキーを受け付けました",
+  "no balance to spend": "使える残高がありません",
+  "Models": "モデル",
+  "Type a Venice model id or pick one from the list. Leave a field empty to switch that kind of request off: the companions are then not offered it.":
+    "Venice のモデル ID を入力するか、リストから選びます。欄を空にするとその種類のリクエストはオフになり、コンパニオンには提供されません。",
+  "Image model": "画像モデル",
+  "Image edit model": "画像編集モデル",
+  "Reference to video": "参照画像から動画",
+  "Video edit": "動画編集",
+  "Video extension": "動画の延長",
   "ComfyUI URL": "ComfyUI の URL",
   "Auth header (optional)": "認証ヘッダー（任意）",
   "Sent on every request. For a rented pod behind a proxy password or a hosted service's API key. Leave empty for a plain local ComfyUI.":
@@ -986,10 +1016,10 @@ export const JA = {
   "Image edit (references)": "画像編集（参照画像）",
   "Text to video": "テキストから動画",
   "Image to video": "画像から動画",
-  "create_image from a prompt alone, and still backgrounds.": "プロンプトのみからの create_image と静止背景。",
-  "create_image featuring you, other companions, your photo or library images. Needs LoadImage node(s).": "あなた自身、他のコンパニオン、あなたの写真やライブラリ画像を使う create_image。LoadImage ノードが必要です。",
-  "create_video from a prompt alone, and animated backgrounds.": "プロンプトのみからの create_video とアニメーション背景。",
-  "create_video from a source image or featuring you: the frame the clip starts from.": "ソース画像またはあなた自身から始まる create_video。クリップの最初のフレームになります。",
+  "Pictures from a description alone, and still backgrounds.": "説明文だけから作る画像と、静止背景。",
+  "Pictures featuring the companion, other companions, your photo or library images, and the drawn 2D outfits and characters. Needs LoadImage node(s).": "コンパニオン自身、他のコンパニオン、あなたの写真やライブラリ画像が入る画像と、描かれる 2D の衣装やキャラクター。LoadImage ノードが必要です。",
+  "Clips from a description alone, and animated backgrounds.": "説明文だけから作る動画クリップと、アニメーション背景。",
+  "Clips that open on a given picture, or on the companion.": "指定した画像、またはコンパニオンの姿から始まる動画クリップ。",
   "prompt": "プロンプト",
   "no prompt node": "プロンプトノードなし",
   "not set": "未設定",
@@ -1022,6 +1052,13 @@ export const JA = {
   "Grok Realtime calls: summarise after (tokens)": "Grok Realtime の通話：要約するまで（トークン）",
   "Grok text chat: summarise after (tokens)": "Grok のテキストチャット：要約するまで（トークン）",
   "Recent turns kept verbatim": "そのまま残す直近ターン数",
+  "Not running yet: no decision model is set up. Enter a Jev key or install the local model under \"Decision model\" below.":
+    "まだ動いていません：判断モデルが設定されていません。下の「判断モデル」で Jev のキーを入力するか、ローカルモデルをインストールしてください。",
+  "Not running yet: no decision model is set up. Enter a Jev key or install the local model above.":
+    "まだ動いていません：判断モデルが設定されていません。上で Jev のキーを入力するか、ローカルモデルをインストールしてください。",
+  "Grok summary word limit (low)": "Grok の要約の語数（下限）",
+  "Grok summary word limit (high)": "Grok の要約の語数（上限）",
+  "These two apply to every conversation, whatever it runs on.": "次の 2 つは、何で動いていてもすべての会話に適用されます。",
   "Summary word limit (low)": "要約の語数（下限）",
   "When a summary passes the high limit, it is rewritten down to about this many words, relationship milestones first. 0 = off (summaries keep growing).":
     "要約が上限を超えたら、関係の節目を優先してこの語数程度まで書き直します。0 = オフ（要約は増え続けます）。",
@@ -1598,11 +1635,11 @@ export const JA = {
     "通話と同じ声で録音します。Grok の声（xAI API キー、xAI の課金）か、音声セットアップの声（OpenAI、Fish、Kokoro など）です。どちらも話せないときは提供されません。",
   "Runs on the companion's own brain when its voice setup's brain is OpenAI or Claude (their search, code and file reading, on the brain's quick model for quick checks); otherwise on Grok with your xAI API key (billed by xAI).":
     "コンパニオンの音声セットアップの頭脳が OpenAI か Claude なら、その頭脳で動きます（検索・コード・ファイル読み取り。クイックチェックは頭脳のクイックモデル）。それ以外は xAI API キーで Grok を使います（xAI の課金）。",
-  "xAI or ComfyUI": "xAI または ComfyUI",
-  "Each tool renders on Grok Imagine with your xAI API key, or on your own ComfyUI server - pick per tool in Settings → Local generation. A tool whose engine can't run is left out.":
-    "各ツールは xAI API キーで Grok Imagine、または自分の ComfyUI サーバーで生成します。ツールごとに 設定 → ローカル生成 で選べます。エンジンが動かせないツールは提供されません。",
-  "Follows Image & video tools' engines (Settings → Local generation).":
-    "画像・動画ツールのエンジン（設定 → ローカル生成）に従います。",
+  "xAI, Venice or ComfyUI": "xAI・Venice・ComfyUI",
+  "Each tool renders on Grok Imagine with your xAI API key, on Venice AI with your Venice API key, or on your own ComfyUI server - pick per tool in Settings → Image and video generation. A tool whose engine can't run is left out.":
+    "各ツールは xAI API キーで Grok Imagine、Venice API キーで Venice AI、または自分の ComfyUI サーバーで生成します。ツールごとに 設定 → 画像・動画の生成 で選べます。エンジンが動かせないツールは提供されません。",
+  "Follows Image & video tools' engines (Settings → Image and video generation).":
+    "画像・動画ツールのエンジン（設定 → 画像・動画の生成）に従います。",
   "xAI account": "xAI アカウント",
   "The Grok Build CLI signs in to your xAI account.": "Grok Build CLI は xAI アカウントにサインインして動きます。",
   "Grok brain": "Grok 頭脳",
@@ -1739,8 +1776,8 @@ export const JA = {
   "Lets the companion highlight things on your shared screen (point_at_screen): where a button is, the answer to a puzzle it has worked out, the next step to take. It works out what to point at by looking with analyze_screen, then Jev finds each thing on the screen. In the desktop app sharing a whole screen, rings appear over the screen itself and the companion looks toward them; everywhere, the screenshot with the rings lands in the transcript.":
     "共有中の画面上のものをコンパニオンがハイライトできるようにします（point_at_screen）。ボタンの場所、解いたパズルの答え、次にやる操作などです。何を指すかは analyze_screen で見て決め、Jev が画面上でそれぞれを見つけます。デスクトップアプリで画面全体を共有しているときは画面そのものにリングが表示され、コンパニオンもそちらを見ます。どの環境でも、リング入りのスクリーンショットがトランスクリプトに残ります。",
   "Image & video tools": "画像・動画ツール",
-  "Unlocks the media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Each tool renders on Grok Imagine (billed by xAI: images cost cents, videos are priced per second) or on your own ComfyUI server. Pick the engine per tool in Settings → Local generation.":
-    "メディアツールを有効にします：create_image と create_video（プロンプトから、または Imagine ライブラリの画像（セルフィー、スクリーンショット、アップロード）をリミックス）、さらに音声通話では change_background（アバターの背後に新しいシーンを生成）。各ツールは Grok Imagine（xAI が課金：画像は数セント、動画は秒単位）か、自分の ComfyUI サーバーで実行されます。エンジンはツールごとに 設定 → ローカル生成 で選びます。",
+  "Unlocks the media tools: create_image and create_video (from a prompt, or remixing images in the Imagine library: selfies, screenshots and your uploads), plus in voice calls change_background (generate a new scene behind the avatar). Each tool renders on Grok Imagine (billed by xAI: images cost cents, videos are priced per second) or on your own ComfyUI server. Pick the engine per tool in Settings → Image and video generation.":
+    "メディアツールを有効にします：create_image と create_video（プロンプトから、または Imagine ライブラリの画像（セルフィー、スクリーンショット、アップロード）をリミックス）、さらに音声通話では change_background（アバターの背後に新しいシーンを生成）。各ツールは Grok Imagine（xAI が課金：画像は数セント、動画は秒単位）か、自分の ComfyUI サーバーで実行されます。エンジンはツールごとに 設定 → 画像・動画の生成 で選びます。",
   "Cross-companion Imagine reference": "コンパニオン間 Imagine 参照",
   "Lets create_image/create_video feature ANOTHER companion by name (and outfit) — their own portrait as a reference image, and (create_video) their own voice id so a clip can have them speak in their actual voice too. Separate from Companion texting on purpose: a companion can be messageable without being depicted this way, or vice versa. Requires Image & video tools.":
     "create_image／create_video で、名前（と衣装）を指定して「別の」コンパニオンを登場させられるようにします — 参照画像としてその人自身のポートレート、そして（create_video では）実際の声で話させるためのその人自身のボイス ID も使えます。「コンパニオンテキスト」とは意図的に別設定です：テキストは送れても、この形で登場させたくない（またはその逆の）コンパニオンがいてもよいためです。画像・動画ツールが必要です。",
@@ -2605,8 +2642,8 @@ export const JA = {
     "判断モデルが各文をクリップライブラリと照らし合わせるため、その文が読み上げられる前にジェスチャーが用意されます（Jev は約 0.25 秒で答えます）。文ごとに送られるのは、その文自体と、コンパニオンの「## Identity」「## Personality」セクションだけです。",
   "The turn director model set below reads each sentence against the clip library (without an xAI key: the quick model of your companion's voice setup brain). Set up a decision model below and it does it instead; Jev is faster, cheaper and a better match.":
     "下で設定するターンディレクターモデルが、各文をクリップライブラリと照らし合わせます（xAI キーがない場合は、コンパニオンの音声セットアップのブレインのクイックモデル）。下で判断モデルを設定すると、代わりにそのモデルが担当します。Jev ならより速く、より安く、より適切に選びます。",
-  "Expressive face and head while speaking (experimental - requires a decision model)":
-    "発話中の表情と頭の動き（実験的・判断モデルが必要）",
+  "Expressive face and head while speaking (requires a decision model)":
+    "発話中の表情と頭の動き（判断モデルが必要）",
   "Your companion's face and head follow what each sentence means, and what you say to them as you say it: a smile, a frown, a nod on a yes, a shake on a no, a look away while they think. Built from the avatar's own expressions, so any VRM works. Their own big emotions still play on top. Needs a decision model, set below. Applies from the next call.":
     "コンパニオンの表情と頭の動きが、各文の意味と、話している最中のあなたの言葉に反応します。微笑む、眉をひそめる、「はい」でうなずく、「いいえ」で首を振る、考えている間は視線を外す、といった具合です。アバター自身の表情から組み立てるため、どの VRM でも動作します。コンパニオン自身の大きな感情表現はその上に重ねて再生されます。下で設定する判断モデルが必要です。次回の通話から適用されます。",
   "Sent to the decision model for each line: the sentence itself (yours as text, about once a second while you speak), the last two messages of the conversation, and your companion's \"## Identity\" and \"## Personality\" sections, each up to the next heading. Nothing else goes: not their memories, their lore, the rest of their prompt, or your voice. Those two sections are what set how much a feeling shows and how an ambiguous line reads in character, so keep your companion's prompt in the standard section format. A prompt without those headings falls back to its first 1200 characters, whatever they happen to be.":
@@ -3169,26 +3206,33 @@ export const JA = {
   "whisper": "ささやき",
   "Art": "作画",
   "Live photoshoot": "ライブ撮影",
-  "Photoshoot in Imagine-painted scenes": "Imagine で描いた背景で撮影",
-  "Imagine-illustrated panels": "Imagine で描くコマ",
+  "Photoshoot in painted scenes": "描いた背景で撮影",
+  "Illustrated panels": "イラストで描くコマ",
   "Your companion poses in their current scene. No extra cost.": "コンパニオンが今のシーンでポーズを取ります。追加料金はかかりません。",
-  "Grok Imagine paints each panel's setting and your companion poses in it: one image per panel, billed to your xAI account.":
-    "Grok Imagine が各コマの背景を描き、コンパニオンがその中でポーズを取ります。1 コマにつき画像 1 枚で、xAI アカウントに請求されます。",
-  "Grok Imagine draws every panel from the outfit's portrait: one image per panel, billed to your xAI account. A panel it can't draw is photographed instead.":
-    "Grok Imagine が衣装のポートレートから各コマを描きます。1 コマにつき画像 1 枚で、xAI アカウントに請求されます。描けなかったコマは代わりに撮影します。",
+  "Each panel's setting is painted and your companion poses in it: one image per panel, made and billed by the image provider picked in Settings → Image and video generation.":
+    "各コマの背景が描かれ、コンパニオンがその中でポーズを取ります。1 コマにつき画像 1 枚で、設定 → 画像・動画の生成 で選んだ画像プロバイダーが生成・請求します。",
+  "Every panel is drawn from the outfit's portrait: one image per panel, made and billed by the image provider picked in Settings → Image and video generation. A panel it can't draw is photographed instead.":
+    "衣装のポートレートから各コマが描かれます。1 コマにつき画像 1 枚で、設定 → 画像・動画の生成 で選んだ画像プロバイダーが生成・請求します。描けなかったコマは代わりに撮影します。",
   "This conversation was long, so only its most recent part was read.": "会話が長いため、最近の部分だけを読みました。",
   "Page outfit": "ページの衣装",
   "Scene": "シーン",
   "Action": "動作",
-  "Painting with Grok Imagine… %s of %s": "Grok Imagine で作画中… %s / %s",
+  "Painting with the image generator… %s of %s": "画像ジェネレーターで作画中… %s / %s",
   "Changing into %s…": "%s に着替え中…",
   "%s panel(s) couldn't be painted, so they're photographed instead.": "%s コマは描けなかったため、代わりに撮影します。",
   "%s scene(s) couldn't be painted and keep the usual backdrop.": "%s コマの背景は描けなかったため、いつもの背景のままです。",
   "Show you in this panel beside %s": "このコマで %s の隣にあなたを描く",
   "with you": "あなたと",
   "Your avatar (optional)": "あなたのアバター（任意）",
-  "An avatar that plays you in Manga Diary pages: it stands beside your companion in the photoshoot, and its portrait is your likeness in Imagine-drawn panels.":
-    "漫画日記であなたを演じるアバターです。撮影ではコンパニオンの隣に立ち、Imagine で描くコマではそのポートレートがあなたの姿になります。",
+  "An avatar that plays you in Manga Diary pages: it stands beside your companion in the photoshoot, and its portrait is your likeness in panels drawn by the image generator.":
+    "漫画日記であなたを演じるアバターです。撮影ではコンパニオンの隣に立ち、画像ジェネレーターで描くコマではそのポートレートがあなたの姿になります。",
+  "Panel art": "コマの絵",
+  "Search by manga title…": "漫画のタイトルで検索…",
+  "Show the panel art of one manga: type part of its title, or pick it from the list": "1 つの漫画のコマの絵だけを表示します。タイトルの一部を入力するか、リストから選んでください",
+  "No panel art matches.": "一致するコマの絵がありません。",
+  "The pictures the image generator made for the panels of your saved pages": "保存したページのコマ用に画像ジェネレーターが作った絵",
+  "page %s, panel %s": "%s ページ・コマ %s",
+  "Open its page": "そのページを開く",
   "It is also the body you walk scenes in with the call's movement mode \"Walk as me\".":
     "通話の移動モード「自分で歩く」でシーンを歩くときの体にもなります。",
   "None: you stay off-panel": "なし（あなたはコマの外）",
@@ -3511,8 +3555,8 @@ export const JA = {
   "Main look": "メインの見た目",
   "Main look (required)": "メインの見た目（必須）",
   "Generate…": "生成…",
-  "Make the image and its talking and blinking frames on create_image's engine: Grok Imagine, or your ComfyUI (Settings → Local generation)":
-    "画像と、話す・まばたきするフレームを create_image のエンジンで作ります：Grok Imagine、またはあなたの ComfyUI（設定 → ローカル生成）",
+  "Make the image and its talking and blinking frames on the provider picked for images: Grok Imagine, Venice AI or your ComfyUI (Settings → Image and video generation)":
+    "画像と、話す・まばたきするフレームを、画像用に選んだプロバイダーで作ります：Grok Imagine、Venice AI、またはあなたの ComfyUI（設定 → 画像・動画の生成）",
   "Likeness from": "見た目の参照元",
   "Upload a picture…": "画像をアップロード…",
   "Nothing — describe them below": "なし — 下で説明する",
@@ -3542,10 +3586,10 @@ export const JA = {
   "Create 2D PNG characters (create_character)": "2D PNG のキャラクターを作る（create_character）",
   "Lets the companion make up a new character for a roleplay during a voice call and bring them in (create_character): a 2D picture of them is drawn (on Grok Imagine, or on your ComfyUI when create_image uses it, which needs its text-to-image and image-edit workflows), they get a voice from the list in Settings… beside this switch (Grok's voices by default) and the personality the companion writes, and they join the call speaking for themselves. Settings… also picks the voice setup and text chat brain they run on. Takes four images (about a minute on Imagine); each character in the call is another voice connection. They are saved as auto-generated companions with memory, the call-companion tools (so they can leave the call when their part is done), speaks-first and time-aware resume on and no other tools, which you can keep, edit or delete.":
     "ボイス通話中にコンパニオンがロールプレイ用の新しいキャラクターを考えて呼び込めるようにします（create_character）。キャラクターの 2D の絵が描かれ（Grok Imagine、または create_image が ComfyUI を使う設定ならあなたの ComfyUI で、テキストから画像と画像編集のワークフローが必要）、このスイッチ横の「設定…」のリストから声（既定は Grok の声）、コンパニオンが書いた人物像を受け取り、自分の言葉で話す参加者として通話に加わります。「設定…」では使う音声セットアップとテキストチャットの頭脳も選べます。画像 4 枚（Imagine で約 1 分）かかり、通話中のキャラクターごとに音声接続が 1 つ増えます。メモリ、コンパニオン呼び出しツール（出番が終わったら自分で通話を抜けられるように）、最初に話す、時刻を意識した再開がオンで、ほかのツールはオフの自動生成コンパニオンとして保存され、残すことも編集・削除することもできます。",
-  "Follows create_image's engine (Settings → Local generation): Grok Imagine with your xAI API key, or your ComfyUI's image-edit workflow.":
-    "create_image のエンジン（設定 → ローカル生成）に従います：xAI API キーで Grok Imagine、またはあなたの ComfyUI の画像編集ワークフロー。",
-  "Follows create_image's engine (Settings → Local generation): Grok Imagine with your xAI API key, or your ComfyUI's text-to-image and image-edit workflows.":
-    "create_image のエンジン（設定 → ローカル生成）に従います：xAI API キーで Grok Imagine、またはあなたの ComfyUI のテキストから画像・画像編集ワークフロー。",
+  "Follows create_image's engine (Settings → Image and video generation): Grok Imagine with your xAI API key, Venice AI's image edit model, or your ComfyUI's image-edit workflow.":
+    "create_image のエンジン（設定 → 画像・動画の生成）に従います：xAI API キーで Grok Imagine、Venice AI の画像編集モデル、またはあなたの ComfyUI の画像編集ワークフロー。",
+  "Follows create_image's engine (Settings → Image and video generation): Grok Imagine with your xAI API key, Venice AI's image and image edit models, or your ComfyUI's text-to-image and image-edit workflows.":
+    "create_image のエンジン（設定 → 画像・動画の生成）に従います：xAI API キーで Grok Imagine、Venice AI の画像モデルと画像編集モデル、またはあなたの ComfyUI のテキストから画像・画像編集ワークフロー。",
 
   // Characters dialog (create_character settings)
   "Characters": "キャラクター",

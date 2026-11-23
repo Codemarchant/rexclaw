@@ -12,9 +12,16 @@ import { confirmAsk } from "../lib/confirm";
  *  decision_local_model and decision_local_device ("" = pick for me);
  *  `saved` changes with every Settings save, which is what loads or
  *  unloads the model. */
-export default function DecisionLocalSettings({ model, onModel, device, onDevice, saved }) {
+export default function DecisionLocalSettings({ model, onModel, device, onDevice, saved, onInstalledChange }) {
     const [st, setSt] = useState(null);
     const [busy, setBusy] = useState(false);
+    // Which models are on disk, as one string: when it changes (an install
+    // finished, one was removed) the Settings page re-reads whether a
+    // decision model is ready, for its "not running yet" notices.
+    const installedKey = st ? st.models.filter((m) => m.installed).map((m) => m.key).join(",") : null;
+    useEffect(() => {
+        if (installedKey !== null) onInstalledChange?.();
+    }, [installedKey]);
 
     const load = async () => {
         try { setSt(await rpc("/api/decision_local/status", {})); }

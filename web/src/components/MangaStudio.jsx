@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { rpc } from "../lib/rpc";
 import { _t } from "../lib/i18n";
+import { notification } from "../lib/notification";
 import { layoutPage, composePage } from "../lib/manga_page";
+import { seePanel } from "../lib/manga_vision";
 import {
     artShot, beginShoot, clearLineup, currentVrmUrl, endShoot, lineupSig, loadArt, panelLineup, restoreOutfit,
     setLineup, shootPanel, sizeHost, waitForAvatar, wearOutfit,
@@ -112,6 +114,7 @@ export default function MangaStudio({ job, onClose }) {
             // 1. Imagine art for the panels that don't have it yet. A panel
             //    it can't paint (a refusal, an error) falls back to the photo.
             let failed = 0;
+            let failedWhy = "";   // the first failure's own message, for the note
             if (art !== "photo") {
                 setPhase("painting");
                 const todo = cells.map((c, k) => k).filter((k) => !spec(cells[k]).art_url);
@@ -131,6 +134,7 @@ export default function MangaStudio({ job, onClose }) {
                             setThumb(k, r.art_url);
                         } catch (e) {
                             failed++;
+                            failedWhy = failedWhy || e?.message || "";
                             console.warn("[manga] panel art failed", c, e);
                         }
                         setPainted((n) => n + 1);
@@ -139,9 +143,13 @@ export default function MangaStudio({ job, onClose }) {
                 await Promise.all(Array.from({ length: PAINT_PARALLEL }, worker));
                 if (cancelled.current) return;
                 if (failed) {
-                    setNote(art === "illustrated"
+                    const fellBack = (art === "illustrated"
                         ? _t("%s panel(s) couldn't be painted, so they're photographed instead.", failed)
-                        : _t("%s scene(s) couldn't be painted and keep the usual backdrop.", failed));
+                        : _t("%s scene(s) couldn't be painted and keep the usual backdrop.", failed))
+                        + (failedWhy ? ` (${failedWhy})` : "");
+                    setNote(fellBack);
+                    // The note is replaced as the shoot moves on; this stays.
+                    notification.add(fellBack, { type: "warning" });
                 }
             }
 
@@ -207,7 +215,10 @@ export default function MangaStudio({ job, onClose }) {
                     const pageDone = k === cells.length - 1 || cells[k + 1].pi !== c.pi;
                     setAt(k);
                     if (!needsPhoto(p)) {
-                        shots[c.pi].push(artShot(await loadArt(p.art_url, lp), lp, p, drawnKeys(p)));
+                        // Find the people in the drawn panel, so the lettering
+                        // keeps off them and points at their real faces.
+                        const drawn = await loadArt(p.art_url, lp);
+                        shots[c.pi].push(artShot(drawn, lp, p, drawnKeys(p), await seePanel(drawn)));
                         if (pageDone) await inkPage(c.pi);
                         continue;
                     }
@@ -273,7 +284,7 @@ export default function MangaStudio({ job, onClose }) {
                         <i className="fa fa-camera" /> {pages[0].title}
                     </span>
                     <span className="rx_manga_studio_status">
-                        {phase === "painting" && _t("Painting with Grok Imagine… %s of %s", painted, cells.length)}
+                        {phase === "painting" && _t("Painting with the image generator… %s of %s", painted, cells.length)}
                         {phase === "loading" && _t("Getting %s ready…", job.agentName)}
                         {phase === "shooting" && (pages.length > 1
                             ? _t("Page %s of %s · panel %s of %s", cur.pi + 1, pages.length, cur.i + 1, pages[cur.pi].panels.length)

@@ -31,6 +31,24 @@ const TAU = Math.PI * 2;
 
 const PAGE = { w: 1600, h: 2262, side: 70, top: 196, bottom: 92, gutterX: 24, gutterY: 36 };
 const STRIP = { w: 1100, panelH: 560, side: 60, top: 170, bottom: 84, gutterY: 28 };
+// Balloon lettering follows the room a panel has for it. It starts at a
+// size scaled to the panel (LETTER_MAX_PX at most, so a big panel with few
+// words is lettered large) and steps down while the panel's balloons
+// together would take more than BALLOON_ROOM of it, to LETTER_MIN_PX at
+// the smallest. Shouts and whispers are set larger and smaller than that.
+//  - BALLOON_ROOM: the part of a panel the page keeps free for lettering.
+//    The art is asked to put the figure in one half and leave the upper
+//    part of the other plain (server/manga.py paint_panel; photoOffset
+//    does the same for photos): half the width by half the height.
+//  - LETTER_MIN_PX: about the size Western comics are lettered at, 6.35 to
+//    6.75 pt on a page 6.625 inches wide (Comicraft's Balloon Tales):
+//    6.75 / 72 / 6.625 of the page width is 23 px here.
+// Sized by the panel alone, balloons covered a median 38% of each panel on
+// five- and six-panel pages (measured on 44 saved pages, 2026-11-23).
+const BALLOON_ROOM = 0.25;
+const LETTER_MAX_PX = 38;
+const LETTER_MIN_PX = 24;
+const LETTER_STEP = 0.84;     // one size down, as for a crowded balloon
 const BORDER = 5;
 const SLANT_Y = 60;           // px, rise across a tier boundary
 const SLANT_X = 70;           // px, lean of a column divider
@@ -547,6 +565,90 @@ function ellipsePts(cx, cy, rx, ry, count) {
     return pts;
 }
 
+/** Where an opaque picture (a drawn panel, a photo taken in a 3D room) is
+ *  busy, for lettering to keep off: there is no figure layer to ask, so
+ *  this finds the plain space a letterer would use instead. Detail (the
+ *  change in brightness from pixel to pixel) is averaged over a coarse
+ *  grid and split into plain and busy by Otsu's threshold, which needs no
+ *  tuned level. Plain cells then count as free only if plain cells connect
+ *  them to the top or a side edge: a flat shirt or a cheek is plain too,
+ *  but enclosed by the figure, and figures stand on the bottom edge.
+ *  Returns (u, v) => busy, with u and v from 0 to 1 across the picture. */
+function busyMap(layer) {
+    const cols = 48;
+    const rows = Math.max(1, Math.round((cols * layer.height) / layer.width));
+    const cell = 4;
+    const w = cols * cell;
+    const h = rows * cell;
+    const small = canvas(w, h);
+    const sctx = small.getContext("2d", { willReadFrequently: true });
+    sctx.drawImage(layer, 0, 0, w, h);
+    const px = sctx.getImageData(0, 0, w, h).data;
+    const grey = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) grey[i] = px[i * 4] * 0.299 + px[i * 4 + 1] * 0.587 + px[i * 4 + 2] * 0.114;
+    const detail = new Float32Array(cols * rows);
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const i = y * w + x;
+            const d = Math.abs(grey[i] - grey[x ? i - 1 : i]) + Math.abs(grey[i] - grey[y ? i - w : i]);
+            detail[Math.floor(y / cell) * cols + Math.floor(x / cell)] += d / (cell * cell);
+        }
+    }
+    // A 3×3 average, so a single quiet cell inside a busy area stays busy.
+    const smooth = new Float32Array(cols * rows);
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            let sum = 0;
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    const rr = Math.min(rows - 1, Math.max(0, r + dr));
+                    const cc = Math.min(cols - 1, Math.max(0, c + dc));
+                    sum += detail[rr * cols + cc];
+                }
+            }
+            smooth[r * cols + c] = sum / 9;
+        }
+    }
+    // Otsu: the level that best separates the two groups of cells.
+    const top = Math.max(...smooth) || 1;
+    const bins = 64;
+    const hist = new Array(bins).fill(0);
+    for (const v of smooth) hist[Math.min(bins - 1, Math.floor((v / top) * bins))]++;
+    let level = 0;
+    let bestSplit = -1;
+    for (let t = 1; t < bins; t++) {
+        let n0 = 0; let s0 = 0; let n1 = 0; let s1 = 0;
+        for (let k = 0; k < bins; k++) {
+            if (k < t) { n0 += hist[k]; s0 += hist[k] * k; } else { n1 += hist[k]; s1 += hist[k] * k; }
+        }
+        if (!n0 || !n1) continue;
+        const split = n0 * n1 * (s0 / n0 - s1 / n1) ** 2;
+        if (split > bestSplit) { bestSplit = split; level = (t / bins) * top; }
+    }
+    // Free = plain and reachable from the top or a side edge.
+    const free = new Uint8Array(cols * rows);
+    const stack = [];
+    const seed = (r, c) => {
+        const i = r * cols + c;
+        if (!free[i] && smooth[i] <= level) { free[i] = 1; stack.push(i); }
+    };
+    for (let c = 0; c < cols; c++) seed(0, c);
+    for (let r = 0; r < rows; r++) { seed(r, 0); seed(r, cols - 1); }
+    while (stack.length) {
+        const i = stack.pop();
+        const r = Math.floor(i / cols);
+        const c = i % cols;
+        if (r > 0) seed(r - 1, c);
+        if (r < rows - 1) seed(r + 1, c);
+        if (c > 0) seed(r, c - 1);
+        if (c < cols - 1) seed(r, c + 1);
+    }
+    return (u, v) => {
+        if (u < 0 || v < 0 || u >= 1 || v >= 1) return false;
+        return !free[Math.floor(v * rows) * cols + Math.floor(u * cols)];
+    };
+}
+
 function rectOverlap(a, b) {
     const x = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
     const y = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
@@ -580,11 +682,12 @@ function placeEllipse(panel, rx, ry, { faces, speaker, taken, figureAt, order })
                 if (k < 1) s += 500 * (1 - k) + 200;
             }
             const pts = ellipsePts(cx, cy, rx, ry, 20);
+            let onFigure = 0;   // of the 21 samples (rim + centre)
             for (const [px, py] of pts) {
                 if (!insidePoly(poly, px, py)) s += 45;
-                if (figureAt && figureAt(px, py)) s += 9;
+                if (figureAt && figureAt(px, py)) { s += 9; onFigure++; }
             }
-            if (figureAt && figureAt(cx, cy)) s += 20;
+            if (figureAt && figureAt(cx, cy)) { s += 20; onFigure++; }
             // Lettering over lettering: a touch is the manga linked-balloon
             // look; past a fifth of the balloon it hides words, and that
             // costs more than anything else here (face, border, figure).
@@ -599,7 +702,7 @@ function placeEllipse(panel, rx, ry, { faces, speaker, taken, figureAt, order })
             const nx = (cx - box.x) / box.w;
             s += order === 0 ? ny * 30 + nx * 12 : ny * 8;
             if (speaker) s += (Math.hypot(speaker.x - cx, speaker.y - cy) / box.h) * 22;
-            if (!best || s < best.s) best = { cx, cy, s, overlap };
+            if (!best || s < best.s) best = { cx, cy, s, overlap, onFigure: onFigure / (pts.length + 1) };
         }
     }
     return best;
@@ -698,10 +801,34 @@ function drawBalloon(ctx, b, rand) {
     ctx.restore();
 }
 
+/** Size of one balloon for `line` lettered at body size `base`. */
+function balloonSize(ctx, line, base, box) {
+    const px = line.style === "whisper" ? base * 0.9 : line.style === "shout" ? base * 1.1 : base;
+    ctx.font = letterFont(px, line.style === "shout");
+    const block = setBlock(ctx, line.text.toUpperCase(), px, box.w * 0.42);
+    const pad = px * 0.5;
+    return { px, block, rx: (block.bw / 2) * 1.38 + pad, ry: (block.bh / 2) * 1.38 + pad };
+}
+
+/** Body lettering size for a panel: the largest step from its own scale
+ *  down to LETTER_MIN_PX at which its balloons fit the room kept for them. */
+function letterSize(ctx, spec, box) {
+    let base = Math.max(LETTER_MIN_PX, Math.min(LETTER_MAX_PX, box.h * 0.055, box.w * 0.05));
+    const room = box.w * box.h * BALLOON_ROOM;
+    const used = (px) => (spec.lines || []).reduce((sum, line) => {
+        const b = balloonSize(ctx, line, px, box);
+        return sum + Math.PI * b.rx * b.ry;
+    }, 0);
+    ctx.save();
+    while (base > LETTER_MIN_PX && used(base) > room) base = Math.max(LETTER_MIN_PX, base * LETTER_STEP);
+    ctx.restore();
+    return base;
+}
+
 function letterPanel(ctx, panel, spec, face, others, figureAt, rand, color) {
     const { box, poly } = panel;
     const taken = [];
-    const base = Math.max(24, Math.min(38, box.h * 0.055, box.w * 0.05));
+    const base = letterSize(ctx, spec, box);
 
     if (spec.caption) {
         ctx.save();
@@ -732,7 +859,9 @@ function letterPanel(ctx, panel, spec, face, others, figureAt, rand, color) {
 
     const balloons = [];
     (spec.lines || []).forEach((line, order) => {
-        let px = line.style === "whisper" ? base * 0.9 : line.style === "shout" ? base * 1.1 : base;
+        const scale = line.style === "whisper" ? 0.9 : line.style === "shout" ? 1.1 : 1;
+        let px = base * scale;
+        const minPx = LETTER_MIN_PX * scale;   // this delivery's smallest size
         const text = line.text.toUpperCase();
         let block;
         let rx;
@@ -757,8 +886,16 @@ function letterPanel(ctx, panel, spec, face, others, figureAt, rand, color) {
             spot = placeEllipse(panel, rx, ry, {
                 faces: [face, ...Object.values(others)].filter(Boolean), speaker, taken, figureAt, order,
             });
-            if (last || spot.overlap <= 0.2) break;
-            px *= 0.84;
+            // Also one size down while even its best spot is more over the
+            // figure than off it: a smaller balloon fits the space beside.
+            // That stops at the smallest lettering size (a close-up is all
+            // figure, and tiny type would cover the face just the same);
+            // only words hidden behind other lettering, or a balloon too
+            // big for its panel, may go smaller.
+            const smaller = px * LETTER_STEP;
+            const offFigure = spot.onFigure <= 0.5 || smaller < minPx;
+            if (last || (spot.overlap <= 0.2 && offFigure)) break;
+            px = smaller;
         }
         const b = { ...block, px, rx, ry, cx: spot.cx, cy: spot.cy, style: line.style };
         if (speaker) {
@@ -969,6 +1106,14 @@ export function composePage({ script, layout, shots, agentName, dateText }) {
                 if (lx < 0 || ly < 0 || lx >= figure.width || ly >= figure.height) return false;
                 return data[(ly * figure.width + lx) * 4 + 3] > 128;
             };
+        } else if (figure) {
+            // A drawn panel or a 3D-room photo: one opaque picture. Where
+            // people were found in it (manga_vision, drawn panels), the
+            // lettering keeps off them; otherwise off its busy parts,
+            // read from the picture as shot, before inking adds
+            // screentone dots to it.
+            const taken = shot.person || busyMap(shot.figure);
+            figureAt = (x, y) => taken((x - ox) / shotW, (y - oy) / shotH);
         }
         lettering.push({ panel, spec, face, others, figureAt });
     });

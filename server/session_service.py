@@ -72,7 +72,7 @@ def preview_voice_prompt(con, agent_row):
         _env_preamble(config, grok_voice=setup is None)
         + _appearance_section(con, agent_row)
         + _render_prompt(agent_row)
-        + _env_postamble(con, agent_row, mode='voice', face=bool(config['face_director']),
+        + _env_postamble(con, agent_row, mode='voice', face=face_running(config),
                          speech_tags=setup.speech_tags if setup else True,
                          tag_guide=setup.tag_guide(agent_row) if setup else '',
                          spoken_text=bool(setup and not setup.realtime))
@@ -414,6 +414,14 @@ def _group_call_note(agent_row, group_peers, manual_turn):
     return ''.join(lines)
 
 
+def face_running(config):
+    """Whether the face director drives faces on calls: switched on in
+    Settings (the default) AND a decision model is set up to ask. Both,
+    because a call that counts on it gets a prompt that leaves the small
+    expressions to it, and nothing would make them without the model."""
+    return bool(config['face_director']) and jev.ready(config)
+
+
 def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=False,
                    speech_tags=True, tag_guide='', spoken_text=False):
     """Dynamic context appended AFTER the agent's system prompt.
@@ -478,7 +486,10 @@ def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=F
                 "would be read out loud.\n"
             )
         sections.append(surface)
+    # voice_ids is Grok Imagine's alone: the other video engines' tools
+    # don't have the parameter.
     if (agent_row['enable_grok_imagine_tools'] and agent_row['voice']
+            and imagine_tools.backend_for(get_config(con), 'create_video') == 'xai'
             and imagine_tools.video_reference_supported(get_config(con))):
         # create_video can put a spoken voice in the clip, chosen by id. The
         # agent has no other way to learn its own — the voice is applied to
@@ -1496,7 +1507,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
                 if len(t) <= xai_client.KEYTERM_MAX_LEN][:xai_client.KEYTERMS_MAX]
     # The face director drives every companion's face on a call, a group
     # call's peer legs included (each has its own motion director).
-    face_on = bool(config['face_director'])
+    face_on = face_running(config)
     tools, native_function_tools = _voice_tools(con, agent, config, group_peers=group_peers)
     mcp_entries = store.mcp_entries_for(con, agent['id'], surface='voice')
     # MCP servers the app runs itself: ordinary function tools to the brain.
@@ -1527,8 +1538,7 @@ def start_session(con, *, agent, resume_session=None, audio_sample_rate=24000,
         audio_sample_rate=audio_sample_rate,
         manual_turn=manual_turn,
         # Peer legs never hear the mic: nothing for them to stream.
-        stream_transcription=live_memory_mode == 'on' or (
-            face_on and not manual_turn and jev.ready(config)),
+        stream_transcription=live_memory_mode == 'on' or (face_on and not manual_turn),
     )
     if pipeline and brain_runs_code(con, agent, config, 'voice'):
         # A setup brain with a code sandbox runs code on calls too; Grok

@@ -63,8 +63,8 @@ on your disk, and your API keys and sign-ins are stored only on your machine.
 
 | | |
 |---|---|
-| 🎬 **Images & video** | `create_image`, `create_video` and `change_background` generate into the transcript or swap the live scene, from a prompt or by remixing library images: selfies off the canvas (`take_selfie`), your uploads, past generations. Video can animate an image, extend a clip or edit one in place. Renders on Grok Imagine or your own ComfyUI server. Only use photos of yourself or of people happy to appear. |
-| 🎭 **Characters & outfits on the fly** | Opt-in per companion: mid-roleplay they can bring a new character into the call with its own picture, voice and mind (`create_character`), or design a new outfit and change into it (`create_outfit`). Both are drawn as 2D PNGs on Grok Imagine or your ComfyUI. |
+| 🎬 **Images & video** | `create_image`, `create_video` and `change_background` generate into the transcript or swap the live scene, from a prompt or by remixing library images: selfies off the canvas (`take_selfie`), your uploads, past generations. Video can animate an image, extend a clip or edit one in place. Renders on Grok Imagine, Venice AI or your own ComfyUI server. Only use photos of yourself or of people happy to appear. |
+| 🎭 **Characters & outfits on the fly** | Opt-in per companion: mid-roleplay they can bring a new character into the call with its own picture, voice and mind (`create_character`), or design a new outfit and change into it (`create_outfit`). Both are drawn as 2D PNGs on Grok Imagine, Venice AI or your ComfyUI. |
 | 📸 **Screen & camera sharing** | Share your screen or camera and your companion can look when asked (`take_screenshot`, `analyze_screen`) or record a clip of up to 90 s. Camera sharing also works on phones, tablets and headsets. Nothing is captured unless you armed the share and the companion asks. |
 | 👀 **Camera awareness** | Optional, with the camera shared: small on-device face and hand models let them react to a wave, a thumbs up, a yawn or you stepping away. Only short text hints reach the companion; no images leave your device. |
 | 🎧 **Voice messages & recording studio** | Ask in chat for a voice note, a bedtime story or a guided meditation and they record it in their own voice (`create_voicemail`), with timed silences, guided breathing, ambient beds, binaural beats and voice effects. Write and render your own scripts in History → Recordings. |
@@ -202,8 +202,8 @@ each tool with what it needs:
 - **MCP connections** work with any brain: Rexclaw connects to them itself.
 - **`delegate_task`** runs on the companion's own brain when that is OpenAI
   or Claude, otherwise on Grok.
-- **Images and video** need an xAI key (Grok Imagine) or your own ComfyUI
-  server.
+- **Images and video** need an xAI key (Grok Imagine), a Venice AI key or
+  your own ComfyUI server.
 - **xAI only:** teaching a companion new songs, Manga Diary, multi-agent
   delegation and local computer tasks (Grok Build CLI).
 
@@ -495,12 +495,24 @@ add their own or connect one with `api.connect_game()`. See
 reachable from other machines, set `REXCLAW_GAMES_TOKEN` and add
 `?token=<it>` to the address.
 
+## 🎨 Venice AI (images and video)
+
+The three media tools (`create_image`, `create_video`, `change_background`)
+and 2D looks can render on **Venice AI** instead of Grok Imagine, with a
+Venice API key. **Settings → Image and video generation**, **Venice AI** tab:
+
+1. Enter the **API key** and press **Test connection**.
+2. Pick the engine per tool (images, videos, backgrounds).
+3. Pick a **model** per kind of request, from Venice's list. A field left
+   empty switches that kind of request off. Lengths, sizes and shapes a
+   model doesn't offer are fitted to the nearest it does.
+
 ## 🖥️ Local generation (ComfyUI)
 
 The three media tools (`create_image`, `create_video`, `change_background`)
 can render on your own **ComfyUI** server instead of Grok Imagine. Any
 model ComfyUI runs works, with no per-generation billing.
-**Settings → Local generation**:
+**Settings → Image and video generation**, **Local (ComfyUI)** tab:
 
 1. Enter the **ComfyUI URL** (default `http://127.0.0.1:8188`) and press
    **Test connection**. A rented pod works too: paste its proxy URL, and

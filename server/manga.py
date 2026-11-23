@@ -97,9 +97,7 @@ MANGA_INSTRUCTIONS = (
     'balloons from off-panel (who "user"). Any other speaker belongs in a '
     'caption.\n'
     '- Manga lettering is short: at most 18 words per balloon, at most '
-    f'{MAX_LINES} balloons in a panel, and most panels need one or two.\n'
-    '- Keep it safe for work: anything suggestive becomes a blush and a '
-    'cut-away.\n\n'
+    f'{MAX_LINES} balloons in a panel, and most panels need one or two.\n\n'
     'Directing each panel (use the exact values listed)\n'
     f'- shot: {"|".join(SHOTS)}. closeup = the face fills the panel, for '
     'emotional peaks. bust = head and shoulders, the talking shot. waist = '
@@ -134,9 +132,7 @@ MANGA_INSTRUCTIONS = (
     'Wardrobe list. Pick what fits what happened: an outfit the conversation '
     'shows them changing into, else one that suits the setting (sleepwear '
     'for a bedtime talk, swimwear at the beach, something smart for a night '
-    'out), else the default outfit given. The page is safe for work: pick '
-    'only an outfit that keeps them clothed, and where the conversation '
-    'calls for less, stay with a clothed one.\n'
+    'out), else the default outfit given.\n'
     '- outfit (panel level): "" to keep the page\'s, or a wardrobe name only '
     'where the conversation shows a change part-way through. Rare.\n\n'
     'Scene and action (they may be painted by an image generator)\n'
@@ -146,11 +142,7 @@ MANGA_INSTRUCTIONS = (
     'a cosy setting that fits the mood.\n'
     '- action: what the companion is visibly doing, 5 to 15 words ("leaning '
     'on the counter, laughing, holding a mug").\n'
-    '- The image generator has a strict content filter. Describe only fully '
-    'clothed, everyday, wholesome visuals: never bodies, underwear, nudity, '
-    'people in bed, kissing or anything suggestive. Turn intimate moments '
-    'into symbols (a blush, two mugs side by side, a sunset through a '
-    'window). No real people, brands or logos.\n\n'
+    '__GENERATOR_NOTE__\n'
     'Pages\n'
     '- Draw the number of pages the user message asks for. Over several '
     'pages, spread the moments across them in the order they happened, and '
@@ -200,7 +192,7 @@ CAST_NOTE = (
     'not involve. A cast member\'s "outfit" is "" for the one picked for them, '
     'or a name from their own wardrobe where the conversation shows them in '
     'something else (a scene change, a change of clothes); same rules as the '
-    'companion\'s outfits, clothed only.\n'
+    'companion\'s outfits.\n'
 )
 
 # Added to the user message when the user has a likeness to draw.
@@ -213,10 +205,12 @@ WITH_USER_NOTE = (
     'is false and the user stays off-panel.{wardrobe}\n'
 )
 
-# Prefix of every Imagine prompt. The storyboard already writes its scenes
-# in clothed, everyday terms; this states the register once more at the
-# image model itself.
-SFW_FRAME = 'Wholesome, safe-for-work manga illustration; everyone is fully clothed. '
+# The one content rule the storyboard gets, and only while Grok Imagine
+# makes the pictures: it refuses nudity (underwear and the like it draws),
+# and a refused panel falls back to a live photo. It replaces
+# __GENERATOR_NOTE__ in MANGA_INSTRUCTIONS; the other image engines get no
+# rule, what they draw is up to the model picked.
+GROK_NUDITY_NOTE = '- The image generator does not draw nudity.\n'
 SHOT_WORDS = {
     'closeup': 'a close-up of the face', 'bust': 'a head-and-shoulders shot',
     'waist': 'a waist-up shot', 'full': 'a full-body shot',
@@ -668,8 +662,8 @@ def generate_script(con, *, source, source_id=None, layout='page', focus='', art
     wardrobes['user'] = user_names
     user_wardrobe_text = (
         f' Their "user_outfit" is "" for their usual look, or a name from their wardrobe '
-        f'({", ".join(user_names)}) where the conversation shows them in something else; '
-        'clothed only.' if len(user_names) > 1 else '')
+        f'({", ".join(user_names)}) where the conversation shows them in something else.'
+        if len(user_names) > 1 else '')
     body = xai_client.create_response(
         xai_api_key=config['xai_api_key'],
         responses_url=config['xai_responses_url'],
@@ -707,7 +701,9 @@ def generate_script(con, *, source, source_id=None, layout='page', focus='', art
                 ),
             }],
         }],
-        instructions=MANGA_INSTRUCTIONS,
+        instructions=MANGA_INSTRUCTIONS.replace(
+            '__GENERATOR_NOTE__',
+            GROK_NUDITY_NOTE if imagine_tools.backend_for(config, 'create_image') == 'xai' else ''),
         store=False,
         stream=True,
         timeout=600,
@@ -736,7 +732,14 @@ def generate_script(con, *, source, source_id=None, layout='page', focus='', art
         if script:
             scripts.append(script)
     if not scripts:
-        raise UserError('The storyboard came back unusable. Try again.')
+        # Say which it was: the model answering in words (a refusal reads
+        # this way), nothing at all, or pages with no usable panel.
+        if raw:
+            raise UserError('The storyboard came back with no usable panels. Try again.')
+        if (text or '').strip():
+            raise UserError(f'{config["summary_model"]} did not write a storyboard. '
+                            f'It answered: "{_clip(text, 300)}"')
+        raise UserError(f'{config["summary_model"]} returned an empty storyboard. Try again.')
     return {'scripts': scripts, 'agent_id': agent['id'], 'session_id': session_id,
             'episode_id': episode_id, 'trimmed': trimmed}
 
@@ -744,7 +747,7 @@ def generate_script(con, *, source, source_id=None, layout='page', focus='', art
 # ── Imagine art ────────────────────────────────────────────────────────
 
 def paint_panel(con, *, agent_id, script, index, mode, aspect):
-    """Paint one panel with Grok Imagine. 'scenes': the setting alone, for
+    """Paint one panel on the image engine picked in Settings. 'scenes': the setting alone, for
     the live pose to stand in. 'illustrated': the companion in the scene,
     drawn from their outfit's portrait as the reference. Returns
     {art_url}; raises UserError (a refusal included) for the browser to fall
@@ -762,13 +765,10 @@ def paint_panel(con, *, agent_id, script, index, mode, aspect):
         aspect = 1.0
     ratio = min(IMAGINE_ASPECTS, key=lambda k: abs(math.log(IMAGINE_ASPECTS[k] / max(aspect, 0.05))))
     if mode == 'scenes':
-        prompt = (f'{SFW_FRAME}Background art only, with no people or characters in it: '
+        prompt = ('Background art only, with no people or characters in it: '
                   f'{scene}. Anime background art, clean lines, soft natural light, open space '
                   'in the middle of the frame. No text.')
-        body = xai_client.generate_image(
-            xai_api_key=config['xai_api_key'], images_url=config['xai_images_url'],
-            model=config['imagine_model'], prompt=prompt, aspect_ratio=ratio,
-            quality=config['imagine_quality'], resolution=config['imagine_resolution'])
+        refs, labels = [], []
     else:
         outfit = _clip(p.get('outfit'), 80) or _clip(script.get('outfit'), 80) or None
         uri, err, _note = imagine_tools._portrait_data_uri(con, agent, outfit)
@@ -805,8 +805,8 @@ def paint_panel(con, *, agent_id, script, index, mode, aspect):
             drawn = ', '.join(f'{g[0]} from <IMAGE_{k}>' for k, g in enumerate(group))
             faces = '; '.join(f'{g[0]} looks {EMOTION_WORDS.get(g[2], "calm")}' for g in group)
             order = ', '.join(g[0] for g in group)
-            prompt = (imagine_tools._reference_legend([g[3] for g in group])
-                      + f'{SFW_FRAME}Draw {drawn} together in one manga panel, each keeping '
+            labels = [g[3] for g in group]
+            prompt = (f'Draw {drawn} together in one manga panel, each keeping '
                       'their face, hair and outfit exactly as in their reference. '
                       f'{name} is {action}; {faces}; ' + framing
                       + f'From left to right: {order}; the upper middle kept plain. '
@@ -816,8 +816,8 @@ def paint_panel(con, *, agent_id, script, index, mode, aspect):
             # photoOffset: even panels right, odd left), so the balloons
             # land in the space left for them.
             side = 'right' if index % 2 == 0 else 'left'
-            prompt = (imagine_tools._reference_legend([name])
-                      + f'{SFW_FRAME}Draw {name} from <IMAGE_0> as one manga panel, keeping their '
+            labels = [name]
+            prompt = (f'Draw {name} from <IMAGE_0> as one manga panel, keeping their '
                       'face, hair and outfit exactly as in the reference. '
                       f'{name} is {action}, looking {EMOTION_WORDS.get(p.get("emotion"), "calm")}; '
                       + framing
@@ -825,23 +825,16 @@ def paint_panel(con, *, agent_id, script, index, mode, aspect):
                       f'{"left" if side == "right" else "right"} area plain. Anime illustration, '
                       'clean line art. No text, no speech bubbles, no panel borders.')
             refs = [uri]
-        body = xai_client.edit_image(
-            xai_api_key=config['xai_api_key'], edits_url=config['xai_images_edits_url'],
-            model=config['imagine_model'], prompt=prompt, image_data_uris=refs,
-            aspect_ratio=ratio, quality=config['imagine_quality'],
-            resolution=config['imagine_resolution'])
-    store.accrue_usd_ticks(con, store.extract_cost_ticks(body.get('usage') or {}))
+    # On the engine picked for images in Settings (Grok Imagine, Venice AI
+    # or ComfyUI), like every other picture.
+    raw, mimetype = imagine_tools.render_image(con, config, prompt, refs, labels,
+                                               aspect_ratio=ratio)
     con.commit()
-    first = body['data'][0]
-    b64 = first.get('b64_json')
-    if not b64:
-        raise UserError('Grok Imagine returned no image for this panel (it may have been filtered).')
-    mimetype = first.get('mime_type') or 'image/jpeg'
     ext = {'image/png': '.png', 'image/webp': '.webp'}.get(mimetype, '.jpg')
     folder = FILES_DIR / ART_DIR
     folder.mkdir(parents=True, exist_ok=True)
     fname = f'art_{uuid.uuid4().hex}{ext}'
-    (folder / fname).write_bytes(base64.b64decode(b64))
+    (folder / fname).write_bytes(raw)
     return {'art_url': f'/files/{ART_DIR}/{fname}'}
 
 

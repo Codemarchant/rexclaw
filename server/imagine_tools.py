@@ -38,18 +38,21 @@ Each tool's ENGINE is a Settings switch (config.imagine_*_backend): 'xai'
 runs the paths above, 'local' hands the same call to the user's own ComfyUI
 server via local_gen.py, with the tool schema pruned to what the loaded
 workflows can do (no reference-to-video, no extend/edit; include_self on a
-local video becomes its opening frame). The companion never picks the
-engine — model choice is the user's call, not the model's.
+local video becomes its opening frame). 'venice' runs them on Venice AI
+(venice_gen.py): the xAI schemas, minus voice_ids and any video mode with
+no Venice model picked. The companion never picks the engine — model
+choice is the user's call, not the model's.
 """
 import base64
 import copy
 import logging
+import math
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from textwrap import dedent
 
-from . import local_gen, xai_client, xai_oauth, store
+from . import local_gen, venice_gen, xai_client, xai_oauth, store
 from .db import FILES_DIR, get_config, utcnow
 from .errors import UserError
 
@@ -437,19 +440,31 @@ _BACKEND_COLUMN = {
 
 
 def backend_for(config, tool_name):
-    """'local' (the user's ComfyUI) or 'xai' (Grok Imagine) for a tool."""
-    return 'local' if (config[_BACKEND_COLUMN[tool_name]] or 'xai') == 'local' else 'xai'
+    """'local' (the user's ComfyUI), 'venice' (Venice AI) or 'xai' (Grok
+    Imagine) for a tool."""
+    backend = config[_BACKEND_COLUMN[tool_name]] or 'xai'
+    return backend if backend in ('local', 'venice') else 'xai'
 
 
 def _local_slot_ready(config, slot):
     return bool((config[f'local_gen_{slot}_workflow'] or '').strip())
 
 
+def _slot_ready(config, backend, slot):
+    """Whether a ComfyUI or Venice capability slot can render (the two
+    engines share the image / image_edit / video / video_i2v slot names)."""
+    if backend == 'venice':
+        return venice_gen.ready(config, slot)
+    return _local_slot_ready(config, slot)
+
+
 def build_change_background_tool(config):
-    """change_background for a session: on the local engine without a
-    text-to-video workflow the `animated` option is pruned."""
+    """change_background for a session: on the local or Venice engine
+    without a text-to-video workflow / model the `animated` option is
+    pruned."""
     tool = copy.deepcopy(_CHANGE_BACKGROUND_TOOL)
-    if backend_for(config, 'change_background') == 'local' and not _local_slot_ready(config, 'video'):
+    backend = backend_for(config, 'change_background')
+    if backend != 'xai' and not _slot_ready(config, backend, 'video'):
         del tool['parameters']['properties']['animated']
         tool['description'] = _change_background_description(animated=False)
     return tool
@@ -457,27 +472,95 @@ def build_change_background_tool(config):
 
 def build_create_image_tool(config):
     """create_image for a session: on the local engine without an
-    image-edit workflow every reference input goes (include_self,
-    source_images — and with them the outfit/companion/user params that
-    key off include_self), leaving prompt-only generation. `resolution` is
-    Grok Imagine's, so the local engine never gets it."""
+    image-edit workflow (or Venice without an image edit model) every
+    reference input goes (include_self, source_images — and with them the
+    outfit/companion/user params that key off include_self), leaving
+    prompt-only generation. `resolution` is a size tier, which a ComfyUI
+    workflow doesn't have, so the local engine never gets it."""
     tool = copy.deepcopy(_CREATE_IMAGE_TOOL)
-    local = backend_for(config, 'create_image') == 'local'
-    if local:
+    backend = backend_for(config, 'create_image')
+    if backend == 'local':
         del tool['parameters']['properties']['resolution']
-    if local and not _local_slot_ready(config, 'image_edit'):
+    if backend != 'xai' and not _slot_ready(config, backend, 'image_edit'):
         del tool['parameters']['properties']['source_images']
         del tool['parameters']['properties']['include_self']
+        where, why = (("on the user's own local image model", "no reference workflow is set up")
+                      if backend == 'local' else
+                      ("on Venice AI", "no image edit model is set up"))
         tool['description'] = (
-            "Generate an image from a prompt on the user's own local image "
-            "model. The result is saved to the library and appears in the "
+            f"Generate an image from a prompt {where}. "
+            "The result is saved to the library and appears in the "
             "transcript as a clickable thumbnail — NEVER say or write the "
             "URL, file name or link; just react to it in your own words. "
-            "Cannot include you or edit existing images (no reference "
-            "workflow is set up). Does NOT change the avatar background — "
+            f"Cannot include you or edit existing images ({why}). "
+            "Does NOT change the avatar background — "
             "use change_background for that."
         )
         tool['parameters']['properties']['prompt']['description'] = 'What to generate.'
+    return tool
+
+
+# create_video on Venice: Grok Imagine's schema, cut down to the modes a
+# Venice model is picked for. Each entry: the slot, the parameter that
+# selects the mode, and the name its entry in the description's mode table
+# starts with.
+_VENICE_VIDEO_MODES = (
+    ('video_i2v', 'source_image', 'Image-to-Video'),
+    ('video_edit', 'edit_video', 'Video Editing'),
+    ('video_extend', 'extend_video', 'Video Extension'),
+)
+
+# Reference-to-Video without voices: Venice has no counterpart to xAI's
+# built-in voice roster (its video models take voice CLIPS, per model).
+_VENICE_REFERENCE_MODE_BLOCK = (
+    "Reference-to-Video  reference_images. Those subjects appear WITHOUT\n"
+    "                      locking the opening frame.\n"
+    "                      Takes aspect_ratio, resolution, duration_seconds."
+)
+
+
+def build_venice_video_tool(config, *, selfie):
+    """create_video on Venice, or None when no video model is picked at
+    all. Lengths, sizes and shapes stay Grok Imagine's in the schema: the
+    request is fitted to the picked model when it runs (venice_gen), and
+    the result reports the length actually made."""
+    ready = {slot: venice_gen.ready(config, slot) for slot in venice_gen.SLOTS}
+    if not any(ready[slot] for slot in ('video', 'video_i2v', 'video_ref', 'video_edit', 'video_extend')):
+        return None
+    tool = build_create_video_tool(reference=ready['video_ref'],
+                                   selfie=selfie and ready['video_i2v'])
+    properties = tool['parameters']['properties']
+    if ready['video_ref']:
+        tool['description'] = tool['description'].replace(
+            _REFERENCE_MODE_BLOCK, _VENICE_REFERENCE_MODE_BLOCK)
+        del properties['voice_ids']
+    modes = _VENICE_VIDEO_MODES + (() if ready['video'] else (('video', None, 'Generation'),))
+    for slot, param, mode_name in modes:
+        if ready[slot]:
+            continue
+        if param:
+            del properties[param]
+        # The mode's entry runs from its name to the next blank line.
+        tool['description'] = re.sub(rf'  {mode_name}  .*?\n\n', '', tool['description'],
+                                     count=1, flags=re.S)
+    # The shapes, sizes and lengths on offer are the picked models' own,
+    # from Venice's model list, where it publishes them.
+    offered = venice_gen.video_options(config)
+    if offered['aspect_ratios']:
+        properties['aspect_ratio']['enum'] = offered['aspect_ratios']
+    if offered['resolutions']:
+        properties['resolution']['enum'] = offered['resolutions']
+        if _VIDEO_DEFAULT_RESOLUTION not in offered['resolutions']:
+            properties['resolution']['description'] = properties['resolution']['description'].replace(
+                f' (default {_VIDEO_DEFAULT_RESOLUTION}); 480p renders fastest',
+                '; the smaller, the faster it renders')
+    if offered['durations']:
+        lengths = offered['durations']
+        default = min(lengths, key=lambda n: (abs(n - _VIDEO_DEFAULT_SECONDS), n))
+        properties['duration_seconds']['description'] = properties['duration_seconds']['description'].replace(
+            f'Clip length in seconds, 1-{_VIDEO_MAX_SECONDS} (default {_VIDEO_DEFAULT_SECONDS}).',
+            f'Clip length in seconds: {", ".join(map(str, lengths))} (default {default}); '
+            f'another length becomes the nearest of these.')
     return tool
 
 
@@ -715,13 +798,16 @@ def _session_tools(con, agent, *, selfie):
     image = _with_user_param(_with_companion_param(
         _with_outfit_param(build_create_image_tool(config), outfits, main_name),
         con, agent, other_agents, include_voice_roster=False), config)
-    # A local engine with no workflow loaded for a tool can't render anything
-    # — leave that tool out rather than offer one that always errors.
-    if backend_for(config, 'create_image') == 'local' and not (
-            _local_slot_ready(config, 'image') or _local_slot_ready(config, 'image_edit')):
+    # A local engine with no workflow loaded for a tool (or Venice with no
+    # key or model for it) can't render anything — leave that tool out
+    # rather than offer one that always errors.
+    image_backend = backend_for(config, 'create_image')
+    if image_backend != 'xai' and not (
+            _slot_ready(config, image_backend, 'image')
+            or _slot_ready(config, image_backend, 'image_edit')):
         image = None
     # Grok Imagine without an xAI key can't render either: same rule.
-    if backend_for(config, 'create_image') == 'xai' and not config['xai_api_key']:
+    if image_backend == 'xai' and not config['xai_api_key']:
         image = None
     if backend_for(config, 'create_video') == 'xai' and not config['xai_api_key']:
         video = None
@@ -730,6 +816,12 @@ def _session_tools(con, agent, *, selfie):
             video = None
         else:
             video = _with_outfit_param(build_local_video_tool(config), outfits, main_name)
+    elif backend_for(config, 'create_video') == 'venice':
+        video = build_venice_video_tool(config, selfie=selfie)
+        if video:
+            video = _with_user_param(_with_companion_param(
+                _with_outfit_param(video, outfits, main_name),
+                con, agent, other_agents, include_voice_roster=False), config)
     else:
         video = _with_user_param(_with_companion_param(
             _with_outfit_param(
@@ -744,10 +836,11 @@ def build_voice_tools(con, agent):
     """Imagine function tools for a voice session."""
     config, image, video = _session_tools(con, agent, selfie=bool(agent['enable_capture_tools']))
     background = build_change_background_tool(config)
-    if backend_for(config, 'change_background') == 'local' and not (
-            _local_slot_ready(config, 'image') or _local_slot_ready(config, 'video')):
+    backend = backend_for(config, 'change_background')
+    if backend != 'xai' and not (
+            _slot_ready(config, backend, 'image') or _slot_ready(config, backend, 'video')):
         background = None
-    elif backend_for(config, 'change_background') == 'xai' and not config['xai_api_key']:
+    elif backend == 'xai' and not config['xai_api_key']:
         background = None
     return [t for t in (background, image, video) if t]
 
@@ -807,6 +900,8 @@ def execute_imagine_tool(con, session, tool_name, arguments):
     arguments = arguments or {}
     if backend_for(config, tool_name) == 'local':
         return _execute_local_tool(con, session, agent, config, tool_name, prompt, arguments)
+    if backend_for(config, tool_name) == 'venice':
+        return _execute_venice_tool(con, session, agent, config, tool_name, prompt, arguments)
     xai_key = config['xai_api_key']
     if not xai_key:
         return {'error': 'xAI API key is not configured.'}
@@ -1140,6 +1235,36 @@ def _library_video_data_uri(con, ref):
     return _read_media_data_uri(row['image_path'], row['mimetype'])
 
 
+def _library_video_shape(con, ref):
+    """(seconds, resolution) of a library clip, each None when it can't be
+    read. Venice's reference-driven video models are asked for the length
+    of the whole result, so editing or extending a clip there needs its
+    own; and a job sent without a size is made, and billed, at the model's
+    largest (Venice quoted an extension with no `resolution` at its 1080p
+    price, 2026-11-23), so the clip's own size is asked for. A size name
+    is a pixel budget, not a height: a square 720p clip is 960x960, the
+    pixels of 1280x720. So the clip is matched by its pixel count to the
+    16:9 frame each name stands for."""
+    row = _imagine_row_for_ref(con, str(ref or ''))
+    path = _web_path_to_file(row['image_path']) if row else None
+    if path is None:
+        return None, None
+    try:
+        import av
+        with av.open(str(path)) as container:
+            seconds = container.duration / av.time_base if container.duration else None
+            video = next(iter(container.streams.video), None)
+            pixels = video.width * video.height if video else 0
+        # Nearest by ratio of pixel counts, so 960x960 is 720p and not 1080p.
+        frame = lambda name: int(name[:-1]) ** 2 * 16 / 9
+        resolution = (min(_VIDEO_RESOLUTIONS, key=lambda r: abs(math.log(pixels / frame(r))))
+                      if pixels else None)
+        return seconds, resolution
+    except Exception:
+        _logger.warning('Could not read %s', path, exc_info=True)
+        return None, None
+
+
 def _library_image_data_uri(con, ref):
     """Resolve a model-supplied image reference — an imagine_image_id or an
     Imagine-library image_url like '/files/imagine_abc.jpg' — into a base64
@@ -1241,13 +1366,16 @@ def _library_ref_list(value):
     return cleaned or None
 
 
-def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt, arguments):
+def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt, arguments,
+                        venice=False):
     """Shared branch for video generation — change_background(animated=true)
     and create_video (plain / image-to-video / reference-to-video). Builds
     the request, waits out xAI's async render, downloads the mp4, persists
     it as an imagine_images row. Same {'error': str} contract as the image
-    tools."""
+    tools. With `venice` the same request goes to Venice AI instead, on
+    the model picked for its mode."""
     mode = 'generate'
+    prompt_sent = prompt   # Venice only: the prompt in its reference wording
     legend = ''   # reference-to-video only: who is which <IMAGE_n>
     image_data_uri = None
     reference_data_uris = None
@@ -1275,7 +1403,13 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
         include_user = _truthy(arguments.get('include_user'))
         # Schema-pruned for these models (see build_create_video_tool);
         # refuse here too so a stale or injected call can't slip through.
-        if ((reference_refs or reference_voice_ids or include_self or include_companion or include_user)
+        if venice and reference_voice_ids:
+            return {'error': 'voice_ids is not available on Venice AI - leave it out.'}
+        if venice and (reference_refs or include_self or include_companion or include_user) \
+                and not venice_gen.ready(config, 'video_ref'):
+            return {'error': 'Reference-to-Video is not available: no Venice model is set for it.'}
+        if (not venice
+                and (reference_refs or reference_voice_ids or include_self or include_companion or include_user)
                 and not video_reference_supported(config)):
             return {'error': (
                 f'reference_images / voice_ids are not supported by the configured '
@@ -1325,7 +1459,9 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             duration = int(duration) if duration else default
         except (TypeError, ValueError):
             duration = default
-        duration = max(1, min(_VIDEO_MAX_SECONDS, duration))
+        # xAI's cap; on Venice the picked model's own lengths decide
+        # (venice_gen fits the request to them).
+        duration = max(1, duration if venice else min(_VIDEO_MAX_SECONDS, duration))
 
         if source_ref:
             image_data_uri, err = _library_image_data_uri(con, source_ref)
@@ -1337,6 +1473,8 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             if err:
                 return {'error': err}
             legend = _reference_legend(labels)
+            if venice:
+                legend, prompt_sent = '', _venice_video_prompt(prompt, labels)
         elif extend_ref:
             mode = 'extend'
             video_data_uri, err = _library_video_data_uri(con, extend_ref)
@@ -1361,6 +1499,42 @@ def _execute_video_tool(con, session, agent, config, xai_key, tool_name, prompt,
             aspect_ratio = resolution = None
         elif image_data_uri:
             aspect_ratio = None
+
+    if venice:
+        slot = ('video_extend' if mode == 'extend' else 'video_edit' if mode == 'edit'
+                else 'video_i2v' if image_data_uri else 'video_ref' if reference_data_uris
+                else 'video')
+        video_model = venice_gen.model_for(config, slot)
+        if not venice_gen.ready(config, slot):
+            return {'error': 'This kind of video is not available: no Venice model is set for it.'}
+        clip_seconds = None
+        if mode in ('extend', 'edit'):
+            # The clip's own size, else the tool's default: never none.
+            clip_seconds, clip_resolution = _library_video_shape(con, extend_ref or edit_ref)
+            resolution = clip_resolution or _VIDEO_DEFAULT_RESOLUTION
+        try:
+            raw_bytes, mimetype, video_model, made_seconds = venice_gen.generate_video(
+                config, slot,
+                prompt=prompt_sent,
+                image_data_uri=image_data_uri,
+                reference_image_data_uris=reference_data_uris,
+                video_data_uri=video_data_uri,
+                clip_seconds=clip_seconds,
+                duration_seconds=duration,
+                aspect_ratio=aspect_ratio,
+                resolution=resolution,
+                # A scene backdrop plays muted.
+                audio=kind != 'background_video',
+            )
+        except UserError as e:
+            return {'error': str(e)}
+        except Exception as e:
+            _logger.exception('Venice video failed for session %s', session['id'])
+            return {'error': f'Video generation failed (video model: {video_model}): {e}'}
+        return _store_video_row(
+            con, session, agent, raw_bytes, mimetype, '.mp4', prompt, kind=kind,
+            model=video_model, duration=made_seconds, extra_note=ref_note,
+        )
 
     video_model = config['imagine_video_model']
     if mode in ('extend', 'edit'):
@@ -1555,7 +1729,110 @@ def _execute_local_video(con, session, agent, config, tool_name, prompt, argumen
 
 
 # ---------------------------------------------------------------------------
-# Persisting results (both engines)
+# Venice AI engine branches
+# ---------------------------------------------------------------------------
+
+def _venice_video_prompt(prompt, labels):
+    """The prompt as Venice's reference-to-video models want it: they cite
+    reference images as @Image1, @Image2, ... (its reference-to-video
+    guide; Grok Imagine, Kling and MiniMax there all do), so <IMAGE_n>
+    tags become that and the legend names who sits in each slot."""
+    text = re.sub(r'<IMAGE_(\d+)>', lambda m: f'@Image{int(m.group(1)) + 1}', prompt)
+    if any(labels):
+        legend = ', '.join(f'@Image{i + 1} is {label or "a source image"}'
+                           for i, label in enumerate(labels))
+        text = f'{legend}. {text}'
+    return text
+
+
+def _execute_venice_tool(con, session, agent, config, tool_name, prompt, arguments):
+    """Every Imagine tool on Venice AI. Same payload / {'error'} contract
+    as the xAI branches."""
+    if not config['venice_api_key']:
+        return {'error': 'Venice API key is not configured.'}
+    # A video can take minutes: land what is pending first, for the same
+    # reason as _execute_local_tool.
+    con.commit()
+    animated = tool_name == 'change_background' and _truthy(arguments.get('animated'))
+    if tool_name == 'create_video' or animated:
+        return _execute_video_tool(con, session, agent, config, None, tool_name, prompt,
+                                   arguments, venice=True)
+    uris, labels, note = [], [], None
+    resolution = config['imagine_resolution']
+    if tool_name == 'create_image':
+        if arguments.get('resolution') in xai_client.IMAGE_RESOLUTIONS:
+            resolution = arguments['resolution']
+        uris, labels, note, err = _collect_references(
+            con, agent, config, arguments,
+            _library_ref_list(arguments.get('source_images')), 'source_images')
+        if err:
+            return {'error': err}
+    background = tool_name == 'change_background'
+    try:
+        if uris:
+            # Image models on Venice are told "image 1", "image 2" in
+            # plain words, like the local edit models.
+            raw_bytes, mimetype = venice_gen.edit_image(
+                config, prompt=_local_prompt(prompt, labels), image_data_uris=uris,
+                resolution=resolution, quality=config['imagine_quality'])
+        else:
+            raw_bytes, mimetype = venice_gen.generate_image(
+                config, prompt=prompt, aspect_ratio='16:9' if background else None,
+                resolution=resolution, quality=config['imagine_quality'])
+    except UserError as e:
+        return {'error': str(e)}
+    except Exception as e:
+        _logger.exception('Venice image generation failed for session %s', session['id'])
+        return {'error': f'Image generation failed: {e}'}
+    kind = 'background' if background else ('edit' if uris else 'image')
+    result = _store_image_row(
+        con, session, agent, raw_bytes, mimetype, _EXT_BY_MIME.get(mimetype, '.jpg'), prompt,
+        kind=kind, model=venice_gen.model_for(config, 'image_edit' if uris else 'image'))
+    if uris:
+        result['source_image_count'] = len(uris)
+        if note:
+            result['note'] += ' ' + note
+    return result
+
+
+def render_image(con, config, prompt, reference_uris=(), labels=(), aspect_ratio=None):
+    """One picture on create_image's engine outside a tool call (Manga
+    Diary panels) -> (bytes, mimetype); raises UserError. `prompt` cites
+    its references as <IMAGE_n> and `labels` names who each one is, as in
+    _collect_references; each engine gets them in its own wording."""
+    references = list(reference_uris)
+    backend = backend_for(config, 'create_image')
+    if backend == 'local':
+        raw, mimetype, _ext = local_gen.generate(
+            config, 'image_edit' if references else 'image',
+            prompt=_local_prompt(prompt, labels) if references else prompt,
+            image_data_uris=references, aspect_ratio=aspect_ratio)
+        return raw, mimetype
+    size = dict(aspect_ratio=aspect_ratio, quality=config['imagine_quality'],
+                resolution=config['imagine_resolution'])
+    if backend == 'venice':
+        if references:
+            return venice_gen.edit_image(config, prompt=_local_prompt(prompt, labels),
+                                         image_data_uris=references, **size)
+        return venice_gen.generate_image(config, prompt=prompt, **size)
+    if references:
+        body = xai_client.edit_image(
+            xai_api_key=config['xai_api_key'], edits_url=config['xai_images_edits_url'],
+            model=config['imagine_model'], prompt=_reference_legend(labels) + prompt,
+            image_data_uris=references, **size)
+    else:
+        body = xai_client.generate_image(
+            xai_api_key=config['xai_api_key'], images_url=config['xai_images_url'],
+            model=config['imagine_model'], prompt=prompt, **size)
+    store.accrue_usd_ticks(con, store.extract_cost_ticks(body.get('usage') or {}))
+    first = body['data'][0]
+    if not first.get('b64_json'):
+        raise UserError('Grok Imagine returned no image (it may have been filtered).')
+    return base64.b64decode(first['b64_json']), first.get('mime_type') or 'image/jpeg'
+
+
+# ---------------------------------------------------------------------------
+# Persisting results (all engines)
 # ---------------------------------------------------------------------------
 
 def _store_video_row(con, session, agent, raw_bytes, mimetype, ext, prompt, *, kind, model,

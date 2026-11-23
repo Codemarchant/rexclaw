@@ -175,16 +175,24 @@ const ART_FACE = {
  *  inked like a photo taken in a 3D room (`room`). A group shot was asked
  *  for left to right, companion first (paint_panel): `keys` are the others
  *  drawn, in that order, and the faces are spread evenly across. */
-export function artShot(art, panel, spec, keys = []) {
+export function artShot(art, panel, spec, keys = [], seen = null) {
     const f = ART_FACE[spec.shot] || ART_FACE.bust;
+    // What manga_vision found in the picture, when it could look: the
+    // faces where they really are, and which pixels are a person. Faces
+    // carry no names, so a group's are matched to the order asked for
+    // (left to right), and only when as many were found as were drawn;
+    // otherwise the expected places stand.
+    const found = seen?.faces || [];
+    const person = seen?.person || null;
     if (keys.length) {
         const n = keys.length + 1;
-        const at = (k) => ({ x: (k + 0.5) / n, y: f.y, r: f.r });
-        return { figure: art, backdrop: null, room: true, face: at(0),
+        const spotted = found.length >= n ? found.slice(0, n).sort((a, b) => a.x - b.x) : null;
+        const at = (k) => spotted?.[k] || { x: (k + 0.5) / n, y: f.y, r: f.r };
+        return { figure: art, backdrop: null, room: true, person, face: at(0),
                  others: Object.fromEntries(keys.map((key, k) => [key, at(k + 1)])) };
     }
-    return { figure: art, backdrop: null, room: true,
-             face: { x: panel.index % 2 ? 0.36 : 0.64, y: f.y, r: f.r } };
+    return { figure: art, backdrop: null, room: true, person,
+             face: found[0] || { x: panel.index % 2 ? 0.36 : 0.64, y: f.y, r: f.r } };
 }
 
 /** Pose and photograph one panel. `host` must already be sized for it.
