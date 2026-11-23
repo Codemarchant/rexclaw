@@ -40,7 +40,9 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
+import threading
 import uuid
 from pathlib import Path
 
@@ -93,12 +95,12 @@ LOCAL_TASK_TOOL = {
         "whenever the task relates to ANYTHING this tool already did "
         "(a tweak, fix, follow-up, 'open that file'), you MUST pass the "
         "local_task_id from the earlier result, or continue_last=true. "
-        "Never "
-        "split DEPENDENT steps ('create X' then 'open X') across "
-        "parallel calls; put multi-step work in ONE self-contained brief "
+        "One task runs at a time, so never split steps across parallel "
+        "calls: put multi-step work in ONE self-contained brief "
         "(the agent handles many steps itself), or wait for the result "
-        "and follow up with local_task_id. Parallel calls are fine only "
-        "for genuinely unrelated tasks. Summarise the outcome naturally "
+        "and follow up with local_task_id. If the user changes their mind "
+        "while a task is running, call this with cancel=true to stop it. "
+        "Summarise the outcome naturally "
         "in your own voice; never recite file contents or code aloud."
     ),
     'parameters': {
@@ -137,7 +139,17 @@ LOCAL_TASK_TOOL = {
                     'given.'
                 ),
             },
+            'cancel': {
+                'type': 'boolean',
+                'description': (
+                    'true = stop the task that is running now. `task` is '
+                    'not used then; a word like "cancel" will do.'
+                ),
+            },
         },
+        # `task` stays required although a cancel doesn't use it: on a voice
+        # setup, a tool with one required string argument is one a text
+        # model may write as a cue instead of calling (pipeline CueFilter).
         'required': ['task'],
     },
 }
@@ -302,14 +314,62 @@ def _materialize_files(con, workdir, refs):
     return paths, errors, row_ids
 
 
+# The CLI runs in progress by companion, for `cancel` to find.
+_runs = {}   # agent id -> [{'proc': Popen, 'cancelled': bool}, ...]
+_runs_lock = threading.Lock()
+# How long a cancelled CLI gets to wind down before it is killed outright
+# (not on Windows, where there is no gentler signal to send first).
+_KILL_GRACE_SECONDS = 5
+
+
+def _stop_tree(proc):
+    """End the CLI and everything it started (shell commands, a dev server):
+    the children hold its output pipes, so ending the CLI alone would leave
+    the waiting call waiting."""
+    if os.name == 'nt':
+        subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], capture_output=True,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        return
+
+    def kill(sig):
+        try:
+            os.killpg(proc.pid, sig)   # its own group, see start_new_session
+        except OSError:
+            pass
+    kill(signal.SIGTERM)
+    timer = threading.Timer(_KILL_GRACE_SECONDS, lambda: proc.poll() is None and kill(signal.SIGKILL))
+    timer.daemon = True
+    timer.start()
+
+
+def _cancel_running(agent_id):
+    with _runs_lock:
+        running = list(_runs.get(agent_id) or ())
+        for run in running:
+            run['cancelled'] = True
+    for run in running:
+        _stop_tree(run['proc'])
+    if not running:
+        return {'ok': True, 'status': 'nothing_running', 'note': 'No task was running.'}
+    return {
+        'ok': True,
+        'status': 'cancelled',
+        'note': ('The running task was stopped. Files it had already created or changed stay '
+                 'as they are.'),
+    }
+
+
 def execute_local_task(con, session, arguments):
-    """Run one Grok Build turn for `session` (the calling voice/text session).
-    Same {'error': str} contract as the other native tool executors."""
+    """Run one Grok Build turn for `session` (the calling voice/text session),
+    or cancel the one running. Same {'error': str} contract as the other
+    native tool executors."""
     agent = store.get_agent(con, session['agent_id'])
     if not agent['enable_local_tasks']:
         return {'error': 'Local computer tasks are disabled on this agent.'}
 
     args = arguments or {}
+    if args.get('cancel') is True:
+        return _cancel_running(agent['id'])
     task = args.get('task')
     if not isinstance(task, str) or not task.strip():
         return {'error': 'task is required.'}
@@ -406,24 +466,45 @@ def execute_local_task(con, session, arguments):
     _logger.info('local_task: running grok (session %s) in %s',
                  explicit_id or minted or '(-c)', workdir)
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd, cwd=str(workdir), env=env,
-            capture_output=True, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             encoding='utf-8', errors='replace',
             # No visible console window when the (windowless) desktop-app
             # server spawns the CLI on Windows.
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+            # Its own process group elsewhere, so a cancel can end the whole
+            # tree (_stop_tree).
+            start_new_session=os.name != 'nt',
         )
     except OSError as e:
         return {'error': f'Could not launch the Grok Build CLI: {e}'}
+    run = {'proc': proc, 'cancelled': False}
+    with _runs_lock:
+        _runs.setdefault(agent['id'], []).append(run)
+    try:
+        stdout, stderr = proc.communicate()
+    finally:
+        with _runs_lock:
+            _runs[agent['id']].remove(run)
+            if not _runs[agent['id']]:
+                del _runs[agent['id']]
 
-    result_text, stream_sid, cost_usd, saw_events = _parse_stream(proc.stdout or '')
+    result_text, stream_sid, cost_usd, saw_events = _parse_stream(stdout or '')
     # The end event's sessionId is authoritative — trust it over what we
     # passed in (`-s` on a fresh id may not be honoured verbatim).
     task_id = stream_sid or explicit_id or minted
 
+    if run['cancelled']:
+        out = {'ok': False, 'status': 'cancelled',
+               'note': ('This task was cancelled before it finished. Files it had already '
+                        'created or changed stay as they are.')}
+        if task_id:
+            out['local_task_id'] = task_id
+        return out
+
     if proc.returncode != 0:
-        detail = (proc.stderr or '').strip() or (proc.stdout or '').strip()
+        detail = (stderr or '').strip() or (stdout or '').strip()
         return {
             'error': (
                 f'The local task failed (exit {proc.returncode}): '
@@ -437,7 +518,7 @@ def execute_local_task(con, session, arguments):
         # streaming-json at all (older/newer version), fall back to raw
         # stdout. When events WERE parsed but carried no text (an
         # action-only turn), stay empty — never hand the model raw NDJSON.
-        result_text = (proc.stdout or '').strip()
+        result_text = (stdout or '').strip()
     truncated = len(result_text) > _MAX_RESULT_CHARS
     if truncated:
         result_text = result_text[:_MAX_RESULT_CHARS].rstrip() + '…'

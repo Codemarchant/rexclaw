@@ -16,7 +16,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_mcp, local_tools, look_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, plugins,song_tools, sound_effects, store, text_to_vrma, tool_cooldowns, turn_director, voicemail_tools, xai_oauth
+from . import xai_client, affection_tools, browser_tools, call_music, coach, companion_texting, delegate_tools, face_director, games, gesture_director, idle_events, imagine_tools, jev, local_mcp, local_tools, look_tools, lore_tools, memory_tools, minecraft_tools, motion_library, neural_motion, openclaw_tools, plugins,song_tools, sound_effects, store, text_to_vrma, tool_cooldowns, turn_director, voicemail_tools, xai_oauth
 from .db import FILES_DIR, get_config, utcnow, parse_dt
 from .errors import UserError, ValidationError
 from .pipeline import session as pipeline_session, setups as voice_setups
@@ -126,6 +126,7 @@ def _preview_text_tools(con, agent_row):
         enable_affection_tool=bool(agent_row['enable_affection_tool']),
         enable_delegate_tool=bool(agent_row['enable_delegate_tool']),
         enable_local_tasks=bool(agent_row['enable_local_tasks']),
+        enable_openclaw=bool(agent_row['enable_openclaw']),
         enable_minecraft=bool(agent_row['enable_minecraft']),
         enable_companion_texting=bool(agent_row['enable_companion_texting']),
         enable_voicemail=bool(agent_row['enable_voicemail']),
@@ -509,6 +510,9 @@ def _env_postamble(con, agent_row, mode='voice', stable=False, solo=True, face=F
     # bot's plan. Same "only when actually usable" gate as the tools.
     if agent_row['enable_minecraft'] and minecraft_tools.connected():
         sections.append(_minecraft_section())
+    # Same gate as the tool (its toggle, the Gateway answering).
+    if openclaw_tools.offered(get_config(con), agent_row):
+        sections.append(openclaw_tools.prompt_section())
     # Gated like the tools: a call has them from the start (a game may
     # connect mid-call), a text turn only while a game is connected.
     if agent_row['enable_games'] and (mode == 'voice' or games.connected(agent_row['id'])):
@@ -1328,6 +1332,9 @@ def _voice_tools(con, agent, config, *, group_peers=None):
                                          own_sandbox=brain_runs_code(con, agent, config, 'voice')))
     if local_tasks:
         native_function_tools.append(local_tools.LOCAL_TASK_TOOL)
+    # Only while the user's OpenClaw Gateway is answering.
+    if openclaw_tools.offered(config, agent):
+        native_function_tools.append(openclaw_tools.build_tool(config))
     # Same "only when actually usable" rule as local_task: the pair appears
     # only while the bot sidecar is connected to /ws/minecraft.
     if bool(agent['enable_minecraft']) and minecraft_tools.connected() and minecraft_tools.brain_ready(con):
@@ -2844,6 +2851,7 @@ NATIVE_TOOL_NAMES_TEXT = (
     | lore_tools.LORE_TOOL_NAMES
     | {delegate_tools.DELEGATE_TOOL_NAME}
     | {local_tools.LOCAL_TASK_TOOL_NAME}
+    | {openclaw_tools.OPENCLAW_TOOL_NAME}
     | {companion_texting.TEXT_COMPANION_TOOL_NAME}
     | {voicemail_tools.CREATE_VOICEMAIL_TOOL_NAME}
 )
@@ -2860,6 +2868,7 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
                       enable_affection_tool=False,
                       enable_delegate_tool=False,
                       enable_local_tasks=False,
+                      enable_openclaw=False,
                       enable_minecraft=False,
                       enable_games=False,
                       enable_companion_texting=False,
@@ -2929,6 +2938,8 @@ def _build_text_tools(con, agent, *, mcp_entries, enable_web_search, enable_x_se
             own_sandbox=enable_code_execution and brain_runs_code(con, agent, config, 'text')))
     if local_tasks:
         tools.append(local_tools.LOCAL_TASK_TOOL)
+    if enable_openclaw and openclaw_tools.reachable(config):
+        tools.append(openclaw_tools.build_tool(config))
     if enable_minecraft and minecraft_tools.connected() and minecraft_tools.brain_ready(con):
         tools.extend(minecraft_tools.build_tools())
     # A text turn's tools are built per turn, so unlike a call they can wait
@@ -3626,6 +3637,8 @@ def start_text_session(con, *, agent, resume_session=None):
             enable_delegate_tool=(bool(agent['enable_delegate_tool'])
                                   and session['origin'] != 'delegated'),
             enable_local_tasks=bool(agent['enable_local_tasks']),
+            enable_openclaw=(bool(agent['enable_openclaw'])
+                             and session['origin'] != 'delegated'),
             enable_minecraft=(bool(agent['enable_minecraft'])
                               and session['origin'] != 'delegated'),
             enable_games=(bool(agent['enable_games'])
@@ -3950,6 +3963,11 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         # back into rexclaw, so voice → delegate_task → local_task chains
         # are safe and let the deep-focus brain drive on-machine work.
         enable_local_tasks=bool(agent['enable_local_tasks']) and not minimal_tools,
+        # Acting for the user through their OpenClaw agent is the
+        # companion's own job too, not the delegated analyst's.
+        enable_openclaw=(bool(agent['enable_openclaw'])
+                         and session['origin'] != 'delegated'
+                         and not minimal_tools),
         # The delegated analyst must not steer the game bot — directing it
         # is the companion's own job (same spirit as the delegate guard).
         enable_minecraft=(bool(agent['enable_minecraft'])
@@ -4463,6 +4481,8 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 result = delegate_tools.execute_delegate_tool(con, session, args)
             elif name == local_tools.LOCAL_TASK_TOOL_NAME:
                 result = local_tools.execute_local_task(con, session, args)
+            elif name == openclaw_tools.OPENCLAW_TOOL_NAME:
+                result = openclaw_tools.execute_openclaw_task(con, session, args)
             elif name == voicemail_tools.CREATE_VOICEMAIL_TOOL_NAME:
                 result = voicemail_tools.execute_create_voicemail(con, session, agent, args)
             elif name in minecraft_tools.MINECRAFT_TOOL_NAMES:

@@ -174,6 +174,8 @@ const THIRD_PARTY_FLAGS = [
      "Lets the companion invent brand-new avatar motions from a description during voice calls (generate_gesture), for anything its gesture list doesn't cover. Made by the free Text-To-VRMA app running on your computer: connect it and switch it on in Settings → Gesture generation. The tool is only offered while that app's local API is answering. Motions are saved to data/assets/generated/text_to_vrma/ and can be added to an avatar's custom gestures from the Library picker."],
     ["enable_local_tasks", "Local computer tasks (Grok Build CLI — real files & shell)",
      "Lets the companion hand tasks to the xAI Grok Build CLI on THIS computer (local_task): it creates and edits real files and runs shell commands, auto-approved, in the folder it's given. Powerful, so only enable it for companions you trust with that. Requires the `grok` CLI on your PATH; never offered in Docker."],
+    ["enable_openclaw", "OpenClaw tasks (your own OpenClaw agent)",
+     "Lets the companion hand tasks to your OpenClaw agent (openclaw_task), which carries them out through whatever you connected to it: messaging apps, email, calendar, your skills and automations. The companion can ask for anything that agent is allowed to do, including sending messages in your name, so only enable it for companions you trust with that. Connect your Gateway in Settings → OpenClaw; the tool is only offered while it is answering."],
 ];
 
 // Tools the brain's provider runs itself (like remote MCP servers): xAI,
@@ -322,6 +324,7 @@ export default function CompanionsView({ active }) {
             enable_delegate_tool: 1,
             enable_multi_agent_delegation: 0,
             enable_local_tasks: 0,
+            enable_openclaw: 0,
             enable_call_agents_tool: 1,
             when_to_call_description: "",
             enable_companion_texting: 1,

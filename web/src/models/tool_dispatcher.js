@@ -53,6 +53,9 @@ const NATIVE_TOOL_NAMES = new Set([
     // Local computer tasks: the server drives the Grok Build CLI headlessly
     // on the machine it runs on. Same slow server-side shape as delegate_task.
     "local_task",
+    // The user's OpenClaw agent, asked over its Gateway by the server. Same
+    // slow server-side shape again.
+    "openclaw_task",
     // Minecraft bot: the server relays directives to the game sidecar over
     // its WebSocket. Fast — the bot acks immediately and works async;
     // progress comes back through the voice service's event pump.
@@ -90,9 +93,18 @@ const NATIVE_TOOL_NAMES = new Set([
 const NO_DUPLICATE_WHILE_RUNNING = new Set([
     "change_background", "create_video", "generate_gesture", "delegate_task",
     "create_outfit", "create_character",
-    "local_task", "text_companion", "analyze_screen", "record_screen_clip",
+    "text_companion", "analyze_screen", "record_screen_clip",
     "play_background_music",   // a link downloads for up to a minute
 ]);
+
+// Slow tools that run one call at a time, whatever the arguments: each hands
+// work to an agent that acts for real (files and shell, messages sent in the
+// user's name) and takes up to minutes. A companion that replies during the
+// wait tends to read the missing result as a failure and send the task again
+// in other words, or a "did that work?" task on top; both would run beside
+// the first. The next call waits for the result of the one running
+// (a cancel=true call aside, see dispatch).
+const ONE_AT_A_TIME = new Set(["local_task", "openclaw_task"]);
 
 // How long point_at_screen's rings stay up (and the avatar looks at them):
 // long enough to cover the reply that refers to them. A judgment call.
@@ -133,7 +145,9 @@ export class ToolDispatcher {
         this.conversationState = conversationState;
         this.sessionId = sessionId;
         this._pending = new Map();    // call_id → tool name, awaiting handler resolution
-        this._running = new Map();    // NO_DUPLICATE_WHILE_RUNNING call in progress by arguments → its call_id
+        // Calls in progress that hold back another: a NO_DUPLICATE_WHILE_RUNNING
+        // one by its arguments, a ONE_AT_A_TIME one by its name → its call_id.
+        this._running = new Map();
     }
 
     /** Returns true if any tool calls are still resolving. */
@@ -168,10 +182,20 @@ export class ToolDispatcher {
             args = {};
         }
         let result;
-        // See NO_DUPLICATE_WHILE_RUNNING.
-        const runKey = NO_DUPLICATE_WHILE_RUNNING.has(name) ? `${name}:${JSON.stringify(args)}` : null;
+        // See ONE_AT_A_TIME and NO_DUPLICATE_WHILE_RUNNING.
+        // Their cancel is the one call that has to get through while a task
+        // runs: it stops that task.
+        const oneAtATime = ONE_AT_A_TIME.has(name) && args.cancel !== true;
+        const runKey = oneAtATime ? name
+            : NO_DUPLICATE_WHILE_RUNNING.has(name) ? `${name}:${JSON.stringify(args)}` : null;
         if (runKey && this._running.has(runKey)) {
-            result = {
+            result = oneAtATime ? {
+                ok: false,
+                status: "not_started",
+                note: `Your earlier ${name} call is still running, so this one was not started. `
+                    + "Its result comes back when it is done; call again after that if "
+                    + "something is still left to do.",
+            } : {
                 ok: true,
                 status: "already_running",
                 note: "This exact call is already running; its result comes back when it is done.",

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, look_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, portraits, seeds, text_to_vrma, tool_cooldowns, transfer, venice_gen, xai_client, xai_oauth
+from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, look_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, openclaw_tools, portraits, seeds, text_to_vrma, tool_cooldowns, transfer, venice_gen, xai_client, xai_oauth
 from ..db import ASSETS_DIR, FILES_DIR, get_config, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
@@ -72,6 +72,7 @@ _CONFIG_FIELDS = (
     "call_inactivity_minutes", "group_chain_turns", "hotkeys_json", "hotkeys_global_enabled",
     "wake_word_enabled", "wake_word_language",
     "local_task_workdir",
+    "openclaw_url", "openclaw_agent", "openclaw_uses",
     "minecraft_brain_model", "minecraft_brain_model_hard", "minecraft_master", "minecraft_brain_connection",
     "games_neuro_port", "games_default_agent_id", "games_offcall_mode",
     "live_chat_twitch_channel", "live_chat_youtube_video",
@@ -104,7 +105,7 @@ _AGENT_FIELDS = (
     "enable_call_agents_tool", "when_to_call_description",
     "enable_companion_texting", "texting_tools_enabled",
     "enable_delegate_tool", "enable_multi_agent_delegation",
-    "enable_local_tasks", "enable_minecraft", "enable_games", "enable_gesture_gen", "enable_move_tool",
+    "enable_local_tasks", "enable_openclaw", "enable_minecraft", "enable_games", "enable_gesture_gen", "enable_move_tool",
     "enable_voicemail", "enable_voicemail_downloads", "enable_background_music",
     "enable_background_music_downloads", "enable_sound_effects", "enable_songs", "singing_profile_id", "extension_tools",
     "enable_end_call_tool", "wake_phrase", "wake_action",
@@ -135,6 +136,8 @@ def config_get(payload: dict = Body(default={}), con=Depends(db_con)):
     out["has_venice_api_key"] = bool(row["venice_api_key"])
     # The Text-To-VRMA access token: write-only too.
     out["has_gesture_gen_token"] = bool(row["gesture_gen_token"])
+    # The OpenClaw Gateway token: write-only too.
+    out["has_openclaw_token"] = bool(row["openclaw_token"])
     # The TypeSafe (Jev) API key: write-only too.
     out["has_typesafe_api_key"] = bool(row["typesafe_api_key"])
     # So is the key of another decision model server. Whether the chosen
@@ -248,6 +251,12 @@ def config_set(payload: dict = Body(default={}), con=Depends(db_con)):
             updates["gesture_gen_token"] = ""
         elif isinstance(token, str) and token.strip():
             updates["gesture_gen_token"] = token.strip()
+    if "openclaw_token" in payload:
+        oc_token = payload["openclaw_token"]
+        if oc_token is None:
+            updates["openclaw_token"] = ""
+        elif isinstance(oc_token, str) and oc_token.strip():
+            updates["openclaw_token"] = oc_token.strip()
     if "typesafe_api_key" in payload:
         ts_key = payload["typesafe_api_key"]
         if ts_key is None:
@@ -475,6 +484,18 @@ def gesture_gen_test(payload: dict = Body(default={}), con=Depends(db_con)):
     if not (isinstance(token, str) and token.strip()):
         token = con.execute("SELECT gesture_gen_token FROM config WHERE id = 1").fetchone()[0]
     return text_to_vrma.test_connection(payload.get("url"), token)
+
+
+@router.post("/openclaw/test")
+def openclaw_test(payload: dict = Body(default={}), con=Depends(db_con)):
+    """Settings "Test connection": is the OpenClaw Gateway at this URL, does
+    it accept the token, is its chat completions endpoint on, and which
+    agents does it offer. Draft URL + token, falling back to the stored
+    token like /gesture_gen/test."""
+    token = payload.get("token")
+    if not (isinstance(token, str) and token.strip()):
+        token = con.execute("SELECT openclaw_token FROM config WHERE id = 1").fetchone()[0]
+    return openclaw_tools.test_connection(payload.get("url"), token)
 
 
 @router.post("/face_director/test")

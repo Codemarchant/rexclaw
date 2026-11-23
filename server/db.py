@@ -328,6 +328,15 @@ CREATE TABLE IF NOT EXISTS config (
     -- local_task working directory — the Grok Build CLI's blast-radius
     -- boundary. Empty = <data>/workspace (created on demand).
     local_task_workdir TEXT NOT NULL DEFAULT '',
+    -- openclaw_task (openclaw_tools.py): the user's OpenClaw Gateway (empty
+    -- = its default address, http://127.0.0.1:18789), the Gateway token,
+    -- and the agent id tasks go to (empty = the Gateway's default agent).
+    -- openclaw_uses: the user's own words on what their agent is connected
+    -- to and when to use it, carried in the tool's description.
+    openclaw_url TEXT NOT NULL DEFAULT '',
+    openclaw_token TEXT NOT NULL DEFAULT '',
+    openclaw_agent TEXT NOT NULL DEFAULT '',
+    openclaw_uses TEXT NOT NULL DEFAULT '',
     -- Minecraft bot sidecar: the text model that plans the bot's actions
     -- (empty = grok-4.20-non-reasoning), the stronger model used for hard
     -- directives like building (empty = grok-4.5), and the in-game
@@ -678,6 +687,9 @@ CREATE TABLE IF NOT EXISTS agents (
     -- local_task: drive the Grok Build CLI headlessly on the user's machine
     -- (real files + shell in the workspace folder). Powerful → opt-in.
     enable_local_tasks INTEGER NOT NULL DEFAULT 0,
+    -- openclaw_task: hand tasks to the user's OpenClaw agent, which acts
+    -- through whatever they connected to it (messengers, accounts). Opt-in.
+    enable_openclaw INTEGER NOT NULL DEFAULT 0,
     -- Minecraft bot: direct the mineflayer sidecar
     -- (game_integrations/minecraft/ folder).
     -- Runs LLM-generated scripts against the user's world → opt-in.
@@ -1776,6 +1788,13 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN venice_video_ref_model TEXT NOT NULL DEFAULT 'wan-3-0-reference-to-video'",
     "ALTER TABLE config ADD COLUMN venice_video_edit_model TEXT NOT NULL DEFAULT 'wan-3-0-reference-to-video'",
     "ALTER TABLE config ADD COLUMN venice_video_extend_model TEXT NOT NULL DEFAULT 'wan-3-0-reference-to-video'",
+    # openclaw_task: tasks handed to the user's OpenClaw Gateway
+    # (openclaw_tools.py). Opt-in per companion.
+    "ALTER TABLE agents ADD COLUMN enable_openclaw INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE config ADD COLUMN openclaw_url TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN openclaw_token TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN openclaw_agent TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE config ADD COLUMN openclaw_uses TEXT NOT NULL DEFAULT ''",
 )
 
 

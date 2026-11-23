@@ -1036,6 +1036,11 @@ def import_companion_zip(con, zip_path):
             # the person importing has to switch on themselves.
             if "coach_enabled" in vals:
                 vals["coach_enabled"] = 0
+            # And the tools that act outside the app, for someone else's
+            # prompt: a shell on this computer, the user's OpenClaw agent.
+            for flag in ("enable_local_tasks", "enable_openclaw"):
+                if flag in vals:
+                    vals[flag] = 0
             name = str(vals.get("name") or "").strip()
             if not name or not str(vals.get("system_prompt") or "").strip():
                 raise UserError("Companion file has no name or system prompt.")

@@ -2189,6 +2189,10 @@ export const JA = {
   "Multi-agent delegation (pricier)": "マルチエージェント委任（高コスト）",
   "Local computer tasks (Grok Build CLI — real files & shell)":
     "ローカルコンピュータタスク（Grok Build CLI — 実際のファイルとシェル操作）",
+  "OpenClaw tasks (your own OpenClaw agent)":
+    "OpenClaw タスク（あなた自身の OpenClaw エージェント）",
+  "Lets the companion hand tasks to your OpenClaw agent (openclaw_task), which carries them out through whatever you connected to it: messaging apps, email, calendar, your skills and automations. The companion can ask for anything that agent is allowed to do, including sending messages in your name, so only enable it for companions you trust with that. Connect your Gateway in Settings → OpenClaw; the tool is only offered while it is answering.":
+    "コンパニオンがあなたの OpenClaw エージェントにタスクを任せられるようにします（openclaw_task）。エージェントは、あなたが接続したもの（メッセージアプリ、メール、カレンダー、スキルや自動化）を通じてタスクを実行します。コンパニオンは、あなたの名前でメッセージを送ることを含め、そのエージェントに許可されていることなら何でも頼めるため、それを任せられるコンパニオンにだけ有効にしてください。Gateway は 設定 → OpenClaw で接続します。ツールは Gateway が応答している間だけ提供されます。",
   "Minecraft bot (directs the game sidecar — see the Games tab)":
     "Minecraft ボット（ゲームサイドカーに指示 — ゲームタブ参照）",
 
@@ -2236,6 +2240,29 @@ export const JA = {
   "Detected: %s": "検出: %s",
   "Not found on this machine — install it, then reopen Settings to re-check":
     "このマシンには見つかりません — インストール後、設定を開き直すと再チェックされます",
+
+  // ── Settings: OpenClaw ──────────────────────────────────────────────
+  "OpenClaw": "OpenClaw",
+  "Companions with \"OpenClaw tasks\" enabled (per companion, on the Companions tab) can hand tasks to your own OpenClaw agent (openclaw_task), which carries them out through whatever you connected to it: messaging apps, email, calendar, your skills and automations.":
+    "「OpenClaw タスク」を有効にしたコンパニオン（「コンパニオン」タブでコンパニオンごとに設定）は、あなた自身の OpenClaw エージェントにタスクを任せられます（openclaw_task）。エージェントは、あなたが接続したもの（メッセージアプリ、メール、カレンダー、スキルや自動化）を通じてタスクを実行します。",
+  "OpenClaw setup guide": "OpenClaw の設定ガイド",
+  "In the OpenClaw config, switch on gateway.http.endpoints.chatCompletions.enabled (it is off by default) and restart the Gateway, then enter its address and Gateway token below. The token gives full access to that agent, so a companion can ask for anything it is allowed to do. The tool is only offered while the Gateway is answering. With Rexclaw in Docker, use http://host.docker.internal:18789.":
+    "OpenClaw の設定で gateway.http.endpoints.chatCompletions.enabled をオンにし（既定ではオフ）、Gateway を再起動してから、そのアドレスと Gateway トークンを下に入力してください。トークンはそのエージェントへのフルアクセスを与えるため、コンパニオンはエージェントに許可されていることなら何でも頼めます。ツールは Gateway が応答している間だけ提供されます。Rexclaw を Docker で動かしている場合は http://host.docker.internal:18789 を使ってください。",
+  "Gateway URL": "Gateway の URL",
+  "Gateway token": "Gateway トークン",
+  "The Gateway's shared token or password (gateway.auth.token, or OPENCLAW_GATEWAY_TOKEN). Leave empty for a Gateway that runs without one.":
+    "Gateway の共有トークンまたはパスワード（gateway.auth.token、または OPENCLAW_GATEWAY_TOKEN）。トークンなしで動く Gateway の場合は空欄のままにします。",
+  "Agent (empty = default)": "エージェント（空欄 = 既定）",
+  "The id of the OpenClaw agent that takes the tasks, for a Gateway with several. Test connection lists them. To limit what companions can ask for, set up an OpenClaw agent with fewer tools and enter its id here.":
+    "タスクを受け取る OpenClaw エージェントの ID です（Gateway に複数ある場合）。接続テストで一覧が表示されます。コンパニオンが頼めることを絞りたい場合は、ツールを減らした OpenClaw エージェントを用意し、その ID をここに入力してください。",
+  "agents": "エージェント",
+  "What your OpenClaw agent is for": "OpenClaw エージェントの用途",
+  "Goes into the tool's description as written, for every companion with OpenClaw tasks on. Left empty, companions use OpenClaw only when you ask for it by name.":
+    "書いたとおりにツールの説明へ入り、OpenClaw タスクをオンにしたすべてのコンパニオンに伝わります。空欄の場合、コンパニオンはあなたが名前を挙げて頼んだときだけ OpenClaw を使います。",
+  "e.g. Sending and reading my WhatsApp and Telegram messages. Checking my email and calendar. Running my morning briefing.":
+    "例: WhatsApp と Telegram のメッセージの送信と確認。メールとカレンダーの確認。朝のブリーフィングの実行。",
+  "Tell your companions, in your own words, what your agent is connected to and when to use it. They follow this rather than guessing, so their other tools (web search, images, local tasks) keep their own jobs.":
+    "エージェントが何に接続されていて、どんなときに使うのかを、あなたの言葉でコンパニオンに伝えてください。コンパニオンは推測せずこれに従うので、ほかのツール（ウェブ検索、画像、ローカルタスク）はそれぞれの役割のままです。",
 
   // ── Games tab (Minecraft) ───────────────────────────────────────────────
   "Minecraft bot": "Minecraft ボット",

@@ -119,6 +119,9 @@ export default function SettingsView({ active }) {
     const [savedCount, setSavedCount] = useState(0);
     const [jevTest, setJevTest] = useState(null);
     const [vrmaTest, setVrmaTest] = useState(null);     // null | "busy" | {ok, ...} | {error}
+    // The OpenClaw Gateway token: write-only like the others.
+    const [openclawTokenDraft, setOpenclawTokenDraft] = useState("");
+    const [openclawTest, setOpenclawTest] = useState(null);
     // Venice AI (image and video engine): its key is write-only too.
     const [veniceKeyDraft, setVeniceKeyDraft] = useState("");
     const [veniceTest, setVeniceTest] = useState(null); // null | "busy" | {ok, ...} | {error}
@@ -376,6 +379,16 @@ export default function SettingsView({ active }) {
             setVrmaTest({ error: e?.message || _t("Connection failed") });
         }
     };
+    const testOpenclaw = async () => {
+        setOpenclawTest("busy");
+        try {
+            setOpenclawTest(await rpc("/api/openclaw/test", {
+                url: config.openclaw_url, token: openclawTokenDraft || "",
+            }));
+        } catch (e) {
+            setOpenclawTest({ error: e?.message || _t("Connection failed") });
+        }
+    };
 
     const saveConfig = async () => {
         setSaving(true);
@@ -402,6 +415,9 @@ export default function SettingsView({ active }) {
             delete payload.has_gesture_gen_token;
             if (vrmaTokenDraft?.trim()) payload.gesture_gen_token = vrmaTokenDraft.trim();
             else if (vrmaTokenDraft === null) payload.gesture_gen_token = null;
+            delete payload.has_openclaw_token;
+            if (openclawTokenDraft?.trim()) payload.openclaw_token = openclawTokenDraft.trim();
+            else if (openclawTokenDraft === null) payload.openclaw_token = null;
             delete payload.has_typesafe_api_key;
             if (typesafeKeyDraft?.trim()) payload.typesafe_api_key = typesafeKeyDraft.trim();
             else if (typesafeKeyDraft === null) payload.typesafe_api_key = null;
@@ -416,6 +432,7 @@ export default function SettingsView({ active }) {
             setVeniceKeyDraft("");
             setYtKeyDraft("");
             setVrmaTokenDraft("");
+            setOpenclawTokenDraft("");
             setTypesafeKeyDraft("");
             setDecisionKeyDraft("");
             setSavedCount((n) => n + 1);
@@ -456,6 +473,7 @@ export default function SettingsView({ active }) {
         setVeniceKeyDraft("");
         setYtKeyDraft("");
         setVrmaTokenDraft("");
+        setOpenclawTokenDraft("");
         setTypesafeKeyDraft("");
         setDecisionKeyDraft("");
         load();
@@ -1583,6 +1601,67 @@ export default function SettingsView({ active }) {
                         </div>
                         <div />
                     </div>
+                </section>
+
+                <section>
+                    <h3><i className="fa fa-plug" /> {_t("OpenClaw")}</h3>
+                    <p className="text-muted small" style={{ margin: "0 0 0.5rem" }}>
+                        {_t("Companions with \"OpenClaw tasks\" enabled (per companion, on the Companions tab) can hand tasks to your own OpenClaw agent (openclaw_task), which carries them out through whatever you connected to it: messaging apps, email, calendar, your skills and automations.")}{" "}
+                        <a href="https://docs.openclaw.ai/gateway/openai-http-api" target="_blank" rel="noreferrer">{_t("OpenClaw setup guide")}</a>.{" "}
+                        {_t("In the OpenClaw config, switch on gateway.http.endpoints.chatCompletions.enabled (it is off by default) and restart the Gateway, then enter its address and Gateway token below. The token gives full access to that agent, so a companion can ask for anything it is allowed to do. The tool is only offered while the Gateway is answering. With Rexclaw in Docker, use http://host.docker.internal:18789.")}
+                    </p>
+                    <div className="rx_row">
+                        <div style={{ flex: 2 }}>
+                            <label>{_t("Gateway URL")}</label>
+                            <input type="text" value={config.openclaw_url || ""} placeholder="http://127.0.0.1:18789"
+                                   onChange={(ev) => setField("openclaw_url", ev.target.value)} />
+                        </div>
+                        <div style={{ flex: 2 }}>
+                            <label title={_t("The Gateway's shared token or password (gateway.auth.token, or OPENCLAW_GATEWAY_TOKEN). Leave empty for a Gateway that runs without one.")}>
+                                {_t("Gateway token")}
+                                {config.has_openclaw_token && openclawTokenDraft !== null && (
+                                    <span className="text-muted"> ({_t("saved")}{" "}
+                                        <a href="#" onClick={(ev) => { ev.preventDefault(); markDirty(true); setOpenclawTokenDraft(null); }}>{_t("remove")}</a>)
+                                    </span>
+                                )}
+                            </label>
+                            <input type="password" value={openclawTokenDraft || ""}
+                                   placeholder={config.has_openclaw_token && openclawTokenDraft !== null
+                                       ? _t("•••••••• (leave blank to keep current token)")
+                                       : ""}
+                                   onChange={(ev) => { markDirty(true); setOpenclawTokenDraft(ev.target.value); }} />
+                        </div>
+                        <div>
+                            <label title={_t("The id of the OpenClaw agent that takes the tasks, for a Gateway with several. Test connection lists them. To limit what companions can ask for, set up an OpenClaw agent with fewer tools and enter its id here.")}>
+                                {_t("Agent (empty = default)")}
+                            </label>
+                            <input type="text" value={config.openclaw_agent || ""} placeholder="default"
+                                   onChange={(ev) => setField("openclaw_agent", ev.target.value)} />
+                        </div>
+                        <div style={{ alignSelf: "flex-end" }}>
+                            <button className="btn btn-light" onClick={testOpenclaw} disabled={openclawTest === "busy"}>
+                                <i className={openclawTest === "busy" ? "fa fa-spinner fa-spin" : "fa fa-plug"} /> {_t("Test connection")}
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label title={_t("Goes into the tool's description as written, for every companion with OpenClaw tasks on. Left empty, companions use OpenClaw only when you ask for it by name.")}>
+                            {_t("What your OpenClaw agent is for")}
+                        </label>
+                        <textarea rows={3} value={config.openclaw_uses || ""}
+                                  placeholder={_t("e.g. Sending and reading my WhatsApp and Telegram messages. Checking my email and calendar. Running my morning briefing.")}
+                                  onChange={(ev) => setField("openclaw_uses", ev.target.value)} />
+                        <p className="text-muted small" style={{ margin: "0.25rem 0 0.5rem" }}>
+                            {_t("Tell your companions, in your own words, what your agent is connected to and when to use it. They follow this rather than guessing, so their other tools (web search, images, local tasks) keep their own jobs.")}
+                        </p>
+                    </div>
+                    {openclawTest && openclawTest !== "busy" && (
+                        <p className={"small " + (openclawTest.ok ? "text-muted" : "text-danger")} style={{ margin: "0.25rem 0 0.5rem" }}>
+                            {openclawTest.ok
+                                ? `OpenClaw · ${_t("agents")}: ${(openclawTest.agents || []).join(", ")}`
+                                : openclawTest.error}
+                        </p>
+                    )}
                 </section>
                 {headset && !headset.external && (
                     <section>

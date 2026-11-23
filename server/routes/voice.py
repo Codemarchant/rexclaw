@@ -11,7 +11,7 @@ import requests
 from fastapi import APIRouter, Body, Depends, File, Form, UploadFile
 from PIL import Image
 
-from .. import affection_tools, companion_texting, delegate_tools, games, imagine_tools, local_mcp, local_tools, look_tools, lore_tools, memory_tools, minecraft_tools, plugins, screen_pointer, session_service, store, text_to_vrma, tool_cooldowns, xai_client
+from .. import affection_tools, companion_texting, delegate_tools, games, imagine_tools, local_mcp, local_tools, look_tools, lore_tools, memory_tools, minecraft_tools, openclaw_tools, plugins, screen_pointer, session_service, store, text_to_vrma, tool_cooldowns, xai_client
 from ..db import FILES_DIR, get_config, utcnow
 from ..errors import AccessError, UserError, ValidationError
 from .common import db_con, resolve_agent, resolve_session
@@ -194,6 +194,9 @@ def session_tool_call(session_id: int, payload: dict = Body(default={}), con=Dep
         result = local_tools.execute_local_task(con, session, arguments)
         con.commit()
         return result
+    if tool_name == openclaw_tools.OPENCLAW_TOOL_NAME:
+        # Flag check lives in the executor (same {'error': ...} contract).
+        return openclaw_tools.execute_openclaw_task(con, session, arguments)
     if tool_name in minecraft_tools.MINECRAFT_TOOL_NAMES:
         # Flag check lives in the executors (same {'error': ...} contract).
         if tool_name == minecraft_tools.MINECRAFT_COMMAND_TOOL_NAME:
