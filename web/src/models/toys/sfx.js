@@ -8,6 +8,13 @@
 
 const MASTER = 0.22;   // overall level (by ear)
 const KEY = "rexclaw.toy_sounds";
+// The pets' recorded voices (assets/audio/pets/CREDITS.md), normalised to
+// full scale. Their level over MASTER: a clicked pet's call comes out at
+// about two thirds of full scale, a call of its own accord at 0.6 of that
+// (pets.js): heard across a room, where the synthesised toy sounds are
+// kept to a murmur (unsourced: set by the numbers, not by ear).
+const SAMPLES = "/assets/audio/pets";
+const SAMPLE_LEVEL = 3.0;
 
 class ToySfx {
     constructor() {
@@ -110,6 +117,26 @@ class ToySfx {
     }
 
     pop() { this._tone(1400 + Math.random() * 500, 300, 0.05, { type: "sine", vol: 0.5 }); }
+
+    /** A crab's claws: a few dry clacks (by ear). */
+    clack() {
+        for (const at of [0, 0.09, 0.2, 0.29]) {
+            this._tone(2100 + Math.random() * 500, 900, 0.025, { type: "square", vol: 0.3, at });
+            this._hiss(0.02, { freq: 3400, q: 1.2, vol: 0.35, at });
+        }
+    }
+
+    /** Gerald's jaws: two snaps and a few bubbles (by ear). */
+    snap() {
+        for (const at of [0, 0.2]) {
+            this._hiss(0.05, { freq: 1500, q: 0.7, vol: 0.9, at });
+            this._tone(260, 90, 0.07, { type: "triangle", vol: 0.7, at });
+        }
+        for (let i = 0; i < 4; i++) {
+            const f = 500 + Math.random() * 700;
+            this._tone(f, f * 1.6, 0.06, { vol: 0.18, at: 0.32 + i * 0.07 + Math.random() * 0.03 });
+        }
+    }
 
     chomp() {
         this._hiss(0.07, { freq: 2200, q: 0.6, vol: 0.6 });
@@ -285,6 +312,67 @@ class ToySfx {
                 const at = Math.floor(Math.random() * d.length), len = Math.floor(sr * 0.005);
                 for (let i = 0; i < len && at + i < d.length; i++) d[at + i] += (Math.random() * 2 - 1) * 0.2 * Math.exp(-i / (len / 4));
             }
+        });
+    }
+
+    /** A recording (the pets' voices, assets/audio/pets, by file name
+     *  without its extension), fetched and decoded the first time it's
+     *  wanted. Resolves to its buffer, or null. */
+    _sample(ac, name) {
+        const cache = (this._samples ||= new Map());
+        if (!cache.has(name)) {
+            cache.set(name, fetch(`${SAMPLES}/${name}.mp3`)
+                .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${r.status}`))))
+                .then((data) => ac.decodeAudioData(data))
+                .catch((e) => { console.warn("[toys] sound not loaded", name, e); return null; }));
+        }
+        return cache.get(name);
+    }
+
+    /** Play recording `name` once: `vol` 0-1 of its own level, `rate` its
+     *  speed (and pitch). */
+    sample(name, { vol = 1, rate = 1 } = {}) {
+        const ac = this._ac();
+        if (!ac) return;
+        this._sample(ac, name).then((buf) => {
+            if (!buf || !this.enabled) return;
+            const src = ac.createBufferSource();
+            src.buffer = buf;
+            src.playbackRate.value = rate;
+            const g = ac.createGain();
+            g.gain.value = SAMPLE_LEVEL * vol;
+            src.connect(g).connect(this.out);
+            src.start();
+        });
+    }
+
+    /** Recording `name` round and round under `id` (a purr) until called
+     *  again with no name. */
+    sampleLoop(id, name, vol = 1) {
+        const cur = this._loops.get(id);
+        if (!name) {
+            if (cur) this.loop(id, false);
+            return;
+        }
+        if (cur) return;
+        const ac = this._ac();
+        if (!ac) return;
+        // Held as starting, so a stop that comes before it has loaded
+        // still stops it.
+        const gain = ac.createGain();
+        gain.gain.value = 0.0001;
+        gain.connect(this.out);
+        const slot = { src: { stop() {} }, gain, ac, base: SAMPLE_LEVEL * vol };
+        this._loops.set(id, slot);
+        this._sample(ac, name).then((buf) => {
+            if (!buf || this._loops.get(id) !== slot) return;
+            const src = ac.createBufferSource();
+            src.buffer = buf;
+            src.loop = true;
+            src.connect(gain);
+            gain.gain.setTargetAtTime(slot.base, ac.currentTime, 0.25);
+            src.start();
+            slot.src = src;
         });
     }
 

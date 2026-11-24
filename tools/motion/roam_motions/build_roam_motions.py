@@ -1145,6 +1145,276 @@ def toy_sprinkle(b, legs):
     return one
 
 
+# Small pets (drawn by the app: a cat, a dog or a rabbit about 0.3 m tall
+# on the floor, a bird): crouching to stroke one, cradling one against the
+# chest, and a forearm held out for a bird to perch on.
+
+def pet_crouch(b, legs, t=0.0, down=1.0):
+    """Crouched by a pet on the floor in front of them: a deep squat, the
+    trunk leaning in over the knees, the left hand on the left knee, the
+    right hand palm down on the pet's back and stroking along it (to and
+    fro every 1.2 s, lowest mid-way), eyes on the hand. Seamless over
+    2.4 s. `down` is how far into the squat the hips are (1: all the way)."""
+    L = 2.4
+    # The stroke starts at its near end, so the hand lands there at rest.
+    s = wave(t, L / 2, 0.75)
+    v = wave(t, L / 2)
+    sway = wave(t, L)
+    # The hips all the way down (the body goes a little with the reach),
+    # and where they are now.
+    low_q, low_off = rot(pitch=14, roll=0.8 * sway), V(up=-0.49, fwd=-0.01 + 0.01 * s, right=0.006 * sway)
+    hips_q, hips_off = rot(pitch=14 * down, roll=0.8 * sway * down), low_off * down
+    # The left knee, where the leg solver will put it.
+    hip = moved(legs, legs.hip["L"], low_off, low_q)
+    knee, _, _ = tm.solve_two_bone(hip, legs.foot["L"], legs.thigh, legs.shin, V(fwd=1, right=-0.15))
+    thigh = (knee - hip).normalized()
+    # Palm down on the pet's back, out past the knees; the fingers trail
+    # the stroke a little.
+    fingers = V(fwd=1, up=-0.3 - 0.1 * v, right=-0.1)
+    palm = V(right=0.06, up=0.28 - 0.012 * (1 - s * s), fwd=0.42 + 0.07 * s)
+    lag = 0.05 * v
+    # Part-way down, the arms and the look ride on the hips as they are in
+    # the full crouch.
+    turn = hips_q @ low_q.inverted()
+
+    def carried(p):
+        return legs.hips + hips_off + turn @ (p - legs.hips - low_off)
+
+    def carried_arm(side, hand, fdir, thumb, pole):
+        return arm(side, carried(hand), turn @ fdir, turn @ thumb, turn @ pole)
+    return Pose(
+        hips=hips_q, hips_off=hips_off,
+        spine=rot(pitch=20 + 2 * s, yaw=6, roll=-2), chest=rot(pitch=14, yaw=6), upper_chest=rot(pitch=10, yaw=5),
+        neck=rot(), head=rot(roll=3 * wave(t, L, 0.15)),
+        look=carried(palm + V(up=0.02)), look_weight=0.75, look_neck=0.45,
+        arm_L=carried_arm("L", hip.lerp(knee, 0.86) + V(up=0.07, fwd=-0.01), thigh + V(up=-0.35, right=0.15),
+                          V(right=1, fwd=0.2), V(right=-1, up=0.1, fwd=-0.5)),
+        arm_R=carried_arm("R", palm - fingers.normalized() * 0.05 + V(up=0.012), fingers, V(right=-1, fwd=0.1),
+                          V(right=1, up=0.3, fwd=-0.5)),
+        fingers_L={"thumb": 0.2, "thumb_op": 0.3, "index": 0.3, "middle": 0.34, "ring": 0.38, "little": 0.42},
+        fingers_R={"thumb": 0.1, "thumb_op": 0.3, "index": 0.16 + lag, "middle": 0.2 + lag, "ring": 0.24 + lag,
+                   "little": 0.28 + lag, "spread": 0.3},
+    )
+
+
+def pet_crouching(b, legs, s):
+    """Between the standing stance (s = 0) and the crouch (1). The hips
+    come down on their own path and both ends are solved under them, so
+    the feet stay planted all the way (a plain blend of a squat lets them
+    sink mid-way); the hanging hands come down with the hips."""
+    rest, crouch = standing(b), pet_crouch(b, legs, down=s)
+    drop = crouch["hips_off"]
+    up = Pose(rest, hips=crouch["hips"], hips_off=drop,
+              arm_L=dict(rest["arm_L"], hand=rest["arm_L"]["hand"] + drop),
+              arm_R=dict(rest["arm_R"], hand=rest["arm_R"]["hand"] + drop))
+    return blend(up, crouch, s)
+
+
+@toy_clip("pet_stroke_in", 0.9)
+def toy_pet_stroke_in(b, legs):
+    """Down into the crouch by the pet, the right hand reaching out and
+    landing on its back as they settle (≈0.8 s); ends on the first frame
+    of `pet_stroke`."""
+    def one(t):
+        return pet_crouching(b, legs, seg(t, 0.0, 0.9))
+    return one
+
+
+@toy_clip("pet_stroke", 2.4)
+def toy_pet_stroke(b, legs):
+    """Crouched, stroking the pet's back; a small sway and tilt of the head."""
+    def loop(t):
+        return pet_crouch(b, legs, t)
+    return loop
+
+
+@toy_clip("pet_stroke_out", 0.9)
+def toy_pet_stroke_out(b, legs):
+    """The hand off the pet (≈0.15 s) and back up to the standing stance."""
+    def one(t):
+        return pet_crouching(b, legs, 1 - seg(t, 0.0, 0.9))
+    return one
+
+
+@toy_clip("pet_cradle", 3.2)
+def toy_pet_cradle(b, legs):
+    """A small animal cradled against the lower chest: the left forearm
+    across the front under it, palm up, the right hand over the top
+    stroking slowly along it (once a loop); head bowed to it, a gentle
+    sway from side to side."""
+    rest = stand(b)
+
+    def loop(t):
+        L = 3.2
+        s = wave(t, L)
+        sway = V(right=0.012 * s)
+        # The left forearm, elbow to wrist: the animal lies along it.
+        wrist_l = at(b.chest, right=0.03, up=-0.095, fwd=0.235) + sway
+        elbow_l, _, _ = tm.solve_two_bone(b.sh_L, wrist_l, *b.arm_len, V(right=-1, up=-1, fwd=0.2))
+        along = (wrist_l - elbow_l).normalized()
+        mid = elbow_l.lerp(wrist_l, 0.5)
+        # The right palm on its back, to and fro along the forearm.
+        fingers_r = V(right=-1, up=-0.15, fwd=-0.25).normalized()
+        palm_r = mid + along * 0.03 * wave(t, L, 0.25) + V(up=0.11)
+        return mix(rest, Pose(
+            hips=rot(roll=1.5 * s), hips_off=V(right=0.008 * s),
+            spine=rot(pitch=3, yaw=3 * s), chest=rot(pitch=2), neck=rot(pitch=6, roll=2 * s),
+            head=rot(pitch=8, roll=4 * s),
+            look=mid + V(up=0.08), look_weight=0.55,
+            # Palm up and turned in to the animal's side: flat up is past
+            # what the forearm can turn.
+            arm_L=arm("L", wrist_l, along + V(up=0.25), V(fwd=1, up=1), V(right=-1, up=-1, fwd=0.2)),
+            arm_R=arm("R", palm_r - fingers_r * 0.05 + V(up=0.012), fingers_r, V(fwd=-1, up=0.1),
+                      V(right=1, up=-0.5, fwd=0.05)),
+            fingers_L={"thumb": 0.55, "thumb_op": 0.4, "index": 0.3, "middle": 0.34, "ring": 0.38, "little": 0.42},
+            fingers_R=dict(FLAT, index=0.2, middle=0.24, ring=0.28, little=0.32),
+        ), 1.0)
+    return loop
+
+
+def perch_pose(b, t=0.0):
+    """The falconer's arm: the right forearm held out low to their right,
+    about level, pointing forward and a little outward, a loose fist with
+    the back of the hand up for a bird to stand on (out there a bird on it
+    stays clear of the head and shoulders); the left arm at the side, the
+    head turned down to the bird. Seamless over 3.0 s."""
+    L = 3.0
+    bob = V(up=0.005 * wave(t, L / 2), right=0.003 * wave(t, L, 0.2))
+    wrist = at(b.sh_R, right=0.19, up=-0.23, fwd=0.19) + bob
+    fingers = V(right=0.25, fwd=1).normalized()
+    return mix(stand(b), Pose(
+        hips=rot(roll=0.6 * wave(t, L)), spine=rot(yaw=-4, roll=-3), upper_chest=rot(yaw=-3),
+        head=rot(roll=-3 + 3 * wave(t, L, 0.3)),
+        look=wrist + V(up=0.12) + fingers * 0.03, look_weight=0.7, look_neck=0.45,
+        arm_R=arm("R", wrist, fingers, V(right=-1, fwd=0.25), V(right=0.6, up=-1, fwd=-0.6)),
+        # The thumb along the side of the fist, not tucked under it.
+        fingers_R={"thumb": 1.1, "thumb_op": 0.2, "index": 0.78, "middle": 0.84, "ring": 0.88, "little": 0.9},
+    ), 1.0)
+
+
+@toy_clip("pet_perch_in", 0.7)
+def toy_pet_perch_in(b, legs):
+    """The right forearm raised into the perch (up by ≈0.6 s), the head
+    turning to it; ends on the first frame of `pet_perch`."""
+    rest, perch = standing(b), perch_pose(b)
+
+    def one(t):
+        return blend(rest, perch, seg(t, 0.0, 0.7))
+    return one
+
+
+@toy_clip("pet_perch", 3.0)
+def toy_pet_perch(b, legs):
+    """Holding the perch: a tiny bob of the arm, the head tilting."""
+    def loop(t):
+        return perch_pose(b, t)
+    return loop
+
+
+# Riding the animals (a horse, a bull, a camel, an elephant). The app lifts
+# them so the hips rest on the animal's back and keeps them there as it
+# walks, so these only pose the seat: the hips stay where they stand and
+# the legs hang free down its sides.
+
+RIDE_FISTS = {"thumb": 0.5, "thumb_op": 0.4, "index": 0.7, "middle": 0.76, "ring": 0.8, "little": 0.84}
+
+
+def astride(b, legs, t, flex, out, shin, toes):
+    """Sitting astride, without the arms: each thigh `flex` degrees forward
+    and `out` degrees to its side, the lower leg hanging along `shin` (out,
+    up, forward), the feet free and tipped `toes` degrees down from the
+    shins (enough to sit about level). Trunk upright with a touch of lean
+    back, head up; rocking as on a walking animal, twice in 2.4 s (hips
+    against spine), with a slower sway from side to side."""
+    L = 2.4
+    rock, sway = wave(t, L / 2), wave(t, L)
+    hips_q = rot(pitch=-4 + 1.5 * rock, roll=1.0 * sway)
+    pose = Pose(
+        hips=hips_q, hips_off=V(),
+        spine=rot(pitch=1 - 1.2 * rock, roll=-0.8 * sway), chest=rot(pitch=1), upper_chest=rot(), neck=rot(),
+        head=rot(pitch=-2 - 0.4 * rock, roll=-0.3 * sway),
+        feet_free=toes,
+    )
+    a, o = math.radians(flex), math.radians(out)
+    for side, s in (("L", -1), ("R", 1)):
+        hip = moved(legs, legs.hip[side], V(), hips_q)
+        knee = hip + V(right=s * math.sin(o), up=-math.cos(o) * math.cos(a), fwd=math.cos(o) * math.sin(a)) * legs.thigh
+        ankle = knee + V(right=s * shin[0], up=shin[1], fwd=shin[2]).normalized() * legs.shin
+        pose[f"foot_{side}"] = foot_at(legs, side, ankle)
+        pose[f"leg_pole_{side}"] = knee - hip
+    return pose
+
+
+def ride_pose(b, legs, t=0.0):
+    """Astride a horse-sized back (about 0.44 m across): the shins straight
+    down its flanks, both fists low in front of the belly, close together,
+    thumbs up as if on the reins, bobbing a few mm with the walk."""
+    bob = V(up=0.004 * wave(t, 1.2, 0.2))
+    return Pose(
+        astride(b, legs, t, 62, 32, (0.04, -1, -0.04), 4),
+        arm_L=arm("L", at(b.hips, right=-0.055, up=0.11, fwd=0.2) + bob, V(fwd=1, right=0.2, up=-0.1), V(up=1),
+                  V(right=-1, up=-0.4, fwd=-0.6)),
+        arm_R=arm("R", at(b.hips, right=0.055, up=0.11, fwd=0.2) + bob, V(fwd=1, right=-0.2, up=-0.1), V(up=1),
+                  V(right=1, up=-0.4, fwd=-0.6)),
+        fingers_L=dict(RIDE_FISTS), fingers_R=dict(RIDE_FISTS),
+    )
+
+
+@toy_clip("ride", 2.4)
+def toy_ride(b, legs):
+    """Riding at a walk: the seat held, a gentle rocking."""
+    def loop(t):
+        return ride_pose(b, legs, t)
+    return loop
+
+
+def ride_wide_pose(b, legs, t=0.0):
+    """The same seat on a much broader back (an elephant's neck, a bull;
+    about 0.7 m across): the thighs further out and forward, the knees
+    bent less, the lower legs angled out along its sides; the hands a
+    little wider and lower, resting palms down on its neck."""
+    bob = V(up=0.004 * wave(t, 1.2, 0.2))
+    return Pose(
+        astride(b, legs, t, 70, 50, (0.29, -0.94, 0.17), 15),
+        arm_L=arm("L", at(b.hips, right=-0.09, up=0.08, fwd=0.21) + bob, V(fwd=1, right=0.25, up=-0.15), V(right=1),
+                  V(right=-1, up=-0.4, fwd=-0.6)),
+        arm_R=arm("R", at(b.hips, right=0.09, up=0.08, fwd=0.21) + bob, V(fwd=1, right=-0.25, up=-0.15), V(right=-1),
+                  V(right=1, up=-0.4, fwd=-0.6)),
+        fingers_L=dict(RELAXED_FINGERS), fingers_R=dict(RELAXED_FINGERS),
+    )
+
+
+@toy_clip("ride_wide", 2.4)
+def toy_ride_wide(b, legs):
+    """Riding the broad back at a walk: the wide seat held, the same
+    gentle rocking."""
+    def loop(t):
+        return ride_wide_pose(b, legs, t)
+    return loop
+
+
+@toy_clip("ride_in", 0.6)
+def toy_ride_in(b, legs):
+    """From standing into the seat as the app lifts them on; ends on the
+    first frame of `ride`."""
+    rest, seat = standing(b), ride_pose(b, legs)
+
+    def one(t):
+        return blend(rest, seat, seg(t, 0.0, 0.6))
+    return one
+
+
+@toy_clip("ride_wide_in", 0.6)
+def toy_ride_wide_in(b, legs):
+    """From standing into the wide seat; ends on the first frame of
+    `ride_wide`."""
+    rest, seat = standing(b), ride_wide_pose(b, legs)
+
+    def one(t):
+        return blend(rest, seat, seg(t, 0.0, 0.6))
+    return one
+
+
 # ── prop poses ──────────────────────────────────────────────────────────
 # Poses that hold or sit in a prop. Props are built after the poses, from
 # the same landmarks (a kart's wheel where the drive pose's hands are), and

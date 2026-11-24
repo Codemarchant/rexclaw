@@ -137,6 +137,7 @@ export class ToolDispatcher {
             stopGesture: () => avatarRenderer.stopGesture?.(),
             isGestureBusy: () => !!avatarRenderer.isGestureBusy?.(),
             toyBusy: () => avatarRenderer.toyBusy || null,
+            riding: () => avatarRenderer.riding?.note || null,
             setOutfit: (u, i) => avatarRenderer.setOutfit?.(u, i),
             setBackground: (bg) => avatarRenderer.setBackground?.(bg),
             stageMove: (action) => avatarRenderer.stageMove?.(action),
@@ -946,8 +947,11 @@ export class ToolDispatcher {
         if (!this.avatarApi?.stageMove) {
             return { ok: false, error: "Only the main companion of a call can move around." };
         }
+        // Up on a toy-box mount (the renderer's `riding`: what they're on)
+        // they can still go about: it carries them.
+        const riding = this.avatarApi?.riding?.() || null;
         const busy = this.avatarApi?.toyBusy?.();
-        if (busy) return { ok: false, note: `Not moved: you're busy ${busy} right now.` };
+        if (busy && !riding) return { ok: false, note: `Not moved: you're busy ${busy} right now.` };
         this.avatarApi?.noteExpressionTool?.();
         const res = this.avatarApi.stageMove(action) || { ok: false, error: "The avatar is not on screen." };
         if (!res.ok) return res;
@@ -960,7 +964,8 @@ export class ToolDispatcher {
             stay: "You stopped where you are.",
             face_user: "You turned to face the user.",
         };
-        return { ok: true, action, ...(res.seconds ? { takes_seconds: res.seconds } : {}), note: notes[action] };
+        const note = riding ? `${notes[action]} (You're riding ${riding}, so it's the one doing the walking.)` : notes[action];
+        return { ok: true, action, ...(res.seconds ? { takes_seconds: res.seconds } : {}), note };
     }
 
     /** perform_song: perform a learned song on the karaoke stage (models/

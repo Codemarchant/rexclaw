@@ -3,7 +3,8 @@
 // whether it cuts in on what they're doing. Shared by both stages' hosts —
 // the roam director on the desktop, ToyCompanion in the 3D view.
 
-const QUIET = new Set(["bubble", "coin"]);
+// (A mount sees to its rider itself: models/toys/mounts.js.)
+const QUIET = new Set(["bubble", "coin", "mount"]);
 
 /** The reaction to world event `evt`, or null: {toy, why, part, urgent}. */
 export function reactionFor(evt) {
@@ -13,11 +14,22 @@ export function reactionFor(evt) {
         case "incoming": return { toy: t, why: "thrown", urgent: true };
         case "hit": return { toy: t, why: "hit", part: evt.part, urgent: true };
         case "offer": return { toy: t, why: "offer", urgent: true };
+        // A pet held against their chest: into their arms.
+        case "handed": return { toy: t, why: "handed", urgent: true };
+        // What a pet does of its own accord (pets.js): a bird wanting their
+        // arm to sit on, Gerald eating their snack, the dog bringing the
+        // ball back.
+        case "pet_ask": return { toy: t, why: "asked" };
+        case "pet_stole": return { toy: t, why: "stole", part: evt.food };
+        case "pet_fetch": return { toy: t, why: "fetch" };
         case "blowdry": return { toy: t, why: "on", urgent: true };
         // Put down or thrown somewhere: they go for it once it's still.
         case "drop":
         case "throw":
         case "toss":
+            // A pet is greeted once, when it first comes out of the box:
+            // picked up and put down again after that, it's left be.
+            if (t.def.kind === "pet") { if (!t._met) t._met = t._fresh = true; return null; }
             if (!t.def.gadget && !QUIET.has(t.def.kind)) t._fresh = true;
             return null;
         case "rest":

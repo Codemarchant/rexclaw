@@ -1021,6 +1021,12 @@ class AvatarRenderer {
         this._xrSessionListeners = new Set(); // VR add-ons notified on session start/end (vr_manager)
         this._preVRMUpdateCallbacks = new Set(); // run after animation poses bones, before vrm.update (ragdoll write-back)
         this._frameCallbacks = new Set();   // flat-mode, once everything is posed, before the draw (the toys)
+        // Up on a toy-box mount (models/toys/mounts.js): { note, rate, frame,
+        // ahead } while the base companion rides, else null. Their walks
+        // then play no walk clip (they stay sat) and go at `rate` × their
+        // own pace; a staged walk keeps `frame` × the usual distance from
+        // the camera, and `ahead` metres more when it comes close.
+        this.riding = null;
         this._xrHandColliderGroup = null; // runtime spring-bone collider group for the VR hands (see attachSpringBoneColliders)
         // Look prefs (lib/render_prefs.js): lighting rig + cursor touch physics.
         this._lights = null;              // { ambient, key, rim, fill, hemi } built in _buildLightRig
@@ -3928,6 +3934,8 @@ class AvatarRenderer {
         if (actor._moving) return;
         actor._moving = true;
         actor._returnFacingY = null;
+        // Riding: the animal does the walking; they keep their seat.
+        if (actor === this && this.riding) return;
         // Movement owns the body: ease out any in-flight gesture first
         // (for the base this also retires a running combo).
         if (actor === this) this.stopGesture({ toy: true });
@@ -3945,14 +3953,16 @@ class AvatarRenderer {
      *  isRunning, which would wedge the procedural-idle guard). */
     _stopWalkAnim(actor) {
         actor._moving = false;
-        const action = actor._walkAction;
+        // (Riding, no walk clip was playing and the riding pose stays.)
+        const riding = actor === this && this.riding;
+        const action = riding ? null : actor._walkAction;
         if (action) {
             action.fadeOut(WALK_FADE_OUT);
             setTimeout(() => {
                 if (!actor._moving) { try { action.stop(); } catch (e) { /* */ } }
             }, WALK_FADE_OUT * 1000);
         }
-        this._fadeIdleIn(actor, WALK_FADE_OUT);
+        if (!riding) this._fadeIdleIn(actor, WALK_FADE_OUT);
         // A companion that walked somewhere on its own (walkTo: the VR
         // pointer, the move_around tool) turns to face you when it stops —
         // not frozen mid-stride aimed at a wall. Eased per-frame in
@@ -4086,11 +4096,13 @@ class AvatarRenderer {
         // and slow into the stop (Reynolds arrival). The walk clip's rate
         // follows the ground speed so the feet keep pace with the floor.
         // Hand-steered walking stays at the flat MOVE_SPEED.
-        let speed = MOVE_SPEED;
+        // On a mount, both go at the animal's pace.
+        const mount = actor === this && this.riding ? this.riding.rate || 1 : 1;
+        let speed = MOVE_SPEED * mount;
         const leg = actor === this && this._moveTarget ? this._staging?.walk : null;
         if (leg) {
             // A toy's run (toyWalkTo `rate`) scales the stroll.
-            const rate = leg.rate || 1;
+            const rate = (leg.rate || 1) * mount;
             const cap = Math.max(STAGE_MIN_SPEED,
                 STAGE_SPEED * rate * Math.min(1, targetDist / STAGE_SLOW_RADIUS));
             leg.speed = Math.min(cap, (leg.speed || 0) + STAGE_ACCEL * rate * delta);
@@ -4269,7 +4281,9 @@ class AvatarRenderer {
         return {
             ...this._cameraGround(),
             fov: this.camera?.fov || FULL_FOV,
-            normal: Math.hypot(preset.position[0] - preset.target[0], preset.position[2] - preset.target[2]),
+            // (Up on a mount they're a taller subject: their usual spot is
+            // that much further back, mounts.js `frame`.)
+            normal: Math.hypot(preset.position[0] - preset.target[0], preset.position[2] - preset.target[2]) * (this.riding?.frame || 1),
         };
     }
 
@@ -4280,7 +4294,8 @@ class AvatarRenderer {
     /** See STAGE_CLOSE_DISTANCE: 0.5 m as the full-body lens shows it. */
     _stageCloseDistance() {
         const half = (deg) => Math.tan((deg * Math.PI) / 360);
-        return STAGE_CLOSE_DISTANCE * half(FULL_FOV) / half(this._stageView().fov);
+        // (A mount's head is `ahead` of its rider: that stays out of the lens.)
+        return STAGE_CLOSE_DISTANCE * half(FULL_FOV) / half(this._stageView().fov) + (this.riding?.ahead || 0);
     }
 
     /** Half the visible width at `depth` in front of the camera, less the
@@ -4451,7 +4466,10 @@ class AvatarRenderer {
         st.close = false;
         st.pauseUntil = 0;
         this._moveActorId = "base";
-        st.walk = { startedAt: performance.now(), speed: 0, rate };
+        // (Re-aimed mid-walk, they keep the pace they're at: starting again
+        // from a standstill each time would never let them get going.)
+        const pace = this._moving && st.walk ? st.walk.speed || 0 : 0;
+        st.walk = { startedAt: performance.now(), speed: pace, rate };
         this.walkTo(x, z);
         return true;
     }

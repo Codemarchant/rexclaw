@@ -1303,6 +1303,8 @@ class VoiceCallService {
                 // What a toy routine has them busy with (base avatar only:
                 // the toys play with the main companion).
                 toyBusy: () => renderer()?.toyBusy || null,
+                // The toy-box mount they're up on, if any (mounts.js).
+                riding: () => renderer()?.riding?.note || null,
                 setOutfit: (u, i) => renderer()?.setOutfit?.(u, i),
                 resetExpression: () => renderer()?.resetExpression?.(),
                 setBackground: (bg) => renderer()?.setBackground?.(bg),

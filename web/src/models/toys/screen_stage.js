@@ -133,6 +133,14 @@ export class ScreenStage extends ToyWorld {
     holdPoint(t) {
         const d = this.d;
         const one = t.grip === "right" || t.grip === "left" ? t.grip : null;
+        if (t.grip === "cradle") {
+            // A pet in their arms: along the left forearm (as the room's).
+            const arm = d._bonesPx(["leftLowerArm", "leftHand"]) || d._bonesPx(["leftHand"]);
+            if (!arm) return null;
+            const at = this.fromPx(d.box.left + arm.x, d.box.top + arm.y);
+            at.y += t.pet?.move === "walk" ? t.radius * 0.2 : t.pet?.move === "fly" ? 0.03 + t.radius : t.radius * 0.8;
+            return at;
+        }
         const p = d._bonesPx(one ? [`${one}MiddleProximal`] : ["leftMiddleProximal", "rightMiddleProximal"])
             || d._bonesPx(one ? [`${one}Hand`] : ["leftHand", "rightHand"]);
         if (!p) return null;
@@ -253,7 +261,60 @@ export class ScreenStage extends ToyWorld {
         if (evt.type === "add" || evt.type === "remove") this.box?.changed?.();
         if ((evt.type === "switch" || evt.type === "shade") && evt.toy.def.kind === "lamp") this._redraw(evt.toy);
         const r = reactionFor(evt);
-        if (r) this.d.toyReact?.(r);
+        if (!r) return;
+        // What a pet did of its own accord never cuts in on what they're
+        // in the middle of.
+        if (evt.type.startsWith("pet_") && this.d._toyNow) return;
+        this.d.toyReact?.(r);
+    }
+
+    // ── pets (world.js's hooks for their minds, pets.js) ─────────────────
+
+    /** The window top a pet stands on, or the floor; null once that's gone
+     *  from under it. */
+    petFloor(t) {
+        if (t.surf) {
+            const l = this._ledges.find((x) => x.id === t.surf.id);
+            return l && t.p.x >= l.x0 - 0.05 && t.p.x <= l.x1 + 0.05 ? l.y : null;
+        }
+        return t.p.y - t.radius > 0.06 && t.pet?.move === "walk" ? null : 0;
+    }
+
+    /** On the screen, and on the window top it's standing on. */
+    petClamp(t) {
+        const r = t.radius, right = this.W / this.k;
+        let x0 = r, x1 = right - r;
+        const l = t.surf && t.pet?.move === "walk" ? this._ledges.find((x) => x.id === t.surf.id) : null;
+        if (l) { x0 = Math.max(x0, l.x0 + r * 0.6); x1 = Math.min(x1, l.x1 - r * 0.6); }
+        t.p.x = Math.max(x0, Math.min(Math.max(x0, x1), t.p.x));
+        t.p.y = Math.max(r, Math.min(this.H / this.k - r, t.p.y));
+        t.p.z = 0;
+    }
+
+    petRoam(t, near, r) {
+        const at = near || { x: this.W / this.k / 2 };
+        const probe = { p: { x: at.x + rand(-r, r) * 1.6, y: t.p.y, z: 0 }, radius: t.radius, surf: t.surf, pet: t.pet };
+        this.petClamp(probe);
+        return { x: probe.p.x, y: t.pet?.move === "walk" ? t.p.y : t.radius, z: 0 };
+    }
+
+    perchPoint(spot, side) {
+        if (!this.body() || spot !== "hand") return null;
+        return add(this.bodyApi._bone([`${side}Hand`], 0.5), v3(0, 0.025, 0));
+    }
+
+    inUse(toy) { return this.d._toyNow?.toy === toy; }
+
+    dark() { return this.toys.some((t) => t.on && t.def.lamp?.night); }
+
+    holdYaw() { return (this.bodyApi.facingSign() * Math.PI) / 2; }
+
+    petFx(t, name, arg) {
+        const q = this.toPx({ x: t.p.x, y: t.p.y + t.radius * 1.5, z: 0 });
+        const fx = this.d.fx;
+        if (name === "hearts") fx.hearts(q.x, q.y - 8);
+        else if (name === "word") fx.comic(arg, q.x, q.y - 16, { size: 22, ms: 900 });
+        else if (name === "crumbs") fx.crumbs(q.x, q.y + 10, arg, 6);
     }
 
     /** Run reaction `r` (from the director's action). */
@@ -286,6 +347,8 @@ export class ScreenStage extends ToyWorld {
 
     /** A tray tile pressed: the toy appears under the pointer, held. */
     spawnDrag(def, ev) {
+        // (A mount needs a room to ride through.)
+        if (def.kind === "mount") return null;
         const t = this.add(def, this.fromPx(ev.clientX, ev.clientY));
         this._startDrag(t, ev, { fromTray: true });
         return t;
@@ -293,9 +356,20 @@ export class ScreenStage extends ToyWorld {
 
     /** A tray tile clicked: lobbed in from the bottom of the screen to them. */
     toss(def) {
+        if (def.kind === "mount") return null;
         const b = this.body();
         const from = this.fromPx(this.W / 2, this.H - 30);
         const t = this.add(def, from);
+        if (def.kind === "pet") {
+            // Set down a step or two from them (a bird or Gerald, let go of
+            // in the air).
+            const right = this.W / this.k, at = b ? b.pos.x : right / 2;
+            const x = Math.max(0.3, Math.min(right - 0.3, at + (Math.random() < 0.5 ? 1 : -1) * rand(0.7, 1.3)));
+            t.p = { x, y: (b ? b.pos.y : 0) + (def.pet.move === "walk" ? def.radius + 0.25 : 1.0), z: 0 };
+            t.v = v3();
+            this.emit("drop", t);
+            return t;
+        }
         if (def.kind === "lamp") {
             // Set down (or hung up) on the floor a little way from them,
             // where no other lamp is, off.
@@ -725,12 +799,33 @@ export class ScreenStage extends ToyWorld {
             }
             if (t.upright) deg = -90;
             else if (style === "peel") deg = 55;
+            // A pet: upright, facing the way it's going, in the picture of
+            // what it's doing; a little bob as it steps.
+            let face = 1, hop = 0;
+            if (t.pet) {
+                deg = 0;
+                t.angle = 0;
+                face = Math.sin(t.pet.yaw) < 0 ? -1 : 1;
+                const a = t.anim;
+                v.step = (v.step || 0) + dt * (a.pose === "fly" ? 9 : 2.5 + 6 * Math.min(1, a.speed));
+                const beat = Math.floor(v.step) % 2 ? "2" : "1";
+                const pose = t.heldBy ? "held" : a.asleep ? "sleep" : a.pose === "fly" ? `fly${beat}`
+                    : a.speed > 0.02 ? `walk${beat}` : a.pose === "sit" || a.pose === "lie" ? "sit" : "stand";
+                if (pose !== v.pose) {
+                    let shown = false;
+                    for (const img of v.e.children) { img.hidden = img.dataset.pose !== pose; shown ||= !img.hidden; }
+                    if (!shown && v.e.firstElementChild) v.e.firstElementChild.hidden = false;
+                    v.pose = pose;
+                }
+                if (a.speed > 0.02 && a.pose !== "fly" && !t.heldBy) hop = Math.abs(Math.sin(v.step * Math.PI)) * 0.012 * k;
+                c.y -= hop;
+            }
             // A cup, bowl or bottle tipped back to their mouth.
             if (style && def.vessel) {
                 v.tip = (v.tip || 0) + ((t.tip || 0) - (v.tip || 0)) * Math.min(1, dt * 10);
                 deg -= (v.tip * 180 / Math.PI) * this.bodyApi.facingSign();
             }
-            const flip = def.jet && t.aim.x < 0 ? -1 : 1;
+            const flip = (def.jet && t.aim.x < 0 ? -1 : 1) * face;
             const sq = 0.2 * v.sq;
             v.e.style.transform = `translate(${(c.x - w / 2).toFixed(1)}px, ${(c.y - h / 2).toFixed(1)}px) rotate(${deg.toFixed(1)}deg) scale(${(flip * (1 + sq)).toFixed(3)}, ${(1 - sq).toFixed(3)})`;
             v.e.style.transformOrigin = sq ? "50% 100%" : "50% 50%";

@@ -10,6 +10,9 @@ export const TOY_CATEGORIES = [
     { id: "play", label: "Toys", icon: "fa-futbol-o" },
     { id: "gadgets", label: "Gadgets", icon: "fa-magic" },
     { id: "lights", label: "Lights", icon: "fa-lightbulb-o" },
+    { id: "pets", label: "Pets", icon: "fa-paw" },
+    // (Only where there's a room to ride through: not on the desktop.)
+    { id: "mounts", label: "Mounts", icon: "fa-flag-checkered", room: true },
     { id: "crew", label: "Crew", icon: "fa-anchor" },
 ];
 
@@ -144,6 +147,16 @@ export const TOYS = {
         cat: "play", name: "Bubble wand", kind: "wand", note: "a bubble wand",
         radius: 0.08, mass: 0.04, restitution: 0.3,
         art: { w: 0.18, h: 0.18 },
+    },
+    tennis: {
+        // Thrown for a dog to bring back, when one is out (pets.js
+        // `fetches`); without one, tossed back to whoever threw it.
+        cat: "play", name: "Tennis ball", kind: "fetch", note: "a tennis ball", shell: true, spins: true,
+        // The ITF's ball: 6.54-6.86 cm across, 56.0-59.4 g; dropped from
+        // 254 cm onto concrete it comes back up 135-147 cm (ITF Rules of
+        // Tennis, Appendix I).
+        radius: 0.0335, mass: 0.0577, restitution: fromDrop(2.54, 1.41),
+        art: { w: 0.07, h: 0.07 },
     },
 
     // ── gadgets: switched on with a click; they blow, smoke and sparkle ──
@@ -346,6 +359,133 @@ export const TOYS = {
             { name: "Ghost", color: "#efe9dc", light: "#8fc7ff", face: "wail", flame: ["#eef8ff", "#7cc4ff", "#2a5bd7"] },
             { name: "Witch", color: "#2c2038", light: "#7dff6a", face: "fangs", flame: ["#f2ffe0", "#7dff4a", "#149a3c"] },
             { name: "Hex", color: "#3f7d3a", light: "#d08cff", face: "wink", flame: ["#f8eeff", "#c67dff", "#6d28d9"] }],
+    },
+
+    // ── pets: set down to live in the room. They wander, nap and come over
+    // on their own (models/toys/pets.js), answer a click with their voice,
+    // and can be picked up and put in the companion's arms. To the physics
+    // each is a sphere round its middle; the animal is a rigged model
+    // (assets/toys/pets, built by tools/pets/build_pets.py, each one's size
+    // and its source there). `pet`: how it gets about (`move`: "walk",
+    // "fly" or "swim"; `walk` and `run` in m/s, by eye for legs this
+    // short), its voice (recordings in assets/audio/pets, or a synthesised
+    // `sfx`), the word a click shows, how its rig carries itself (`style`,
+    // pet_rig.js), and its habits: `asks` comes to sit by their feet,
+    // `eats` the treats it goes for when they're left lying ("all": any),
+    // `pounces` on bubbles, `bats` small things about, `fetches` the
+    // tennis ball.
+    evie: {
+        cat: "pets", name: "Evie", kind: "pet", note: "Evie, Eve's scrappy grey cat", placed: true,
+        // About 4 kg, a small domestic cat.
+        radius: 0.12, mass: 4, restitution: 0.02,
+        art: { w: 0.62, h: 0.62, cy: 0.1 }, grab: [[0.14, 0.11]],
+        pet: {
+            species: "cat", move: "walk", walk: 0.34, run: 1.2, voice: ["meow-1", "meow-2", "meow-3"], purr: "purr", word: "meow!",
+            style: { curl: true, stride: 1.05 }, asks: true, pounces: true, bats: true,
+        },
+    },
+    scupper: {
+        cat: "pets", name: "Scupper", kind: "pet", note: "Scupper, the Rexmaw's ship's dog, a corgi puppy in a red collar", placed: true,
+        // A corgi puppy of a few months, about 5 kg (by eye).
+        radius: 0.13, mass: 5, restitution: 0.02,
+        art: { w: 0.7, h: 0.7, cy: 0.12 }, grab: [[0.15, 0.12]],
+        pet: {
+            species: "dog", move: "walk", walk: 0.42, run: 1.7, voice: ["bark-1", "bark-2"], word: "woof!",
+            style: { tail: "wag", stride: 1.1 }, asks: true, fetches: true, eats: ["hardtack"],
+        },
+    },
+    basil: {
+        cat: "pets", name: "Basil", kind: "pet", note: "Basil, the lop-eared rabbit who lives in the herb boxes behind Ara's café", placed: true,
+        // A Holland Lop: about 1.8 kg.
+        radius: 0.1, mass: 1.8, restitution: 0.02,
+        art: { w: 0.42, h: 0.42, cy: 0.05 }, grab: [[0.1, 0.09]],
+        pet: {
+            species: "rabbit", move: "walk", walk: 0.3, run: 1.1, voice: ["rabbit"], word: "thump!",
+            // (`hop`, `hopUp`: a hop's length and height, m; by eye.)
+            style: { ears: "lop", hop: 0.24, hopUp: 0.06 }, eats: ["strawberry", "apple", "banana", "grape"],
+        },
+    },
+    pip: {
+        cat: "pets", name: "Pip", kind: "pet", note: "Pip, a little green poison-dart frog from the marsh by Sal's stilt-hut", placed: true,
+        // (Drawn large: a real one weighs a few grams.)
+        radius: 0.04, mass: 0.03, restitution: 0.05,
+        art: { w: 0.32, h: 0.32, cy: 0.07 },
+        pet: {
+            // A frog's leap, small: 30 cm along and 13 cm up (by eye).
+            species: "frog", move: "walk", walk: 0.34, run: 0.7, voice: ["ribbit-1", "ribbit-2"], word: "ribbit!",
+            style: { hop: 0.3, hopUp: 0.13, flat: true }, pounces: true,
+        },
+    },
+    biscuit: {
+        cat: "pets", name: "Biscuit", kind: "pet", note: "Biscuit, the ship's parrot, a small scarlet macaw", placed: true,
+        radius: 0.1, mass: 0.15, restitution: 0.02,
+        art: { w: 0.58, h: 0.58, cy: 0.05 }, grab: [[0.1, 0.07]],
+        pet: {
+            species: "parrot", move: "fly", walk: 0.16, run: 0.16, voice: ["squawk-1", "squawk-2"], word: "SQUAWK!",
+            style: {}, eats: ["hardtack", "grape", "strawberry"],
+        },
+    },
+    encore: {
+        cat: "pets", name: "Encore", kind: "pet", note: "Encore, the little owl who roosts in the fly loft of the opera house where Leo calls the show", placed: true,
+        // A little owl: about 180 g.
+        radius: 0.1, mass: 0.18, restitution: 0.02,
+        art: { w: 0.58, h: 0.58, cy: 0.05 }, grab: [[0.1, 0.07]],
+        pet: {
+            species: "owl", move: "fly", walk: 0.12, run: 0.12, voice: ["hoot"], word: "hoo, hoo!",
+            style: { tilt: 1.6, headTurn: 2.6, flapHz: 5 }, nocturnal: true,
+        },
+    },
+    megalodon: {
+        cat: "pets", name: "Gerald", kind: "pet", note: "Gerald, the megalodon of chapter nine, pocket-sized and swimming through the air", placed: true, hovers: true,
+        radius: 0.11, mass: 1.2, restitution: 0.02,
+        art: { w: 0.64, h: 0.64, cy: 0.02 },
+        pet: { species: "shark", move: "swim", walk: 0.45, run: 1.0, sfx: "snap", word: "CHOMP!", style: {}, eats: "all", model: "gerald", floats: true },
+    },
+    barnacle: {
+        cat: "pets", name: "Barnacle", kind: "pet", note: "Barnacle, a small red shore crab who came aboard on the Rexmaw's anchor chain", placed: true,
+        // (Drawn at about twice a shore crab's size.)
+        radius: 0.05, mass: 0.1, restitution: 0.03,
+        art: { w: 0.4, h: 0.4, cy: 0.02 },
+        pet: {
+            // It goes sideways (its model looks out of its own side), settles
+            // flat to rest, and its claws do the talking.
+            species: "crab", move: "walk", walk: 0.32, run: 0.9, sfx: "clack", word: "clack!",
+            style: { ears: "claw", flat: true, lookK: 0.25, stride: 1.1, duty: 0.55, lift: 0.3, trot: 0.2 },
+        },
+    },
+
+    // ── mounts: an animal to ride (models/toys/mounts.js; the room view
+    // only). Picked, it comes over and the companion is up on its back;
+    // wherever they walk after that, it carries them, until it's put away
+    // (a click is answered with its voice). Models as the pets'
+    // (tools/pets/build_pets.py,
+    // each drawn small for its kind so a rider stays in the shot).
+    // `mount`: its voice, its walking pace ridden (`speed`, m/s: about a
+    // real animal's walk scaled to its size here, by eye) as `rate` times
+    // the companion's own stroll, and how its rig carries itself.
+    horse: {
+        cat: "mounts", name: "Horse", kind: "mount", note: "a chestnut pony with a saddle", placed: true,
+        radius: 0.45, mass: 300, restitution: 0.02,
+        art: { w: 2.1, h: 2.1, cy: 0.5 }, grab: [[0.5, 0.45], [1.0, 0.3]],
+        mount: { voice: "neigh", speed: 1.5, rate: 1.2, style: { tail: "swish", stride: 0.95, trot: 9, lift: 0.22 } },
+    },
+    bull: {
+        cat: "mounts", name: "Bull", kind: "mount", note: "a dark bull with a woven blanket on his back", placed: true,
+        radius: 0.45, mass: 450, restitution: 0.02,
+        art: { w: 2.4, h: 2.4, cy: 0.35 }, grab: [[0.5, 0.5], [0.8, 0.35]],
+        mount: { voice: "moo", speed: 1.15, rate: 0.92, style: { tail: "swish", stride: 0.9, trot: 9, lift: 0.2 } },
+    },
+    camel: {
+        cat: "mounts", name: "Camel", kind: "mount", note: "a camel with a striped saddle cloth over its hump", placed: true,
+        radius: 0.45, mass: 400, restitution: 0.02,
+        art: { w: 2.4, h: 2.4, cy: 0.68 }, grab: [[0.8, 0.45], [1.4, 0.3]],
+        mount: { voice: "camel", speed: 1.35, rate: 1.08, style: { tail: "swish", stride: 0.95, trot: 9, lift: 0.2 } },
+    },
+    elephant: {
+        cat: "mounts", name: "Elephant", kind: "mount", note: "a young elephant in a howdah cloth", placed: true,
+        radius: 0.5, mass: 1500, restitution: 0.02,
+        art: { w: 3.0, h: 3.0, cy: 0.55 }, grab: [[0.7, 0.6], [1.0, 0.45]],
+        mount: { voice: "trumpet", speed: 1.1, rate: 0.88, style: { tail: "swish", ears: "flap", stride: 0.85, trot: 9, lift: 0.14, duty: 0.7 } },
     },
 
     // ── the crew's ──────────────────────────────────────────────────────

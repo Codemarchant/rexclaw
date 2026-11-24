@@ -13,6 +13,8 @@
 import { ToyWorld, headY } from "./world";
 import { TOYS, HOOP, GOAL, POSTS, lampLight, puffHz } from "./catalog";
 import { buildToyModel, buildHoopModel, buildGoalModel, buildPostsModel, buildTeeModel, bubbleMaterial } from "./models3d";
+import { attachPet } from "./pets3d";
+import { MountMind } from "./mounts";
 import { add, bounce, dot, flatDist, len, norm, scale, sub, v3 } from "./physics";
 import { playWith, idleAppeal } from "./brains";
 import { reactionFor } from "./react";
@@ -191,6 +193,7 @@ export class SceneStage extends ToyWorld {
      *  hold the body for the whole session, or a photoshoot posing it.
      *  Routines stop (and none start till it's over, ToyCompanion.request). */
     _halt() {
+        this.riding?.dismount({ quiet: true, now: true });
         for (const c of this.runners()) c.stop();
         const w = this._waiters;
         this._waiters = [];
@@ -283,6 +286,14 @@ export class SceneStage extends ToyWorld {
 
     holdPoint(t) {
         const b = t.holder || this.bodyApi;
+        if (t.grip === "cradle") {
+            // A pet in their arms: along the left forearm (the cradle
+            // clip's), its belly on it; a bird stood on it.
+            const arm = b._mid(["leftLowerArm"], ["leftHand"]);
+            if (!arm) return null;
+            const up = t.pet?.move === "walk" ? t.radius * 0.2 : t.pet?.move === "fly" ? 0.03 + t.radius : t.radius * 0.8;
+            return { x: arm.x, y: arm.y + up, z: arm.z };
+        }
         const q = t.grip === "right" ? b._bone(["rightMiddleProximal", "rightHand"])
             : t.grip === "left" ? b._bone(["leftMiddleProximal", "leftHand"])
                 : b._mid(["leftMiddleProximal", "leftHand"], ["rightMiddleProximal", "rightHand"]);
@@ -435,12 +446,13 @@ export class SceneStage extends ToyWorld {
 
     /** Across the view: the angle between the toy and a mouth from the
      *  camera, as metres at the mouth's distance; the nearest mouth's, in a
-     *  group call (whose, kept for the offer: _offerTo). */
-    offerGap(t) {
+     *  group call (whose, kept for the offer: _offerTo). A pet is held to
+     *  their chest instead (`up` under a mouth's 0.9, world.js). */
+    offerGap(t, body, up = 0.9) {
         const cam = this.r.camera.position;
         let best = Infinity;
         for (const c of this.runners()) {
-            const a = sub(c.body.mouth(), cam), b = sub(t.p, cam);
+            const a = sub(up < 0.8 ? c.body.chest() : c.body.mouth(), cam), b = sub(t.p, cam);
             const la = len(a), lb = len(b);
             if (la < 1e-6 || lb < 1e-6) continue;
             const gap = Math.acos(Math.max(-1, Math.min(1, dot(a, b) / (la * lb)))) * la;
@@ -476,8 +488,12 @@ export class SceneStage extends ToyWorld {
         if (evt.type === "taken") for (const c of this.runners()) c.cancelFor(evt.toy);
         const r = reactionFor(evt);
         if (!r) return;
-        // Held out to someone's mouth: theirs; the rest is the main one's.
-        if (r.why === "offer" && this._offerTo) this._offerTo.request(r);
+        // What a pet did of its own accord never cuts in on what they're
+        // in the middle of.
+        if (evt.type.startsWith("pet_") && (this.companion.cur || this.companion.next)) return;
+        // Held out to someone's mouth (a pet, to their arms): theirs; the
+        // rest is the main one's.
+        if ((r.why === "offer" || r.why === "handed") && this._offerTo) this._offerTo.request(r);
         else this.companion.request(r);
     }
 
@@ -508,6 +524,28 @@ export class SceneStage extends ToyWorld {
             t.p = { x: p.x, y: this.ground + (def.hang ?? def.radius), z: p.z };
             t.v = v3();
             t.hovering = !!def.hovers;
+            return t;
+        }
+        if (def.kind === "mount") {
+            // Beside them, facing as they do: it steps under them from
+            // there (mounts.js).
+            const right = this._camRight();
+            const side = Math.random() < 0.5 ? 1 : -1;
+            const spot = add(b ? b.pos : this.home, scale(right, side * 1.2));
+            t.p = { x: spot.x, y: this.ground + def.radius, z: spot.z };
+            t.v = v3();
+            return t;
+        }
+        if (def.kind === "pet") {
+            // Set down a step or two from them, either side, a little
+            // toward the camera (a bird or Gerald, let go of in the air).
+            const right = this._camRight(), f = this._camFwd();
+            const side = Math.random() < 0.5 ? 1 : -1;
+            const spot = add(add(b ? b.pos : this.home, scale(right, side * rand(0.7, 1.3))), scale(f, rand(-0.5, 0.2)));
+            t.p = { x: spot.x, y: this.ground + (def.pet.move === "walk" ? def.radius + 0.25 : 1.0), z: spot.z };
+            t.v = v3();
+            this.petClamp(t);
+            this.emit("drop", t);
             return t;
         }
         if (def.gadget || def.tool || def.placed || !b) {
@@ -621,12 +659,16 @@ export class SceneStage extends ToyWorld {
             }
             ev.stopPropagation();
             ev.preventDefault();
+            // A mount with someone on it isn't picked up from under them:
+            // the press is just a click on it.
+            if (t.pet?.riding) { this.toggle(t); return; }
             this._startDrag(t, ev, false);
         };
         // Over a toy, the hand shows it can be picked up (nothing moves).
         const move = (ev) => {
             if (this.dragging) return;
-            host.style.cursor = this.toyAt(ev.clientX, ev.clientY) ? "grab" : this.bubbleAt(ev.clientX, ev.clientY) ? "pointer" : "";
+            const over = this.toyAt(ev.clientX, ev.clientY);
+            host.style.cursor = over ? (over.pet?.riding ? "pointer" : "grab") : this.bubbleAt(ev.clientX, ev.clientY) ? "pointer" : "";
         };
         const leave = () => { host.style.cursor = ""; };
         const wheel = (ev) => {
@@ -733,6 +775,9 @@ export class SceneStage extends ToyWorld {
     _frame(dt) {
         if (this.disposed) return;
         if (this.toys.length || this.fog.length || this.hoop || this.goal) this.step(dt);
+        // Whoever's riding: sat on the saddle where the animal has it now
+        // (and anyone just down, lowered to the floor).
+        for (const t of this.toys) if (t.def.kind === "mount") t.pet?.seat(dt);
         // The room's own light down while a lamp or the mirror ball is on,
         // as far as the darkest lamp on takes it (every frame: the last lamp
         // put away stops the steps above) — unless one of the room's own
@@ -780,6 +825,22 @@ export class SceneStage extends ToyWorld {
         if (t.def.kind !== "bubble") {
             group.scale.setScalar(0.01);
             t.view.pop = 0;
+        }
+        if (t.def.kind === "pet" || t.def.kind === "mount") {
+            // A mount's mind is the room's (mounts.js); a pet's came with
+            // it (world.js).
+            if (t.def.kind === "mount") new MountMind(this, t);
+            // The animal itself, when its model has loaded: it pops in then.
+            const view = t.view;
+            attachPet(THREE, this.r._gltfLoader(), t.def, group, t.radius).then((rig) => {
+                if (t.view !== view) { this._drop(group); return; }
+                // No model (its file missing or broken, pets3d.js says
+                // why): back in the box, rather than an animal nobody can
+                // see being stroked.
+                if (!rig) { this.remove(t); return; }
+                view.rig = rig;
+                view.pop = 0;
+            });
         }
         if (t.def.kind === "lamp") {
             // Its front to the camera; its light (off for now).
@@ -842,6 +903,12 @@ export class SceneStage extends ToyWorld {
     }
 
     viewRemove(t) {
+        // A mount put away from under them: they're set down first (and
+        // any other animal standing by may have them now).
+        if (t.pet?.riding) {
+            t.pet.dismount({ quiet: true, now: true });
+            for (const o of this.toys) if (o !== t && o.def.kind === "mount") o.pet.want = true;
+        }
         const v = t.view;
         t.view = null;
         if (!v) return;
@@ -851,7 +918,12 @@ export class SceneStage extends ToyWorld {
             v.light.dispose();
         }
         v.group.removeFromParent();
-        v.group.traverse((o) => {
+        this._drop(v.group);
+    }
+
+    /** A toy's model done with: its geometry and materials freed. */
+    _drop(group) {
+        group.traverse((o) => {
             if (!o.isMesh && !o.isPoints && !o.isSprite) return;
             // (Sprites all share one geometry.)
             if (!o.isSprite) o.geometry?.dispose();
@@ -972,6 +1044,7 @@ export class SceneStage extends ToyWorld {
             const v = t.view;
             if (!v) continue;
             const g = v.group;
+            if (t.pet) { this._petFrame(t, v, dt); continue; }
             g.position.set(t.p.x, t.p.y, t.p.z);
             // Spin from the angular velocity; a thing that doesn't roll
             // rights itself once it's still.
@@ -1061,6 +1134,119 @@ export class SceneStage extends ToyWorld {
         this._drawFog(dt);
         this._drawDisco(dt);
         this._drawNight(dt);
+    }
+
+    /** A pet: where its mind has it, facing the way it's going, its bones
+     *  moved by its rig from how it's carrying itself (pets.js toy.anim). */
+    _petFrame(t, v, dt) {
+        const g = v.group;
+        g.position.set(t.p.x, t.p.y, t.p.z);
+        g.quaternion.copy(v.q.setFromAxisAngle(Y_UP(this.THREE), t.pet.yaw));
+        let s = 1;
+        if (v.pop !== undefined) {
+            v.pop = Math.min(1, v.pop + dt / 0.18);
+            s = v.rig ? 1 + 2.2 * (v.pop - 1) ** 3 + 1.2 * (v.pop - 1) ** 2 : 0.01;
+            if (v.pop >= 1 && v.rig) v.pop = undefined;
+        }
+        g.scale.setScalar(Math.max(0.01, s));
+        const rig = v.rig;
+        if (!rig) return;
+        Object.assign(rig.in, t.anim);
+        for (const c of t.cues.splice(0)) rig.fire(c.name, c.dur);
+        rig.update(dt);
+    }
+
+    // ── pets (world.js's hooks for their minds, pets.js) ─────────────────
+
+    petFloor() { return this.ground; }
+
+    /** Inside the play area, in front of the camera, off the floor. */
+    petClamp(t) {
+        const r = t.radius;
+        const dx = t.p.x - this.home.x, dz = t.p.z - this.home.z, d = Math.hypot(dx, dz), R = this.areaR - r;
+        if (d > R) { t.p.x = this.home.x + (dx / d) * R; t.p.z = this.home.z + (dz / d) * R; }
+        const cam = this.r.camera.position, f = this._camFwd();
+        const ahead = (t.p.x - cam.x) * f.x + (t.p.z - cam.z) * f.z;
+        const clear = this._cameraClear() + r;
+        if (ahead < clear) { t.p.x += f.x * (clear - ahead); t.p.z += f.z * (clear - ahead); }
+        t.p.y = Math.max(this.ground + r, t.p.y);
+    }
+
+    /** Somewhere to wander to: round `near` (or home), in the shot. */
+    petRoam(t, near, r) {
+        const at = near || this.home;
+        const keep = t.p, wide = this.overlay.getBoundingClientRect().width;
+        let probe = null;
+        for (let tries = 0; tries < 8; tries++) {
+            const a = rand(0, Math.PI * 2), d = Math.max(near ? 0.45 : 0, r * Math.sqrt(Math.random()));
+            probe = { p: { x: at.x + Math.sin(a) * d, y: keep.y, z: at.z + Math.cos(a) * d }, radius: t.radius };
+            this.petClamp(probe);
+            // Somewhere it can be seen (and clicked): not off past either
+            // side of the view.
+            const x = this.page(probe.p).x;
+            if (x > wide * 0.06 && x < wide * 0.94) break;
+        }
+        return { x: probe.p.x, y: t.pet?.move === "walk" ? keep.y : this.ground + t.radius, z: probe.p.z };
+    }
+
+    perchPoint(spot, side) {
+        const b = this.bodyApi;
+        if (!this.r.vrm || spot !== "hand") return null;
+        // On the back of the held-out hand (the pet_perch clip's).
+        const h = b._bone([`${side}Hand`]);
+        return h ? { x: h.x, y: h.y + 0.025, z: h.z } : null;
+    }
+
+    inUse(toy) { return this.runners().some((c) => c.cur?.toy === toy || c.next?.toy === toy); }
+
+    dark() { return (this._dim ?? 1) < 0.5; }
+
+    petMouth(t) {
+        const rig = t.view?.rig;
+        if (!rig) return null;
+        const m = rig.mouth();
+        return { x: m.x, y: m.y, z: m.z };
+    }
+
+    petSurge(t) { return t.view?.rig?.surge ?? 1; }
+
+    /** Which way a pet in `t.holder`'s arms lies: along the forearm, its
+     *  head to their elbow. */
+    holdYaw(t) {
+        const b = t.holder || this.bodyApi;
+        const elbow = b._bone(["leftLowerArm"]), hand = b._bone(["leftHand"]);
+        return elbow && hand ? Math.atan2(elbow.x - hand.x, elbow.z - hand.z) : null;
+    }
+
+    petFx(t, name, arg) {
+        const q = this.page({ x: t.p.x, y: t.p.y + t.radius * 1.5, z: t.p.z });
+        if (name === "hearts") this.rfx.hearts(q.x, q.y - 8);
+        else if (name === "word") this.rfx.comic(arg, q.x, q.y - 16, { size: 22, ms: 900 });
+        else if (name === "crumbs") this.rfx.crumbs(q.x, q.y + 10, arg, 6);
+    }
+
+    /** The shot pulled back for a mount and its rider, head to hoof: the
+     *  camera `frame` × as far from them as it is now, along the line it's
+     *  on, aimed at the middle of the two (mounts.js; the renderer keeps
+     *  their walks at that distance too). */
+    frameRider(t, frame) {
+        const cam = this.r.toyCamera?.(), b = this.body();
+        if (!cam || !b) return;
+        const { THREE } = this;
+        const top = (t.view?.rig?.meta.seat?.[1] || 1.3) * (t.view?.rig?.scale || 1) + b.height * 0.62;
+        const toT = new THREE.Vector3(b.pos.x, this.ground + top / 2, b.pos.z);
+        const dir = new THREE.Vector3().subVectors(cam.position, cam.target);
+        const toP = toT.clone().addScaledVector(dir, frame);
+        this._rode = true;
+        this._camTween = { t: 0, fromP: cam.position.clone(), fromT: cam.target.clone(), toT, toP };
+    }
+
+    /** The view's own framing again once they're down. */
+    unframeRider() {
+        if (!this._rode) return;
+        this._rode = false;
+        this._camTween = null;
+        this.r.toyReframe?.();
     }
 
     /** Flakes on an aquarium's water (brains.js visitTank). */
@@ -1514,7 +1700,8 @@ const NIGHT_FRAGMENT = /* glsl */`
         #include <colorspace_fragment>
     }`;
 
-let _identity = null, _xAxis = null, _yDown = null;
+let _identity = null, _xAxis = null, _yDown = null, _yUp = null;
+const Y_UP = (THREE) => (_yUp ||= new THREE.Vector3(0, 1, 0));
 const IDENTITY = (THREE) => (_identity ||= new THREE.Quaternion());
 const X_AXIS = (THREE) => (_xAxis ||= new THREE.Vector3(1, 0, 0));
 const Y_DOWN = (THREE) => (_yDown ||= new THREE.Vector3(0, -1, 0));
@@ -1624,16 +1811,23 @@ class SceneBody {
         }
         const t0 = now();
         let last = 0;
-        while (r.toyWalking && now() - t0 < 15000) {
-            await this.wait(50, ctx);
-            if (chase && now() - last > 250) {
-                last = now();
-                const p = chase();
-                if (!p) break;
-                const next = target(p);
-                if (!next) break;
-                r.toyWalkTo(next.x, next.z, run ? RUN_RATE : 1);
+        try {
+            while (r.toyWalking && now() - t0 < 15000) {
+                await this.wait(50, ctx);
+                if (chase && now() - last > 250) {
+                    last = now();
+                    const p = chase();
+                    if (!p) break;
+                    const next = target(p);
+                    if (!next) break;
+                    r.toyWalkTo(next.x, next.z, run ? RUN_RATE : 1);
+                }
             }
+        } catch (e) {
+            // Called off on the way (the toy put away, something else come
+            // up): they stop where they are, not carry on to where it was.
+            r.stopMoving?.();
+            throw e;
         }
         return flatDist(chase?.() || point, this.pos()) < gap + 0.45;
     }
@@ -1823,6 +2017,8 @@ class ToyCompanion {
     request(r) {
         // VR or a photoshoot has the body (SceneStage._halt).
         if (this.stage.r.toyPaused) return;
+        // Up on a mount, they stay in the saddle: no getting down for toys.
+        if (this.stage.riding && this.body.id == null) return;
         // Not walking anywhere (a group call's row): what's lying out of
         // their reach is left be, rather than reached for and given up on.
         if ((r.why === "dropped" || r.why === "idle") && r.toy && !this.reachable(r.toy)) return;
@@ -1891,7 +2087,7 @@ class ToyCompanion {
     tick() {
         // (A group call's other companions only take what's held out to
         // them: no wandering through the row after toys.)
-        if (this.body.id != null || this.cur || this.next || now() < this.idleAt) return;
+        if (this.body.id != null || this.cur || this.next || this.stage.riding || now() < this.idleAt) return;
         this.idleAt = now() + rand(IDLE_MIN_MS, IDLE_MAX_MS);
         const r = this.stage.r;
         if (!r.vrm || r.isGestureBusy?.() || r.toyWalking || r.isPerforming?.()) return;

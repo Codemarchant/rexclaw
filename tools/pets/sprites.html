@@ -1,0 +1,111 @@
+<!doctype html>
+<!--
+The animals' pictures, rendered from their own models: each one's tray tile
+(assets/toys/pets/<id>.png) and, for the pets, the poses the roaming desktop
+shows them in (<id>_<pose>.png; web/src/models/toys/art.js PET_POSES).
+
+Serve the repo root (python -m http.server) and open
+/tools/pets/sprites.html: it draws every picture, framed to the toy's own
+drawing box (catalog.js `art`), on a clear background. "Save all" downloads
+them; move them into assets/toys/pets/. (`window.sprites()` resolves to
+{file name: PNG data URL} for a script to save instead.) Run it again
+whenever a model (build_pets.py) or its poses (pet_rig.js) change.
+-->
+<html><head><meta charset="utf-8"><title>pet sprites</title>
+<style>
+body{margin:12px;background:#64748b;font:13px sans-serif;color:#fff}
+figure{display:inline-block;margin:4px;text-align:center}
+img{display:block;width:128px;height:128px;background:repeating-conic-gradient(#94a3b8 0 25%,#a8b5c7 0 50%) 0 0/16px 16px}
+</style>
+<script type="importmap">{"imports":{"three":"../../web/node_modules/three/build/three.module.js","three/addons/":"../../web/node_modules/three/examples/jsm/"}}</script>
+</head><body>
+<button id="save" disabled>Save all</button> <span id="status">rendering…</span>
+<div id="out"></div>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { createPetRig } from "../../web/src/models/toys/pet_rig.js";
+import { TOYS } from "../../web/src/models/toys/catalog.js";
+
+const SIZE = 192;
+// The poses per way of getting about: [file suffix, what the rig is told,
+// the stride's phase]. The desktop flips them to face the other way.
+const POSES = {
+    walk: [["stand", { pose: "stand" }], ["walk1", { pose: "stand", speed: 0.4 }, 0.12], ["walk2", { pose: "stand", speed: 0.4 }, 0.62],
+        ["sit", { pose: "sit" }], ["sleep", { pose: "sleep", asleep: true }], ["held", { pose: "held" }]],
+    fly: [["stand", { pose: "stand" }], ["walk1", { pose: "stand", speed: 0.15 }, 0.2], ["walk2", { pose: "stand", speed: 0.15 }, 0.7],
+        ["fly1", { pose: "fly", speed: 1.5 }, 0.05], ["fly2", { pose: "fly", speed: 1.5 }, 0.55], ["sleep", { pose: "stand", asleep: true }],
+        ["held", { pose: "held" }]],
+    swim: [["stand", { pose: "stand", speed: 0.3 }, 0.1], ["walk1", { pose: "stand", speed: 0.6 }, 0.35], ["walk2", { pose: "stand", speed: 0.6 }, 0.85],
+        ["held", { pose: "held" }]],
+};
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setSize(SIZE, SIZE);
+renderer.setPixelRatio(1);
+renderer.setClearColor(0x000000, 0);
+const ramp = new THREE.DataTexture(new Uint8Array([110, 190, 255]), 3, 1, THREE.RedFormat);
+ramp.minFilter = ramp.magFilter = THREE.NearestFilter;
+ramp.needsUpdate = true;
+const loader = new GLTFLoader();
+const pictures = {};
+
+async function animal(def) {
+    const spec = def.pet || def.mount, id = spec.model || def.id;
+    const gltf = await loader.loadAsync(`../../assets/toys/pets/${id}.glb?${Date.now()}`);
+    const root = gltf.scene;
+    root.traverse((o) => {
+        if (!o.isMesh) return;
+        o.frustumCulled = false;
+        o.material = o.material.name === "glow" ? new THREE.MeshBasicMaterial({ vertexColors: true })
+            : new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: ramp });
+    });
+    const meta = root.children.find((c) => c.userData?.pet)?.userData.pet || {};
+    const scene = new THREE.Scene();
+    scene.add(new THREE.HemisphereLight("#ffffff", "#8a93a3", 1.2));
+    const key = new THREE.DirectionalLight("#ffffff", 2.2);
+    key.position.set(-1.5, 3, 2.5);
+    scene.add(key, root);
+    // The toy's drawing box: its middle `art.cy` over the toy's centre,
+    // which is `radius` over its feet (a swimmer's centre is its own).
+    const a = def.art, mid = (meta.floats ? 0 : def.radius) + (a.cy || 0);
+    const cam = new THREE.OrthographicCamera(-a.w / 2, a.w / 2, a.h / 2, -a.h / 2, 0.01, 50);
+    // One rig for all its pictures, as in the app: a rig takes the bones as
+    // it finds them for its rest, so a second one made after a pose (a
+    // frog mid-leap) would start from that pose.
+    const rig = createPetRig(THREE, root, meta, spec.style || {});
+    const shoot = (name, yaw, tilt, set = {}, phase = 0) => {
+        Object.assign(rig.in, { pose: "stand", speed: 0, asleep: false }, set);
+        rig.t = 1;
+        // Settled into the pose, the stride held at its phase.
+        for (let i = 0; i < 150; i++) { rig.phase = phase; rig.update(1 / 30); }
+        rig.phase = phase;
+        rig.update(0.001);
+        // Side on, turned a little to the viewer, seen from a little above.
+        root.rotation.y = yaw;
+        cam.position.set(0, mid + 8 * Math.sin(tilt), 8 * Math.cos(tilt));
+        cam.lookAt(0, mid, 0);
+        renderer.render(scene, cam);
+        pictures[name] = renderer.domElement.toDataURL("image/png");
+        const f = document.createElement("figure");
+        f.innerHTML = `<img src="${pictures[name]}"><figcaption>${name}</figcaption>`;
+        document.getElementById("out").appendChild(f);
+    };
+    shoot(`${id}.png`, 0.72, 0.16);
+    if (def.pet) for (const [pose, set, phase] of POSES[def.pet.move]) shoot(`${id}_${pose}.png`, 1.15, 0.12, set, phase || 0);
+}
+
+for (const def of Object.values(TOYS)) if (def.pet || def.mount) await animal(def);
+window.sprites = async () => pictures;
+document.getElementById("status").textContent = `${Object.keys(pictures).length} pictures`;
+const save = document.getElementById("save");
+save.disabled = false;
+save.onclick = async () => {
+    for (const [name, url] of Object.entries(pictures)) {
+        const link = Object.assign(document.createElement("a"), { href: url, download: name });
+        link.click();
+        await new Promise((r) => setTimeout(r, 120));
+    }
+};
+document.title = "ready";
+</script></body></html>

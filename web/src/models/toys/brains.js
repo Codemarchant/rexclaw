@@ -32,6 +32,8 @@ export const CLIP = {
     slurp: TOY("slurp"), sip: TOY("sip"), swig: TOY("swig"), bottle: TOY("bottle"), clapPop: TOY("clap_pop"),
     holdSmall: TOY("hold_small"), catchSmall: TOY("catch_small"), pickupSmall: TOY("pickup_small"),
     warmHands: TOY("warm_hands"), stargaze: TOY("stargaze"), peerIn: TOY("peer_in"), sprinkle: TOY("sprinkle"),
+    petStrokeIn: TOY("pet_stroke_in"), petStroke: TOY("pet_stroke"), petStrokeOut: TOY("pet_stroke_out"),
+    petCradle: TOY("pet_cradle"), petPerchIn: TOY("pet_perch_in"), petPerch: TOY("pet_perch"),
     eat: ROAM("eat"), kick: LIB("Kick"),
     clap: LIB("Clapping"), jump: LIB("Jump"), surprised: LIB("Surprised"), sad: LIB("Sad"),
     thinking: LIB("Thinking"), peace: LIB("VRMA_03_peace_sign"), spin: LIB("VRMA_05_spin"),
@@ -76,6 +78,20 @@ const BOTTLE_CAP_MS = 850, BOTTLE_UP_MS = 1500, BOTTLE_GULP_MS = [1800, 2300, 28
 const CLAP_MS = 450;
 // Fish food: the pinch rubbed out over the water ≈0.9 s into the clip.
 const SPRINKLE_MS = 900;
+// Pets. Crouched to stroke one, the hand comes down about 0.42 m ahead of
+// their feet on a 1.56 m body (the pet_stroke clip), so they stop that far
+// short of it, by their height; the crouch is down in 0.8 s and up again
+// in as long. A pet is held for a while and set down (all by eye).
+const STROKE_AHEAD = 0.42 / 1.56;  // × their height
+const STROKE_DOWN_MS = 800;
+const STROKE_S = [5, 7.5];
+const CRADLE_S = [10, 15];
+const PERCH_UP_MS = 600;
+// A tennis ball thrown for a dog: lobbed at 38° (by eye) to land 2.4-3.4 m
+// off, a few times before they've had enough.
+const FETCH_ANGLE = 38 * Math.PI / 180;
+const FETCH_FAR = [2.4, 3.4];      // m
+const FETCH_THROWS = 3;
 // Now and then one has gone off (by eye: about one in eight); then it's
 // that one, not the food, they turn their nose up at.
 const OFF_ODDS = 1 / 8;
@@ -172,11 +188,12 @@ function takes(ms) {
 
 // How a toy came to them when the user did it to them: their reaction cuts
 // in on what they're saying (toybox.js note).
-const HANDED = new Set(["offer", "caught", "hit", "thrown"]);
+const HANDED = new Set(["offer", "caught", "hit", "thrown", "handed"]);
 
-/** The note as it starts: a reaction asked for when the user started it. */
+/** The note as it starts: a reaction asked for when the user started it
+ *  (not when they did on their own, "idle", or a pet did, "asked"). */
 function startNote(body, why, text, ms) {
-    body.note(text + (ms ? takes(ms) : ""), { respond: why !== "idle", interrupt: HANDED.has(why) });
+    body.note(text + (ms ? takes(ms) : ""), { respond: why !== "idle" && why !== "asked", interrupt: HANDED.has(why) });
 }
 
 /** A ball game is told a go at a time, as each one starts (they run long:
@@ -916,7 +933,7 @@ async function catchBall(body, toy, ctx) {
     else await playWith(body, toy, "caught", ctx);
 }
 
-const CATCHABLE = new Set(["food", "ball", "plush", "bottle", "wand"]);
+const CATCHABLE = new Set(["food", "ball", "plush", "bottle", "wand", "fetch"]);
 
 /** Food held out to their mouth: taken, and eaten from the hand. */
 async function takeOffered(body, toy, ctx) {
@@ -1251,6 +1268,197 @@ async function readBottle(body, toy, ctx) {
     await body.wait(1800, ctx);
 }
 
+// ── pets ──────────────────────────────────────────────────────────────────
+// (What a pet does with itself is its own: models/toys/pets.js.)
+
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Crouched down beside a pet on the floor, stroking it: their hello when
+ *  the user first sets it down (react.js). */
+async function strokePet(body, pet, ctx, why) {
+    const mind = pet.pet, name = pet.def.name, n = pet.def.note;
+    startNote(body, why, `The user just set ${n} down near you. You're going over to crouch down and stroke ${name}.`, 11000);
+    // It waits for them, sitting, looking up.
+    mind.attendFor(16);
+    const gap = STROKE_AHEAD * body.height;
+    // (It's sat still for them: one walk, straight there.)
+    const ok = await body.goTo(pet.p, ctx, { gap });
+    if (!pet.alive || pet.heldBy || (!ok && flatDist(pet.p, body.pos()) > gap + 0.5)) return;
+    body.face(pet.p);
+    body.lookAt(pet.p, 2500);
+    await body.wait(350, ctx);
+    const down = body.play(CLIP.petStrokeIn, ctx, { maxMs: 1200 });
+    await at(body, STROKE_DOWN_MS, ctx);
+    await down.catch(() => {});
+    await body.play(CLIP.petStroke, ctx, { loop: true });
+    mind.attendFor(10);
+    mind.strokedFor(8);
+    body.emotion("happy");
+    body.fx("hearts", add(pet.p, v3(0, pet.radius * 1.5, 0)));
+    body.say(pick([_t("hello, %s!", name), _t("there you go, %s", name), _t("aww, %s", name)]), 1700);
+    const until = performance.now() + rand(...STROKE_S) * 1000;
+    while (performance.now() < until && pet.alive && !pet.heldBy) {
+        await body.wait(500, ctx);
+        body.lookAt(pet.p, 900);
+    }
+    await body.play(CLIP.petStrokeOut, ctx, { maxMs: 1200 });
+    body.rest();
+}
+
+/** A pet lobbed gently their way (or bumping into them): gathered in. */
+async function catchPet(body, pet, ctx) {
+    body.face(pet.p);
+    const clip = body.play(CLIP.catch, ctx, { maxMs: 1600 });
+    const t0 = performance.now();
+    while (performance.now() - t0 < 900) {
+        await body.wait(16, ctx);
+        if (!pet.alive || pet.heldBy) break;
+        if (dist(pet.p, body.chest()) < body.reach * 0.85) { body.hold(pet, "cradle"); break; }
+    }
+    await clip.catch(() => {});
+    return pet.alive && pet.heldBy === "companion";
+}
+
+/** A pet put in their arms: held against their chest and stroked for a
+ *  while, then set down (a bird or Gerald: let go). */
+async function cradlePet(body, pet, ctx, why) {
+    const mind = pet.pet, name = pet.def.name;
+    if (pet.heldBy !== "companion") {
+        if (why === "handed") body.take(pet, "cradle");
+        else if (!(await catchPet(body, pet, ctx))) return;
+    }
+    pet.grip = "cradle";
+    startNote(body, "handed", `The user just put ${pet.def.note} in your arms. You're holding ${name} for a little while before letting them go.`, 14000);
+    body.faceUser();
+    await body.play(CLIP.petCradle, ctx, { loop: true });
+    mind.strokedFor(14);
+    body.emotion("happy");
+    body.lookAt(pet.p, 2500);
+    await body.wait(600, ctx);
+    body.fx("hearts", body.head());
+    body.say(pick([_t("hello, %s!", name), _t("I've got you, %s", name), _t("aww, %s", name)]), 1700);
+    const until = performance.now() + rand(...CRADLE_S) * 1000;
+    while (performance.now() < until && pet.heldBy === "companion") {
+        await body.wait(700, ctx);
+        if (Math.random() < 0.3) body.lookAt(pet.p, 1500);
+    }
+    if (pet.heldBy !== "companion") { body.rest(); return; }
+    if (mind.move === "walk") {
+        // Down to the floor with it, and the hands away.
+        const down = body.play(CLIP.pickup, ctx, { maxMs: 1400 });
+        await at(body, GRAB_MS.pickup, ctx);
+        body.letGo(pet, v3());
+        await down.catch(() => {});
+    } else body.letGo(pet, v3(0, 0.5, 0));
+    body.rest();
+}
+
+/** A bird or Gerald: an arm held out for it to come to. It lands on the
+ *  hand and sits there for a bit (as long as it likes: pets.js PERCH_S),
+ *  then it's off and the arm comes down. When the user first lets it out,
+ *  or when a bird wants a sit ("asked": nothing said of them for that). */
+async function offerHand(body, pet, ctx, why) {
+    const mind = pet.pet, name = pet.def.name, n = pet.def.note, bird = mind.move === "fly";
+    const what = bird ? `your arm for ${name} to land on and sit a while` : `a hand for ${name} to come over to`;
+    startNote(body, why, why === "asked" ? `${cap(n)} wants to come and sit on your arm for a bit: you're holding it out.`
+        : `The user just let ${n} out near you. You're holding out ${what}.`, 18000);
+    body.faceUser();
+    try {
+        const up = body.play(CLIP.petPerchIn, ctx, { maxMs: 1000 });
+        await at(body, PERCH_UP_MS, ctx);
+        await up.catch(() => {});
+        await body.play(CLIP.petPerch, ctx, { loop: true });
+        if (!mind.perchOn("hand", "right")) return;
+        const t0 = performance.now();
+        while (!mind.perched && pet.alive && !pet.heldBy && mind.perch && performance.now() - t0 < 7000) await body.wait(100, ctx);
+        if (!mind.perched) return;
+        body.emotion("happy");
+        body.lookAt(pet.p, 2500);
+        body.fx("hearts", pet.p);
+        body.say(pick([_t("hello, %s!", name), _t("there you are, %s", name)]), 1700);
+        mind.strokedFor(5);
+        // There while it stays: a look at it now and then.
+        while (mind.perched && pet.alive && !pet.heldBy) {
+            await body.wait(900, ctx);
+            if (Math.random() < 0.25) body.lookAt(pet.p, 1500);
+        }
+    } finally {
+        // Off the hand whatever happened.
+        mind.leave();
+    }
+    await body.wait(500, ctx);
+    body.rest();
+}
+
+/** Gerald just ate what was lying about (`food`: its catalog entry). */
+async function petStole(body, pet, ctx, food) {
+    body.note(`${cap(pet.def.note)} just swam over and swallowed ${food?.note || "a snack"} that was lying about.`);
+    body.lookAt(pet.p, 1800);
+    body.emotion("surprised");
+    body.say(pick([_t("%s! that was mine!", pet.def.name), _t("hey!!")]), 1700);
+    await body.play(CLIP.surprised, ctx, { maxMs: 1500 });
+}
+
+function withPet(body, pet, why, ctx, extra) {
+    const mind = pet.pet;
+    if (why === "stole") return petStole(body, pet, ctx, extra);
+    if (["handed", "thrown", "hit", "caught", "offer"].includes(why)) return cradlePet(body, pet, ctx, why);
+    // Already on them, or in someone's hands.
+    if (mind.perch || pet.heldBy) return undefined;
+    return mind.move === "walk" ? strokePet(body, pet, ctx, why) : offerHand(body, pet, ctx, why);
+}
+
+/** A tennis ball: thrown for a dog to bring back, a throw at a time (the
+ *  dog dropping it at their feet starts the next, react.js "fetch");
+ *  with no dog about, tossed back to the user. */
+async function playFetch(body, ball, ctx, why) {
+    const st = body.stage;
+    const dog = st.nearest((t) => !!t.def.pet?.fetches && t.alive && t.heldBy !== "user", body.pos(), 20);
+    const dn = dog?.def.name;
+    if (why === "fetch" && (ball._throws || 0) >= FETCH_THROWS) {
+        // (The dog picked up or put away since it brought the ball.)
+        if (!dog) return;
+        // Enough for now: the ball stays where the dog dropped it.
+        body.note(`${dn} brought the tennis ball back and dropped it at your feet again. That's enough fetch for now.`);
+        body.emotion("happy");
+        body.say(_t("good dog, %s!", dn), 1600);
+        dog?.pet.strokedFor(3);
+        await body.wait(1400, ctx);
+        return;
+    }
+    // (In the dog's mouth: it's on its way to them.)
+    if (ball.heldBy === "pet") return;
+    if (ball.heldBy !== "companion" && !(await fetchToy(body, ball, ctx, "right"))) return;
+    ball.grip = "right";
+    if (!dog) {
+        startNote(body, why, `${cameBy(ball, why)} You're about to toss it back to the user.`, 4000);
+        await tossBack(body, ball, ctx);
+        return;
+    }
+    ball._throws = (ball._throws || 0) + 1;
+    if (why === "fetch") body.note(`${dn} brought the tennis ball back to you. You're throwing it again.`);
+    else startNote(body, why, `${cameBy(ball, why)} ${cap(dog.def.note)} is here: you're about to throw it for ${dn} to fetch.`, 6000);
+    // Somewhere across the room from them.
+    const a = rand(0, Math.PI * 2), far = rand(...FETCH_FAR);
+    const from = body.pos();
+    const probe = { p: { x: from.x + Math.sin(a) * far, y: from.y + ball.radius, z: st.dims === 2 ? 0 : from.z + Math.cos(a) * far }, radius: ball.radius };
+    st.petClamp(probe);
+    const target = probe.p;
+    body.face(target);
+    body.say(pick([_t("fetch!"), _t("go on, %s!", dn)]), 1300);
+    await body.wait(350, ctx);
+    const clip = body.play(CLIP.toss, ctx, { maxMs: 1800 });
+    await at(body, RELEASE_MS.toss, ctx);
+    if (ball.heldBy !== "companion") { await clip.catch(() => {}); return; }
+    const v = solveLaunch(ball.p, target, FETCH_ANGLE, ball.k ?? 0, { vmax: 8 }) || { ...scale(sub(target, ball.p), 0.9), y: 3 };
+    body.letGo(ball, v);
+    ball._fetch = true;
+    await clip.catch(() => {});
+    body.rest();
+    body.lookAt(target, 2500);
+    await body.wait(1500, ctx);
+}
+
 // ── hit by a toy ──────────────────────────────────────────────────────────
 
 async function bonked(body, toy, ctx, part) {
@@ -1286,6 +1494,12 @@ export async function playWith(body, toy, why, ctx, part = null) {
     if (why === "cheer") return cheer(body, ctx);
     if (!toy?.alive) return undefined;
     const kind = toy.def.kind;
+    // (`part` here: what a pet's own doing was about, react.js.)
+    if (kind === "pet") return withPet(body, toy, why, ctx, part);
+    // A mount sees to its rider itself (mounts.js): dropped by them or
+    // bumped into them, it isn't something to catch or flinch from.
+    if (kind === "mount") return undefined;
+    if (kind === "fetch" && (why === "fetch" || why === "dropped" || why === "idle" || why === "caught")) return playFetch(body, toy, ctx, why);
     if (why === "hit") return bonked(body, toy, ctx, part);
     if (why === "offer") return takeOffered(body, toy, ctx);
     if (why === "thrown") return catchBall(body, toy, ctx);
@@ -1330,6 +1544,9 @@ function appeal(toy, stage, from) {
     if (stage.box && stage.box.quietMs() < QUIET_MS) return 0;
     const k = toy.def.kind;
     if (from && stage.dims === 3 && flatDist(toy.p, from) > IDLE_REACH) return 0;
+    // (A pet is never gone over to on their own: they'd be forever leaving
+    // off talking to stroke the cat.) A ball to throw for the dog.
+    if (k === "fetch") return toy.resting && (toy._throws || 0) < FETCH_THROWS && stage.toys.some((t) => t.def.pet?.fetches) ? 8 : 0;
     if (k === "food") return toy.resting && !toy.refused ? 30 : 0;
     if (k === "ball" || k === "wand") return toy.resting ? 12 : 0;
     // A hug for the plush now and then, not every few minutes.

@@ -608,6 +608,12 @@ ${on ? `<path d="M-34 ${t1 + 0.6} H34" stroke="${light}" stroke-width="1"/>` : "
         });
     },
 
+    // ── pets ─────────────────────────────────────────────────────────────
+    tennis() {
+        return svg("-50 -50 100 100", `${ball(0, 0, 44, "#cfe63a", "#a3b81f")}
+<path d="M-36 -26 C-14 -14 -14 14 -36 26 M36 -26 C14 -14 14 14 36 26" fill="none" stroke="#f8fafc" stroke-width="4.5" stroke-linecap="round"/>`);
+    },
+
     // ── the crew's ───────────────────────────────────────────────────────
     gerald() {
         const body = "M-40 2 C-40 -18 -14 -28 4 -28 C24 -28 42 -16 42 2 C42 20 22 28 4 28 C-16 28 -40 22 -40 2 Z";
@@ -663,14 +669,33 @@ ${inked("M42 -8 H51 V8 H42 Z", "#b45309", "#78350f")}
     },
 };
 
-/** The drawing of toy `id` as SVG markup (a fresh copy). */
+// The animals aren't drawn by hand: each has pictures of its own model
+// (assets/toys/pets/<id>.png for the tray, <id>_<pose>.png for the desktop;
+// rendered by tools/pets/sprites.html), so both views show the same animal.
+const animal = (id) => (TOYS[id]?.pet || TOYS[id]?.mount ? TOYS[id].pet?.model || TOYS[id].mount?.model || id : null);
+export const petSprite = (id, pose = null) => `/assets/toys/pets/${animal(id)}${pose ? `_${pose}` : ""}.png`;
+// The poses a pet has pictures of, by how it gets about (pets.js `move`);
+// drawn facing right, flipped to face left.
+export const PET_POSES = {
+    walk: ["stand", "walk1", "walk2", "sit", "sleep", "held"],
+    fly: ["stand", "walk1", "walk2", "fly1", "fly2", "sleep", "held"],
+    swim: ["stand", "walk1", "walk2", "held"],
+};
+
+/** The drawing of toy `id` as SVG markup (a fresh copy); an animal's: its
+ *  picture in `pose`. */
 export function toyArt(id, opts = {}) {
+    // (All its poses at once, one showing: no flicker as it changes.)
+    if (animal(id)) {
+        return (PET_POSES[TOYS[id].pet?.move] || ["stand"]).map((pose) => `<img class="rx_pet_img" data-pose="${pose}" src="${petSprite(id, pose)}" alt="" draggable="false"${pose === "stand" ? "" : " hidden"}>`).join("");
+    }
     return (DRAW[id] || DRAW.basketball)(opts);
 }
 
 /** A tray tile's picture: the drawing as a data URL (an <img> needs no ids). */
 const tileCache = new Map();
 export function toyIcon(id) {
+    if (animal(id)) return petSprite(id);
     if (!tileCache.has(id)) {
         // Lights show lit.
         let markup = toyArt(id, { on: true });

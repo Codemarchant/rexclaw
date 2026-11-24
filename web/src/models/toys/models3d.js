@@ -20,7 +20,7 @@ let GRAD = null;
 const BUBBLE_RISE = 0.25;          // m/s
 const FLAKE_SINK = 0.015;          // m/s
 
-function toonRamp(THREE) {
+export function toonRamp(THREE) {
     if (!GRAD) {
         GRAD = new THREE.DataTexture(new Uint8Array([110, 190, 255]), 3, 1, THREE.RedFormat);
         GRAD.minFilter = GRAD.magFilter = THREE.NearestFilter;
@@ -53,7 +53,30 @@ export function buildToyModel(THREE, def, radius = def.radius) {
         return m;
     };
     const r = radius;
+    // A pet or a mount: its model is loaded into the group (pets3d.js).
+    if (def.kind === "pet" || def.kind === "mount") return { group: g, parts };
     switch (def.id) {
+        case "tennis": {
+            // Felt, with its seam: two curves that wind round the ball.
+            const tex = canvasTex(THREE, 256, 128, (c, w, h) => {
+                c.fillStyle = "#cfe63a";
+                c.fillRect(0, 0, w, h);
+                for (let i = 0; i < 1800; i++) {
+                    c.fillStyle = `rgba(${Math.random() < 0.5 ? "120,140,10" : "245,255,170"},0.25)`;
+                    c.fillRect(Math.random() * w, Math.random() * h, 1.5, 1.5);
+                }
+                c.strokeStyle = "#f8fafc";
+                c.lineWidth = 5;
+                c.beginPath();
+                for (let i = 0; i <= 64; i++) {
+                    const u = i / 64, y = h / 2 + Math.sin(u * Math.PI * 4) * h * 0.26;
+                    if (i) c.lineTo(u * w, y); else c.moveTo(u * w, y);
+                }
+                c.stroke();
+            });
+            add(new THREE.SphereGeometry(r, 24, 16), toon("#ffffff", { map: tex }));
+            break;
+        }
         case "basketball": {
             const tex = canvasTex(THREE, 512, 256, (c, w, h) => {
                 c.fillStyle = "#e8742a";

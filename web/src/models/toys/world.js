@@ -13,6 +13,7 @@ import {
     len, norm, scale, sphereTorus, sub, v3,
 } from "./physics";
 import { toySfx } from "./sfx";
+import { mindFor } from "./pets";
 
 const now = () => performance.now();
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -35,6 +36,11 @@ const RELEASE_WINDOW_MS = 90;
 // Held out to the mouth this long, food is eaten from the hand (by eye).
 const OFFER_NEAR = 0.32;       // m from the head
 const OFFER_S = 0.35;
+// A pet held against their chest this long is taken into their arms (by
+// eye); let go of, it's never flung harder than a gentle lob.
+const HAND_NEAR = 0.3;         // m from the chest
+const HAND_S = 0.45;
+const PET_TOSS = 2.2;          // m/s
 // The companion's body for bumps: a capsule this wide round the line from
 // the feet to the top of the head (STAGE_BODY_HALF_WIDTH in the renderer
 // is shoulders, 0.25 m; the torso's half depth is less, by eye).
@@ -193,11 +199,55 @@ export class ToyWorld {
             const dir = b ? norm({ x: b.pos.x - p.x, y: 0, z: this.dims === 2 ? 0 : b.pos.z - p.z }) : v3(1, 0, 0);
             t.aim = t.baseAim = len(dir) ? dir : v3(1, 0, 0);
         }
+        // A pet has a mind of its own (pets.js).
+        mindFor(this, t);
         this.toys.push(t);
         this.viewAdd(t);
         this.emit("add", t);
         return t;
     }
+
+    // ── pets (pets.js): what a stage tells their minds ───────────────────
+    // (The stages override these with their floors, walls and bones.)
+
+    /** The floor under pet `t` (its height), or null where there's none
+     *  any more and it should fall. */
+    petFloor() { return 0; }
+
+    /** Pet `t` kept inside where pets may go. */
+    petClamp() { /* the stage's */ }
+
+    /** Somewhere for pet `t` to wander to: within `r` of `near` (where the
+     *  companion is, or the middle of things). */
+    petRoam(t, near, r) {
+        const at = near || t.p;
+        const a = rand(0, Math.PI * 2), d = r * Math.sqrt(Math.random());
+        return { x: at.x + Math.sin(a) * d, y: t.p.y, z: this.dims === 2 ? 0 : at.z + Math.cos(a) * d };
+    }
+
+    /** Where on the main companion a pet can settle: their held-out
+     *  "hand" (`side`), or null. */
+    perchPoint() { return null; }
+
+    /** Whether another pet has (or is making for) their arm. */
+    armTaken(but) { return this.toys.some((o) => o !== but && o.pet?.perch); }
+
+    /** Whether a companion is busy with `toy` right now. */
+    inUse() { return false; }
+
+    /** Whether the room has gone dark (a campfire, the projector). */
+    dark() { return false; }
+
+    /** A little effect at pet (or toy) `t`: "hearts", "word" (its call,
+     *  `arg`), "crumbs" (colour `arg`). */
+    petFx() { /* the stage's */ }
+
+    _pets(dt) {
+        for (const t of this.toys) if (t.pet && t.alive) t.pet.tick(dt);
+    }
+
+    /** A click on a pet: it answers. */
+    poke(t) { t.pet?.poke(); }
 
     remove(t) {
         if (!t?.alive) return;
@@ -206,6 +256,9 @@ export class ToyWorld {
         const i = this.toys.indexOf(t);
         if (i >= 0) this.toys.splice(i, 1);
         toySfx.loop(t.uid, false);
+        toySfx.sampleLoop(`purr${t.uid}`, null);
+        // Whatever a pet had in its mouth drops.
+        for (const o of this.toys) if (o.carrier === t) { o.carrier = null; o.heldBy = null; o.wake(); }
         this.viewRemove(t);
         // The hoop goes with the last basketball, the goal with the last
         // football, the posts with the last rugby ball.
@@ -247,6 +300,7 @@ export class ToyWorld {
     toggle(t) {
         const k = t.def.kind;
         if (k === "chest") { if (!t.opened) this.openChest(t); return; }
+        if (k === "pet" || k === "mount") { this.poke(t); return; }
         if (!t.def.gadget) return;
         if (k === "fan") t.mode = (t.mode + 1) % 3;
         else t.mode = t.mode ? 0 : 1;
@@ -704,6 +758,8 @@ export class ToyWorld {
 
     grab(t) {
         if (t.heldBy === "companion") this.emit("taken", t);
+        // Out of a pet's mouth.
+        t.carrier = null;
         t.heldBy = "user";
         t.hovering = false;
         t.upright = false;
@@ -737,7 +793,7 @@ export class ToyWorld {
         const recent = d.samples.filter((s) => now() - s.at <= RELEASE_WINDOW_MS);
         const s0 = recent[0] || d.samples[0], s1 = d.samples[d.samples.length - 1];
         const secs = Math.max(0.016, (s1.at - s0.at) / 1000);
-        let v = clampLen(scale(sub(s1.p, s0.p), 1 / secs), MAX_THROW);
+        let v = clampLen(scale(sub(s1.p, s0.p), 1 / secs), t.pet ? PET_TOSS : MAX_THROW);
         if (now() - s1.at > 120) v = v3();   // held still before letting go
         t.heldBy = null;
         t.v = this.dims === 2 ? { ...v, z: 0 } : v;
@@ -749,6 +805,8 @@ export class ToyWorld {
         // Flung, a thing tumbles end over end (a ball's spin is its roll).
         if (t.def.tumbles && speed > THROW_SPEED) t.omega = { x: -t.v.z * 3, y: 0, z: -t.v.x * 3 };
         t.wake();
+        // A ball let go of is there for a dog to fetch (pets.js).
+        if (t.def.kind === "fetch") { t._fetch = true; t._throws = 0; }
         if (speed > THROW_SPEED) {
             t.thrownAt = now();
             t.lastHitBy = "user";
@@ -783,6 +841,7 @@ export class ToyWorld {
         t.lastHitBy = "user";
         t.lastHitAt = now();
         t._incoming = false;
+        if (t.def.kind === "fetch") { t._fetch = true; t._throws = 0; }
         this.emit("toss", t);
     }
 
@@ -790,8 +849,8 @@ export class ToyWorld {
     /** How far a held toy is from the companion's mouth, as the user sees
      *  it (a stage with depth measures across the view: a toy held at the
      *  wrong depth still looks held to the mouth). */
-    offerGap(t, b) {
-        return dist(t.p, add(b.pos, v3(0, b.height * 0.9, 0)));
+    offerGap(t, b, up = 0.9) {
+        return dist(t.p, add(b.pos, v3(0, b.height * up, 0)));
     }
 
     noteHit(t, who) {
@@ -824,6 +883,7 @@ export class ToyWorld {
         dt = Math.min(dt, 0.05);
         this.time += dt;
         this._gadgets(dt);
+        this._pets(dt);
         this._acc += dt;
         let n = 0;
         while (this._acc >= STEP && n < 16) {
@@ -850,6 +910,14 @@ export class ToyWorld {
                 }
                 continue;
             }
+            // In a pet's mouth; or a pet going about on its own (its mind
+            // moves it, pets.js).
+            if (t.heldBy === "pet") {
+                const q = t.carrier?.pet?.carryPoint();
+                if (q) { t.v = v3(); t.p = this.dims === 2 ? { ...q, z: 0 } : q; }
+                continue;
+            }
+            if (t.pet?.kinematic) continue;
             if (t.hovering || t.resting) continue;
             // A bubble is light enough to go with the room's own air too.
             fly(t, h, t.def.kind === "bubble"
@@ -891,9 +959,13 @@ export class ToyWorld {
                     if (bub.src !== other) this.popBubble(bub);
                     continue;
                 }
-                if (a.heldBy === "companion" || b.heldBy === "companion") continue;
-                a.pinned = a.hovering || a.resting && a.mass > b.mass * 4;
-                b.pinned = b.hovering || b.resting && b.mass > a.mass * 4;
+                if (a.heldBy || b.heldBy) continue;
+                // Pets step round each other (pets.js); a perched bird or a
+                // swimming Gerald is nothing to bounce off.
+                if (a.pet && b.pet) continue;
+                if ((a.pet?.kinematic && a.pet.move !== "walk") || (b.pet?.kinematic && b.pet.move !== "walk")) continue;
+                a.pinned = a.hovering || !!a.pet?.kinematic || a.resting && a.mass > b.mass * 4;
+                b.pinned = b.hovering || !!b.pet?.kinematic || b.resting && b.mass > a.mass * 4;
                 if (collidePair(a, b)) {
                     if (!a.pinned) a.wake();
                     if (!b.pinned) b.wake();
@@ -1010,6 +1082,14 @@ export class ToyWorld {
             if (d.offerT > OFFER_S) {
                 d.offered = true;
                 this.emit("offer", d.toy);
+            }
+        }
+        // A pet held against their chest: into their arms.
+        if (d && b && d.toy.def.kind === "pet" && !d.offered) {
+            if (this.offerGap(d.toy, b, 0.68) < HAND_NEAR) d.offerT += dt; else d.offerT = 0;
+            if (d.offerT > HAND_S) {
+                d.offered = true;
+                this.emit("handed", d.toy);
             }
         }
     }

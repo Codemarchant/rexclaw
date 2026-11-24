@@ -13,7 +13,11 @@ const DRAG_PX = 8;
  *  view), "roam" (the roaming desktop), "mascot" (the mascot's own window). */
 export default function ToyTray({ box, variant = "full" }) {
     const st = useReactive(box.state);
-    const toys = trayToys(st.cat);
+    // (Mounts need a room to ride through: not on the roaming desktop. The
+    // tab left open from the room view falls back to the first one there.)
+    const tabs = TOY_CATEGORIES.filter((c) => !c.room || st.stage !== "screen");
+    const cat = tabs.some((c) => c.id === st.cat) ? st.cat : tabs[0].id;
+    const toys = trayToys(cat);
     // One line per tab, about that tab's things (putting away is on the
     // bin's tooltip).
     const hint = {
@@ -21,8 +25,10 @@ export default function ToyTray({ box, variant = "full" }) {
         play: _t("Grab a ball and throw it, or leave it lying about for them."),
         gadgets: _t("Click a gadget to switch it on; scroll over it to turn it, Shift + scroll to raise or lower the fan."),
         lights: _t("Click a light to switch it on; scroll over it to change its shade."),
+        pets: _t("Set a pet down and it makes itself at home. Click it to hear it; hold it against their chest and they'll take it in their arms."),
+        mounts: _t("Pick an animal and they climb on; it carries them wherever they walk. Put it away (right-click it) to get them down."),
         crew: _t("Hand them something from the ship and see what they make of it."),
-    }[st.cat];
+    }[cat];
 
     const press = (def) => (ev) => {
         if (ev.button !== 0) return;
@@ -51,8 +57,8 @@ export default function ToyTray({ box, variant = "full" }) {
     return (
         <div className={`rx_toytray rx_toytray--${variant}`} onPointerDown={(e) => e.stopPropagation()}>
             <div className="rx_toytray_head">
-                {TOY_CATEGORIES.map((c) => (
-                    <button key={c.id} className={"rx_toytray_tab" + (st.cat === c.id ? " is-active" : "")}
+                {tabs.map((c) => (
+                    <button key={c.id} className={"rx_toytray_tab" + (cat === c.id ? " is-active" : "")}
                             onClick={() => box.setCat(c.id)} title={_t(c.label)}>
                         <i className={`fa ${c.icon}`} /><span>{_t(c.label)}</span>
                     </button>
