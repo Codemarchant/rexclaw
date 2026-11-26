@@ -1369,6 +1369,20 @@ _GEMINI_STEPS_MAX = 500
 # Finish reasons that mean Google withheld the reply (LiteLLM's list).
 _GEMINI_BLOCKED = frozenset(('SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII',
                              'IMAGE_SAFETY'))
+# Google's adjustable content filters, each switched off - the list
+# SillyTavern sends with every Gemini request (its GEMINI_SAFETY). Google's
+# docs have them Off by default on current models (safety-settings,
+# 2026-11-26); sent anyway, so that doesn't rest on a model's default.
+# A setup's "Extra request fields" can switch one back on: a safetySettings
+# entry there replaces this list's entry for the same category (a
+# threshold of BLOCK_ONLY_HIGH, BLOCK_MEDIUM_AND_ABOVE or
+# BLOCK_LOW_AND_ABOVE), and the rest stay off. Accepted live by
+# gemini-4-hydrogen, gemini-4-neon, gemini-3.8-flash and
+# gemini-3.5-flash-lite (2026-11-26); a category Google doesn't know is a
+# 400. Google's fixed protections (child safety) are not settings and stay
+# as they are.
+_GEMINI_SAFETY_OFF = [{'category': f'HARM_CATEGORY_{name}', 'threshold': 'OFF'} for name in (
+    'HARASSMENT', 'HATE_SPEECH', 'SEXUALLY_EXPLICIT', 'DANGEROUS_CONTENT', 'CIVIC_INTEGRITY')]
 
 
 def _gemini_schema(schema):
@@ -1576,8 +1590,13 @@ class GeminiLlm(LlmEngine):
                    'instead of Grok vision.'),
         TOOLS_FIELD,
         Field('extra_body', 'Extra request fields (JSON)', 'json', '',
-              placeholder='{"safetySettings": [...]}',
-              help='Merged into every request, for Gemini API options the app doesn\'t set.'),
+              placeholder='{"safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT", '
+                          '"threshold": "BLOCK_ONLY_HIGH"}]}',
+              help='Merged into every request, for Gemini API options the app doesn\'t set. The app '
+                   'sends Google\'s content filters switched off (safetySettings). To switch one on, '
+                   'list it here with a threshold of BLOCK_ONLY_HIGH, BLOCK_MEDIUM_AND_ABOVE or '
+                   'BLOCK_LOW_AND_ABOVE; the others stay off. Categories: HARM_CATEGORY_HARASSMENT, '
+                   '_HATE_SPEECH, _SEXUALLY_EXPLICIT, _DANGEROUS_CONTENT, _CIVIC_INTEGRITY.'),
     )
 
     @classmethod
@@ -1600,7 +1619,8 @@ class GeminiLlm(LlmEngine):
         extra = json_field(self, 'extra_body')
         for placeholders in (False, True):
             payload = {'contents': _gemini_contents(items, vision=bool(self.get('vision')),
-                                                    tool_names=tool_names, placeholders=placeholders)}
+                                                    tool_names=tool_names, placeholders=placeholders),
+                       'safetySettings': _GEMINI_SAFETY_OFF}
             if instructions:
                 payload['systemInstruction'] = {'parts': [{'text': instructions}]}
             if declared:
@@ -1612,10 +1632,14 @@ class GeminiLlm(LlmEngine):
             if self.get('thinking_level'):
                 payload['generationConfig'] = {'thinkingConfig': {'thinkingLevel': self.get('thinking_level')}}
             # The user's extra fields win, key by key inside generationConfig
-            # too (their thinkingConfig replaces the one above).
+            # too (their thinkingConfig replaces the one above), and filter
+            # by filter in safetySettings (the ones they don't list stay off).
             for key, value in extra.items():
                 if key == 'generationConfig' and isinstance(value, dict):
                     value = {**payload.get('generationConfig', {}), **value}
+                elif key == 'safetySettings' and isinstance(value, list):
+                    listed = {s.get('category') for s in value if isinstance(s, dict)}
+                    value = [s for s in _GEMINI_SAFETY_OFF if s['category'] not in listed] + value
                 payload[key] = value
             async with self._http.stream('POST', url, json=payload) as resp:
                 if resp.status_code >= 400:

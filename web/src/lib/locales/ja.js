@@ -882,8 +882,8 @@ export const JA = {
     "Gemini が答える前にどれだけ考えるか。Gemini 4 では思考をオフにできません。会話には低が適しており、現行のどのモデルでも使えます。",
   "Images and PDFs you attach in chat reach Gemini, and analyze_screen runs on it instead of Grok vision.":
     "チャットで添付した画像と PDF が Gemini に届き、analyze_screen も Grok の画像認識の代わりに Gemini で動きます。",
-  "Merged into every request, for Gemini API options the app doesn't set.":
-    "すべてのリクエストに追加される、アプリが設定しない Gemini API のオプション。",
+  "Merged into every request, for Gemini API options the app doesn't set. The app sends Google's content filters switched off (safetySettings). To switch one on, list it here with a threshold of BLOCK_ONLY_HIGH, BLOCK_MEDIUM_AND_ABOVE or BLOCK_LOW_AND_ABOVE; the others stay off. Categories: HARM_CATEGORY_HARASSMENT, _HATE_SPEECH, _SEXUALLY_EXPLICIT, _DANGEROUS_CONTENT, _CIVIC_INTEGRITY.":
+    "すべてのリクエストに追加される、アプリが設定しない Gemini API のオプション。アプリは Google のコンテンツフィルターをオフ（safetySettings）にして送信します。有効にしたいものは、threshold を BLOCK_ONLY_HIGH、BLOCK_MEDIUM_AND_ABOVE、BLOCK_LOW_AND_ABOVE のいずれかにしてここに書いてください。ほかはオフのままです。カテゴリ：HARM_CATEGORY_HARASSMENT、_HATE_SPEECH、_SEXUALLY_EXPLICIT、_DANGEROUS_CONTENT、_CIVIC_INTEGRITY。",
   "Every tool description is read on every turn. Small local models answer faster, and stay in character better, without them.":
     "ツールの説明は毎ターンすべて読み込まれます。小さなローカルモデルは、ツールなしの方が速く答え、キャラクターも崩れにくくなります。",
   "All of the companion's tools": "コンパニオンのツールすべて",
