@@ -912,6 +912,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- injection or replay the full local history.
     chain_tail_sequence INTEGER NOT NULL DEFAULT 0,
     pending_native_outputs_json TEXT,
+    -- Google Search suggestions of a text leg that searched but said nothing
+    -- before the turn went to the browser for a tool: parked like the native
+    -- outputs above, for the reply the continuation writes (messages.grounding_json).
+    pending_grounding_json TEXT,
     cached_input_tokens INTEGER NOT NULL DEFAULT 0,
     summary TEXT,
     title_generated INTEGER NOT NULL DEFAULT 0,
@@ -964,6 +968,13 @@ CREATE TABLE IF NOT EXISTS messages (
     -- the sender's agent id. Same display-grouping role as heartbeat_id;
     -- always folded in the transcript views.
     text_from_agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL,
+    -- On an assistant row a Gemini brain grounded in Google Search: a JSON
+    -- list of Google's Search Suggestions HTML, one string per search
+    -- (llm._gemini_search_suggestions). Google's terms require them shown
+    -- with the reply and allow keeping them only as the user's chat
+    -- history, so this is display only: never replayed to a brain, never
+    -- exported.
+    grounding_json TEXT,
     created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, sequence, id);
@@ -1795,6 +1806,10 @@ MIGRATIONS = (
     "ALTER TABLE config ADD COLUMN openclaw_token TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN openclaw_agent TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE config ADD COLUMN openclaw_uses TEXT NOT NULL DEFAULT ''",
+    # Google Search results shown with a Gemini reply — see the messages
+    # schema comment.
+    "ALTER TABLE messages ADD COLUMN grounding_json TEXT",
+    "ALTER TABLE sessions ADD COLUMN pending_grounding_json TEXT",
 )
 
 

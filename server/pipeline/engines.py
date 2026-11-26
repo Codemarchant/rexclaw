@@ -68,6 +68,28 @@ OPENAI_CLOUD_URL = Field('base_url', 'Server URL', 'url', 'https://api.openai.co
                          help='OpenAI\'s API. Change it only for a proxy in front of it.')
 OPENAI_CLOUD_KEY = Field('api_key', 'API key', 'secret', '', scope='connection',
                          help='An OpenAI API key, from platform.openai.com → API keys.')
+# Google's Gemini API as a connection kind ('gemini'): one AI Studio key
+# for its brain (llm.GeminiLlm), transcription (stt.GeminiStt) and voices
+# (tts.GeminiTts).
+GEMINI_URL = Field('base_url', 'Server URL', 'url', 'https://generativelanguage.googleapis.com/v1beta',
+                   scope='connection', placeholder='https://generativelanguage.googleapis.com/v1beta',
+                   help='Google\'s Gemini API. Change it only for a proxy that speaks the Gemini API.')
+GEMINI_KEY = Field('api_key', 'API key', 'secret', '', scope='connection',
+                   help='A Gemini API key, from aistudio.google.com → Get API key.')
+
+
+def gemini_error(body):
+    """Google's message from an error body of its Interactions endpoint:
+    {"error": {...}}, the same in a list (a refused key), or behind an
+    "event: error" line on a streamed request."""
+    try:
+        data = json.loads(body[body.index('{'):].rstrip().rstrip(']'))
+        return data['error']['message']
+    except (ValueError, KeyError, TypeError):
+        return body[:300]
+
+
+
 # What an OpenAI-compatible server offers. The kind covers servers that do
 # one thing (Kokoro-FastAPI: a voice; Ollama: chat models) and services
 # that do all three, and a setup only lists a connection under the stages
@@ -180,6 +202,10 @@ class LlmEngine(Engine):
                                           (an xAI-shaped mcp_call item)
         ('file', file_id)                     a file the provider's code sandbox
                                           made for the user (download_file)
+        ('grounding', html)                   shown with the reply, never sent
+                                          back to the brain: Google Search's
+                                          suggestions, as Google's HTML
+                                          (Gemini, whose terms require it)
         ('usage', {input_tokens, output_tokens, ...})
 
     `items` is the whole conversation, every time: realtime-shaped messages

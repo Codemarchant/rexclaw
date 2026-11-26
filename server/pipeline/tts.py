@@ -11,7 +11,8 @@ import httpx
 import numpy as np
 
 from .. import xai_oauth
-from .engines import API_KEY, OPENAI_CLOUD_KEY, OPENAI_CLOUD_URL, OPENAI_URL, SERVES, Field, TtsEngine, json_field
+from .engines import (API_KEY, GEMINI_KEY, GEMINI_URL, OPENAI_CLOUD_KEY, OPENAI_CLOUD_URL, OPENAI_URL, SERVES,
+                      Field, TtsEngine, gemini_error, json_field)
 
 _logger = logging.getLogger(__name__)
 
@@ -532,4 +533,114 @@ class OpenAiCloudTts(OpenAiTts):
         return {'instructions': self.get('instructions')} if self.get('instructions') else {}
 
 
-ENGINES = [XaiTts, OpenAiTts, OpenAiCloudTts, FishTts, ElevenLabsTts]
+# What a companion on a Gemini voice is taught about its tags
+# (TtsEngine.tag_guide). The tags are every one in Google's table
+# (ai.google.dev/gemini-api/docs/speech-generation → Prompting guide →
+# "Vocal bursts and non-speech sounds", 2026-11-26), one spelling of each.
+# The tips are Google's too: tags go "at the exact point where the sound
+# should occur", "stick to human vocalizations rather than non-vocal sound
+# effects", English tags in any language, commas, dashes and ellipses "for
+# natural conversational hesitation", and capitals for stress.
+GEMINI_TAG_GUIDE = """\
+Your voice performs sounds written in angle brackets. A tag is never spoken: it puts that sound at that spot in the line. Reach for them freely - they are most of what separates a voice that sounds like a person from one reading lines aloud. Anything audible - a laugh, a sigh, a gasp - belongs in a tag inside the line (`<laugh> okay, that's actually wild`), never narrated as an action ("I laugh"). Which tags are yours, and how thickly you lay them on, is your character's call.
+
+- Laughing: `<laugh>`, `<chuckle>`, `<giggle>`, `<snicker>`, `<cackle>`, `<snort>`
+- Breath: `<breath>`, `<heavy breath>`, `<exhales>`, `<sigh>`, `<gasp>`, `<pant>`, `<yawn>`, `<phew>`, `<pff>`
+- Feeling: `<cry>`, `<sob>`, `<whimper>`, `<groan>`, `<moan>`, `<grunt>`, `<growl>`, `<grr>`, `<argh>`, `<hiss>`, `<tsk>`
+- Loud: `<cheer>`, `<shout>`, `<scream>`, `<shriek>`
+- Other: `<whispering>`, `<cough>`, `<sneeze>`, `<throat-clearing>`
+- Pauses: `<short pause>`, `<long pause>`
+
+Tips:
+- A tag goes at the exact spot the sound happens: `No way! <laugh> You actually did it?`
+- Tags stay in English whatever language you are speaking.
+- A tag is a sound a person makes with their voice: not `<smiles>`, `<door slams>` or `<music>`. What you do - moving closer, taking a hand - is said in words.
+- Commas, dashes and "..." already pace ordinary sentences (`It was... a lot.`); CAPITALS stress a word (`a VERY long day`).
+
+When the user asks for a delivery - whisper this - the tag is how you do it: `<whispering>` in front of the words, not a description of whispering."""
+
+
+class GeminiTts(TtsEngine):
+    """Gemini's voices over the Gemini API's Interactions endpoint, one
+    streamed request per sentence: raw 16-bit PCM at 24 kHz in server-sent
+    events. Sources: ai.google.dev/gemini-api/docs/speech-generation
+    (2026-11-26), and a live run the same day:
+    - `store: false`: the API otherwise saves every sentence as an
+      interaction at Google, and the first sound takes 1.4-1.8 s for it.
+      Without, gemini-3.8-flash-lite-tts starts in 0.32-0.34 s and
+      gemini-3.8-flash-tts in 0.44-0.67 s.
+    - A request needs a voice ("Missing voice in speech_config"), hence the
+      default; Kore is the one Google's examples use.
+    - A sentence that is only a tag (`<laugh>`) is performed.
+    - No speed setting: Google paces a voice through its style ("speaking
+      slowly"), the Delivery field here. Output is 24, 16 or 8 kHz only.
+    The older preview models (gemini-3.1-flash-tts-preview, gemini-2.5-*)
+    read stage directions written into the text rather than these tags, so
+    they get no tag section."""
+    id = 'gemini'
+    label = 'Google Gemini'
+    description = 'Gemini\'s voices (gemini-3.8-flash-lite-tts). Uses your Gemini API key.'
+    voice_hint = 'Gemini voice (Kore, Puck, Sulafat... or a voice_ id)'
+    fields = (
+        GEMINI_URL,
+        GEMINI_KEY,
+        Field('model', 'Model', 'text', 'gemini-3.8-flash-lite-tts', placeholder='gemini-3.8-flash-lite-tts',
+              help='gemini-3.8-flash-lite-tts (quickest: speaks after about a third of a second) or '
+                   'gemini-3.8-flash-tts (most expressive, about half a second, 1.5x the price).'),
+        Field('voice', 'Default voice', 'text', 'Kore', placeholder='Kore',
+              help='Used for companions without a voice of their own for this setup. One of Google\'s 30 '
+                   'voices (Kore, Puck, Zephyr, Leda, Aoede, Sulafat, Achernar, Charon, Fenrir...), one from '
+                   'its voice library, or a voice you designed (voice_...). Hear them at '
+                   'aistudio.google.com/generate-speech.'),
+        Field('style', 'Delivery', 'text', '', placeholder='soft and warm',
+              help='How the voice speaks every line - tone, pace, accent ("soft and warm", "speaking '
+                   'slowly"). Empty = the voice as it is.'),
+    )
+
+    @classmethod
+    def tag_guide(cls, settings):
+        model = (settings.get('model') or 'gemini-3.8-flash-lite-tts').strip().lower()
+        return '' if model.startswith(('gemini-2.5', 'gemini-3.1')) else GEMINI_TAG_GUIDE
+
+    def __init__(self, settings, config):
+        super().__init__(settings, config)
+        self._http = httpx.AsyncClient(headers={'x-goog-api-key': self.get('api_key') or ''},
+                                       timeout=httpx.Timeout(60, connect=10))
+
+    async def synthesize(self, text, *, voice, speed, rate):
+        line = {'type': 'text', 'text': text}
+        if self.get('style'):
+            line['annotations'] = [{'type': 'speech_metadata', 'style': self.get('style')}]
+        payload = {'model': self.get('model') or 'gemini-3.8-flash-lite-tts', 'stream': True, 'store': False,
+                   'input': [{'type': 'user_input', 'content': [line]}],
+                   'response_format': {'type': 'audio'},
+                   'generation_config': {'speech_config': [{'voice': voice or 'Kore'}]}}
+        url = (self.get('base_url') or GEMINI_URL.default).rstrip('/') + '/interactions'
+        async with self._http.stream('POST', url, json=payload) as resp:
+            if resp.status_code >= 400:
+                body = (await resp.aread()).decode('utf-8', 'replace')
+                raise RuntimeError(f'Gemini speech failed ({resp.status_code}): {gemini_error(body)}')
+            odd = b''
+            async for row in resp.aiter_lines():
+                if not row.startswith('data:'):
+                    continue
+                try:
+                    event = json.loads(row[5:])
+                except ValueError:
+                    continue   # the closing [DONE]
+                if event.get('error'):
+                    raise RuntimeError(f"Gemini speech failed: {gemini_error(json.dumps(event))}")
+                delta = event.get('delta') or {}
+                if delta.get('type') != 'audio' or not delta.get('data'):
+                    continue
+                data = odd + base64.b64decode(delta['data'])
+                usable = len(data) - len(data) % 2
+                odd = data[usable:]
+                if usable:
+                    yield _pcm16_to_float(data[:usable]), int(delta.get('sample_rate') or 24000)
+
+    async def close(self):
+        await self._http.aclose()
+
+
+ENGINES = [XaiTts, OpenAiTts, OpenAiCloudTts, FishTts, ElevenLabsTts, GeminiTts]

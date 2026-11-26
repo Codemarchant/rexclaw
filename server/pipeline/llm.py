@@ -8,14 +8,15 @@ import mimetypes
 import re
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import httpx
 
 from .. import xai_oauth
-from .engines import (API_KEY, OPENAI_CLOUD_KEY, OPENAI_CLOUD_URL, OPENAI_URL, SERVES, Field, LlmEngine,
-                      conversation_fields, json_field)
+from .engines import (API_KEY, GEMINI_KEY, GEMINI_URL, OPENAI_CLOUD_KEY, OPENAI_CLOUD_URL, OPENAI_URL, SERVES,
+                      Field, LlmEngine, conversation_fields, json_field)
 
 _logger = logging.getLogger(__name__)
 
@@ -1335,4 +1336,358 @@ class AnthropicLlm(LlmEngine):
         await self._client.close()
 
 
-ENGINES = [XaiLlm, OpenAiLlm, OpenAiCloudLlm, AnthropicLlm]
+# Gemini over Google's own API (generateContent), not its OpenAI-compatible
+# layer: that layer hides thought signatures in a field this app's chat
+# engine drops, and Gemini 3 and later refuse a function call sent back
+# without one (400). The shape follows what SillyTavern, LiteLLM and
+# LobeHub do (source read 2026-11-26) and Google's docs
+# (ai.google.dev/gemini-api/docs: generate-content/thought-signatures,
+# function-calling, thinking):
+# - A signature arrives on the first function call of each model step
+#   (one response); it is sent back on that same part. Only the current
+#   turn - back to the user's last message with words - is checked.
+# - A step whose signature is unknown (an older conversation, another
+#   engine's calls, an app restart) sends Google's documented placeholder
+#   on its first call, as LiteLLM does; SillyTavern and LobeHub put it on
+#   every call.
+# - Parallel calls go as FC1, FC2 then FR1, FR2 - interleaved is a 400.
+# - Gemini 3.6 and later refuse a request that ends on the model (prefill).
+_GEMINI_SKIP_SIGNATURE = 'skip_thought_signature_validator'
+# call_id -> {'sig': signature or None, 'step': which response made it}.
+# Kept for the app's life, newest last; a conversation is rebuilt from its
+# rows each request, so the signatures can't ride along in them.
+_GEMINI_CALLS = OrderedDict()
+_GEMINI_CALLS_MAX = 5000
+# step -> the search and page-read parts (toolCall / toolResponse, with
+# their signatures) a response that also called the app's tools carried:
+# they go back with that step's calls, as received (tool-combination
+# docs; LiteLLM re-injects them the same way). Kept in memory only, and
+# only until the turn they belong to is over (_gemini_contents) - Google's
+# terms allow keeping grounded results just to resubmit them.
+_GEMINI_STEPS = OrderedDict()
+_GEMINI_STEPS_MAX = 500
+# Finish reasons that mean Google withheld the reply (LiteLLM's list).
+_GEMINI_BLOCKED = frozenset(('SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII',
+                             'IMAGE_SAFETY'))
+
+
+def _gemini_schema(schema):
+    """A tool's JSON Schema with the parts Gemini's validator refuses
+    taken out (the rules LobeHub's sanitiser works around): a boolean
+    schema becomes {}, enum stays only on strings with non-empty string
+    members, required only on objects, and a node with properties or
+    items says it is an object or an array."""
+    if isinstance(schema, bool):
+        return {}
+    if not isinstance(schema, dict):
+        return schema
+    out = dict(schema)
+    out.pop('$schema', None)
+    if isinstance(out.get('properties'), dict):
+        out.setdefault('type', 'object')   # else its `required` would have to go
+    kind = out.get('type')
+    kinds = kind if isinstance(kind, list) else [kind]
+    if 'enum' in out:
+        members = [v for v in out['enum'] or [] if isinstance(v, str) and v]
+        if 'string' in kinds and members:
+            out['enum'] = members
+        else:
+            out.pop('enum')
+    if 'required' in out and not ('object' in kinds and out['required']):
+        out.pop('required')
+    for key in ('properties', '$defs', 'definitions'):
+        if isinstance(out.get(key), dict):
+            out[key] = {k: _gemini_schema(v) for k, v in out[key].items()}
+    if 'items' in out:
+        out['items'] = _gemini_schema(out['items'])
+        out.setdefault('type', 'array')
+    for key in ('anyOf', 'oneOf', 'allOf'):
+        if isinstance(out.get(key), list):
+            out[key] = [_gemini_schema(s) for s in out[key]]
+    return out
+
+
+def _gemini_tools(tools):
+    """Gemini tools from the app's: its function tools, and - for the
+    app's web_search - Google Search with page reading (urlContext), the
+    pair LobeHub sends on Gemini 3 and later."""
+    declarations, built_in = [], []
+    for t in tools or []:
+        if t.get('type') == 'web_search' and not built_in:
+            built_in = [{'googleSearch': {}}, {'urlContext': {}}]
+        if t.get('type') != 'function':
+            continue
+        decl = {'name': t['name'], 'description': t.get('description') or ''}
+        params = t.get('parameters') or {}
+        if params.get('properties'):   # an argument-less tool sends none
+            decl['parametersJsonSchema'] = _gemini_schema(params)
+        declarations.append(decl)
+    return built_in + ([{'functionDeclarations': declarations}] if declarations else [])
+
+
+def _gemini_search_suggestions(meta):
+    """What the user must be shown with a reply grounded in Google Search
+    (Gemini API terms, "Grounding with Google Search"): Google's Search
+    Suggestions - searchEntryPoint's HTML, shown as it is. The sources'
+    links (groundingChunks) are left where they are: the terms don't ask
+    for them and restrict storing them. None without a search."""
+    return ((meta or {}).get('searchEntryPoint') or {}).get('renderedContent') or None
+
+
+def _gemini_media(part):
+    """An input_image / input_file part as inlineData, or None: Gemini reads
+    images and PDFs inline; a link isn't fetched."""
+    inline = _data_url(part.get('image_url') if part['type'] == 'input_image' else part.get('file_data'))
+    if not inline or (part['type'] == 'input_file' and inline[0] != 'application/pdf'):
+        return None
+    return {'inlineData': {'mimeType': inline[0], 'data': inline[1]}}
+
+
+def _gemini_contents(items, vision=False, tool_names=(), placeholders=False):
+    """Gemini contents from realtime items, laid out as Claude's: a call
+    joins the model turn that made it and its result opens the next user
+    turn; calls of one step share those two turns, a later step gets its
+    own. Only calls of a tool this request declares go as functionCall
+    parts, the rest as notes; later system notes become user lines. A
+    call whose step isn't known (an older conversation, another engine,
+    an app restart) is a step of its own, so the order stays as recorded.
+    The searches a step ran go back only within the current turn - after
+    the user's last message - and are forgotten once it is over. With
+    `placeholders` every signature is the placeholder (a replayed one was
+    refused)."""
+    answered = _answered_calls(items) & {it.get('call_id') for it in items
+                                         if it.get('type') == 'function_call' and it.get('name') in tool_names}
+    outputs = {it.get('call_id'): it for it in items
+               if it.get('type') == 'function_call_output' and it.get('call_id') in answered}
+    turn_start = max((i for i, it in enumerate(items)
+                      if _kind(it) == 'message' and it.get('role') == 'user' and item_text(it)), default=-1)
+    contents = []
+    step_of = []   # contents index -> the step its function calls belong to
+
+    def add(role, parts):
+        if contents and contents[-1]['role'] == role:
+            contents[-1]['parts'].extend(parts)
+        else:
+            contents.append({'role': role, 'parts': list(parts)})
+            step_of.append(None)
+
+    for index, it in enumerate(items):
+        kind = _kind(it)
+        if kind == 'message':
+            role = it.get('role')
+            text = item_text(it)
+            if role == 'assistant':
+                if text:
+                    add('model', [{'text': text}])
+                continue
+            parts = [p for p in (_gemini_media(m) for m in _media_parts(it)) if p] if vision and role == 'user' else []
+            if text:
+                parts.append({'text': text if role == 'user' else f'[System note] {text}'})
+            if parts:
+                add('user', parts)
+        elif kind == 'function_call':
+            call_id = it.get('call_id')
+            if call_id not in answered:
+                add('user', [{'text': f'[System note] {_note_for(it)}'}])
+                continue
+            known = _GEMINI_CALLS.get(call_id) or {}
+            step = known.get('step')
+            try:
+                args = json.loads(it.get('arguments') or '{}')
+            except ValueError:
+                args = {}
+            # The app's call id, unique in the conversation: Gemini's own
+            # where that was (stream), so it goes back unchanged.
+            call = {'functionCall': {'id': call_id, 'name': it.get('name') or 'tool',
+                                     'args': args if isinstance(args, dict) else {}}}
+            raw = outputs[call_id].get('output') or ''
+            try:
+                result = json.loads(raw)
+            except ValueError:
+                result = raw
+            response = {'functionResponse': {'id': call_id, 'name': call['functionCall']['name'],
+                                              'response': result if isinstance(result, dict) else {'result': result}}}
+            last = contents[-1] if contents else None
+            if (step is not None and last and last['role'] == 'user' and len(contents) > 1
+                    and contents[-2]['role'] == 'model' and step_of[-2] == step
+                    and all('functionResponse' in p for p in last['parts'])):
+                contents[-2]['parts'].append(call)   # another call of the same step
+                last['parts'].append(response)
+                continue
+            # The first call of a step carries its signature, after the
+            # searches the same response ran (dropped with placeholders:
+            # their own signatures are what was refused).
+            call['thoughtSignature'] = (known.get('sig') if not placeholders else None) or _GEMINI_SKIP_SIGNATURE
+            if index < turn_start:
+                _GEMINI_STEPS.pop(step, None)   # an earlier turn's searches: done with
+            ran = [] if placeholders else _GEMINI_STEPS.get(step, [])
+            add('model', ran + [call])
+            step_of[-1] = step
+            contents.append({'role': 'user', 'parts': [response]})
+            step_of.append(None)
+        elif kind == 'function_call_output' and it.get('call_id') not in answered:
+            add('user', [{'text': f'[System note] {_note_for(it)}'}])
+    if not contents or contents[0]['role'] != 'user':
+        contents.insert(0, {'role': 'user', 'parts': [{'text': '[System note] The conversation begins.'}]})
+    if contents[-1]['role'] != 'user':
+        contents.append({'role': 'user', 'parts': [{'text': '[System note] Your turn again.'}]})
+    return contents
+
+
+class GeminiLlm(LlmEngine):
+    """Gemini over Google's Gemini API (generateContent, streamed), with
+    thought signatures kept for every function call it makes. Web search
+    is Google Search with page reading, run at Google; a searched reply
+    reports ('grounding', html) for the transcript to show with it. A
+    request Google refuses is reported with Google's own message: nothing
+    is guessed from an error's wording, except a refused thought signature
+    (LiteLLM's one retry)."""
+    id = 'gemini'
+    label = 'Google Gemini'
+    description = 'Gemini models through Google\'s Gemini API (an AI Studio key), with Google Search.'
+    hosted_tools = ('web_search',)
+    fields = (
+        GEMINI_URL,
+        GEMINI_KEY,
+        # Models page, 2026-11-26: "start with gemini-4-hydrogen"; $1.50 /
+        # $7.50 per M, free tier, sees images, 1M context.
+        Field('model', 'Model', 'text', 'gemini-4-hydrogen', placeholder='gemini-4-hydrogen',
+              help='e.g. gemini-4-hydrogen, gemini-4-neon (more capable), gemini-3.8-flash, or '
+                   'gemini-3.5-flash-lite for the quickest replies.'),
+        # Google's cheapest current text model ($0.30 / $2.50 per M), sees images.
+        Field('quick_model', 'Quick model', 'text', 'gemini-3.5-flash-lite', placeholder='gemini-3.5-flash-lite',
+              help='For quick looks: analyze_screen reading your screen or camera, and delegate_task\'s '
+                   'quick checks. Empty = the main model.'),
+        # Thinking guide, 2026-11-26: every current model takes low, medium
+        # and high; Gemini 4 defaults to medium (Carbon, Argon) or high
+        # (Neon, Hydrogen), and refuses minimal.
+        Field('thinking_level', 'Thinking level', 'select', 'low',
+              options=(('', "Model's default"), ('minimal', 'Minimal (Gemini 3 Flash and Flash-Lite)'),
+                       ('low', 'Low - quickest replies'), ('medium', 'Medium'), ('high', 'High'),
+                       ('xhigh', 'Extra high (Gemini 4 Neon and Hydrogen)')),
+              help='How much Gemini thinks before answering. Thinking can\'t be turned off on Gemini 4; '
+                   'Low suits conversation, and every current model takes it.'),
+        # As Claude's and OpenAI's: 1M context isn't the limit, the cost of
+        # resending a growing conversation is - Google caches repeated
+        # prompts on its own, at 5% of the input price (Gemini 4 Hydrogen guide).
+        *conversation_fields(128000, 3000, 9000),
+        Field('vision', 'Can see images and PDFs', 'bool', True,
+              help='Images and PDFs you attach in chat reach Gemini, and analyze_screen runs on it '
+                   'instead of Grok vision.'),
+        TOOLS_FIELD,
+        Field('extra_body', 'Extra request fields (JSON)', 'json', '',
+              placeholder='{"safetySettings": [...]}',
+              help='Merged into every request, for Gemini API options the app doesn\'t set.'),
+    )
+
+    @classmethod
+    def file_types(cls, settings):
+        return frozenset(('application/pdf',)) if settings.get('vision') else frozenset()
+
+    def __init__(self, settings, config):
+        super().__init__(settings, config)
+        self._http = httpx.AsyncClient(
+            # The key in a header, not the URL (LiteLLM: a URL lands in error traces).
+            headers={'x-goog-api-key': self.get('api_key') or ''},
+            timeout=httpx.Timeout(300, connect=10))
+
+    async def stream(self, *, instructions, items, tools, conversation_key):
+        model = (self.get('model') or 'gemini-4-hydrogen').removeprefix('models/')
+        url = (self.get('base_url') or 'https://generativelanguage.googleapis.com/v1beta').rstrip('/') \
+            + f'/models/{model}:streamGenerateContent?alt=sse'
+        declared = _gemini_tools(tools) if self.get('tools') != 'none' else []
+        tool_names = {d['name'] for t in declared for d in t.get('functionDeclarations', ())}
+        extra = json_field(self, 'extra_body')
+        for placeholders in (False, True):
+            payload = {'contents': _gemini_contents(items, vision=bool(self.get('vision')),
+                                                    tool_names=tool_names, placeholders=placeholders)}
+            if instructions:
+                payload['systemInstruction'] = {'parts': [{'text': instructions}]}
+            if declared:
+                payload['tools'] = declared
+            if tool_names and any('googleSearch' in t for t in declared):
+                # Google Search beside the app's tools: the searches come
+                # back as parts of the response (tool-combination docs).
+                payload['toolConfig'] = {'includeServerSideToolInvocations': True}
+            if self.get('thinking_level'):
+                payload['generationConfig'] = {'thinkingConfig': {'thinkingLevel': self.get('thinking_level')}}
+            # The user's extra fields win, key by key inside generationConfig
+            # too (their thinkingConfig replaces the one above).
+            for key, value in extra.items():
+                if key == 'generationConfig' and isinstance(value, dict):
+                    value = {**payload.get('generationConfig', {}), **value}
+                payload[key] = value
+            async with self._http.stream('POST', url, json=payload) as resp:
+                if resp.status_code >= 400:
+                    body = (await resp.aread()).decode('utf-8', 'replace')
+                    if resp.status_code == 400 and 'thought signature' in body.lower() and not placeholders:
+                        # A signature from another key or model: Google's
+                        # "Corrupted / Invalid thought signature", the marker
+                        # LiteLLM retries on (rejected_thought_signature_retry.py).
+                        _logger.warning('Gemini refused a replayed thought signature - resending with '
+                                        'placeholders: %s', body[:200])
+                        continue
+                    try:
+                        message = json.loads(body)['error']['message']
+                    except (ValueError, KeyError, TypeError):
+                        message = body[:400]
+                    raise LlmError(f'Gemini {resp.status_code}: {message}')
+                step = uuid.uuid4().hex
+                calls, usage, wrote, finish, blocked = [], None, False, None, None
+                ran, suggestions = [], None   # search parts; what to show with the reply
+                async for ev in _sse_events(resp.aiter_lines()):
+                    if ev.get('error'):
+                        err = ev['error']
+                        raise LlmError(f"Gemini: {err.get('message') if isinstance(err, dict) else err}")
+                    blocked = (ev.get('promptFeedback') or {}).get('blockReason') or blocked
+                    if ev.get('usageMetadata'):
+                        usage = ev['usageMetadata']
+                    for cand in ev.get('candidates') or []:
+                        finish = cand.get('finishReason') or finish
+                        suggestions = _gemini_search_suggestions(cand.get('groundingMetadata')) or suggestions
+                        for part in (cand.get('content') or {}).get('parts') or []:
+                            if part.get('functionCall'):
+                                calls.append((part['functionCall'], part.get('thoughtSignature')))
+                            elif part.get('toolCall') or part.get('toolResponse'):
+                                ran.append(part)
+                            elif part.get('text') and not part.get('thought'):
+                                wrote = True
+                                yield ('text', part['text'])
+            break
+        if usage:
+            cached = usage.get('cachedContentTokenCount') or 0
+            # The request as sent. What Google read into it while searching
+            # (toolUsePromptTokenCount) stays out, as on Claude: it isn't
+            # resent after this turn, and counted it would make one search
+            # look like a long conversation (an early summary).
+            yield ('usage', {'input_tokens': usage.get('promptTokenCount') or 0,
+                             'output_tokens': (usage.get('candidatesTokenCount') or 0)
+                             + (usage.get('thoughtsTokenCount') or 0),
+                             'input_tokens_details': {'cached_tokens': cached}})
+        if not wrote and not calls and (blocked or finish in _GEMINI_BLOCKED):
+            raise LlmError(f'Gemini declined to answer ({blocked or finish})')
+        if suggestions:
+            yield ('grounding', suggestions)
+        if calls and ran:
+            _GEMINI_STEPS[step] = ran
+            while len(_GEMINI_STEPS) > _GEMINI_STEPS_MAX:
+                _GEMINI_STEPS.popitem(last=False)
+        used = {it.get('call_id') for it in items if it.get('type') == 'function_call'}
+        for fc, sig in calls:
+            # Gemini's own id when it is new to the conversation, so it goes
+            # back unchanged; else one of ours, which then stands for the
+            # call everywhere (two calls never share an id in a request).
+            call_id = fc.get('id')
+            if not call_id or call_id in used:
+                call_id = f'call_{uuid.uuid4().hex[:24]}'
+            used.add(call_id)
+            _GEMINI_CALLS[call_id] = {'sig': sig, 'step': step}
+            while len(_GEMINI_CALLS) > _GEMINI_CALLS_MAX:
+                _GEMINI_CALLS.popitem(last=False)
+            yield ('tool_call', call_id, fc.get('name') or '', json.dumps(fc.get('args') or {}))
+
+    async def close(self):
+        await self._http.aclose()
+
+
+ENGINES = [XaiLlm, OpenAiLlm, OpenAiCloudLlm, AnthropicLlm, GeminiLlm]

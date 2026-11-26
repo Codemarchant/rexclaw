@@ -339,7 +339,7 @@ export default function CoachSection({ editingAgent, setEditingAgent, idScope, r
                             </select>
                         </div>
                         <div>
-                            <label title={_t("What the coach may use to look things up before it writes a thought - a fact, a name, something recent. The search runs at the brain's provider, so it needs a brain whose provider offers it (Grok, OpenAI, Claude); a local model has none. Each search adds a few seconds and its cost. Settings' search limit for a text reply applies.")}>
+                            <label title={_t("What the coach may use to look things up before it writes a thought - a fact, a name, something recent. The search runs at the brain's provider, so it needs a brain whose provider offers it (Grok, OpenAI, Claude, Gemini); a local model has none. Each search adds a few seconds and its cost. Settings' search limit for a text reply applies.")}>
                                 {_t("The coach can")}
                             </label>
                             {COACH_TOOLS.map(([id, label]) => (

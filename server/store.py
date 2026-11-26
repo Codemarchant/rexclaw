@@ -471,19 +471,36 @@ def insert_message(con, session_id, *, sequence=None, role, content='',
                    speaker=None,
                    tool_name=None, tool_arguments_json=None, tool_result_json=None,
                    xai_item_id=None, xai_call_id=None, xai_previous_item_id=None,
-                   is_summary_rollup=0):
+                   is_summary_rollup=0, grounding=None):
     if sequence is None:
         sequence = next_sequence(con, session_id)
     cur = con.execute(
         """INSERT INTO messages (session_id, sequence, role, content, speaker, tool_name,
                tool_arguments_json, tool_result_json, xai_item_id, xai_call_id,
-               xai_previous_item_id, is_summary_rollup, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               xai_previous_item_id, is_summary_rollup, grounding_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (session_id, sequence, role, content or '', speaker or None, tool_name,
          tool_arguments_json, tool_result_json, xai_item_id, xai_call_id,
-         xai_previous_item_id, int(bool(is_summary_rollup)), utcnow()),
+         xai_previous_item_id, int(bool(is_summary_rollup)),
+         json.dumps(grounding, ensure_ascii=False) if grounding else None, utcnow()),
     )
     return cur.lastrowid
+
+
+def grounding_of(row):
+    """A message row's grounding list (grounding_json), or None."""
+    try:
+        value = json.loads(row['grounding_json'] or 'null')
+    except (ValueError, IndexError, KeyError):
+        return None
+    return value if isinstance(value, list) and value else None
+
+
+def clean_grounding(value):
+    """A grounding list from the browser (a call's reply) - Google's Search
+    Suggestions HTML, one string per search - or None."""
+    out = [g[:100000] for g in (value if isinstance(value, list) else []) if isinstance(g, str) and g]
+    return out[:10] or None
 
 
 def session_messages(con, session_id, *, where='', params=()):

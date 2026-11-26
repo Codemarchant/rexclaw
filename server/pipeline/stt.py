@@ -12,7 +12,8 @@ import numpy as np
 
 from .. import xai_oauth
 from .audio import VAD_RATE, float_to_wav_bytes
-from .engines import API_KEY, OPENAI_CLOUD_KEY, OPENAI_CLOUD_URL, OPENAI_URL, SERVES, Field, SttEngine, SttStream
+from .engines import (API_KEY, GEMINI_KEY, GEMINI_URL, OPENAI_CLOUD_KEY, OPENAI_CLOUD_URL, OPENAI_URL, SERVES,
+                      Field, SttEngine, SttStream, gemini_error)
 from .text import CJK_CHARS
 
 _logger = logging.getLogger(__name__)
@@ -491,4 +492,65 @@ class _ElevenLabsSttStream(_XaiSttStream):
             await self._send(b'', commit=True)
 
 
-ENGINES = [XaiStt, OpenAiStt, OpenAiCloudStt, ElevenLabsStt]
+class GeminiStt(SttEngine):
+    """Google's transcription model (gemini-3.5-transcribe) over the Gemini
+    API's Interactions endpoint, one request per utterance; the pipeline's
+    own voice detection and Smart Turn decide where utterances end. Sources:
+    ai.google.dev/gemini-api/docs → Audio transcription, File input methods
+    (inline audio), and a live run (2026-11-26):
+    - `store: false`: the API otherwise saves every request as an
+      interaction at Google, and answers slower for it - 0.7-0.9 s an
+      utterance against 2.1-2.6 s.
+    - Silence and noise come back with no text at all, where Whisper makes
+      words up.
+    - The key terms go as `custom_vocabulary` (up to 1,000).
+    - No live words: Google's first paid tier takes 10 requests a minute,
+      which re-transcribing as you talk would use up in seconds. Its live
+      model (gemini-3.5-transcribe-live) is another API, not built here."""
+    id = 'gemini'
+    label = 'Google Gemini'
+    description = ('Google\'s speech to text (gemini-3.5-transcribe, about $0.005 a minute). '
+                   'Uses your Gemini API key.')
+    fields = (
+        GEMINI_URL,
+        GEMINI_KEY,
+        Field('model', 'Model', 'text', 'gemini-3.5-transcribe', placeholder='gemini-3.5-transcribe'),
+        Field('language', 'Language', 'text', '', placeholder='auto',
+              help='Optional language code (en, ja, en-US, ...). Leave empty to detect it.'),
+    )
+
+    def __init__(self, settings, config):
+        super().__init__(settings, config)
+        self._http = httpx.AsyncClient(headers={'x-goog-api-key': self.get('api_key') or ''},
+                                       timeout=httpx.Timeout(60, connect=10))
+
+    @property
+    def model_name(self):
+        return self.get('model') or 'gemini-3.5-transcribe'
+
+    async def transcribe(self, audio16k, *, keyterms=()):
+        if audio16k.size < VAD_RATE // 10:
+            return ''
+        options = {}
+        if self.get('language'):
+            options['language_codes'] = [self.get('language')]
+        terms = [t.strip() for t in keyterms if t.strip()][:1000]
+        if terms:
+            options['custom_vocabulary'] = terms
+        payload = {'model': self.model_name, 'store': False, 'input': [{
+            'type': 'audio', 'mime_type': 'audio/wav',
+            'data': base64.b64encode(float_to_wav_bytes(audio16k, VAD_RATE)).decode('ascii')}]}
+        if options:
+            payload['generation_config'] = {'transcription_config': options}
+        url = (self.get('base_url') or GEMINI_URL.default).rstrip('/') + '/interactions'
+        resp = await self._http.post(url, json=payload)
+        if resp.status_code >= 400:
+            raise RuntimeError(f'Gemini transcription failed ({resp.status_code}): {gemini_error(resp.text)}')
+        return ''.join(part.get('text') or '' for step in resp.json().get('steps') or []
+                       for part in step.get('content') or []).strip()
+
+    async def close(self):
+        await self._http.aclose()
+
+
+ENGINES = [XaiStt, OpenAiStt, OpenAiCloudStt, ElevenLabsStt, GeminiStt]

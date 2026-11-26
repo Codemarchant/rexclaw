@@ -184,7 +184,7 @@ const THIRD_PARTY_FLAGS = [
 // app's own and works with any brain.
 const GROK_BRAIN_FLAGS = [
     ["enable_web_search", "Web search",
-     "Lets the companion search the web (web_search) for current information (news, facts, prices) in both voice and text sessions. Searches are billed per search by the provider that runs them (xAI, OpenAI or Anthropic)."],
+     "Lets the companion search the web (web_search) for current information (news, facts, prices) in both voice and text sessions. Searches are billed per search by the provider that runs them (xAI, OpenAI, Anthropic or Google). On a Gemini brain it is Google Search, and Google's search suggestions show under the reply."],
     ["enable_x_search", "X search",
      "Lets the companion search posts on X (Twitter) in both voice and text sessions (x_search). Searches are billed by xAI per call."],
     ["enable_code_execution", "Code execution (text)",
@@ -205,7 +205,7 @@ const TOOL_NEEDS = {
     enable_multi_agent_delegation: ["xai", "xAI", XAI_TIP],
     enable_voicemail: ["mixed", "Grok or setup voice", "Recorded in the voice the companion has on calls: Grok's (your xAI API key, billed by xAI), or its voice setup's voice (OpenAI, Fish, Kokoro...). Left out when neither can speak."],
     enable_minecraft: ["mixed", "xAI · OpenAI · Claude · local", "The bot plans its moves on the connection picked in Game integrations → Minecraft: Grok on your xAI API key, OpenAI, Claude, or a server on your computer."],
-    enable_capture_tools: ["mixed", "Grok or brain vision", "Selfies, screenshots and clips run in the app. analyze_screen looks with the companion's own brain when it can see images (OpenAI, Claude or a local vision model, on the brain's quick model), otherwise with Grok vision on your xAI API key; left out when neither is available."],
+    enable_capture_tools: ["mixed", "Grok or brain vision", "Selfies, screenshots and clips run in the app. analyze_screen looks with the companion's own brain when it can see images (OpenAI, Claude, Gemini or a local vision model, on the brain's quick model), otherwise with Grok vision on your xAI API key; left out when neither is available."],
     enable_point_tool: ["jev", "Jev", "Finds things on the screen with the decision model picked in Settings → Decision model: Jev on your TypeSafe API key (billed by TypeSafe), or a local Valen model. Not offered with a model that doesn't take screenshots, or while none is set up."],
     enable_grok_imagine_tools: ["mixed", "xAI, Venice or ComfyUI", "Each tool renders on Grok Imagine with your xAI API key, on Venice AI with your Venice API key, or on your own ComfyUI server - pick per tool in Settings → Image and video generation. A tool whose engine can't run is left out."],
     enable_cross_companion_imagine: ["mixed", "xAI, Venice or ComfyUI", "Follows Image & video tools' engines (Settings → Image and video generation)."],

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from starlette.background import BackgroundTask
 
-from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, look_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, openclaw_tools, portraits, seeds, text_to_vrma, tool_cooldowns, transfer, venice_gen, xai_client, xai_oauth
+from .. import avatar_packs, coach, decision_local, heartbeat, idle_events, jev, local_gen, local_mcp, local_tools, look_tools, lore_tools, memory_tools, memory_vectors, minecraft_tools, openclaw_tools, portraits, seeds, store, text_to_vrma, tool_cooldowns, transfer, venice_gen, xai_client, xai_oauth
 from ..db import ASSETS_DIR, FILES_DIR, get_config, shipped_column_defaults, utcnow
 from ..pipeline import engines as pipeline_engines, setups as voice_setups, smart_turn
 from ..wake_models import WAKE_MODELS
@@ -1318,6 +1318,8 @@ def sessions_messages(payload: dict = Body(default={}), con=Depends(db_con)):
             # Display grouping for rows a silent heartbeat or an incoming
             # companion text wrote.
             "fold": heartbeat.transcript_tag(con, m, hb_cache),
+            # Google Search suggestions shown with a reply.
+            "grounding": store.grounding_of(m),
         }
         atts = con.execute(
             "SELECT xai_file_id, filename, size_bytes FROM message_attachments"

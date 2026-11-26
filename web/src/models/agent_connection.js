@@ -605,6 +605,7 @@ export class AgentConnection {
                         xai_item_id: item.id || null,
                         xai_previous_item_id: item.previous_item_id || null,
                         fold: item.fold || null,
+                        grounding: item.grounding || null,
                     });
                 } else if (item.type === "function_call") {
                     const args = item.arguments || "";
@@ -1019,7 +1020,7 @@ export class AgentConnection {
             }
             const finalText = msg.transcript || this._assistantTranscriptInProgress;
             if (finalText) {
-                this._deferOrAppendAssistantFinal(finalText);
+                this._deferOrAppendAssistantFinal(finalText, msg.response_id);
                 if (itemId) (this._finalItemIds ??= new Set()).add(itemId);
             }
             this._assistantTranscriptInProgress = "";
@@ -1140,7 +1141,7 @@ export class AgentConnection {
                     if (text) {
                         console.warn(`[voice:${this.connId}] no transcript.done for ${respId} — `
                             + `recovered assistant line from response.done`);
-                        this._deferOrAppendAssistantFinal(text);
+                        this._deferOrAppendAssistantFinal(text, respId);
                     }
                     this._assistantTranscriptInProgress = "";
                 }
@@ -1319,6 +1320,9 @@ export class AgentConnection {
             // message item where the provider names them, _finalItemIds).
             this._assistantFinalAppended = false;
             this._finalItemIds = new Set();
+            // Search suggestions of a reply whose line never came (cut off):
+            // its final would be skipped as stale from here on anyway.
+            this._groundingByResponse?.clear();
             console.debug(`[voice:${this.connId}] response started:`, this._currentResponseId);
             // call_id is RESPONSE-scoped per the spec — clear the dedupe sets
             // so turn 2's call_id "0" isn't suppressed by turn 1's.
@@ -1757,6 +1761,16 @@ export class AgentConnection {
         // (transcription, the brain's first words, the first audio).
         if (msg.type === "rexclaw.context_tokens") {
             if (this._requestBudget) this.state.tokenUsage = msg.tokens || 0;
+            return;
+        }
+        // A Gemini brain searched Google for a reply: its search suggestions
+        // go on that reply's row (Google's terms ask for them to be shown
+        // with it). Sent just ahead of the reply's final line and kept by
+        // response id, so another reply's line never picks them up.
+        if (msg.type === "rexclaw.grounding") {
+            if (msg.response_id && Array.isArray(msg.grounding)) {
+                (this._groundingByResponse ??= new Map()).set(msg.response_id, msg.grounding);
+            }
             return;
         }
         if (msg.type === "rexclaw.pipeline_metrics") {
@@ -2496,9 +2510,9 @@ export class AgentConnection {
     /** Append an assistant line + run the relay hook. Shared by the normal
      *  transcript.done path, the response.done recovery net, and the
      *  deferred-order flush below. */
-    _appendAssistantFinal(text) {
+    _appendAssistantFinal(text, grounding = null) {
         this._assistantFinalAppended = true;
-        this._appendMessage({ role: "assistant", content: text });
+        this._appendMessage({ role: "assistant", content: text, ...(grounding ? { grounding } : {}) });
         // Manager hook: relay to other call legs + run the turn director
         // (agent-to-agent flow). No-op in a solo call.
         try { this.manager.onAgentFinalTranscript(this, text); } catch (e) {
@@ -2510,11 +2524,15 @@ export class AgentConnection {
      *  still pending, so rows persist in conversational order (the user's
      *  words, then the reply) even when transcription finishes after the
      *  reply. A timeout releases the hold — worst case the order is off,
-     *  but nothing is ever lost. */
-    _deferOrAppendAssistantFinal(text) {
+     *  but nothing is ever lost. `responseId`: the reply the line belongs
+     *  to, whose search suggestions (rexclaw.grounding) go on its row —
+     *  taken now, so a held line keeps its own. */
+    _deferOrAppendAssistantFinal(text, responseId = null) {
+        const grounding = (responseId && this._groundingByResponse?.get(responseId)) || null;
+        if (grounding) this._groundingByResponse.delete(responseId);
         const since = this._awaitingUserTranscript;
         if (since && (Date.now() - since) < AWAIT_USER_TRANSCRIPT_MS) {
-            (this._deferredAssistantFinals ??= []).push(text);
+            (this._deferredAssistantFinals ??= []).push({ text, grounding });
             this._assistantFinalAppended = true; // claimed — the recovery net must not double-append
             if (!this._deferredFinalsTimer) {
                 this._deferredFinalsTimer = setTimeout(() => {
@@ -2526,7 +2544,7 @@ export class AgentConnection {
             }
             return;
         }
-        this._appendAssistantFinal(text);
+        this._appendAssistantFinal(text, grounding);
     }
 
     _flushDeferredAssistantFinals() {
@@ -2537,7 +2555,7 @@ export class AgentConnection {
         const held = this._deferredAssistantFinals;
         if (!held?.length) return;
         this._deferredAssistantFinals = [];
-        for (const text of held) this._appendAssistantFinal(text);
+        for (const { text, grounding } of held) this._appendAssistantFinal(text, grounding);
     }
 
     _appendMessage(msg) {

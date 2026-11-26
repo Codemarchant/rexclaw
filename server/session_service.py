@@ -1958,6 +1958,8 @@ def _build_transcript_history(con, session, limit=None):
                 # when a session containing mirrored peer lines is resumed.
                 'speaker': m['speaker'] or None,
                 'content': [{'type': 'text', 'text': m['content'] or ''}],
+                # Google Search suggestions shown with it (display only).
+                'grounding': store.grounding_of(m),
             }
         elif m['role'] == 'tool_call' and m['xai_call_id']:
             item = {
@@ -2013,6 +2015,7 @@ def append_messages(con, session, messages, total_input_tokens=None, total_outpu
             xai_item_id=m.get('xai_item_id'),
             xai_call_id=m.get('xai_call_id'),
             xai_previous_item_id=m.get('xai_previous_item_id'),
+            grounding=store.clean_grounding(m.get('grounding')) if m['role'] == 'assistant' else None,
         )
         created += 1
 
@@ -3280,6 +3283,8 @@ def _run_brain(brain, config, *, instructions, items, tools=(), conversation_key
                     calls.append(ev[1])
                 elif ev[0] == 'file':
                     calls.append({'type': 'brain_file', 'file_id': ev[1]})
+                elif ev[0] == 'grounding':
+                    calls.append({'type': 'grounding', 'grounding': ev[1]})
                 elif ev[0] == 'usage':
                     usage = ev[1] or {}
         except SearchLimit as e:
@@ -3607,6 +3612,8 @@ def start_text_session(con, *, agent, resume_session=None):
                 'xai_call_id': m['xai_call_id'],
                 'is_summary_rollup': bool(m['is_summary_rollup']),
                 'attachments': attachments,
+                # Google Search suggestions shown with a reply.
+                'grounding': store.grounding_of(m),
                 # Display grouping for rows a silent heartbeat or an
                 # incoming companion text wrote.
                 'fold': heartbeat.transcript_tag(con, m, hb_cache),
@@ -3673,7 +3680,7 @@ def start_text_session(con, *, agent, resume_session=None):
 
 def _persist_text_message(con, session, *, role, content='', tool_name=None,
                           tool_arguments_json=None, tool_result_json=None,
-                          xai_call_id=None, attachments=None):
+                          xai_call_id=None, attachments=None, grounding=None):
     """Append one row to a text session, continuing the sequence high water."""
     msg_id = store.insert_message(
         con, session['id'],
@@ -3683,6 +3690,7 @@ def _persist_text_message(con, session, *, role, content='', tool_name=None,
         tool_arguments_json=tool_arguments_json,
         tool_result_json=tool_result_json,
         xai_call_id=xai_call_id,
+        grounding=grounding,
     )
     for a in (attachments or []):
         if not a.get('xai_file_id'):
@@ -3911,8 +3919,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     # Persist the user message + attachments on the FIRST leg only.
     user_msg_id = None
     if user_text is not None:
-        if session['pending_native_outputs_json']:
-            store.update_session(con, session['id'], pending_native_outputs_json=None)
+        if session['pending_native_outputs_json'] or session['pending_grounding_json']:
+            store.update_session(con, session['id'], pending_native_outputs_json=None,
+                                 pending_grounding_json=None)
         attachment_data = []
         for entry in (attachment_file_ids or []):
             if isinstance(entry, str):
@@ -4042,6 +4051,15 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
     # Files a setup brain's code sandbox made this turn, saved to the library
     # and attached to the reply (_save_brain_files).
     accumulated_files = []
+    # Google Search results a Gemini brain grounded this turn's replies in,
+    # on the reply rows they belong to (shown with them, Google's terms);
+    # a searching leg that said nothing hands them to the next reply - across
+    # a browser round trip too (sessions.pending_grounding_json).
+    accumulated_grounding = []
+    pending_grounding = []
+    if tool_results is not None and session['pending_grounding_json']:
+        pending_grounding = store.clean_grounding(json.loads(session['pending_grounding_json'])) or []
+        store.update_session(con, session['id'], pending_grounding_json=None)
     # Legs that spoke: a tool-calling turn can say something BEFORE or
     # BETWEEN tool calls, not just in the final leg — accumulate so the
     # value this function returns reflects everything actually said this
@@ -4324,6 +4342,9 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 })
             elif itype == 'brain_file' and brain is not None:
                 made_files.append(item['file_id'])
+            elif itype == 'grounding':
+                if item.get('grounding') and item['grounding'] not in pending_grounding:
+                    pending_grounding.append(item['grounding'])
             elif itype == 'mcp_call':
                 # Server-side MCP execution at xAI: persist the call+result
                 # rows so MCP failures are visible in the transcript.
@@ -4368,8 +4389,11 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         if assistant_text or made:
             # Files ride on the reply that made them, like a user's upload
             # on their message (an empty reply still carries them).
-            _persist_text_message(con, session, role='assistant', content=assistant_text, attachments=made)
+            _persist_text_message(con, session, role='assistant', content=assistant_text, attachments=made,
+                                  grounding=pending_grounding or None)
             accumulated_files.extend(made)
+            accumulated_grounding.extend(pending_grounding)
+            pending_grounding = []
         if assistant_text:
             fresh = store.get_session(con, session['id'])
             if not fresh['title_generated']:
@@ -4402,6 +4426,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 'assistant_text': assistant_text,
                 'mcp_results': accumulated_mcp_results_echo,
                 'files': accumulated_files,
+                'grounding': accumulated_grounding,
                 'native_results': accumulated_native_echo,
                 'incomplete_reason': incomplete_reason,
                 'usage': usage,
@@ -4553,6 +4578,10 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 con, session['id'],
                 pending_native_outputs_json=(json.dumps(native_outputs)
                                              if native_outputs else None),
+                # A search this turn has not shown yet: for the reply the
+                # continuation writes.
+                pending_grounding_json=(json.dumps(pending_grounding)
+                                        if pending_grounding else None),
             )
             con.commit()
             return {
@@ -4569,6 +4598,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
                 ],
                 'mcp_results': accumulated_mcp_results_echo,
                 'files': accumulated_files,
+                'grounding': accumulated_grounding,
                 'native_results': accumulated_native_echo,
                 'usage': usage,
                 'context_tokens': context_tokens,
@@ -4589,6 +4619,7 @@ def text_send_turn(con, *, session, user_text=None, attachment_file_ids=None,
         'assistant_text': '\n\n'.join(accumulated_assistant_text_parts),
         'mcp_results': accumulated_mcp_results_echo,
         'files': accumulated_files,
+        'grounding': accumulated_grounding,
         'native_results': accumulated_native_echo,
         'incomplete_reason': 'tool_loop_cap',
         'usage': {},

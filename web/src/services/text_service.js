@@ -128,6 +128,7 @@ class TextService {
                 xai_call_id: m.xai_call_id || null,
                 is_summary_rollup: !!m.is_summary_rollup,
                 attachments: m.attachments || [],
+                grounding: m.grounding || null,
                 // Rows a silent heartbeat or an incoming companion text
                 // wrote — the transcript folds them into one accordion
                 // when the owning setting asks for it.
@@ -380,6 +381,8 @@ class TextService {
                     role: "assistant",
                     content: assistantText,
                     attachments: files,
+                    // Google Search suggestions (a Gemini brain).
+                    grounding: current.grounding?.length ? current.grounding : null,
                     sequence: this._nextSeq(),
                     incomplete_reason: current.incomplete_reason || null,
                     // Searches cut at the cap; the reply was written without them.

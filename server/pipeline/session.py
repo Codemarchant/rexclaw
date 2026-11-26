@@ -149,6 +149,7 @@ class _Response:
         self.head_start = None     # the _Speculation this reply took over
         self.started = False       # response.created sent
         self.finished = False      # response.done sent
+        self.grounding = []        # Google Search suggestions (HTML) to show with the reply
 
 
 def _same_words(a, b):
@@ -223,6 +224,7 @@ class PipelineSession:
         self._resp = None
         self._queued = False       # a response.create waiting for the current reply
         self._owed = False         # a turn's answer held back for the next turn's end
+        self._grounding_owed = []  # search suggestions for the reply after a tool call (_owed_grounding)
         self._spec = None          # a _Speculation on the turn just judged over
         self._last = None          # the last finished reply (its audio may still play)
         self._playhead = 0.0       # monotonic time the scheduled audio ends
@@ -867,8 +869,21 @@ class PipelineSession:
                 _logger.exception('voice pipeline: could not record the request size')
         self.emit({'type': 'rexclaw.context_tokens', 'tokens': tokens})
 
+    def _owed_grounding(self):
+        """Search suggestions the last reply left for this one: it searched,
+        called a tool and said nothing. Only while this reply answers that
+        tool call - not once the user has spoken since."""
+        owed, self._grounding_owed = self._grounding_owed, []
+        for item in reversed(self.items):
+            if item.get('type') == 'function_call':
+                return owed
+            if item.get('type') == 'message' and item.get('role') == 'user':
+                break
+        return []
+
     async def _run_response(self, resp):
         resp.started = True
+        resp.grounding = self._owed_grounding()
         self.emit({'type': 'response.created', 'response': {
             'id': resp.id, 'object': 'realtime.response', 'status': 'in_progress', 'output': []}})
         metrics, self._metrics = self._metrics or {}, None
@@ -899,6 +914,11 @@ class PipelineSession:
                             await speech.mark(self._function_call_emitter(resp, *ev[1:]))
                         elif ev[0] == 'hosted_call':
                             await speech.mark(self._hosted_call_emitter(resp, ev[1]))
+                        elif ev[0] == 'grounding':
+                            # Google Search suggestions, sent with this reply's
+                            # line (_finish_response).
+                            if ev[1] not in resp.grounding:
+                                resp.grounding.append(ev[1])
                         elif ev[0] == 'usage':
                             resp.usage = ev[1] or {}
                     break
@@ -1064,9 +1084,21 @@ class PipelineSession:
             # already sent, which still plays out.
             at = (resp.cancel_at or time.monotonic()) if resp.status == 'cancelled' else float('inf')
             transcript = self._truncate(resp, at)
+        # Google Search suggestions go out with the line they belong to, just
+        # ahead of it, for the browser to save on its row. A reply that
+        # searched and called a tool without a word owes them to the reply
+        # that follows the tool's result (_owed_grounding); one cut off
+        # before a word drops them.
+        grounding, self._grounding_owed = resp.grounding, []
+        if not (resp.message is not None and transcript):
+            if resp.status == 'completed' and any(o.get('type') == 'function_call' for o in resp.output):
+                self._grounding_owed = grounding
+            grounding = []
         if resp.message is not None:
             resp.message['status'] = 'completed' if resp.status == 'completed' else 'incomplete'
             if transcript:
+                if grounding:
+                    self.emit({'type': 'rexclaw.grounding', 'response_id': resp.id, 'grounding': grounding})
                 # An interrupted reply reports what was heard — the browser
                 # saves that line, so the transcript matches the context.
                 self.emit({'type': 'response.output_audio_transcript.done', 'response_id': resp.id,

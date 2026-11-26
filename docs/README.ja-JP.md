@@ -8,7 +8,7 @@
   [<a href="../README.md">English</a>] | 日本語
 </p>
 
-**あなたのマシンで生きる、アニメ調ボイスコンパニオン。モデルは自由に選べます：Grok、OpenAI、Claude、または完全ローカル。**
+**あなたのマシンで生きる、アニメ調ボイスコンパニオン。モデルは自由に選べます：Grok、OpenAI、Claude、Gemini、または完全ローカル。**
 
 **[⬇ Windows](https://github.com/Codemarchant/rexclaw/releases/latest)** · **[⬇ macOS](https://github.com/Codemarchant/rexclaw/releases/latest)** · **[⬇ Linux](https://github.com/Codemarchant/rexclaw/releases/latest)** · [ソースから](#-ソースから) · [Docker](#-docker)
 
@@ -20,7 +20,7 @@
 
 既定では、通話は xAI の Grok Realtime で動きます。SuperGrok または X Premium
 のサブスクリプションでサインインするか、あなたの xAI API キーを使います。
-OpenAI、Claude、ElevenLabs、Fish Audio などで音声セットアップを組むことも、
+OpenAI、Claude、Gemini、ElevenLabs、Fish Audio などで音声セットアップを組むことも、
 API キーなしで自分のコンピューター上のモデルだけで動かすこともできます
 （[モデルとプロバイダー](#-モデルとプロバイダー) を参照）。データはディスク上の
 SQLite ファイルに保存され、API キーとサインイン情報はあなたのマシンにだけ保存されます。
@@ -179,17 +179,17 @@ Docker では、コマンドで起動する MCP サーバーは `environment:` �
 組む **音声セットアップ** です：
 
 1. **接続を追加**：プロバイダーのキー、またはローカルサーバーを一度だけ
-   入力します。プリセットは OpenAI、Anthropic（Claude）、Groq、OpenRouter、
-   DeepSeek、ElevenLabs、Fish Audio、Ollama、LM Studio、speaches、
+   入力します。プリセットは OpenAI、Anthropic（Claude）、Google Gemini、Groq、
+   OpenRouter、DeepSeek、ElevenLabs、Fish Audio、Ollama、LM Studio、speaches、
    Kokoro-FastAPI。そのほかの OpenAI 互換サーバーも使えます。
 2. **音声セットアップを追加**：通話は音声対音声モデル（OpenAI Realtime）で
    動かすか、自由に組み合わせられる 3 つのステージで動かします：
 
    | ステージ | 実行先 |
    |---|---|
-   | 音声認識 | xAI、OpenAI、Groq、OpenRouter、またはローカルの Whisper サーバー |
-   | 頭脳 | Grok、OpenAI、Claude、DeepSeek、Groq、OpenRouter、またはローカルモデル（LM Studio、Ollama、llama.cpp、vLLM） |
-   | 声 | Grok の音声、OpenAI、ElevenLabs、Fish Audio、またはローカルの音声（Kokoro、speaches） |
+   | 音声認識 | xAI、OpenAI、Gemini、Groq、OpenRouter、またはローカルの Whisper サーバー |
+   | 頭脳 | Grok、OpenAI、Claude、Gemini、DeepSeek、Groq、OpenRouter、またはローカルモデル（LM Studio、Ollama、llama.cpp、vLLM） |
+   | 声 | Grok の音声、OpenAI、Gemini、ElevenLabs、Fish Audio、またはローカルの音声（Kokoro、speaches） |
 
 3. セットアップの **テスト** を押してから、**コンパニオンの既定** にするか、
    **コンパニオン → 編集 → 声と頭脳** でコンパニオンごとに選びます。
@@ -203,8 +203,10 @@ Smart Turn）。プロバイダーに依存するものもあり、コンパニ�
 各ツールに必要なものがバッジで表示されます：
 
 - **ウェブ検索・コード実行** は頭脳のプロバイダー側で実行されるため、Grok、
-  OpenAI（自身の API）、Claude のいずれかの頭脳が必要です。X 検索は Grok
-  のみ。それ以外の頭脳（ローカルを含む）ではどれも使えません。
+  OpenAI（自身の API）、Claude のいずれかの頭脳が必要です。Gemini の頭脳は
+  Google 検索で検索し（コード実行はなし）、返答の下に Google の検索候補を
+  表示します。X 検索は Grok のみ。それ以外の頭脳（ローカルを含む）では
+  どれも使えません。
 - **MCP 接続** はどの頭脳でも使えます。Rexclaw 自身がサーバーに接続します。
 - **`delegate_task`** は、コンパニオンの頭脳が OpenAI か Claude ならその
   頭脳で、それ以外は Grok で実行されます。

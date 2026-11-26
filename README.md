@@ -8,7 +8,7 @@
   English | [<a href="./docs/README.ja-JP.md">日本語</a>]
 </p>
 
-**Living anime voice companions on your own machine. Bring your own models: Grok, OpenAI, Claude, or fully local.**
+**Living anime voice companions on your own machine. Bring your own models: Grok, OpenAI, Claude, Gemini, or fully local.**
 
 **[⬇ Windows](https://github.com/Codemarchant/rexclaw/releases/latest)** · **[⬇ macOS](https://github.com/Codemarchant/rexclaw/releases/latest)** · **[⬇ Linux](https://github.com/Codemarchant/rexclaw/releases/latest)** · [From source](#-from-source) · [Docker](#-docker)
 
@@ -19,7 +19,7 @@ web, see your screen, make images and video, and use your own MCP tools.
 
 By default calls run on xAI's Grok Realtime: sign in with your SuperGrok or
 X Premium subscription, or use your own xAI API key. Or build a voice setup
-from OpenAI, Claude, ElevenLabs, Fish Audio and others, or from models on
+from OpenAI, Claude, Gemini, ElevenLabs, Fish Audio and others, or from models on
 your own computer with no API key at all (see
 [Models & providers](#-models--providers)). Your data lives in a SQLite file
 on your disk, and your API keys and sign-ins are stored only on your machine.
@@ -174,17 +174,17 @@ characters as they're used. Everything else is a **voice setup** you build in
 **Settings → Models & providers**:
 
 1. **Add connection**: a provider key or a local server, entered once.
-   Presets cover OpenAI, Anthropic (Claude), Groq, OpenRouter, DeepSeek,
-   ElevenLabs, Fish Audio, Ollama, LM Studio, speaches and Kokoro-FastAPI.
+   Presets cover OpenAI, Anthropic (Claude), Google Gemini, Groq, OpenRouter,
+   DeepSeek, ElevenLabs, Fish Audio, Ollama, LM Studio, speaches and Kokoro-FastAPI.
    Any other OpenAI-compatible server works too.
 2. **Add voice setup**: calls run either on a speech-to-speech model
    (OpenAI Realtime) or as three stages you mix freely:
 
    | Stage | Runs on |
    |---|---|
-   | Speech to text | xAI, OpenAI, Groq, OpenRouter, or a local Whisper server |
-   | Brain | Grok, OpenAI, Claude, DeepSeek, Groq, OpenRouter, or a local model (LM Studio, Ollama, llama.cpp, vLLM) |
-   | Voice | Grok voices, OpenAI, ElevenLabs, Fish Audio, or a local voice (Kokoro, speaches) |
+   | Speech to text | xAI, OpenAI, Gemini, Groq, OpenRouter, or a local Whisper server |
+   | Brain | Grok, OpenAI, Claude, Gemini, DeepSeek, Groq, OpenRouter, or a local model (LM Studio, Ollama, llama.cpp, vLLM) |
+   | Voice | Grok voices, OpenAI, Gemini, ElevenLabs, Fish Audio, or a local voice (Kokoro, speaches) |
 
 3. Press **Test** on the setup, then make it the **Default for companions**,
    or pick it per companion under **Companions → Edit → Voice & brain**.
@@ -198,8 +198,10 @@ Turn). A few things depend on the provider, and the companion editor badges
 each tool with what it needs:
 
 - **Web search and code execution** run at the brain's provider, so they
-  need a Grok, OpenAI (its own API) or Claude brain. X search is Grok only.
-  Other brains, local ones included, have none of them.
+  need a Grok, OpenAI (its own API) or Claude brain. A Gemini brain searches
+  with Google Search (no code execution) and shows Google's search
+  suggestions under the reply. X search is Grok only. Other brains, local
+  ones included, have none of them.
 - **MCP connections** work with any brain: Rexclaw connects to them itself.
 - **`delegate_task`** runs on the companion's own brain when that is OpenAI
   or Claude, otherwise on Grok.

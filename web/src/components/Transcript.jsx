@@ -72,6 +72,25 @@ function withLinks(text) {
     return out;
 }
 
+/** Google's Search Suggestions (a Gemini reply's searchEntryPoint HTML),
+ *  shown as Google sent it, in a frame that runs no scripts: same-origin
+ *  only so its height can be read, and its links open in a new window
+ *  (the browser, in the desktop app). */
+function SearchSuggestions({ html }) {
+    const ref = useRef(null);
+    const [height, setHeight] = useState(48);
+    const fit = () => {
+        const doc = ref.current?.contentDocument;
+        if (doc?.documentElement) setHeight(Math.min(doc.documentElement.scrollHeight, 240));
+    };
+    return (
+        <iframe ref={ref} className="o_voice_msg_search_suggestions" title={_t("Google Search suggestions")}
+                sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+                srcDoc={`<!doctype html><html><head><base target="_blank"></head><body style="margin:0">${html}</body></html>`}
+                style={{ height }} onLoad={fit} />
+    );
+}
+
 /** Text mode lets the model send several "texts" in one reply by putting
  *  `[next]` on its own line between them (see the text-mode Surface prompt
  *  in session_service). The reply is stored as ONE row with the tags in it —
@@ -325,6 +344,17 @@ export default function Transcript({
     });
 
     const toggleRow = (key) => setExpanded((e) => ({ ...e, [key]: !e[key] }));
+    // A reply a Gemini brain grounded in Google Search: Google's Search
+    // Suggestions as Google sent them (its terms: shown with the reply,
+    // unmodified), one per search.
+    const renderGrounding = (msg) => {
+        const shown = (Array.isArray(msg.grounding) ? msg.grounding : []).filter((g) => typeof g === "string" && g);
+        return shown.length > 0 && (
+            <div className="o_voice_msg_grounding">
+                {shown.map((html, gi) => <SearchSuggestions key={gi} html={html} />)}
+            </div>
+        );
+    };
     const renderAttachments = (msg) => msg.attachments && msg.attachments.length > 0 && (
         <div className="o_voice_msg_attachments">
             {msg.attachments.map((att, attIdx) => {
@@ -527,6 +557,7 @@ export default function Transcript({
                                         <i className="fa fa-warning" /> {_t("search limit")}
                                     </div>
                                 )}
+                                {last && renderGrounding(msg)}
                                 {last && renderAttachments(msg)}
                             </div>
                         );
@@ -549,6 +580,7 @@ export default function Transcript({
                             so three-way exchanges read clearly. */}
                         {!i && <div className="o_voice_msg_role">{fromCompanion ? msg.fold.name : (msg.speaker || msg.role)}</div>}
                         <div className="o_voice_msg_content">{withLinks(chunk)}</div>
+                        {i === chunks.length - 1 && renderGrounding(msg)}
                         {i === chunks.length - 1 && renderAttachments(msg)}
                     </div>
                 ));

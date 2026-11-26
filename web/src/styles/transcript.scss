@@ -496,4 +496,19 @@
         object-fit: cover;
         border-radius: 0.35rem;
     }
+
+    // Google Search suggestions under a Gemini reply.
+    .o_voice_msg_grounding {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        margin-top: 0.4rem;
+    }
+
+    .o_voice_msg_search_suggestions {
+        display: block;
+        width: 100%;
+        border: 0;
+        background: transparent;
+    }
 }

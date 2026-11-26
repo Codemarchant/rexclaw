@@ -628,8 +628,8 @@ export const JA = {
   // ── Settings → Models & providers ─────────────────────────────────────
   "Models & providers": "モデルとプロバイダー",
   "Voice setups": "音声セットアップ",
-  "Where your companions' AI runs. Built in is Grok Realtime: one xAI model that hears and speaks, on your xAI key. Add connections to other providers (OpenAI, Claude, ElevenLabs, Fish Audio) or to models on this computer, then build voice setups from them. A setup runs its calls on a speech-to-speech model (OpenAI Realtime), or as three engines you choose separately - speech to text, a text model as the brain, and a voice. Its brain can also run the companion's text chat, summaries and tasks. Each companion picks its setup (and its own voice) in the Companions tab; every call feature works on all of them.":
-    "コンパニオンの AI をどこで動かすか。組み込みは Grok Realtime で、1 つの xAI モデルが聞き取りと発話を担います（xAI キーを使用）。ほかのプロバイダー（OpenAI、Claude、ElevenLabs、Fish Audio）やこのコンピューター上のモデルへの接続を追加し、それらから音声セットアップを作ります。セットアップは通話を音声対音声モデル（OpenAI Realtime）で動かすか、個別に選ぶ 3 つのエンジン（音声認識、頭脳となるテキストモデル、音声合成）で動かします。その頭脳は、コンパニオンのテキストチャット、要約、タスクも担えます。各コンパニオンはコンパニオンタブでセットアップ（と自分の声）を選びます。通話の機能はどれでもすべて使えます。",
+  "Where your companions' AI runs. Built in is Grok Realtime: one xAI model that hears and speaks, on your xAI key. Add connections to other providers (OpenAI, Claude, Gemini, ElevenLabs, Fish Audio) or to models on this computer, then build voice setups from them. A setup runs its calls on a speech-to-speech model (OpenAI Realtime), or as three engines you choose separately - speech to text, a text model as the brain, and a voice. Its brain can also run the companion's text chat, summaries and tasks. Each companion picks its setup (and its own voice) in the Companions tab; every call feature works on all of them.":
+    "コンパニオンの AI をどこで動かすか。組み込みは Grok Realtime で、1 つの xAI モデルが聞き取りと発話を担います（xAI キーを使用）。ほかのプロバイダー（OpenAI、Claude、Gemini、ElevenLabs、Fish Audio）やこのコンピューター上のモデルへの接続を追加し、それらから音声セットアップを作ります。セットアップは通話を音声対音声モデル（OpenAI Realtime）で動かすか、個別に選ぶ 3 つのエンジン（音声認識、頭脳となるテキストモデル、音声合成）で動かします。その頭脳は、コンパニオンのテキストチャット、要約、タスクも担えます。各コンパニオンはコンパニオンタブでセットアップ（と自分の声）を選びます。通話の機能はどれでもすべて使えます。",
   "Default for companions": "コンパニオンの既定",
   "Grok Realtime": "Grok リアルタイム",
   "Connections": "接続",
@@ -654,8 +654,8 @@ export const JA = {
   "Turns end when the voice detector hears a pause and Smart Turn judges the thought finished.":
     "音声検出が間を聞き取り、Smart Turn が話し終えたと判断した時点で発話を区切ります。",
   "Turns end after a set silence (see Turn taking below).": "一定の無音で発話を区切ります（下の「ターンの取り方」を参照）。",
-  "Web search and X search run at the brain's provider (xAI, OpenAI's own API or Anthropic), so companions don't have them with this brain. MCP connections work: this app connects to them itself.":
-    "ウェブ検索と X 検索は頭脳のプロバイダー（xAI、OpenAI 本家の API、Anthropic）側で動くため、この頭脳ではコンパニオンは使えません。MCP 接続は使えます。このアプリ自身が接続するためです。",
+  "Web search and X search run at the brain's provider (xAI, OpenAI's own API, Anthropic or Google), so companions don't have them with this brain. MCP connections work: this app connects to them itself.":
+    "ウェブ検索と X 検索は頭脳のプロバイダー（xAI、OpenAI 本家の API、Anthropic、Google）側で動くため、この頭脳ではコンパニオンは使えません。MCP 接続は使えます。このアプリ自身が接続するためです。",
   "X search is Grok's own, so companions don't have it with this brain. Web search runs at its provider.":
     "X 検索は Grok 専用のため、この頭脳ではコンパニオンは使えません。ウェブ検索はそのプロバイダー側で動きます。",
   "This voice doesn't render Grok speech tags ([laugh], <whisper>), so companions aren't taught them on calls or for voice messages. Whatever a companion writes is sent to the voice as written. If the model behind it has tags of its own, describe them in each companion's editor (Speech tags).":
@@ -852,6 +852,38 @@ export const JA = {
     "チャットで添付した画像と PDF が Claude に届き、analyze_screen も Grok の画像認識の代わりに Claude で動きます。",
   "Merged into every request, for Messages API options the app doesn't set.":
     "すべてのリクエストに追加される、アプリが設定しない Messages API のオプション。",
+  "Google Gemini": "Google Gemini",
+  "Gemini models through Google's Gemini API (an AI Studio key), with Google Search.":
+    "Google の Gemini API 経由の Gemini モデル（AI Studio のキーを使用、Google 検索付き）。",
+  "Google Search suggestions": "Google 検索の候補",
+  "Google's speech to text (gemini-3.5-transcribe, about $0.005 a minute). Uses your Gemini API key.":
+    "Google の音声認識（gemini-3.5-transcribe、1 分 約 $0.005）。Gemini API キーを使用します。",
+  "Optional language code (en, ja, en-US, ...). Leave empty to detect it.":
+    "言語コード（en、ja、en-US など）。任意です。空欄なら自動で判別します。",
+  "Gemini's voices (gemini-3.8-flash-lite-tts). Uses your Gemini API key.":
+    "Gemini の声（gemini-3.8-flash-lite-tts）。Gemini API キーを使用します。",
+  "Gemini voice (Kore, Puck, Sulafat... or a voice_ id)": "Gemini の声（Kore、Puck、Sulafat など、または voice_ の ID）",
+  "gemini-3.8-flash-lite-tts (quickest: speaks after about a third of a second) or gemini-3.8-flash-tts (most expressive, about half a second, 1.5x the price).":
+    "gemini-3.8-flash-lite-tts（最速：約 0.3 秒で話し始めます）、または gemini-3.8-flash-tts（最も表現力が高く、約 0.5 秒、価格は 1.5 倍）。",
+  "Used for companions without a voice of their own for this setup. One of Google's 30 voices (Kore, Puck, Zephyr, Leda, Aoede, Sulafat, Achernar, Charon, Fenrir...), one from its voice library, or a voice you designed (voice_...). Hear them at aistudio.google.com/generate-speech.":
+    "このセットアップで自分の声を持たないコンパニオンに使います。Google の 30 種類の声（Kore、Puck、Zephyr、Leda、Aoede、Sulafat、Achernar、Charon、Fenrir など）、声のライブラリのもの、または自分でデザインした声（voice_...）を指定できます。aistudio.google.com/generate-speech で試聴できます。",
+  "How the voice speaks every line - tone, pace, accent (\"soft and warm\", \"speaking slowly\"). Empty = the voice as it is.":
+    "すべてのセリフの話し方 — トーン、速さ、アクセント（「soft and warm」「speaking slowly」など）。空欄なら声そのままです。",
+  "Google's Gemini API. Change it only for a proxy that speaks the Gemini API.":
+    "Google の Gemini API。Gemini API に対応するプロキシを使う場合だけ変更してください。",
+  "A Gemini API key, from aistudio.google.com → Get API key.":
+    "Gemini の API キー（aistudio.google.com → Get API key で発行）。",
+  "e.g. gemini-4-hydrogen, gemini-4-neon (more capable), gemini-3.8-flash, or gemini-3.5-flash-lite for the quickest replies.":
+    "例：gemini-4-hydrogen、gemini-4-neon（より高性能）、gemini-3.8-flash、最速の返答なら gemini-3.5-flash-lite。",
+  "Thinking level": "思考レベル",
+  "Minimal (Gemini 3 Flash and Flash-Lite)": "最小（Gemini 3 Flash と Flash-Lite）",
+  "Extra high (Gemini 4 Neon and Hydrogen)": "最高（Gemini 4 Neon と Hydrogen）",
+  "How much Gemini thinks before answering. Thinking can't be turned off on Gemini 4; Low suits conversation, and every current model takes it.":
+    "Gemini が答える前にどれだけ考えるか。Gemini 4 では思考をオフにできません。会話には低が適しており、現行のどのモデルでも使えます。",
+  "Images and PDFs you attach in chat reach Gemini, and analyze_screen runs on it instead of Grok vision.":
+    "チャットで添付した画像と PDF が Gemini に届き、analyze_screen も Grok の画像認識の代わりに Gemini で動きます。",
+  "Merged into every request, for Gemini API options the app doesn't set.":
+    "すべてのリクエストに追加される、アプリが設定しない Gemini API のオプション。",
   "Every tool description is read on every turn. Small local models answer faster, and stay in character better, without them.":
     "ツールの説明は毎ターンすべて読み込まれます。小さなローカルモデルは、ツールなしの方が速く答え、キャラクターも崩れにくくなります。",
   "All of the companion's tools": "コンパニオンのツールすべて",
@@ -1626,8 +1658,8 @@ export const JA = {
     "ボットは ゲーム連携 → Minecraft で選んだ接続で行動を計画します：xAI API キーの Grok、OpenAI、Claude、または自分のコンピューター上のサーバー。",
   "xAI · OpenAI · Claude · local": "xAI・OpenAI・Claude・ローカル",
   "Grok or brain vision": "Grok または頭脳の画像認識",
-  "Selfies, screenshots and clips run in the app. analyze_screen looks with the companion's own brain when it can see images (OpenAI, Claude or a local vision model, on the brain's quick model), otherwise with Grok vision on your xAI API key; left out when neither is available.":
-    "自撮り・スクリーンショット・クリップはアプリ内で動きます。analyze_screen は、コンパニオンの頭脳が画像を認識できる（OpenAI、Claude、ローカルの画像認識モデル。頭脳のクイックモデルを使用）ならその頭脳で、そうでなければ xAI API キーで Grok の画像認識を使って見ます。どちらも使えないときは提供されません。",
+  "Selfies, screenshots and clips run in the app. analyze_screen looks with the companion's own brain when it can see images (OpenAI, Claude, Gemini or a local vision model, on the brain's quick model), otherwise with Grok vision on your xAI API key; left out when neither is available.":
+    "自撮り・スクリーンショット・クリップはアプリ内で動きます。analyze_screen は、コンパニオンの頭脳が画像を認識できる（OpenAI、Claude、Gemini、ローカルの画像認識モデル。頭脳のクイックモデルを使用）ならその頭脳で、そうでなければ xAI API キーで Grok の画像認識を使って見ます。どちらも使えないときは提供されません。",
   "Finds things on the screen with the decision model picked in Settings → Decision model: Jev on your TypeSafe API key (billed by TypeSafe), or a local Valen model. Not offered with a model that doesn't take screenshots, or while none is set up.":
     "設定 → 判断モデルで選んだ判断モデルで、画面上のものを見つけます。TypeSafe API キーで使う Jev（TypeSafe の課金）か、ローカルの Valen モデルです。スクリーンショットに対応していないモデルを選んでいるとき、または未設定のときは提供されません。",
   "Grok or setup voice": "Grok またはセットアップの声",
@@ -1795,8 +1827,8 @@ export const JA = {
     "ゲームタブで設定した Minecraft ボットをコンパニオンが操作できるようにします — 目標や指示を出したり状況を確認したり（minecraft_command、minecraft_status） — ボイス／テキストの両セッションから。ツールはボットのサイドカーが接続されている間のみ提供されます。",
   "Lets the companion end the voice call itself (end_call) when you say goodbye or ask it to hang up, instead of waiting for you to press the button. Voice mode only.":
     "あなたが別れを告げたり切るよう頼んだりしたとき、ボタンを押すのを待たずにコンパニオン自身が通話を終了できるようにします（end_call）。ボイスモードのみ。",
-  "Lets the companion search the web (web_search) for current information (news, facts, prices) in both voice and text sessions. Searches are billed per search by the provider that runs them (xAI, OpenAI or Anthropic).":
-    "コンパニオンがボイス／テキストの両セッションで最新情報（ニュース、事実、価格など）をウェブ検索できるようにします（web_search）。検索は実行するプロバイダー（xAI、OpenAI、Anthropic）により 1 回ごとに課金されます。",
+  "Lets the companion search the web (web_search) for current information (news, facts, prices) in both voice and text sessions. Searches are billed per search by the provider that runs them (xAI, OpenAI, Anthropic or Google). On a Gemini brain it is Google Search, and Google's search suggestions show under the reply.":
+    "コンパニオンがボイス／テキストの両セッションで最新情報（ニュース、事実、価格など）をウェブ検索できるようにします（web_search）。検索は実行するプロバイダー（xAI、OpenAI、Anthropic、Google）により 1 回ごとに課金されます。Gemini の頭脳では Google 検索を使い、返答の下に Google の検索候補が表示されます。",
   "Lets the companion search posts on X (Twitter) in both voice and text sessions (x_search). Searches are billed by xAI per call.":
     "コンパニオンがボイス／テキストの両セッションで X（Twitter）の投稿を検索できるようにします（x_search）。検索は xAI により 1 回ごとに課金されます。",
   "Lets the companion run Python in its brain provider's sandboxed code interpreter (xAI, OpenAI or Anthropic) to calculate, analyse data or test snippets. On Grok, text sessions only (Grok Realtime calls have no code tool); a voice setup with a Claude or OpenAI brain runs it on calls too. On Claude and OpenAI, attached files the model can't read directly (archives, older Office files, very long text...) are opened there, and files it makes come back into the chat.":
@@ -2796,8 +2828,8 @@ export const JA = {
   "(setup no longer exists - the coach is off until you pick a brain)":
     "（セットアップはもうありません — 頭脳を選ぶまでコーチはオフです）",
   "The coach can": "コーチにできること",
-  "What the coach may use to look things up before it writes a thought - a fact, a name, something recent. The search runs at the brain's provider, so it needs a brain whose provider offers it (Grok, OpenAI, Claude); a local model has none. Each search adds a few seconds and its cost. Settings' search limit for a text reply applies.":
-    "コーチが気づきを書く前に、事実や名前、最近の出来事を調べるのに使えるものです。検索は頭脳のプロバイダー側で実行されるため、それを提供するプロバイダーの頭脳（Grok、OpenAI、Claude）が必要です。ローカルモデルにはありません。検索のたびに数秒とその費用がかかります。設定のテキスト返答の検索上限が適用されます。",
+  "What the coach may use to look things up before it writes a thought - a fact, a name, something recent. The search runs at the brain's provider, so it needs a brain whose provider offers it (Grok, OpenAI, Claude, Gemini); a local model has none. Each search adds a few seconds and its cost. Settings' search limit for a text reply applies.":
+    "コーチが気づきを書く前に、事実や名前、最近の出来事を調べるのに使えるものです。検索は頭脳のプロバイダー側で実行されるため、それを提供するプロバイダーの頭脳（Grok、OpenAI、Claude、Gemini）が必要です。ローカルモデルにはありません。検索のたびに数秒とその費用がかかります。設定のテキスト返答の検索上限が適用されます。",
   "Search the web": "ウェブを検索",
   "Search X (a Grok brain only)": "X を検索（Grok の頭脳のみ）",
   "Replies between thoughts": "気づきの間隔（返答数）",

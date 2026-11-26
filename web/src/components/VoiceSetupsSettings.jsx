@@ -64,6 +64,10 @@ const PRESETS = [
                          compact_at: 100000, summary_max_words: 3000, summary_consolidate_words: 9000,
                          extra_body: '{"venice_parameters":{"include_venice_system_prompt":false}}' } } },
     { label: "Anthropic (Claude)", kind: "anthropic", url: "https://api.anthropic.com" },
+    // Gemini's own API is a connection kind of its own, serving all three
+    // stages (engine defaults: gemini-3.5-transcribe, gemini-4-hydrogen /
+    // gemini-3.5-flash-lite with thinking low, gemini-3.8-flash-lite-tts + Kore).
+    { label: "Google Gemini", kind: "gemini", url: "https://generativelanguage.googleapis.com/v1beta" },
     { label: "Fish Audio", kind: "fish", url: "" },
     { label: "ElevenLabs", kind: "elevenlabs", url: "" },
 ];
@@ -185,7 +189,7 @@ export default function VoiceSetupsSettings({ connections, setups, defaultSetup,
             <p className="text-muted">
                 {_t("Where your companions' AI runs. Built in is Grok Realtime: one xAI model that "
                     + "hears and speaks, on your xAI key. Add connections to other providers (OpenAI, "
-                    + "Claude, ElevenLabs, Fish Audio) or to models on this computer, then build voice "
+                    + "Claude, Gemini, ElevenLabs, Fish Audio) or to models on this computer, then build voice "
                     + "setups from them. A setup runs its calls on a speech-to-speech model (OpenAI "
                     + "Realtime), or as three engines you choose separately - speech to text, a text "
                     + "model as the brain, and a voice. Its brain can also run the companion's text "
@@ -424,7 +428,7 @@ function SetupCard({ setup, connections, catalog, smartTurnAvailable, engineFor,
                         ? _t("Turns end when the voice detector hears a pause and Smart Turn judges the thought finished.")
                         : _t("Turns end after a set silence (see Turn taking below).")}</li>}
                 {!brainTools.includes("web_search") ? (
-                    <li>{_t("Web search and X search run at the brain's provider (xAI, OpenAI's own API or Anthropic), so companions don't have them with this brain. MCP connections work: this app connects to them itself.")}</li>
+                    <li>{_t("Web search and X search run at the brain's provider (xAI, OpenAI's own API, Anthropic or Google), so companions don't have them with this brain. MCP connections work: this app connects to them itself.")}</li>
                 ) : !brainTools.includes("x_search") && (
                     <li>{_t("X search is Grok's own, so companions don't have it with this brain. Web search runs at its provider.")}</li>
                 )}
