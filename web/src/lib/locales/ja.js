@@ -116,8 +116,8 @@ export const JA = {
   "Moves the companion. It stays facing however it stopped, so you can pose it":
     "コンパニオンを移動させます。停止した向きのままになるので、ポーズ付けができます",
   "Camera - auto follow": "カメラ（自動追従）",
-  "Walks the companion like Walk, while the camera directs itself: it follows them and changes shot (face, waist-up, full body) when they finish a line or set off walking. Drag or zoom to take the camera back until the next shot":
-    "「歩行」と同じようにコンパニオンを歩かせながら、カメラが自動で演出します。コンパニオンを追いかけ、話し終えたときや歩き始めたときにショット（顔、上半身、全身）を切り替えます。ドラッグやズームをすると、次のショットまでカメラを自分で操作できます",
+  "Walks the companion like Walk, while the camera directs itself: it follows them from the front in a wide shot that shows the room, and now and then moves in to waist-up or the face for a while when they finish a line. Drag or zoom to take the camera back until the next shot":
+    "「歩行」と同じようにコンパニオンを歩かせながら、カメラが自動で演出します。部屋全体が見える引きのショットで正面からコンパニオンを追いかけ、話し終えたときに、ときどき上半身や顔のショットにしばらく寄ります。ドラッグやズームをすると、次のショットまでカメラを自分で操作できます",
   "Camera": "カメラ",
   "Flies the camera itself; companions untouched":
     "カメラ自体を移動させます。コンパニオンには影響しません",

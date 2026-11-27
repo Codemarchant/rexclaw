@@ -1872,7 +1872,7 @@ export default function VoiceView({ active = true }) {
                                 {[
                                     ["walk", _t("Walk"), _t("Moves the companion. It stays facing however it stopped, so you can pose it")],
                                     ["camera", _t("Camera"), _t("Flies the camera itself; companions untouched")],
-                                    ["auto", _t("Camera - auto follow"), _t("Walks the companion like Walk, while the camera directs itself: it follows them and changes shot (face, waist-up, full body) when they finish a line or set off walking. Drag or zoom to take the camera back until the next shot")],
+                                    ["auto", _t("Camera - auto follow"), _t("Walks the companion like Walk, while the camera directs itself: it follows them from the front in a wide shot that shows the room, and now and then moves in to waist-up or the face for a while when they finish a line. Drag or zoom to take the camera back until the next shot")],
                                     ["avatar", _t("Walk as me"), _t("First person as your own avatar (Settings → Your avatar): WASD walks you, drag to look around, look down to see your body. With no avatar set you walk as an unseen camera at eye height")],
                                 ].map(([id, label, hint]) => (
                                     <button key={id}
