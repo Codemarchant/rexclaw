@@ -259,7 +259,10 @@ call the main look by that name. Then optionally add:
 - **custom gestures** — VRMA clips with a trigger name + description (looping
   optional),
 - **backgrounds** — a built-in preset, an uploaded image, or a **GLB 3D
-  scene** with scale / X-Y-Z offset / Y-rotation controls.
+  scene** with scale / X-Y-Z offset / Y-rotation controls. A scene's own
+  animations play on a loop. A mesh in it named `navmesh` (or ending in
+  `-navmesh`) is never drawn: it marks where companions can walk, and they
+  keep to it and find their way round the furniture.
 
 Save, then pick it from the **Avatar** dropdown when editing a companion. Your
 avatars are editable and deletable any time; the five **bundled** avatars are
@@ -642,6 +645,8 @@ each project.
 - **[@pixiv/three-vrm](https://github.com/pixiv/three-vrm)** (MIT) — VRM
   avatar and VRMA animation runtime, on
   **[three.js](https://threejs.org)** (MIT).
+- **[three-pathfinding](https://github.com/donmccurdy/three-pathfinding)**
+  (MIT, Don McCurdy) — finds the way across a 3D scene's navigation mesh.
 - **[three-liltoon](https://github.com/mochiya-labs/three-liltoon)** (MIT,
   Mochiya) — renders the lilToon materials of converted VRChat avatars; a
   port of **[lilToon](https://github.com/lilxyzw/lilToon)** (MIT, lilxyzw).

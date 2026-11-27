@@ -50,6 +50,7 @@ import { MoodMarks } from "./mood_marks";
 import { Ambience, MOOD_AMBIENCE } from "./ambience";
 import { ToolProps } from "./tool_props";
 import { PortalStage, backgroundKey } from "./background_portal";
+import { RoomNavMesh } from "./room_navmesh";
 import { FaceViewer } from "./face_viewer";
 import { applyEyelids, restoreSpringRest, startVrmExtras, takeSpringRest } from "./vrm_extras";
 import { isPngLook, loadPngLook } from "./png_puppet";
@@ -672,9 +673,9 @@ const EMOTION_STATES = {
 // no per-avatar config. Movement is kinematic "treadmill + slide":
 // the walk clip plays in place (hips X/Z stripped at load) while the
 // controller translates vrm.scene.position and turns toward the travel
-// direction. Deliberately no pathfinding/collision — intended for open scenes
-// like the grid playground; furnished GLBs will clip through props (a navmesh
-// is the future upgrade if that starts to matter).
+// direction. A scene that carries a navigation mesh (room_navmesh.js) holds
+// the walk to it and routes it round the furniture; any other scene is open
+// ground, and a furnished one will clip through its props.
 const WALK_VRMA_URL = "/assets/vrma/walking.vrma";
 const MOVE_SPEED = 1.4;               // m/s — casual walk
 const MOVE_TURN_SPEED = 6.0;          // rad/s toward the travel direction
@@ -968,6 +969,9 @@ class AvatarRenderer {
         this._moveActorId = "base";       // which character WASD drives: "base" or a peer id (number keys)
         this._moveInput = { x: 0, z: 0 }; // camera-relative manual direction (x = strafe right, z = forward)
         this._moveTarget = null;          // THREE.Vector3 — walkTo() destination, or null
+        this._moveRoute = null;           // the way there across the scene's navigation mesh: corners, then the destination
+        this._roomNav = null;             // the current scene's navigation mesh (room_navmesh.js), or null
+        this._roomMixer = null;           // plays the current scene's own animations
         // Callbacks a caller (VoiceView) registers for scene/placement
         // persistence — this class does no networking itself. See
         // addRoomLoadedCallback / addBasePlacementSettledCallback.
@@ -1915,11 +1919,7 @@ class AvatarRenderer {
         const pos = actor.vrm.scene.position;
         pos.x += d.x;
         pos.z += d.z;
-        const r = Math.hypot(pos.x, pos.z);
-        if (r > MOVE_BOUNDS_RADIUS) {
-            pos.x *= MOVE_BOUNDS_RADIUS / r;
-            pos.z *= MOVE_BOUNDS_RADIUS / r;
-        }
+        this._clampToWalkable(pos);
         st.hipsPos.x = base.x;
         st.hipsPos.z = base.z;
         // Deliberately NOT _notifyBasePlacementSettled: that persists the
@@ -3588,11 +3588,7 @@ class AvatarRenderer {
             const len = Math.hypot(dx, dz) || 1;
             fp.x += (dx / len) * MOVE_SPEED * delta;
             fp.z += (dz / len) * MOVE_SPEED * delta;
-            const r = Math.hypot(fp.x, fp.z);
-            if (r > MOVE_BOUNDS_RADIUS) {
-                fp.x *= MOVE_BOUNDS_RADIUS / r;
-                fp.z *= MOVE_BOUNDS_RADIUS / r;
-            }
+            this._clampToWalkable(fp);
         }
         this._walkSelf(moving, iz < 0 && !ix ? -1 : 1);
         this._placeSelf(delta);
@@ -3823,15 +3819,27 @@ class AvatarRenderer {
      *  it, advance, settle to idle on arrival. The foundation the future
      *  semantic move tool (approach / step_back / anchors) will compose on. */
     walkTo(x, z) {
-        if (!this._moveActor().vrm || !this.libs) return;
+        const actor = this._moveActor();
+        if (!actor.vrm || !this.libs) return;
         const { THREE } = this.libs;
-        // Clamp the destination into the playable area, preserving direction.
-        const r = Math.hypot(x, z);
+        this._moveTarget = this._clampToWalkable(new THREE.Vector3(x, 0, z));
+        // Where the scene maps its floor, the way round its furniture.
+        const here = actor.vrm.scene.position;
+        this._moveRoute = this._roomNav?.route(here.x, here.z, this._moveTarget.x, this._moveTarget.z) || null;
+        if (this._moveRoute) this._moveTarget = this._moveRoute[this._moveRoute.length - 1];
+    }
+
+    /** Keep a floor position (anything with x and z) where feet may go: on
+     *  the scene's navigation mesh when it carries one, else inside the
+     *  playable area, preserving direction. */
+    _clampToWalkable(pos) {
+        if (this._roomNav) return this._roomNav.clamp(pos);
+        const r = Math.hypot(pos.x, pos.z);
         if (r > MOVE_BOUNDS_RADIUS) {
-            x *= MOVE_BOUNDS_RADIUS / r;
-            z *= MOVE_BOUNDS_RADIUS / r;
+            pos.x *= MOVE_BOUNDS_RADIUS / r;
+            pos.z *= MOVE_BOUNDS_RADIUS / r;
         }
-        this._moveTarget = new THREE.Vector3(x, 0, z);
+        return pos;
     }
 
     /** Characters currently in the scene, for VR placement: the base avatar
@@ -4058,9 +4066,16 @@ class AvatarRenderer {
             if (actor === this) { this._staging = null; this._followCam = false; }   // the user took over
         } else if (this._moveTarget) {
             actor._walkManual = false;
-            const d = new THREE.Vector3().subVectors(this._moveTarget, actor.vrm.scene.position);
+            // Along a route (walkTo), head for its next corner; the distance
+            // left is the whole way round.
+            const here = actor.vrm.scene.position;
+            const route = this._moveRoute;
+            while (route?.length > 1
+                && Math.hypot(route[0].x - here.x, route[0].z - here.z) < MOVE_ARRIVAL_THRESHOLD) route.shift();
+            const d = new THREE.Vector3().subVectors(route?.[0] || this._moveTarget, here);
             d.y = 0;
             targetDist = d.length();
+            for (let i = 1; i < (route?.length || 0); i++) targetDist += route[i].distanceTo(route[i - 1]);
             if (targetDist < MOVE_ARRIVAL_THRESHOLD) {
                 this.stopMoving();
                 return;
@@ -4111,12 +4126,13 @@ class AvatarRenderer {
         actor._walkAction?.setEffectiveTimeScale(speed / MOVE_SPEED);
 
         const pos = actor.vrm.scene.position;
+        const aim = this._moveTarget && (this._moveRoute?.[0] || this._moveTarget);
+        const before = aim ? Math.hypot(aim.x - pos.x, aim.z - pos.z) : 0;
         pos.addScaledVector(dir, speed * delta);
-        const r = Math.hypot(pos.x, pos.z);
-        if (r > MOVE_BOUNDS_RADIUS) {
-            pos.x *= MOVE_BOUNDS_RADIUS / r;
-            pos.z *= MOVE_BOUNDS_RADIUS / r;
-        }
+        this._clampToWalkable(pos);
+        // A walk the scene's edge stops from getting any nearer has gone as
+        // far as it can.
+        if (aim && this._roomNav && delta > 0 && Math.hypot(aim.x - pos.x, aim.z - pos.z) >= before) this.stopMoving();
     }
 
     /** After stopping, ease the actor around to face the camera again —
@@ -5058,7 +5074,7 @@ class AvatarRenderer {
             if (this._roomLoadGeneration === generation) this._loadedRoomUrl = null;
             return;
         }
-        const { VRMUtils } = this.libs;
+        const { THREE, VRMUtils } = this.libs;
         if (this._roomLoadGeneration !== generation) {
             // A clearRoom()/newer loadRoom() landed while we downloaded — drop
             // this result on the floor instead of resurrecting a cleared room.
@@ -5101,6 +5117,14 @@ class AvatarRenderer {
 
         this.scene.add(model);
         this._room = model;
+        // The scene's own motion (a swaying lantern, a turning fan): every
+        // animation in the file, looping.
+        if (gltf.animations?.length) {
+            this._roomMixer = new THREE.AnimationMixer(model);
+            for (const clip of gltf.animations) this._roomMixer.clipAction(clip).play();
+        }
+        model.updateMatrixWorld(true);
+        this._roomNav = RoomNavMesh.fromScene(model, THREE);
         console.log("[voice] room loaded:", url);
 
         // A genuinely NEW scene (not a same-url reparent/resize no-op, which
@@ -5150,6 +5174,8 @@ class AvatarRenderer {
             VRMUtils?.deepDispose?.(this._room);
         } catch (e) { /* non-fatal */ }
         this._room = null;
+        this._roomNav = null;
+        this._roomMixer = null;
     }
 
     configureFromAvatar(avatarPayload) {
@@ -6325,9 +6351,21 @@ class AvatarRenderer {
         controls.minPolarAngle = Math.PI * 0.1;
         controls.maxPolarAngle = Math.PI * 0.85;
         controls.update();
+        // One step of the camera per rendered frame. OrbitControls also runs
+        // its update() from inside every mouse move of a drag, and each
+        // update is one step of the damping — so how far the camera turned
+        // in a frame depended on how many mouse events happened to land in
+        // it, which is uneven whenever frames are: a drag that judders, worst
+        // seen while walking. During a drag or a wheel turn the input only
+        // adds up, and the frame loop (_renderFrame) takes the step.
+        const step = controls.update.bind(controls);
+        let inputting = false;
+        controls.update = (deltaTime) => (inputting && !this._orbitFrameStep ? false : step(deltaTime));
+        controls.addEventListener("end", () => { inputting = false; });
         // Any drag or wheel hands the camera to the user: the auto-follow
         // director stands aside until its next shot (see _updateAutoCamera).
         controls.addEventListener("start", () => {
+            inputting = true;
             if (this._autoCam) this._autoCam.user = true;
             if (this._gestureZoom) this._gestureZoom.user = true;
             this._dropLift();
@@ -7440,7 +7478,9 @@ class AvatarRenderer {
             this._resize(this.activeCanvas);
             // OrbitControls with damping needs per-frame update() to interpolate.
             if (this._orbitControls) {
+                this._orbitFrameStep = true;   // the one step a frame (see _enableOrbit)
                 try { this._orbitControls.update(); } catch (e) { /* non-fatal */ }
+                this._orbitFrameStep = false;
             }
         }
 
@@ -7459,6 +7499,7 @@ class AvatarRenderer {
         // their loaded pose before the mixer (see vrm_extras.js).
         if (this.vrm) restoreSpringRest(this._vrmExtras);
         if (this.mixer) this.mixer.update(delta);
+        this._roomMixer?.update(delta);
         // Clip releases queued during that update (finished events, stop
         // requests) happen here: the bones hold the clip's final frame, and
         // the idle takes over cleanly on the next update.

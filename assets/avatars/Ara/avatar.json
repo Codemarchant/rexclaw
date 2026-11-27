@@ -116,6 +116,31 @@
       "type": "scene",
       "glb": "/assets/glb/rexmaw_deck.glb",
       "default_x": -0.95
+    },
+    {
+      "name": "Opera House",
+      "type": "scene",
+      "glb": "/assets/glb/opera_house.glb"
+    },
+    {
+      "name": "Eve's Room",
+      "type": "scene",
+      "glb": "/assets/glb/eves_room.glb"
+    },
+    {
+      "name": "Ara's Café",
+      "type": "scene",
+      "glb": "/assets/glb/aras_cafe.glb"
+    },
+    {
+      "name": "Sal's Hut",
+      "type": "scene",
+      "glb": "/assets/glb/sals_hut.glb"
+    },
+    {
+      "name": "Rex's Cabin",
+      "type": "scene",
+      "glb": "/assets/glb/rexs_cabin.glb"
     }
   ]
 }

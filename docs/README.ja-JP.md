@@ -265,7 +265,10 @@ https://github.com/user-attachments/assets/ff569423-325c-4fb2-ac4f-f538e9c03895
 - **カスタムジェスチャー** — トリガー名と説明付きの VRMA クリップ
   （ループ再生も可）
 - **背景** — 内蔵プリセット、アップロード画像、または **GLB 3D シーン**
-  （スケール／X-Y-Z オフセット／Y 回転の調整付き）
+  （スケール／X-Y-Z オフセット／Y 回転の調整付き）。シーンに含まれる
+  アニメーションはループ再生されます。シーン内の `navmesh` という名前
+  （または末尾が `-navmesh`）のメッシュは描画されず、コンパニオンが歩ける
+  範囲を示します。コンパニオンはその範囲内を歩き、家具をよけて進みます
 
 保存したら、コンパニオン編集画面の **アバター** ドロップダウンから選択します。
 自作アバターはいつでも編集・削除できます。同梱の 5 体は読み取り専用です
@@ -663,6 +666,8 @@ def setup(api):
 - **[@pixiv/three-vrm](https://github.com/pixiv/three-vrm)**（MIT）— VRM
   アバターと VRMA アニメーションのランタイム。基盤は
   **[three.js](https://threejs.org)**（MIT）。
+- **[three-pathfinding](https://github.com/donmccurdy/three-pathfinding)**
+  （MIT、Don McCurdy）— 3D シーンのナビゲーションメッシュ上の経路探索。
 - **[three-liltoon](https://github.com/mochiya-labs/three-liltoon)**（MIT、
   Mochiya）— 変換した VRChat アバターの lilToon マテリアルを描画します。
   **[lilToon](https://github.com/lilxyzw/lilToon)**（MIT、lilxyzw）の移植です。
